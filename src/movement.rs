@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::combat;
 use crate::game_state::GameState;
 use crate::hex::Hex;
 
@@ -9,6 +10,7 @@ use crate::hex::Hex;
 pub enum Order {
     Move { ship: u32, to: Hex },
     Face { ship: u32, facing: u8 },
+    Fire { weapon: String, target: u32 },
     EndTurn,
 }
 
@@ -16,6 +18,7 @@ pub enum Order {
 pub enum DeclaredOrder {
     Move { ship: u32, to: Hex },
     Face { ship: u32, facing: u8 },
+    Fire { weapon: String, target: u32 },
     EndTurn,
 }
 
@@ -37,6 +40,22 @@ pub enum OrderError {
     NotAdjacent { q: i32, r: i32 },
     #[error("facing {0} is not in 0..=5")]
     NotSixFacing(u8),
+    #[error("weapon {0} was not found")]
+    WeaponNotFound(String),
+    #[error("target {0} was not found")]
+    TargetNotFound(u32),
+    #[error("ship {0} cannot fire at itself")]
+    FireAtSelf(u32),
+    #[error("weapon {weapon} is out of range {range} > {max_range}")]
+    OutOfRange {
+        weapon: String,
+        range: u32,
+        max_range: u32,
+    },
+    #[error("weapon {weapon} cannot bear on target {target}")]
+    OutOfArc { weapon: String, target: u32 },
+    #[error("weapon {0} has already fired this turn")]
+    WeaponAlreadyFired(String),
 }
 
 pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderError> {
@@ -72,6 +91,40 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             }
             Ok(DeclaredOrder::Face { ship, facing })
         }
+        Order::Fire { weapon, target } => {
+            let attacker_index = game
+                .weapon_owner_index(&weapon)
+                .ok_or_else(|| OrderError::WeaponNotFound(weapon.clone()))?;
+            let target_ship = game
+                .ship(target)
+                .ok_or(OrderError::TargetNotFound(target))?;
+            let attacker = &game.ships[attacker_index];
+            if attacker.id == target {
+                return Err(OrderError::FireAtSelf(target));
+            }
+            let weapon_def = attacker
+                .weapons
+                .iter()
+                .find(|weapon_def| weapon_def.id == weapon)
+                .expect("owner lookup proved weapon exists");
+            let range = attacker.pos.distance(target_ship.pos);
+            if range > weapon_def.max_range {
+                return Err(OrderError::OutOfRange {
+                    weapon,
+                    range,
+                    max_range: weapon_def.max_range,
+                });
+            }
+            let relative_bearing =
+                combat::relative_bearing(attacker.facing, attacker.pos, target_ship.pos);
+            if !combat::arc_contains(&weapon_def.arc, relative_bearing) {
+                return Err(OrderError::OutOfArc { weapon, target });
+            }
+            if game.weapon_fired_this_turn(&weapon) {
+                return Err(OrderError::WeaponAlreadyFired(weapon));
+            }
+            Ok(DeclaredOrder::Fire { weapon, target })
+        }
         Order::EndTurn => Ok(DeclaredOrder::EndTurn),
     }
 }
@@ -89,6 +142,11 @@ pub fn resolve(game: &mut GameState, order: DeclaredOrder) {
             if let Some(ship) = game.ship_mut(ship) {
                 ship.facing = facing;
             }
+        }
+        DeclaredOrder::Fire { weapon, target } => {
+            crate::combat::resolve_fire(game, &weapon, target);
+            game.record_weapon_fired(weapon);
+            game.refresh_status();
         }
         DeclaredOrder::EndTurn => game.end_turn(),
     }

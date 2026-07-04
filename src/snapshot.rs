@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use crate::combat::{Arc, WeaponKind};
 use crate::game_state::{GameState, ScenarioStatus};
 
 #[derive(Debug, Serialize)]
@@ -23,14 +24,27 @@ pub struct ShipSnapshot {
     pub facing: u8,
     pub speed_max: u32,
     pub turn_mode: u32,
+    pub shields: [u32; 6],
+    pub structure: u32,
+    pub destroyed: bool,
+    pub weapons: Vec<WeaponSnapshot>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WeaponSnapshot {
+    pub id: String,
+    pub kind: String,
+    pub arc: String,
+    pub max_range: u32,
 }
 
 #[derive(Debug, Serialize)]
 pub struct StateSnapshot {
     pub turn: u32,
     pub status: ScenarioStatus,
+    pub seed: u64,
     pub map: MapSnapshot,
-    pub objective: HexSnapshot,
+    pub objective: Option<HexSnapshot>,
     pub ships: Vec<ShipSnapshot>,
 }
 
@@ -39,14 +53,15 @@ impl StateSnapshot {
         Self {
             turn: game.turn.number(),
             status: game.status,
+            seed: game.seed,
             map: MapSnapshot {
                 width: game.board.width,
                 height: game.board.height,
             },
-            objective: HexSnapshot {
-                q: game.objective.q,
-                r: game.objective.r,
-            },
+            objective: game.objective.map(|objective| HexSnapshot {
+                q: objective.q,
+                r: objective.r,
+            }),
             ships: game
                 .ships
                 .iter()
@@ -58,8 +73,38 @@ impl StateSnapshot {
                     facing: ship.facing,
                     speed_max: ship.speed_max,
                     turn_mode: ship.turn_mode,
+                    shields: ship.shields,
+                    structure: ship.structure,
+                    destroyed: ship.destroyed,
+                    weapons: ship
+                        .weapons
+                        .iter()
+                        .map(|weapon| WeaponSnapshot {
+                            id: weapon.id.clone(),
+                            kind: weapon_kind_name(&weapon.kind).to_string(),
+                            arc: arc_name(&weapon.arc).to_string(),
+                            max_range: weapon.max_range,
+                        })
+                        .collect(),
                 })
                 .collect(),
         }
+    }
+}
+
+fn weapon_kind_name(kind: &WeaponKind) -> &'static str {
+    match kind {
+        WeaponKind::Phaser => "Phaser",
+        WeaponKind::Disruptor => "Disruptor",
+    }
+}
+
+fn arc_name(arc: &Arc) -> &'static str {
+    match arc {
+        Arc::Forward => "Forward",
+        Arc::Rear => "Rear",
+        Arc::Left => "Left",
+        Arc::Right => "Right",
+        Arc::All => "All",
     }
 }

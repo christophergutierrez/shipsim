@@ -2,3 +2,12 @@ id = "heavy_cruiser"
 name = "Heavy Cruiser"
 speed_max = 4
 turn_mode = 2
+shields = [6, 6, 6, 6, 6, 6]
+structure = 12
+
+[[weapons]]
+id = "phaser_1"
+kind = "phaser"
+arc = "forward"
+max_range = 4
+damage = 2

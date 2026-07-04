@@ -37,14 +37,22 @@ win, CLI/JSON harness, headless test. See `CONTEXT.md`.
 - **Why deferred:** slice 1 uses a bounded rectangle from the scenario TOML, no wraparound.
 - ▶ Revisit map model when it matters (fixed floating map, edge handling).
 
-## Deferred — Combat (the next big system)
+## Combat (the next big system)
 
-### D5. Direct-fire combat: phasers & disruptors  🎯 slice 3
-- Range-based to-hit, 6-facing shields, damage allocation, ship destruction, combat win condition.
-- ▶ Add `combat` module; new scenarios with hostile ships; extend snapshot with shield/damage state.
+### D5. Direct-fire combat: phasers & disruptors  🎯 slice 2  -- IN PROGRESS
+- Range-based to-hit, 6-facing shields, bleed-through to a single structure pool, destruction win.
+- Decided: SFB-style dice via seeded PRNG (ADR-0005); data-driven weapon arcs; fire-freely (no
+  arming); 6 shield facings; single internal-structure pool (ADR-0006). See docs/CONTEXT-slice2.md.
+- ▶ Add `combat` module + `fire` order; combat scenario; extend snapshot with shields/structure/seed.
 
-### D6. Ship systems / damage model (SSD-style)  🎯 with D5
-- Internal systems, damage tracking, crippling.
+### D6. Itemized damage allocation / destroyable systems (SSD)  🎯 after D5
+- Damage-allocation chart distributes hits across systems; weapons/engines can be knocked out;
+  crippling. (Slice 2 uses a single structure pool instead.)
+- ▶ Replace the single structure pool with an itemized SSD; add a damage-allocation table.
+
+### D5a. More weapon classes / seeking weapons  🎯 after D5
+- Seeking weapons (drones/plasma), reinforcement, richer arcs. (Slice 2 ships phasers + disruptors,
+  direct-fire only.)
 
 ## Deferred — Energy Allocation (SFB signature)
 

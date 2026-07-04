@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::board::Board;
+use crate::combat::{Arc, Weapon, WeaponKind};
 use crate::game_state::{GameState, ScriptedPlan};
 use crate::hex::Hex;
-use crate::schema::{ScenarioDef, ShipDef};
+use crate::schema::{ScenarioDef, ShipDef, WeaponDef};
 use crate::ship::Ship;
 
 #[derive(Debug, Error)]
@@ -33,8 +34,13 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     let text = read_to_string(path)?;
     let def: ScenarioDef = parse_toml(path, &text)?;
     let board = Board::new(def.width, def.height);
-    let objective = Hex::new(def.objective.q, def.objective.r);
-    validate_on_board(&board, objective)?;
+    let objective = def
+        .objective
+        .map(|objective| Hex::new(objective.q, objective.r));
+    if let Some(objective) = objective {
+        validate_on_board(&board, objective)?;
+    }
+    let seed = if def.seed == 0 { 1 } else { def.seed };
 
     let mut ships = Vec::with_capacity(def.ships.len());
     let mut scripted_plans = HashMap::new();
@@ -66,17 +72,26 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             facing: placement.facing,
             speed_max: ship_def.speed_max,
             turn_mode: ship_def.turn_mode,
+            weapons: ship_def
+                .weapons
+                .into_iter()
+                .map(parse_weapon)
+                .collect::<Result<Vec<_>, LoadError>>()?,
+            shields: ship_def.shields,
+            structure: ship_def.structure,
+            destroyed: false,
         });
         if is_scripted {
             scripted_plans.insert(placement.id, ScriptedPlan::new(waypoints));
         }
     }
 
-    Ok(GameState::new_with_scripted_plans(
+    Ok(GameState::new_with_options(
         board,
         ships,
         objective,
         scripted_plans,
+        seed,
     ))
 }
 
@@ -121,4 +136,25 @@ fn validate_on_board(board: &Board, hex: Hex) -> Result<(), LoadError> {
     } else {
         Err(LoadError::OffBoard { q: hex.q, r: hex.r })
     }
+}
+
+fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
+    Ok(Weapon {
+        id: def.id,
+        kind: match def.kind.as_str() {
+            "phaser" => WeaponKind::Phaser,
+            "disruptor" => WeaponKind::Disruptor,
+            _ => WeaponKind::Phaser,
+        },
+        arc: match def.arc.as_str() {
+            "forward" => Arc::Forward,
+            "rear" => Arc::Rear,
+            "left" => Arc::Left,
+            "right" => Arc::Right,
+            "all" => Arc::All,
+            _ => Arc::Forward,
+        },
+        max_range: def.max_range,
+        damage: def.damage,
+    })
 }
