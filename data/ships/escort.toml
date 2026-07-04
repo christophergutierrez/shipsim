@@ -1,0 +1,4 @@
+id = "escort"
+name = "Escort"
+speed_max = 3
+turn_mode = 1

@@ -1,0 +1,4 @@
+id = "heavy_cruiser"
+name = "Heavy Cruiser"
+speed_max = 4
+turn_mode = 2

@@ -1,0 +1,6 @@
+{"type":"move","ship":1,"to":{"q":1,"r":0}}
+{"type":"move","ship":1,"to":{"q":2,"r":0}}
+{"type":"move","ship":1,"to":{"q":3,"r":0}}
+{"type":"move","ship":1,"to":{"q":4,"r":0}}
+{"type":"end_turn"}
+{"type":"move","ship":1,"to":{"q":4,"r":1}}

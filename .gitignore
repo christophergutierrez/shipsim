@@ -1,0 +1,21 @@
+# Rust build output
+/target
+
+# Rustfmt backups
+*.rs.bk
+
+# Compiled shared libraries (shipsim_core is a cdylib; built artifact may be copied out)
+*.so
+*.dll
+*.dylib
+
+# Local scratch / caches (not part of the project)
+/tmp
+/.fastembed_cache
+
+# IDE and tool artifacts
+.claude/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
