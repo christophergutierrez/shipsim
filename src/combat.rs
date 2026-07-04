@@ -23,6 +23,8 @@ pub struct Weapon {
     pub arc: Arc,
     pub max_range: u32,
     pub damage: u32,
+    pub phaser_dice_by_range: Vec<u32>,
+    pub to_hit_by_range: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +59,39 @@ pub fn relative_bearing(origin_facing: u8, from: Hex, to: Hex) -> u8 {
     (bearing_to(from, to) + 6 - origin_facing) % 6
 }
 
+fn ranged_value(values: &[u32], range: u32) -> Option<u32> {
+    if range == 0 {
+        return values.first().copied();
+    }
+    values
+        .get((range - 1) as usize)
+        .copied()
+        .or_else(|| values.last().copied())
+}
+
+fn resolve_weapon_damage(weapon: &Weapon, range: u32, game: &mut GameState) -> u32 {
+    match weapon.kind {
+        WeaponKind::Phaser => {
+            if let Some(dice) = ranged_value(&weapon.phaser_dice_by_range, range) {
+                (0..dice).map(|_| game.prng.roll(6)).sum()
+            } else {
+                weapon.damage + game.prng.roll(2) - 1
+            }
+        }
+        WeaponKind::Disruptor => {
+            if let Some(threshold) = ranged_value(&weapon.to_hit_by_range, range) {
+                if game.prng.roll(6) <= threshold {
+                    weapon.damage
+                } else {
+                    0
+                }
+            } else {
+                weapon.damage
+            }
+        }
+    }
+}
+
 pub fn resolve_fire(game: &mut GameState, weapon_id: &str, target_id: u32) -> Option<FireOutcome> {
     let attacker_index = game.weapon_owner_index(weapon_id)?;
     let target_index = game.ship_index(target_id)?;
@@ -68,12 +103,10 @@ pub fn resolve_fire(game: &mut GameState, weapon_id: &str, target_id: u32) -> Op
         .find(|weapon| weapon.id == weapon_id)?
         .clone();
     let target_pos = game.ships[target_index].pos;
+    let range = attacker.pos.distance(target_pos);
     let shield =
         relative_bearing(game.ships[target_index].facing, target_pos, attacker.pos) as usize;
-    let damage = match weapon.kind {
-        WeaponKind::Phaser => weapon.damage + game.prng.roll(2) - 1,
-        WeaponKind::Disruptor => weapon.damage,
-    };
+    let damage = resolve_weapon_damage(&weapon, range, game);
 
     let target = &mut game.ships[target_index];
     let absorbed = target.shields[shield].min(damage);

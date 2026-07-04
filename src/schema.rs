@@ -74,6 +74,10 @@ pub struct WeaponDef {
     pub max_range: u32,
     #[serde(default = "default_weapon_damage")]
     pub damage: u32,
+    #[serde(default)]
+    pub phaser_dice_by_range: Vec<u32>,
+    #[serde(default)]
+    pub to_hit_by_range: Vec<u32>,
 }
 
 fn default_weapon_damage() -> u32 {

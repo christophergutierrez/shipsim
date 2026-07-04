@@ -30,6 +30,36 @@ fn make_first_weapon_exact_damage(game: &mut shipsim_core::game_state::GameState
     weapon.damage = damage;
 }
 
+fn shield_damage_taken(before: &[u32; 6], after: &[u32; 6]) -> u32 {
+    before
+        .iter()
+        .zip(after.iter())
+        .map(|(before, after)| before - after)
+        .sum()
+}
+
+fn phaser_damage_at_range(range: i32) -> u32 {
+    let mut game = load_combat();
+    let attacker = game.ship_mut(1).expect("attacker exists");
+    attacker.pos = Hex::new(1, 0);
+    attacker.facing = 3;
+
+    let defender = game.ship_mut(2).expect("defender exists");
+    defender.pos = Hex::new(1 - range, 0);
+    defender.facing = 0;
+    defender.shields = [100; 6];
+    defender.structure = 100;
+    let before = defender.shields;
+
+    game.apply_order(Order::Fire {
+        weapon: "phaser_1".to_string(),
+        target: 2,
+    })
+    .expect("phaser fire succeeds");
+
+    shield_damage_taken(&before, &game.ship(2).expect("defender exists").shields)
+}
+
 #[test]
 fn test_combat_scenario_loads_weapons() {
     let game = load_combat();
@@ -414,4 +444,52 @@ fn test_face_order_changes_hit_shield() {
     assert_eq!(baseline_shields[5], 6);
     assert_eq!(turned_shields[0], 6);
     assert_eq!(turned_shields[5], 4);
+}
+
+#[test]
+fn test_phaser_damage_by_range_pinned_seed() {
+    let range_one = phaser_damage_at_range(1);
+    let mid_range = phaser_damage_at_range(2);
+    let max_range = phaser_damage_at_range(4);
+
+    assert_eq!(range_one, 9);
+    assert_eq!(mid_range, 7);
+    assert_eq!(max_range, 2);
+    assert_ne!(range_one, max_range);
+}
+
+#[test]
+fn test_disruptor_miss_then_hit_pinned_seed() {
+    let mut game = load_combat();
+    let attacker = game.ship_mut(1).expect("attacker exists");
+    attacker.pos = Hex::new(1, 0);
+    attacker.facing = 3;
+
+    let defender = game.ship_mut(2).expect("defender exists");
+    defender.pos = Hex::new(-3, 0);
+    defender.facing = 0;
+    defender.shields = [100; 6];
+    defender.structure = 100;
+    let before_miss = defender.shields;
+
+    game.apply_order(Order::Fire {
+        weapon: "disruptor_1".to_string(),
+        target: 2,
+    })
+    .expect("first disruptor fire succeeds");
+    let after_miss = game.ship(2).expect("defender exists").shields;
+    assert_eq!(shield_damage_taken(&before_miss, &after_miss), 0);
+
+    game.apply_order(Order::EndTurn).expect("turn ends");
+    game.ship_mut(2).expect("defender exists").pos = Hex::new(0, 0);
+    let before_hit = game.ship(2).expect("defender exists").shields;
+
+    game.apply_order(Order::Fire {
+        weapon: "disruptor_1".to_string(),
+        target: 2,
+    })
+    .expect("second disruptor fire succeeds");
+
+    let after_hit = game.ship(2).expect("defender exists").shields;
+    assert_eq!(shield_damage_taken(&before_hit, &after_hit), 4);
 }

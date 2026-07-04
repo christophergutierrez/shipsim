@@ -11,3 +11,12 @@ kind = "phaser"
 arc = "forward"
 max_range = 4
 damage = 2
+phaser_dice_by_range = [3, 2, 1, 1]
+
+[[weapons]]
+id = "disruptor_1"
+kind = "disruptor"
+arc = "forward"
+max_range = 4
+damage = 4
+to_hit_by_range = [6, 4, 2, 1]

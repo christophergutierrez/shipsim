@@ -11,3 +11,4 @@ kind = "phaser"
 arc = "forward"
 max_range = 4
 damage = 2
+phaser_dice_by_range = [3, 2, 1, 1]

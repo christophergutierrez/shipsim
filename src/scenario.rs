@@ -156,5 +156,7 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
         },
         max_range: def.max_range,
         damage: def.damage,
+        phaser_dice_by_range: def.phaser_dice_by_range,
+        to_hit_by_range: def.to_hit_by_range,
     })
 }
