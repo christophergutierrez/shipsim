@@ -124,5 +124,50 @@ Architecture verdict PASS; these are quality notes, none block Slice 1.
 
 ---
 
+## Deferred findings from the Slice 2 (D5 combat) Code Review Tribunal (non-blocking)
+
+Tribunal verdict PASS; none block Slice 2. All contained by the 1v1 scope (assumption A5).
+
+- **TS1. `fire_attacker_index` is dead code** (`src/game_state.rs`, Ponytail, trivial). Both `declare`
+  and `resolve_fire` use `weapon_owner_index`. Delete next time the fire path is touched.
+- **TS2. Weapon identity is a bare global `weapon_id`** (`src/game_state.rs`, correctness, latent).
+  `weapon_owner_index` returns the first non-destroyed owner and `fired_weapons_this_turn` is keyed on
+  id alone; both shipped ships define `"phaser_1"`. Safe only under 1v1 with a scripted (never-firing)
+  enemy and player-listed-first ordering. ▶ Before a second firing ship / enemy fire AI / D10 fleets:
+  `Order::Fire` must name the acting ship, and fired-weapon tracking must key on `(ship_id, weapon_id)`
+  (this is what the "deterministic order by ship id" invariant O16/DD4 will require).
+- **TS3. Snapshot serializes the seed but not the PRNG's current position** (`src/snapshot.rs`,
+  completeness, low). Satisfies reproducibility (same seed+orders replays), but not mid-game resume.
+  The `Prng::state()` accessor already exists as the hook. ▶ Serialize `prng.state()` when save/resume
+  mid-game is added.
+- **TS4. `parse_weapon` silently falls back on bad data** (`src/scenario.rs`, data-hygiene, low).
+  Unknown weapon kind -> Phaser, unknown arc -> Forward, instead of a typed `LoadError`; the phaser
+  `damage` field is inert when `phaser_dice_by_range` is populated. ▶ Make unknown kind/arc a typed
+  load error; reconcile the redundant damage field.
+
+---
+
+## Deferred notes from the Slice 2 (D5 combat) Architecture Review (non-blocking)
+
+Architecture verdict PASS; no Critical/High. Distinct from TS1-TS4.
+
+- **AS1. Terminal modeled as two parallel Options** (`src/game_state.rs`, Medium, domain). `objective:
+  Option<Hex>` and `destruction_target: Option<u32>` with an implicit objective-wins precedence in
+  `refresh_status`. A single `Terminal` enum (ReachHex / DestroyShip) would collapse the branch and
+  make the both-set state unrepresentable. ▶ Fold into a schema pass (Medium blast radius: touches
+  GameState public fields + `new()` + snapshot access).
+- **AS2. Fire geometry recomputed** (`src/movement.rs`, `src/combat.rs`, Low/Medium). range +
+  relative_bearing computed in `movement::declare` and recomputed in `combat::resolve_fire`.
+  Behavior-preserving; consolidating intersects the still-unfirmed D2 simultaneous-resolution seam, so
+  premature. ▶ Consolidate when D2 lands.
+- **AS3. `FireOutcome` discarded** (`src/movement.rs`, Low). `resolve_fire` returns it but `resolve`
+  drops it. Deliberate hook for future combat logging, not a defect. ▶ Consume when combat logging /
+  replay is added.
+- **AS4. Combat indexes the ships Vec and clones the attacker** (`src/combat.rs`, Low). Uses public
+  index accessors + a clone to sidestep the borrow checker; consistent with the crate's "GameState as
+  public data bag" idiom. Acceptable at this size. ▶ Revisit if GameState encapsulation tightens.
+
+---
+
 *Maintenance: when a deferred item is picked up, move it under its realized slice with the commit/PR
 that landed it, and check the 🪝 hook actually held (if a rewrite was needed, note why for next time).*
