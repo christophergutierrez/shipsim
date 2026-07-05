@@ -530,3 +530,55 @@ fn test_disruptor_miss_then_hit_pinned_seed() {
     let after_hit = game.ship(2).expect("defender exists").shields;
     assert_eq!(shield_damage_taken(&before_hit, &after_hit), 4);
 }
+
+// Runs a fixed combat sequence from a freshly loaded scenario (same seed every
+// time) and returns the serialized final snapshot as a byte string. The sequence
+// issues real fire orders, each of which draws from the seeded PRNG, so the
+// output would diverge run-to-run if any ambient (non-seeded) source entered the
+// draw path.
+fn run_seeded_fire_sequence() -> String {
+    let mut game = load_combat();
+    // Give the defender deep shields/structure so each shot's exact PRNG-rolled
+    // damage lands on the toward-attacker facing without saturating to zero -- the
+    // drawn value stays observable in the final snapshot, so any change to the
+    // draw sequence changes the serialized output.
+    let defender = game.ship_mut(2).expect("defender exists");
+    defender.shields = [100; 6];
+    defender.structure = 100;
+    for _ in 0..3 {
+        game.apply_order(Order::Fire {
+            weapon: "phaser_1".to_string(),
+            target: 2,
+        })
+        .expect("phaser fire succeeds");
+        game.apply_order(Order::EndTurn).expect("turn ends");
+    }
+    serde_json::to_string(&StateSnapshot::from_game_state(&game)).expect("snapshot serializes")
+}
+
+#[test]
+fn test_same_seed_same_orders_identical() {
+    let first = run_seeded_fire_sequence();
+    let second = run_seeded_fire_sequence();
+
+    // Byte-identical serialized snapshots across two independent runs prove the
+    // ADR-0005 reproducibility invariant: same seed + same order sequence yields
+    // the same outcome. Compare the raw strings, not just parsed values.
+    assert_eq!(first, second);
+
+    // Guard against a vacuous pass: the sequence must actually draw from the PRNG
+    // and land damage, so the compared snapshot is not the untouched initial state.
+    // The sequence starts the defender at 6 facings of 100 (600 total); a real draw
+    // strictly reduces that total.
+    let final_state: Value = serde_json::from_str(&first).expect("snapshot parses");
+    let defender_shield_total: u64 = final_state["ships"][1]["shields"]
+        .as_array()
+        .expect("defender shields array")
+        .iter()
+        .map(|value| value.as_u64().expect("shield is a number"))
+        .sum();
+    assert!(
+        defender_shield_total < 6 * 100,
+        "the seeded fire sequence must have drawn damage from the PRNG"
+    );
+}
