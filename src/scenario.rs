@@ -40,6 +40,13 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     if let Some(objective) = objective {
         validate_on_board(&board, objective)?;
     }
+    let destruction_target = def.terminal.as_ref().and_then(|terminal| {
+        if terminal.terminal_type == "destruction" {
+            terminal.target
+        } else {
+            None
+        }
+    });
     let seed = if def.seed == 0 { 1 } else { def.seed };
 
     let mut ships = Vec::with_capacity(def.ships.len());
@@ -90,6 +97,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         board,
         ships,
         objective,
+        destruction_target,
         scripted_plans,
         seed,
     ))

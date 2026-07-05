@@ -44,6 +44,7 @@ pub struct GameState {
     pub board: Board,
     pub ships: Vec<Ship>,
     pub objective: Option<Hex>,
+    pub destruction_target: Option<u32>,
     pub seed: u64,
     pub(crate) prng: Prng,
     pub turn: Turn,
@@ -55,13 +56,14 @@ pub struct GameState {
 
 impl GameState {
     pub fn new(board: Board, ships: Vec<Ship>, objective: Hex) -> Self {
-        Self::new_with_options(board, ships, Some(objective), HashMap::new(), 1)
+        Self::new_with_options(board, ships, Some(objective), None, HashMap::new(), 1)
     }
 
     pub(crate) fn new_with_options(
         board: Board,
         ships: Vec<Ship>,
         objective: Option<Hex>,
+        destruction_target: Option<u32>,
         scripted_plans: HashMap<u32, ScriptedPlan>,
         seed: u64,
     ) -> Self {
@@ -69,6 +71,7 @@ impl GameState {
             board,
             ships,
             objective,
+            destruction_target,
             seed,
             prng: Prng::new(seed),
             turn: Turn::new(),
@@ -144,11 +147,26 @@ impl GameState {
     }
 
     pub fn refresh_status(&mut self) {
-        self.status = match self.objective {
-            Some(objective) if self.ships.iter().any(|ship| ship.pos == objective) => {
+        self.status = if let Some(objective) = self.objective {
+            // Objective-hex terminal (slice 1): a ship reaching the objective wins.
+            if self.ships.iter().any(|ship| ship.pos == objective) {
                 ScenarioStatus::Won
+            } else {
+                ScenarioStatus::InProgress
             }
-            _ => ScenarioStatus::InProgress,
+        } else if let Some(target) = self.destruction_target {
+            // Destruction terminal: the designated enemy ship being destroyed wins.
+            if self
+                .ships
+                .iter()
+                .any(|ship| ship.id == target && ship.destroyed)
+            {
+                ScenarioStatus::Won
+            } else {
+                ScenarioStatus::InProgress
+            }
+        } else {
+            ScenarioStatus::InProgress
         };
     }
 

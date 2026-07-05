@@ -459,6 +459,43 @@ fn test_phaser_damage_by_range_pinned_seed() {
 }
 
 #[test]
+fn test_fire_until_destroyed_wins() {
+    let mut game = load_combat();
+
+    // The combat scenario has no objective hex, so any Won must come from the
+    // destruction terminal, never a coincidental objective-hex match.
+    let start = snapshot_json(&game);
+    assert!(start["objective"].is_null());
+    assert_eq!(start["status"], "InProgress");
+
+    let mut fatal = false;
+    for _ in 0..50 {
+        // Before the fatal shot the enemy is alive and the scenario is unresolved.
+        assert!(!game.ship(2).expect("enemy exists").destroyed);
+        assert_eq!(snapshot_json(&game)["status"], "InProgress");
+
+        game.apply_order(Order::Fire {
+            weapon: "phaser_1".to_string(),
+            target: 2,
+        })
+        .expect("attacker fire succeeds");
+
+        if game.ship(2).expect("enemy exists").destroyed {
+            fatal = true;
+            break;
+        }
+        game.apply_order(Order::EndTurn).expect("turn ends");
+    }
+
+    assert!(fatal, "enemy should be destroyed within the volley budget");
+
+    let end = snapshot_json(&game);
+    assert_eq!(end["status"], "Won");
+    assert_eq!(end["ships"][1]["destroyed"], true);
+    assert!(end["objective"].is_null());
+}
+
+#[test]
 fn test_disruptor_miss_then_hit_pinned_seed() {
     let mut game = load_combat();
     let attacker = game.ship_mut(1).expect("attacker exists");
