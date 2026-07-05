@@ -13,6 +13,21 @@ Legend: 🎯 target slice · 🪝 designed-for hook already in slice 1 · ▶ re
 Simplified N-hexes/turn sequential movement, 6-facing, player-plotted + scripted ship, objective-hex
 win, CLI/JSON harness, headless test. See `CONTEXT.md`.
 
+## Slice 2 - Direct-fire Combat (REALIZED)
+
+Direct-fire combat (D5) landed in Slice 2 (through commit 553a794, milestone M6). Combat/PRNG
+modules, a `fire` order through the existing declare/resolve seam, 6-facing shields with
+bleed-through to a single structure pool, seeded dice (ADR-0005), and the destruction-win terminal.
+
+### D5. Direct-fire combat: phasers & disruptors  [REALIZED - slice 2]
+- Range-based to-hit, 6-facing shields, bleed-through to a single structure pool, destruction win.
+- Delivered: SFB-style dice via seeded PRNG (ADR-0005); data-driven weapon arcs; fire-freely (no
+  arming); 6 shield facings; single internal-structure pool (ADR-0006). See docs/CONTEXT-slice2.md.
+- Landed as: `combat` + `prng` modules and a `fire` order; `scenarios/combat.toml`; the snapshot
+  gained shields/structure/destroyed/weapons and the seed.
+- Hook check: the ADR-0002 declare/resolve seam held (fire reused it, no rewrite) and the slice-1
+  objective-hex terminal was preserved (the destruction terminal was added alongside it).
+
 ## Deferred — Movement fidelity (the SFB "feel")
 
 ### D1. Full 32-impulse turn + Impulse Movement Chart  🎯 slice 2
@@ -37,13 +52,7 @@ win, CLI/JSON harness, headless test. See `CONTEXT.md`.
 - **Why deferred:** slice 1 uses a bounded rectangle from the scenario TOML, no wraparound.
 - ▶ Revisit map model when it matters (fixed floating map, edge handling).
 
-## Combat (the next big system)
-
-### D5. Direct-fire combat: phasers & disruptors  🎯 slice 2  -- IN PROGRESS
-- Range-based to-hit, 6-facing shields, bleed-through to a single structure pool, destruction win.
-- Decided: SFB-style dice via seeded PRNG (ADR-0005); data-driven weapon arcs; fire-freely (no
-  arming); 6 shield facings; single internal-structure pool (ADR-0006). See docs/CONTEXT-slice2.md.
-- ▶ Add `combat` module + `fire` order; combat scenario; extend snapshot with shields/structure/seed.
+## Combat - deferred extensions (base direct-fire realized; see Slice 2 above)
 
 ### D6. Itemized damage allocation / destroyable systems (SSD)  🎯 after D5
 - Damage-allocation chart distributes hits across systems; weapons/engines can be knocked out;
