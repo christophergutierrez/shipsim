@@ -1,15 +1,15 @@
 # PRD - shipsim Slice 3: Movement Fidelity (D1, D2, D3)
 
 Source alignment: `docs/CONTEXT-slice3.md`, `docs/adr/0007` (impulse movement), `docs/adr/0008`
-(simultaneous resolution). Builds on slices 1–2 (committed). Pipeline stage: post-grill to-prd.
+(simultaneous resolution). Builds on slices 1-2 (committed). Pipeline stage: post-grill to-prd.
 Autonomy: Checkpoint. Execution policy: cost_optimized.
 
 ## Problem Statement
 
-Slices 1–2 gave us ships that move and fight, but the movement is a simplified "up to N hexes per
+Slices 1-2 gave us ships that move and fight, but the movement is a simplified "up to N hexes per
 turn" policy resolved one ship at a time. It does not feel like Star Fleet Battles. The maintainer's
-stated end-state requirements — a 32-impulse turn driven by the Impulse Movement Chart, simultaneous
-pre-plotted movement, and turn-mode enforcement — are the signature mechanics that make the game
+stated end-state requirements -- a 32-impulse turn driven by the Impulse Movement Chart, simultaneous
+pre-plotted movement, and turn-mode enforcement -- are the signature mechanics that make the game
 *feel* like SFB, and they are the biggest complexity driver still outstanding. Without them the
 maneuver system has no real timing, no facing discipline, and no simultaneous-resolution tension;
 the product is a toy, not a simulation.
@@ -60,7 +60,7 @@ seed-pinned headless `cargo test` asserting exact end positions and exact move-i
     speed S move" has one source of truth.
 16. As a developer, I want the IMC testable as a pure function (`moves_on_impulse(speed, impulse)`),
     so that the chart is verified independently of game state.
-17. As a developer, I want the `Order` API to break cleanly (`Move`/`Face` → `Plot`, `EndTurn` →
+17. As a developer, I want the `Order` API to break cleanly (`Move`/`Face` -> `Plot`, `EndTurn` ->
     `RunTurn`) with no compatibility shim, so that there is one movement code path, not two.
 18. As a developer, I want the declare/resolve seam preserved (`Plot` declares, `RunTurn` resolves),
     so that ADR-0002's design-for-fidelity invariant holds.
@@ -85,10 +85,10 @@ seed-pinned headless `cargo test` asserting exact end positions and exact move-i
 - **Modules.** Add an `impulse` module (the IMC static lookup) to `shipsim_core`; rewrite the
   movement order types and resolution in `movement`; rewrite the turn driver in `game_state`; extend
   `ship` with a stored per-turn plot; extend `schema`/loader for the `speed` field and the new
-  scenario; extend `snapshot` with `impulse` and rename `speed_max` → `speed`; update the CLI `bin`
+  scenario; extend `snapshot` with `impulse` and rename `speed_max` -> `speed`; update the CLI `bin`
   for the new order shapes; add an `impulse` scenario.
-- **Impulse Movement Chart.** The canonical SFB 32-impulse × 32-speed table as a static lookup:
-  `moves_on_impulse(speed: u8, impulse: u8) -> bool`. Speeds 0–31; speed 0 never moves. Impulses are
+- **Impulse Movement Chart.** The canonical SFB 32-impulse x 32-speed table as a static lookup:
+  `moves_on_impulse(speed: u8, impulse: u8) -> bool`. Speeds 0-31; speed 0 never moves. Impulses are
   1-indexed (1..=32). This is the single source of truth for when a ship moves. It is a movement
   schedule, not trademarked content (ADR-0003).
 - **Speed.** A ship's `speed` (renamed from `speed_max`) is a fixed per-ship TOML field and *is* its
@@ -100,7 +100,7 @@ seed-pinned headless `cargo test` asserting exact end positions and exact move-i
   position to the next). The old `Move` and `Face` orders are removed.
 - **Plot validation (at submission).** `Plot` is validated when declared: (a) every step is adjacent
   to its predecessor and the first to the ship's hex; (b) no step passes through a hex occupied at
-  submission time; (c) turn-mode holds — between any two steps whose directions differ, there must be
+  submission time; (c) turn-mode holds -- between any two steps whose directions differ, there must be
   at least `turn_mode` straight steps since the last facing change. A violation rejects the whole
   plot with a typed `OrderError` and no mutation. Speed-0 ships and turn-free plots trivially pass.
 - **RunTurn order.** New order variant `RunTurn` replaces `EndTurn`. It resolves the entire turn:
@@ -124,22 +124,22 @@ seed-pinned headless `cargo test` asserting exact end positions and exact move-i
   (shortened to the longest turn-mode-valid prefix if needed). Reuses the existing waypoint logic.
 - **Terminal check.** Win conditions (objective-hex from slice 1, destruction from slice 2) are
   checked once, at turn end, after all movement and fire. No mid-impulse wins.
-- **Snapshot.** `StateSnapshot` gains `impulse: u8` (0 between turns, 1..=32 mid-turn — though
-  `RunTurn` is atomic so tests observe 0 after a turn). `ShipSnapshot` renames `speed_max` → `speed`.
+- **Snapshot.** `StateSnapshot` gains `impulse: u8` (0 between turns, 1..=32 mid-turn -- though
+  `RunTurn` is atomic so tests observe 0 after a turn). `ShipSnapshot` renames `speed_max` -> `speed`.
   `turn_mode` is already present.
 - **Declare/resolve seam.** `Plot` declares (validates + stores); `RunTurn` resolves. The ADR-0002
   seam is preserved; only the order shapes change.
 - **Determinism.** No new RNG this slice. The IMC is a pure static table; collision resolution is
   order-independent; scripted-ship plot generation is deterministic. The reproducibility invariant
-  (ADR-0005) holds: same seed + same orders → identical snapshot.
+  (ADR-0005) holds: same seed + same orders -> identical snapshot.
 
 ## Testing Decisions
 
-- **Same single seam as slices 1–2:** the scenario-run surface of `shipsim_core` (load scenario,
+- **Same single seam as slices 1-2:** the scenario-run surface of `shipsim_core` (load scenario,
   apply orders incl. `Plot`/`RunTurn`/`Fire`, read JSON snapshot and status). Tests assert external
   behavior, never movement internals.
 - **One new sub-seam, at the highest point:** the IMC pure function `moves_on_impulse(speed, impulse)`
-  is tested directly — it is a pure lookup, the highest possible seam for that logic. No other new
+  is tested directly -- it is a pure lookup, the highest possible seam for that logic. No other new
   seams.
 - **Headline acceptance gate (falsifiable, exact):** load an impulse scenario with two ships at known
   positions and speeds, submit plots, `RunTurn`, assert the exact end positions of both ships and
@@ -148,18 +148,18 @@ seed-pinned headless `cargo test` asserting exact end positions and exact move-i
 - **Behavioral unit tests at the seam:** IMC pure-function tests (speed 0 never moves; a known speed
   moves on the canonical impulses; out-of-range speed/impulse rejected); plot adjacency rejection;
   turn-mode violation rejection; occupied-hex-in-plot rejection; no-mutation-on-rejection; collision
-  (both stop, no move that impulse); simultaneous resolution (no first-mover advantage — assert
+  (both stop, no move that impulse); simultaneous resolution (no first-mover advantage -- assert
   symmetric outcome regardless of declaration order); fire resolves at turn end with post-movement
-  positions; scripted ship auto-plots toward waypoint; **reproducibility**: same seed + same orders →
+  positions; scripted ship auto-plots toward waypoint; **reproducibility**: same seed + same orders ->
   identical final snapshot.
-- **Prior art:** slice-1/2 `tests/{acceptance,movement,combat,harness,tracer}.rs` — same
+- **Prior art:** slice-1/2 `tests/{acceptance,movement,combat,harness,tracer}.rs` -- same
   construct/drive/assert headless pattern; impulse tests mirror it. Existing tests are updated to the
   new `Plot`/`RunTurn` orders (clean break, no shim).
 
 ## Out of Scope
 
 Energy Allocation and energy-driven speed (D7); impulse-gated fire windows / fire on specific
-impulses (D1-fire); simultaneous fire resolution (D2-fire — only movement is simultaneous this
+impulses (D1-fire); simultaneous fire resolution (D2-fire -- only movement is simultaneous this
 slice; fire stays sequential in declaration order); itemized damage allocation / destroyable systems
 (D6); seeking weapons; pass-through / overlap movement rules (collisions only consider destination
 hexes this slice); reinforcement and advanced arcs. All tracked in ROADMAP.
@@ -170,14 +170,14 @@ hexes this slice); reinforcement and advanced arcs. All tracked in ROADMAP.
   pre-plotted paths, turn-mode, simultaneous resolution) while holding the line on the
   fixed-speed and fire-at-turn-end simplifications.
 - The `Order` API break is deliberate and cheap (greenfield, one consumer). A shim would mean two
-  movement code paths coexisting — the rewrite ADR-0002 says to avoid.
+  movement code paths coexisting -- the rewrite ADR-0002 says to avoid.
 - The snapshot contract change is small (`impulse` field, `speed` rename) but deliberate: it is the
   interface for the future frontend and AI.
 
 ## Assumptions and Open Questions
 
 Assumptions (from CONTEXT-slice3, low-risk):
-1. The IMC is the canonical SFB table (speeds 0–31, impulses 1–32). It is a movement schedule, not
+1. The IMC is the canonical SFB table (speeds 0-31, impulses 1-32). It is a movement schedule, not
    trademarked content.
 2. A plot's path is a sequence of mutually adjacent hexes; the first step must be adjacent to the
    ship's current hex.
@@ -190,5 +190,5 @@ Assumptions (from CONTEXT-slice3, low-risk):
 7. The scripted ship's auto-plot is greedy toward the next waypoint and never intentionally collides;
    if its greedy plot would collide, the collision rule handles it at impulse time.
 
-Open questions for the spec audit to surface if material: none — all 14 design branches were
+Open questions for the spec audit to surface if material: none -- all 14 design branches were
 resolved during grilling and recorded in ADR-0007/0008 and CONTEXT-slice3.

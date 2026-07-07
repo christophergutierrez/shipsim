@@ -1,4 +1,4 @@
-# ADR-0008 — Simultaneous plot-then-resolve movement (Slice 3 / D2)
+# ADR-0008 -- Simultaneous plot-then-resolve movement (Slice 3 / D2)
 
 Status: Accepted
 Date: 2026-07-06
@@ -6,7 +6,7 @@ Date: 2026-07-06
 ## Context
 
 Slice 1 resolved the two ships sequentially (ADR-0002). SFB resolves all ships' movement on a given
-impulse simultaneously — no ship gains a positional advantage from being resolved first. The classic
+impulse simultaneously -- no ship gains a positional advantage from being resolved first. The classic
 edge case is two ships moving into the same hex on the same impulse. This slice makes resolution
 simultaneous, per impulse, inside the 32-impulse loop established by ADR-0007.
 

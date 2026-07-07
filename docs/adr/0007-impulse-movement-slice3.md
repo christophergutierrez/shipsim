@@ -1,4 +1,4 @@
-# ADR-0007 — 32-impulse movement and the Impulse Movement Chart (Slice 3 / D1, D3)
+# ADR-0007 -- 32-impulse movement and the Impulse Movement Chart (Slice 3 / D1, D3)
 
 Status: Accepted
 Date: 2026-07-06
@@ -14,13 +14,13 @@ D7 / slice 4.
 
 ## Decision
 
-- **Impulse Movement Chart.** The canonical SFB 32-impulse × 32-speed table is encoded as a static
+- **Impulse Movement Chart.** The canonical SFB 32-impulse x 32-speed table is encoded as a static
   lookup in a new `src/impulse.rs` module: `moves_on_impulse(speed: u8, impulse: u8) -> bool`.
-  Speeds 0–31 are supported; speed 0 never moves. This is the single source of truth for *when* a
+  Speeds 0-31 are supported; speed 0 never moves. This is the single source of truth for *when* a
   ship moves. A ship's `speed` (a fixed per-ship TOML field, repurposed from `speed_max`) *is* its
   IMC speed. The player does not choose speed per turn this slice (that arrives with D7).
-- **Movement input.** The player submits a movement **plot** — an ordered list of adjacent hexes
-  (a path) — via a new `Plot { ship, path: Vec<Hex> }` order. The system advances the ship one step
+- **Movement input.** The player submits a movement **plot** -- an ordered list of adjacent hexes
+  (a path) -- via a new `Plot { ship, path: Vec<Hex> }` order. The system advances the ship one step
   along the path on each impulse the IMC says it moves. The old one-hex `Move` order and the
   standalone `Face` order are removed. Facing is **implied by the path**: each step's direction is
   the ship's facing at that point.
@@ -29,8 +29,8 @@ D7 / slice 4.
   from the previous step's direction. The plot is **validated at submission time**: the whole plot is
   rejected (no partial mutation) if any turn violates `turn_mode`. Speed-0 ships and plots that never
   turn trivially pass.
-- **Turn driver.** A single `RunTurn` order resolves the entire turn — all 32 impulses — atomically.
-  The player plots all ships, issues `RunTurn`, and the system plays out impulses 1–32 applying
+- **Turn driver.** A single `RunTurn` order resolves the entire turn -- all 32 impulses -- atomically.
+  The player plots all ships, issues `RunTurn`, and the system plays out impulses 1-32 applying
   movement. The old `EndTurn` order is removed. Impulse-by-impulse stepping is a frontend concern,
   deferred.
 - **Declare/resolve seam.** `Plot` declares (validates turn-mode + path adjacency, stores the plot);
@@ -40,7 +40,7 @@ D7 / slice 4.
 
 - Movement is now pre-plotted and impulse-driven, matching the SFB "feel." The simplified N-hexes
   policy is gone.
-- The `Order` API breaks cleanly: `Move`/`Face` → `Plot`, `EndTurn` → `RunTurn`. All existing tests
+- The `Order` API breaks cleanly: `Move`/`Face` -> `Plot`, `EndTurn` -> `RunTurn`. All existing tests
   and the CLI bin are updated in the same slice. No compatibility shim (two movement code paths
   would be the rewrite ADR-0002 says to avoid).
 - The snapshot contract grows: per-ship `speed` and `turn_mode`, and a turn-level `impulse` field

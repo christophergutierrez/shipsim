@@ -1,6 +1,6 @@
 # shipsim - Slice 3 CONTEXT (Movement fidelity / D1, D2, D3)
 
-Point-in-time alignment for slice 3. Builds on slices 1–2 (movement skeleton + direct-fire combat,
+Point-in-time alignment for slice 3. Builds on slices 1-2 (movement skeleton + direct-fire combat,
 committed). Durable decisions are in ADR-0007 and ADR-0008; deferred work is in docs/ROADMAP.md.
 
 ## Scope (decided)
@@ -10,7 +10,7 @@ turn driven by the Impulse Movement Chart, simultaneous per-impulse resolution, 
 enforcement. Combat is unchanged.
 
 In scope:
-- The canonical SFB 32-impulse × 32-speed Impulse Movement Chart as a static lookup in
+- The canonical SFB 32-impulse x 32-speed Impulse Movement Chart as a static lookup in
   `src/impulse.rs` (`moves_on_impulse(speed, impulse) -> bool`).
 - Ship `speed` (repurposed from `speed_max`) as the IMC speed; fixed per-ship, no Energy Allocation.
 - A `Plot { ship, path: Vec<Hex> }` order replacing `Move`/`Face`; facing implied by the path.
@@ -34,18 +34,20 @@ In scope:
   (ADR-0008). No ship-order tie-break.
 - Fire resolves at turn end, after all movement (ADR-0008). Combat mechanics unchanged.
 - Win conditions checked once at turn end (ADR-0008).
-- The `Order` API breaks cleanly: `Move`/`Face` → `Plot`, `EndTurn` → `RunTurn`. No shim. All
+- The `Order` API breaks cleanly: `Move`/`Face` -> `Plot`, `EndTurn` -> `RunTurn`. No shim. All
   existing tests and the CLI bin updated in-slice. The declare/resolve seam (ADR-0002) is preserved.
 
 ## Logged assumptions (low-risk; revisit if wrong)
 
-1. The IMC is the canonical SFB table (speeds 0–31, impulses 1–32). It is a movement schedule, not
+1. The IMC is the canonical SFB table (speeds 0-31, impulses 1-32). It is a movement schedule, not
    trademarked content.
 2. A plot's path is a sequence of mutually adjacent hexes; the first step must be adjacent to the
    ship's current hex.
 3. A ship moves at most one hex per move-impulse (one step along the path), regardless of speed.
-4. Turn-mode counts hexes moved straight since the last facing change; the ship's initial facing at
-   turn start is the facing implied by the first path step's predecessor (its current facing).
+4. Turn-mode counts hexes moved straight since the last facing change; a ship's facing at turn
+   start is the facing implied by the first path step's predecessor (its current hex). Step 1
+   has no predecessor so never counts as a turn-mode violation. Subsequent steps compare direction
+   against the previous step's direction.
 5. A collision only considers the destination hex of a step; pass-through (two ships swapping
    adjacent hexes) is allowed this slice.
 6. Fire is resolved in declaration order at turn end; simultaneous fire (D2-fire) is deferred.

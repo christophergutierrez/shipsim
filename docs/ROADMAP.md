@@ -54,6 +54,18 @@ bleed-through to a single structure pool, seeded dice (ADR-0005), and the destru
 
 ## Combat - deferred extensions (base direct-fire realized; see Slice 2 above)
 
+### D1-fire. Impulse-gated fire windows  🎯 later
+- Weapons fire only on specific impulses as defined by the 32-impulse IFF. This is the timing
+  layer that makes SFB movement meaningful for combat. (Slice 3 uses fire-at-turn-end simplification.)
+- ▶ Gate `Fire` declarations behind impulse-window checks in the `RunTurn` driver; each weapon
+  class defines which impulses are fire windows.
+
+### D2-fire. Simultaneous fire resolution  🎯 later
+- Fire declared by both ships resolves simultaneously at turn end (not in declaration order).
+  Slice 3 resolves fire sequentially in declaration order.
+- ▶ Collect fire orders at plot/turn-end, resolve all fire simultaneously; deterministic tie-break
+  by ship ID (ascending).
+
 ### D6. Itemized damage allocation / destroyable systems (SSD)  🎯 after D5
 - Damage-allocation chart distributes hits across systems; weapons/engines can be knocked out;
   crippling. (Slice 2 uses a single structure pool instead.)
