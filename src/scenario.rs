@@ -106,8 +106,21 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         let is_scripted = placement.controller == "scripted" || !waypoints.is_empty();
 
         let power = ship_def.power.unwrap_or(ship_def.speed);
+        let weapons: Vec<_> = ship_def
+            .weapons
+            .into_iter()
+            .map(parse_weapon)
+            .collect::<Result<Vec<_>, LoadError>>()?;
+        let ssd = crate::ssd::Ssd::new(
+            ship_def.structure,
+            ship_def.speed.max(1),
+            2,
+            weapons.len(),
+        );
+        let max_spd = ssd.effective_max_speed(ship_def.speed);
+        let max_pow = ssd.effective_power(power);
         let (turn_speed, weapons_energy, shield_reinforce) =
-            crate::energy::default_buckets(power, ship_def.speed);
+            crate::energy::default_buckets(max_pow, max_spd);
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name,
@@ -119,13 +132,9 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             weapons_energy,
             shield_reinforce,
             turn_mode: ship_def.turn_mode,
-            weapons: ship_def
-                .weapons
-                .into_iter()
-                .map(parse_weapon)
-                .collect::<Result<Vec<_>, LoadError>>()?,
+            weapons,
             shields: ship_def.shields,
-            structure: ship_def.structure,
+            ssd,
             destroyed: false,
         });
         if is_scripted {

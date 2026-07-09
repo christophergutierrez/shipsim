@@ -30,7 +30,8 @@ fn two_ship_state() -> GameState {
                 turn_mode: 2,
                 weapons: Vec::new(),
                 shields: [0; 6],
-                structure: 0,
+                ssd: shipsim_core::ssd::Ssd::new(0, 4, 2, 0),
+
                 destroyed: false,
             },
             Ship {
@@ -46,7 +47,8 @@ fn two_ship_state() -> GameState {
                 turn_mode: 1,
                 weapons: Vec::new(),
                 shields: [0; 6],
-                structure: 0,
+                ssd: shipsim_core::ssd::Ssd::new(0, 4, 2, 0),
+
                 destroyed: false,
             },
         ],
@@ -298,7 +300,8 @@ fn test_collision_both_stop() {
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
-                structure: 0,
+                ssd: shipsim_core::ssd::Ssd::new(0, 4, 2, 0),
+
                 destroyed: false,
             },
             Ship {
@@ -314,7 +317,8 @@ fn test_collision_both_stop() {
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
-                structure: 0,
+                ssd: shipsim_core::ssd::Ssd::new(0, 4, 2, 0),
+
                 destroyed: false,
             },
         ],
@@ -360,7 +364,8 @@ fn test_collision_clears_remaining_plot() {
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
-                structure: 0,
+                ssd: shipsim_core::ssd::Ssd::new(0, 4, 2, 0),
+
                 destroyed: false,
             },
             Ship {
@@ -376,7 +381,8 @@ fn test_collision_clears_remaining_plot() {
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
-                structure: 0,
+                ssd: shipsim_core::ssd::Ssd::new(0, 4, 2, 0),
+
                 destroyed: false,
             },
         ],
@@ -486,7 +492,8 @@ fn test_plot_rejects_currently_occupied_hex() {
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
-                structure: 0,
+                ssd: shipsim_core::ssd::Ssd::new(0, 4, 2, 0),
+
                 destroyed: false,
             },
             Ship {
@@ -502,7 +509,8 @@ fn test_plot_rejects_currently_occupied_hex() {
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
-                structure: 0,
+                ssd: shipsim_core::ssd::Ssd::new(0, 4, 2, 0),
+
                 destroyed: false,
             },
         ],

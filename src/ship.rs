@@ -1,6 +1,7 @@
 use crate::combat::Weapon;
 use crate::energy;
 use crate::hex::Hex;
+use crate::ssd::Ssd;
 
 #[derive(Debug, Clone)]
 pub struct Ship {
@@ -8,9 +9,9 @@ pub struct Ship {
     pub class: String,
     pub pos: Hex,
     pub facing: u8,
-    /// Maximum legal movement speed (IMC cap).
+    /// Design maximum movement speed (IMC cap before engine damage).
     pub speed: u32,
-    /// Energy generated each turn.
+    /// Design energy generated each turn (before power_sys damage).
     pub power: u32,
     /// Allocated movement speed for the current turn (drives IMC + plot length).
     pub turn_speed: u32,
@@ -21,7 +22,8 @@ pub struct Ship {
     pub turn_mode: u32,
     pub weapons: Vec<Weapon>,
     pub shields: [u32; 6],
-    pub structure: u32,
+    /// Itemized internals (D6). `ssd.hull` replaces the old flat structure pool for internals.
+    pub ssd: Ssd,
     pub destroyed: bool,
 }
 
@@ -30,19 +32,55 @@ impl Ship {
         energy::max_allocatable_speed(power, max_speed)
     }
 
-    /// Apply multi-bucket allocation for this turn.
+    /// Hull boxes (legacy tests / snapshot "structure" field).
+    pub fn structure(&self) -> u32 {
+        self.ssd.hull
+    }
+
+    pub fn set_structure(&mut self, hull: u32) {
+        self.ssd.hull = hull;
+        self.destroyed = self.ssd.is_destroyed();
+    }
+
+    /// Apply multi-bucket allocation for this turn (respects crippled engine/power).
     pub fn apply_allocation(&mut self, movement: u32, weapons: u32, shields: u32) {
+        let max_spd = self.effective_max_speed();
+        let max_pow = self.effective_power();
+        let movement = movement.min(max_spd);
+        // Re-validate cost under crippled power: clamp weapons/shields if needed.
+        let mut weapons = weapons;
+        let mut shields = shields;
+        let mut cost = movement.saturating_add(weapons).saturating_add(shields);
+        if cost > max_pow {
+            let over = cost - max_pow;
+            let cut_w = weapons.min(over);
+            weapons -= cut_w;
+            cost -= cut_w;
+            if cost > max_pow {
+                shields = shields.saturating_sub(cost - max_pow);
+            }
+        }
         self.turn_speed = movement;
         self.weapons_energy = weapons;
         self.shield_reinforce = shields;
     }
 
+    pub fn effective_max_speed(&self) -> u32 {
+        self.ssd.effective_max_speed(self.speed)
+    }
+
+    pub fn effective_power(&self) -> u32 {
+        self.ssd.effective_power(self.power)
+    }
+
     pub fn reset_turn_energy(&mut self) {
-        let (movement, weapons, shields) = energy::default_buckets(self.power, self.speed);
+        let max_spd = self.effective_max_speed();
+        let max_pow = self.effective_power();
+        let (movement, weapons, shields) = energy::default_buckets(max_pow, max_spd);
         self.apply_allocation(movement, weapons, shields);
     }
 
-    /// Apply damage: reinforce pool first, then shield facing, then structure.
+    /// Apply damage: reinforce → shield facing → SSD allocation for overflow.
     pub fn apply_hit(&mut self, shield_facing: usize, damage: u32) {
         let mut remaining = damage;
         if self.shield_reinforce > 0 && remaining > 0 {
@@ -57,16 +95,36 @@ impl Ship {
         let absorbed = self.shields[facing].min(remaining);
         self.shields[facing] -= absorbed;
         let overflow = remaining - absorbed;
-        self.structure = self.structure.saturating_sub(overflow);
-        self.destroyed = self.structure == 0;
+        if overflow > 0 {
+            self.ssd.apply_internal(overflow);
+        }
+        self.destroyed = self.ssd.is_destroyed();
+        // Clamp turn movement if engines just died mid-turn.
+        let max_spd = self.effective_max_speed();
+        if self.turn_speed > max_spd {
+            self.turn_speed = max_spd;
+        }
     }
 
     pub fn weapon(&self, weapon_id: &str) -> Option<&Weapon> {
-        self.weapons.iter().find(|w| w.id == weapon_id)
+        let (idx, w) = self
+            .weapons
+            .iter()
+            .enumerate()
+            .find(|(_, w)| w.id == weapon_id)?;
+        if self.ssd.weapon_operational(idx) {
+            Some(w)
+        } else {
+            None
+        }
     }
 
     pub fn weapon_mut(&mut self, weapon_id: &str) -> Option<&mut Weapon> {
-        self.weapons.iter_mut().find(|w| w.id == weapon_id)
+        let idx = self.weapons.iter().position(|w| w.id == weapon_id)?;
+        if !self.ssd.weapon_operational(idx) {
+            return None;
+        }
+        self.weapons.get_mut(idx)
     }
 
     pub fn can_afford_fire(&self) -> bool {

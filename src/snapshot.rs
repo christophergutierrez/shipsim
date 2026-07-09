@@ -29,7 +29,12 @@ pub struct ShipSnapshot {
     pub shield_reinforce: u32,
     pub turn_mode: u32,
     pub shields: [u32; 6],
+    /// Hull boxes remaining (SSD).
     pub structure: u32,
+    pub engine: u32,
+    pub power_sys: u32,
+    pub bridge: u32,
+    pub weapon_boxes: Vec<u32>,
     pub destroyed: bool,
     pub weapons: Vec<WeaponSnapshot>,
 }
@@ -40,6 +45,7 @@ pub struct WeaponSnapshot {
     pub kind: String,
     pub arc: String,
     pub max_range: u32,
+    pub operational: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,16 +93,22 @@ impl StateSnapshot {
                     shield_reinforce: ship.shield_reinforce,
                     turn_mode: ship.turn_mode,
                     shields: ship.shields,
-                    structure: ship.structure,
+                    structure: ship.structure(),
+                    engine: ship.ssd.engine,
+                    power_sys: ship.ssd.power_sys,
+                    bridge: ship.ssd.bridge,
+                    weapon_boxes: ship.ssd.weapon_boxes.clone(),
                     destroyed: ship.destroyed,
                     weapons: ship
                         .weapons
                         .iter()
-                        .map(|weapon| WeaponSnapshot {
+                        .enumerate()
+                        .map(|(idx, weapon)| WeaponSnapshot {
                             id: weapon.id.clone(),
                             kind: weapon_kind_name(&weapon.kind).to_string(),
                             arc: arc_name(&weapon.arc).to_string(),
                             max_range: weapon.max_range,
+                            operational: ship.ssd.weapon_operational(idx),
                         })
                         .collect(),
                 })

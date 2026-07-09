@@ -63,10 +63,10 @@ Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, A
   hits (ADR-0011). Sort key `(ship_id, weapon_id, target_id)` for PRNG order. Mutual kill possible.
 
 
-### D6. Itemized damage allocation / destroyable systems (SSD)  🎯 after D5
-- Damage-allocation chart distributes hits across systems; weapons/engines can be knocked out;
-  crippling. (Slice 2 uses a single structure pool instead.)
-- ▶ Replace the single structure pool with an itemized SSD; add a damage-allocation table.
+### D6. Itemized damage allocation / destroyable systems (SSD)  [REALIZED]
+- `src/ssd.rs` + DAC cursor; hull/engine/power/bridge/weapon boxes; overflow from shields
+  allocates systems (ADR-0012). Destroyed on hull or bridge 0; dead weapons cannot fire;
+  engines/power scale movement and energy.
 
 ### D5a. More weapon classes / seeking weapons  🎯 after D5
 - Seeking weapons (drones/plasma), reinforcement, richer arcs. (Slice 2 ships phasers + disruptors,

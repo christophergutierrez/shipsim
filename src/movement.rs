@@ -175,15 +175,16 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             if s.destroyed {
                 return Err(OrderError::ShipNotFound(ship));
             }
-            if !energy::is_legal_multi_allocation(s.power, s.speed, movement, weapons, shields)
-            {
+            let max_speed = s.effective_max_speed();
+            let power = s.effective_power();
+            if !energy::is_legal_multi_allocation(power, max_speed, movement, weapons, shields) {
                 return Err(OrderError::IllegalAllocation {
                     ship,
                     movement,
                     weapons,
                     shields,
-                    power: s.power,
-                    max_speed: s.speed,
+                    power,
+                    max_speed,
                 });
             }
             Ok(DeclaredOrder::Allocate {

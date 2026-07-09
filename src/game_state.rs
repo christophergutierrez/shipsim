@@ -232,8 +232,31 @@ impl GameState {
 
     pub fn set_ship_structure(&mut self, id: u32, structure: u32) -> Result<(), StateError> {
         let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
-        ship.structure = structure;
-        ship.destroyed = structure == 0;
+        ship.set_structure(structure);
+        Ok(())
+    }
+
+    /// Test/scenario helper: set remaining SSD boxes for a weapon by id.
+    pub fn set_weapon_boxes(
+        &mut self,
+        ship_id: u32,
+        weapon_id: &str,
+        boxes: u32,
+    ) -> Result<(), StateError> {
+        let ship = self
+            .ship_mut(ship_id)
+            .ok_or(StateError::ShipNotFound(ship_id))?;
+        let idx = ship
+            .weapons
+            .iter()
+            .position(|w| w.id == weapon_id)
+            .ok_or(StateError::WeaponNotFound {
+                ship: ship_id,
+                weapon: weapon_id.to_string(),
+            })?;
+        if let Some(slot) = ship.ssd.weapon_boxes.get_mut(idx) {
+            *slot = boxes;
+        }
         Ok(())
     }
 

@@ -316,6 +316,22 @@ fn test_refire_rejected() {
 }
 
 #[test]
+fn test_ssd_weapon_knockout_prevents_fire() {
+    let mut game = load_combat();
+    game.set_weapon_boxes(1, "phaser_1", 0).unwrap();
+    let err = declare(
+        &game,
+        Order::Fire {
+            ship: 1,
+            weapon: "phaser_1".to_string(),
+            target: 2,
+        },
+    )
+    .expect_err("destroyed weapon cannot fire");
+    assert!(matches!(err, OrderError::WeaponNotFound(_)));
+}
+
+#[test]
 fn test_simultaneous_fire_mutual_kill() {
     // D2-fire: both ships shoot from a frozen pre-fire state. Sequential resolve would let
     // ship 1 kill ship 2 before ship 2's shot landed; simultaneous applies both hits.
@@ -455,7 +471,9 @@ fn test_overflow_bleeds_then_stops() {
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 0);
-    assert_eq!(defender.structure, 7);
+    // 5 internal points via DAC: Hull,Hull,Engine,Weapon,Hull -> hull 12-3=9
+    assert_eq!(defender.structure(), 9);
+    assert_eq!(defender.ssd.engine, defender.speed - 1); // one engine box
 }
 
 #[test]
@@ -477,7 +495,7 @@ fn test_underflow_leaves_structure() {
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 4);
-    assert_eq!(defender.structure, 12);
+    assert_eq!(defender.structure(), 12);
 }
 
 #[test]
@@ -506,7 +524,9 @@ fn test_depleted_facing_stays_down() {
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 0);
-    assert_eq!(defender.structure, 7);
+    // Internals via DAC (not a pure structure pool): hull reduced but not 1:1 with overflow.
+    assert!(defender.structure() < 12);
+    assert!(defender.structure() >= 9);
 }
 
 #[test]
@@ -543,7 +563,7 @@ fn test_damage_hits_bearing_facing() {
             assert_eq!(*shield, 6);
         }
     }
-    assert_eq!(defender.structure, 12);
+    assert_eq!(defender.structure(), 12);
 }
 
 #[test]

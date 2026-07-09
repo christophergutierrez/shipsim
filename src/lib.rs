@@ -10,6 +10,7 @@ pub mod scenario;
 pub mod schema;
 pub mod ship;
 pub mod snapshot;
+pub mod ssd;
 pub mod turn;
 
 // Convenience re-export so harness/tests keep a short order-application path.
