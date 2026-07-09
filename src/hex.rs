@@ -35,6 +35,11 @@ impl Sub for Hex {
 impl Hex {
     pub const ORIGIN: Hex = Hex { q: 0, r: 0 };
 
+    /// True when `facing` is a legal six-direction index (0..=5).
+    pub const fn is_valid_facing(facing: u8) -> bool {
+        facing <= 5
+    }
+
     pub const fn new(q: i32, r: i32) -> Self {
         Self { q, r }
     }

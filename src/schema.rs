@@ -14,6 +14,8 @@ fn default_shields() -> [u32; 6] {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ShipDef {
+    /// Catalog key from the ship TOML file (kept for data identity; runtime id is placement).
+    #[serde(default)]
     pub id: String,
     pub name: String,
     pub speed: u32,

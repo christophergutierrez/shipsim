@@ -10,14 +10,15 @@ use crate::impulse;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Order {
     Plot { ship: u32, path: Vec<Hex> },
-    Fire { weapon: String, target: u32 },
+    /// `ship` is the firer (TS2 multi-firer: not inferred from weapon id alone).
+    Fire { ship: u32, weapon: String, target: u32 },
     RunTurn,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclaredOrder {
     Plot { ship: u32, path: Vec<Hex> },
-    Fire { weapon: String, target: u32 },
+    Fire { ship: u32, weapon: String, target: u32 },
     RunTurn,
 }
 
@@ -54,8 +55,8 @@ pub enum OrderError {
     },
     #[error("weapon {weapon} cannot bear on target {target}")]
     OutOfArc { weapon: String, target: u32 },
-    #[error("weapon {0} has already fired this turn")]
-    WeaponAlreadyFired(String),
+    #[error("weapon {weapon} on ship {ship} has already fired this turn")]
+    WeaponAlreadyFired { ship: u32, weapon: String },
 }
 
 /// Validate a plot path (adjacency, board, occupancy at submit, turn-mode, length).
@@ -133,16 +134,21 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             validate_plot(game, ship, &path)?;
             Ok(DeclaredOrder::Plot { ship, path })
         }
-        Order::Fire { weapon, target } => {
-            let owner_id = game
-                .weapon_owner_id(&weapon)
-                .ok_or_else(|| OrderError::WeaponNotFound(weapon.clone()))?;
+        Order::Fire {
+            ship,
+            weapon,
+            target,
+        } => {
+            if game.ship(ship).is_none() {
+                return Err(OrderError::ShipNotFound(ship));
+            }
+            if !game.ship_owns_weapon(ship, &weapon) {
+                return Err(OrderError::WeaponNotFound(weapon));
+            }
             let target_ship = game
                 .ship(target)
                 .ok_or(OrderError::TargetNotFound(target))?;
-            let attacker = game
-                .ship(owner_id)
-                .ok_or_else(|| OrderError::WeaponNotFound(weapon.clone()))?;
+            let attacker = game.ship(ship).expect("checked above");
             match combat::fire_legality(attacker, &weapon, target_ship) {
                 Ok(_) => {}
                 Err(FireIllegal::WeaponNotFound) => {
@@ -165,10 +171,14 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
                     return Err(OrderError::OutOfArc { weapon, target });
                 }
             }
-            if game.weapon_fired_this_turn(&weapon) {
-                return Err(OrderError::WeaponAlreadyFired(weapon));
+            if game.weapon_fired_this_turn(ship, &weapon) {
+                return Err(OrderError::WeaponAlreadyFired { ship, weapon });
             }
-            Ok(DeclaredOrder::Fire { weapon, target })
+            Ok(DeclaredOrder::Fire {
+                ship,
+                weapon,
+                target,
+            })
         }
         Order::RunTurn => Ok(DeclaredOrder::RunTurn),
     }
@@ -179,8 +189,12 @@ pub fn resolve(game: &mut GameState, order: DeclaredOrder) {
         DeclaredOrder::Plot { ship, path } => {
             game.store_plot(ship, path);
         }
-        DeclaredOrder::Fire { weapon, target } => {
-            game.queue_fire(weapon, target);
+        DeclaredOrder::Fire {
+            ship,
+            weapon,
+            target,
+        } => {
+            game.queue_fire(ship, weapon, target);
         }
         DeclaredOrder::RunTurn => {
             crate::turn::run_turn(game);

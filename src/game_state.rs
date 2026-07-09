@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -12,6 +12,13 @@ use crate::ship::Ship;
 pub enum ScenarioStatus {
     InProgress,
     Won,
+}
+
+/// Win condition. Objective and destruction are mutually exclusive (AS1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Terminal {
+    ReachHex(Hex),
+    DestroyShip(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +75,7 @@ struct PlotState {
 
 #[derive(Debug, Clone)]
 struct PendingFire {
+    ship: u32,
     weapon: String,
     target: u32,
 }
@@ -78,38 +86,43 @@ struct PendingFire {
 pub struct GameState {
     board: Board,
     ships: Vec<Ship>,
-    objective: Option<Hex>,
-    destruction_target: Option<u32>,
+    terminal: Option<Terminal>,
     seed: u64,
     prng: Prng,
     turn: Turn,
     /// 0 between turns; 1..=32 only during an in-progress RunTurn.
     impulse: u8,
     status: ScenarioStatus,
-    fired_weapons_this_turn: HashSet<String>,
+    /// Keys are (ship_id, weapon_id) for multi-firer safety (TS2).
+    fired_weapons_this_turn: HashSet<(u32, String)>,
     plots: HashMap<u32, PlotState>,
     pending_fires: Vec<PendingFire>,
-    scripted_plans: HashMap<u32, ScriptedPlan>,
+    /// BTreeMap so multi-scripted iteration is deterministic (T1).
+    scripted_plans: BTreeMap<u32, ScriptedPlan>,
 }
 
 impl GameState {
     pub fn new(board: Board, ships: Vec<Ship>, objective: Hex) -> Self {
-        Self::new_with_options(board, ships, Some(objective), None, HashMap::new(), 1)
+        Self::new_with_options(
+            board,
+            ships,
+            Some(Terminal::ReachHex(objective)),
+            BTreeMap::new(),
+            1,
+        )
     }
 
     pub(crate) fn new_with_options(
         board: Board,
         ships: Vec<Ship>,
-        objective: Option<Hex>,
-        destruction_target: Option<u32>,
-        scripted_plans: HashMap<u32, ScriptedPlan>,
+        terminal: Option<Terminal>,
+        scripted_plans: BTreeMap<u32, ScriptedPlan>,
         seed: u64,
     ) -> Self {
         let mut state = Self {
             board,
             ships,
-            objective,
-            destruction_target,
+            terminal,
             seed,
             prng: Prng::new(seed),
             turn: Turn::new(),
@@ -142,16 +155,31 @@ impl GameState {
         self.seed
     }
 
+    /// PRNG stream position for mid-game resume hooks (TS3).
+    pub fn prng_state(&self) -> u64 {
+        self.prng.state()
+    }
+
     pub fn board(&self) -> &Board {
         &self.board
     }
 
+    pub fn terminal(&self) -> Option<Terminal> {
+        self.terminal
+    }
+
     pub fn objective(&self) -> Option<Hex> {
-        self.objective
+        match self.terminal {
+            Some(Terminal::ReachHex(hex)) => Some(hex),
+            _ => None,
+        }
     }
 
     pub fn destruction_target(&self) -> Option<u32> {
-        self.destruction_target
+        match self.terminal {
+            Some(Terminal::DestroyShip(id)) => Some(id),
+            _ => None,
+        }
     }
 
     pub fn ship(&self, id: u32) -> Option<&Ship> {
@@ -168,22 +196,18 @@ impl GameState {
             .any(|ship| ship.id != moving_ship && !ship.destroyed && ship.pos == hex)
     }
 
-    pub fn weapon_fired_this_turn(&self, weapon_id: &str) -> bool {
-        self.fired_weapons_this_turn.contains(weapon_id)
+    pub fn weapon_fired_this_turn(&self, ship: u32, weapon_id: &str) -> bool {
+        self.fired_weapons_this_turn
+            .contains(&(ship, weapon_id.to_string()))
     }
 
-    /// First non-destroyed ship that owns `weapon_id` (1v1-safe; multi-ship is ROADMAP TS2).
-    pub fn weapon_owner_id(&self, weapon_id: &str) -> Option<u32> {
-        self.ships.iter().find_map(|ship| {
-            if !ship.destroyed && ship.weapon(weapon_id).is_some() {
-                Some(ship.id)
-            } else {
-                None
-            }
-        })
+    /// Whether `ship` owns a non-destroyed weapon with this id.
+    pub fn ship_owns_weapon(&self, ship_id: u32, weapon_id: &str) -> bool {
+        self.ship(ship_id)
+            .is_some_and(|ship| !ship.destroyed && ship.weapon(weapon_id).is_some())
     }
 
-    // ----- public setup mutators (explicit; replace free bag poking) -----
+    // ----- public setup mutators -----
 
     pub fn set_ship_pos(&mut self, id: u32, pos: Hex) -> Result<(), StateError> {
         let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
@@ -192,7 +216,7 @@ impl GameState {
     }
 
     pub fn set_ship_facing(&mut self, id: u32, facing: u8) -> Result<(), StateError> {
-        if facing > 5 {
+        if !Hex::is_valid_facing(facing) {
             return Err(StateError::InvalidFacing(facing));
         }
         let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
@@ -213,7 +237,6 @@ impl GameState {
         Ok(())
     }
 
-    /// Test/scenario helper: make a weapon a fixed-damage disruptor (exact rolls for tests).
     pub fn configure_weapon_exact_damage(
         &mut self,
         ship_id: u32,
@@ -272,7 +295,7 @@ impl GameState {
         Ok(())
     }
 
-    // ----- crate-internal mutation for turn / movement / combat apply -----
+    // ----- crate-internal -----
 
     pub(crate) fn ship_mut(&mut self, id: u32) -> Option<&mut Ship> {
         self.ships.iter_mut().find(|ship| ship.id == id)
@@ -315,9 +338,14 @@ impl GameState {
         );
     }
 
-    pub(crate) fn queue_fire(&mut self, weapon: String, target: u32) {
-        self.fired_weapons_this_turn.insert(weapon.clone());
-        self.pending_fires.push(PendingFire { weapon, target });
+    pub(crate) fn queue_fire(&mut self, ship: u32, weapon: String, target: u32) {
+        self.fired_weapons_this_turn
+            .insert((ship, weapon.clone()));
+        self.pending_fires.push(PendingFire {
+            ship,
+            weapon,
+            target,
+        });
     }
 
     pub(crate) fn has_plot(&self, ship_id: u32) -> bool {
@@ -345,10 +373,10 @@ impl GameState {
         self.plots.remove(&ship_id);
     }
 
-    pub(crate) fn take_pending_fires(&mut self) -> Vec<(String, u32)> {
+    pub(crate) fn take_pending_fires(&mut self) -> Vec<(u32, String, u32)> {
         std::mem::take(&mut self.pending_fires)
             .into_iter()
-            .map(|f| (f.weapon, f.target))
+            .map(|f| (f.ship, f.weapon, f.target))
             .collect()
     }
 
@@ -367,15 +395,13 @@ impl GameState {
         Some((plan.next_waypoint, plan.waypoints.as_slice()))
     }
 
-    /// Apply a queued fire using pure combat + this state's PRNG.
-    pub(crate) fn apply_fire(&mut self, weapon_id: &str, target_id: u32) {
-        let Some(owner_id) = self.weapon_owner_id(weapon_id) else {
+    pub(crate) fn apply_fire(&mut self, ship_id: u32, weapon_id: &str, target_id: u32) {
+        let Some(attacker) = self.ship(ship_id).cloned() else {
             return;
         };
-        let Some(attacker) = self.ship(owner_id).cloned() else {
+        if attacker.destroyed || attacker.weapon(weapon_id).is_none() {
             return;
-        };
-        // Disjoint borrows: ships[] and prng are separate fields.
+        }
         let Some(target) = self.ships.iter_mut().find(|ship| ship.id == target_id) else {
             return;
         };
@@ -383,24 +409,26 @@ impl GameState {
     }
 
     pub fn refresh_status(&mut self) {
-        self.status = if let Some(objective) = self.objective {
-            if self.ships.iter().any(|ship| ship.pos == objective) {
-                ScenarioStatus::Won
-            } else {
-                ScenarioStatus::InProgress
+        self.status = match self.terminal {
+            Some(Terminal::ReachHex(objective)) => {
+                if self.ships.iter().any(|ship| ship.pos == objective) {
+                    ScenarioStatus::Won
+                } else {
+                    ScenarioStatus::InProgress
+                }
             }
-        } else if let Some(target) = self.destruction_target {
-            if self
-                .ships
-                .iter()
-                .any(|ship| ship.id == target && ship.destroyed)
-            {
-                ScenarioStatus::Won
-            } else {
-                ScenarioStatus::InProgress
+            Some(Terminal::DestroyShip(target)) => {
+                if self
+                    .ships
+                    .iter()
+                    .any(|ship| ship.id == target && ship.destroyed)
+                {
+                    ScenarioStatus::Won
+                } else {
+                    ScenarioStatus::InProgress
+                }
             }
-        } else {
-            ScenarioStatus::InProgress
+            None => ScenarioStatus::InProgress,
         };
     }
 
@@ -437,4 +465,3 @@ impl ScriptedPlan {
         }
     }
 }
-

@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
 use crate::board::Board;
 use crate::combat::{Arc, Weapon, WeaponKind};
-use crate::game_state::{GameState, ScriptedPlan};
+use crate::game_state::{GameState, ScriptedPlan, Terminal};
 use crate::hex::Hex;
 use crate::schema::{ScenarioDef, ShipDef, WeaponDef};
 use crate::ship::Ship;
@@ -28,31 +28,55 @@ pub enum LoadError {
     OffBoard { q: i32, r: i32 },
     #[error("facing {facing} is not in 0..=5")]
     InvalidFacing { facing: u8 },
+    #[error("ships {a} and {b} both placed on hex ({q},{r})")]
+    OverlappingPlacement { a: u32, b: u32, q: i32, r: i32 },
+    #[error("scenario defines both objective and destruction terminal")]
+    ConflictingTerminals,
+    #[error("destruction terminal missing target")]
+    DestructionTargetMissing,
+    #[error("unknown weapon kind {kind:?} on weapon {weapon_id}")]
+    UnknownWeaponKind { kind: String, weapon_id: String },
+    #[error("unknown weapon arc {arc:?} on weapon {weapon_id}")]
+    UnknownWeaponArc { arc: String, weapon_id: String },
 }
 
 pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     let text = read_to_string(path)?;
     let def: ScenarioDef = parse_toml(path, &text)?;
     let board = Board::new(def.width, def.height);
-    let objective = def
-        .objective
-        .map(|objective| Hex::new(objective.q, objective.r));
-    if let Some(objective) = objective {
-        validate_on_board(&board, objective)?;
+
+    let has_objective = def.objective.is_some();
+    let has_destruction = def
+        .terminal
+        .as_ref()
+        .is_some_and(|t| t.terminal_type == "destruction");
+    if has_objective && has_destruction {
+        return Err(LoadError::ConflictingTerminals);
     }
-    let destruction_target = def.terminal.as_ref().and_then(|terminal| {
-        if terminal.terminal_type == "destruction" {
-            terminal.target
+
+    let terminal = if let Some(obj) = def.objective {
+        let hex = Hex::new(obj.q, obj.r);
+        validate_on_board(&board, hex)?;
+        Some(Terminal::ReachHex(hex))
+    } else if let Some(term) = def.terminal {
+        if term.terminal_type == "destruction" {
+            let target = term.target.ok_or(LoadError::DestructionTargetMissing)?;
+            Some(Terminal::DestroyShip(target))
         } else {
             None
         }
-    });
+    } else {
+        None
+    };
+
     let seed = if def.seed == 0 { 1 } else { def.seed };
 
     let mut ships = Vec::with_capacity(def.ships.len());
-    let mut scripted_plans = HashMap::new();
+    let mut scripted_plans = BTreeMap::new();
+    let mut occupied: BTreeMap<(i32, i32), u32> = BTreeMap::new();
+
     for placement in def.ships {
-        if placement.facing > 5 {
+        if !Hex::is_valid_facing(placement.facing) {
             return Err(LoadError::InvalidFacing {
                 facing: placement.facing,
             });
@@ -60,6 +84,15 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
 
         let pos = Hex::new(placement.q, placement.r);
         validate_on_board(&board, pos)?;
+        if let Some(other) = occupied.insert((pos.q, pos.r), placement.id) {
+            return Err(LoadError::OverlappingPlacement {
+                a: other,
+                b: placement.id,
+                q: pos.q,
+                r: pos.r,
+            });
+        }
+
         let ship_def = load_ship_def(path, &placement.class)?;
         let waypoints = placement
             .waypoints
@@ -96,8 +129,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     Ok(GameState::new_with_options(
         board,
         ships,
-        objective,
-        destruction_target,
+        terminal,
         scripted_plans,
         seed,
     ))
@@ -147,21 +179,33 @@ fn validate_on_board(board: &Board, hex: Hex) -> Result<(), LoadError> {
 }
 
 fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
+    let kind = match def.kind.as_str() {
+        "phaser" => WeaponKind::Phaser,
+        "disruptor" => WeaponKind::Disruptor,
+        other => {
+            return Err(LoadError::UnknownWeaponKind {
+                kind: other.to_string(),
+                weapon_id: def.id.clone(),
+            });
+        }
+    };
+    let arc = match def.arc.as_str() {
+        "forward" => Arc::Forward,
+        "rear" => Arc::Rear,
+        "left" => Arc::Left,
+        "right" => Arc::Right,
+        "all" => Arc::All,
+        other => {
+            return Err(LoadError::UnknownWeaponArc {
+                arc: other.to_string(),
+                weapon_id: def.id.clone(),
+            });
+        }
+    };
     Ok(Weapon {
         id: def.id,
-        kind: match def.kind.as_str() {
-            "phaser" => WeaponKind::Phaser,
-            "disruptor" => WeaponKind::Disruptor,
-            _ => WeaponKind::Phaser,
-        },
-        arc: match def.arc.as_str() {
-            "forward" => Arc::Forward,
-            "rear" => Arc::Rear,
-            "left" => Arc::Left,
-            "right" => Arc::Right,
-            "all" => Arc::All,
-            _ => Arc::Forward,
-        },
+        kind,
+        arc,
         max_range: def.max_range,
         damage: def.damage,
         phaser_dice_by_range: def.phaser_dice_by_range,

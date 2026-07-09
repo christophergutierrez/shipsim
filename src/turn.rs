@@ -77,11 +77,8 @@ fn resolve_impulse(game: &mut GameState, impulse: u8) {
 
 fn resolve_pending_fires(game: &mut GameState) {
     let pending = game.take_pending_fires();
-    for (weapon, target) in pending {
-        let Some(owner_id) = game.weapon_owner_id(&weapon) else {
-            continue;
-        };
-        let Some(attacker) = game.ship(owner_id).cloned() else {
+    for (ship, weapon, target) in pending {
+        let Some(attacker) = game.ship(ship).cloned() else {
             continue;
         };
         let Some(target_ship) = game.ship(target).cloned() else {
@@ -90,7 +87,7 @@ fn resolve_pending_fires(game: &mut GameState) {
         if combat::fire_legality(&attacker, &weapon, &target_ship).is_err() {
             continue;
         }
-        game.apply_fire(&weapon, target);
+        game.apply_fire(ship, &weapon, target);
     }
 }
 

@@ -99,23 +99,25 @@ Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, A
 
 ---
 
-## Deferred findings from the Slice 1 Code Review Tribunal (non-blocking)
+## Fleet-readiness hygiene (REALIZED pre-D10)
 
-Recorded so they are not lost; none block Slice 1 (tribunal verdict PASS).
+Landed before fleets / multi-firer play (see multi-ship readiness commit):
 
-- **T1. Scripted-ship iteration order is HashMap-random** (`src/game_state.rs`, determinism, low).
-  `scripted_plans: HashMap<u32, ScriptedPlan>` is iterated when advancing scripted ships; with >1
-  scripted ship the advance/collision order is non-deterministic. Safe now (every scenario has exactly
-  one scripted ship). ▶ Fix before any second scripted ship / multi-ship scenario (ties to D10): use
-  `BTreeMap` or sort ids.
-- **T2. Initial placements not checked for mutual occupancy** (`src/scenario.rs`, robustness, low).
-  Two ships could be authored onto the same hex. ▶ Add a mutual-occupancy validation as scenario count
-  grows.
-- **T3. `ShipDef.id` is deserialized but never read** (`src/schema.rs`, maintainability, trivial).
-  Runtime id comes from placement. ▶ Clean up on the next schema edit.
-- **T4. `Turn` is a thin counter; per-turn policy lives in `GameState::end_turn`** (design note).
-  Satisfies the impulse-container invariant and does not preclude D1, but the hook is minimal. ▶
-  Revisit when implementing the D1 impulse chart.
+- **T1** scripted plans use `BTreeMap` (deterministic id order).
+- **T2** scenario load rejects overlapping ship placements.
+- **T3** `ShipDef.id` optional/default; catalog key only.
+- **TS2** `Order::Fire { ship, weapon, target }`; fired set keys `(ship_id, weapon_id)`.
+- **TS3** snapshot includes `prng_state`.
+- **TS4** unknown weapon kind/arc are typed `LoadError`s.
+- **AS1** `Terminal` enum (`ReachHex` / `DestroyShip`); conflicting objective+destruction rejected at load.
+- **A2** shared `Hex::is_valid_facing`.
+
+Still deferred: **TS1** n/a (dead index already gone), **T4** turn container notes, **AS2–AS4** combat logging/geometry consolidation, mid-game PRNG resume (serialize only for now).
+
+## Older Slice 1 tribunal notes (superseded where listed above)
+
+- **T4. `Turn` is a thin counter** (design note). Impulse policy lives in `turn` + IMC. ▶ Revisit if
+  impulse-by-impulse stepping is exposed.
 
 ---
 
@@ -140,22 +142,7 @@ Architecture verdict PASS; these are quality notes, none block Slice 1.
 
 Tribunal verdict PASS; none block Slice 2. All contained by the 1v1 scope (assumption A5).
 
-- **TS1. `fire_attacker_index` is dead code** (`src/game_state.rs`, Ponytail, trivial). Both `declare`
-  and `resolve_fire` use `weapon_owner_index`. Delete next time the fire path is touched.
-- **TS2. Weapon identity is a bare global `weapon_id`** (`src/game_state.rs`, correctness, latent).
-  `weapon_owner_index` returns the first non-destroyed owner and `fired_weapons_this_turn` is keyed on
-  id alone; both shipped ships define `"phaser_1"`. Safe only under 1v1 with a scripted (never-firing)
-  enemy and player-listed-first ordering. ▶ Before a second firing ship / enemy fire AI / D10 fleets:
-  `Order::Fire` must name the acting ship, and fired-weapon tracking must key on `(ship_id, weapon_id)`
-  (this is what the "deterministic order by ship id" invariant O16/DD4 will require).
-- **TS3. Snapshot serializes the seed but not the PRNG's current position** (`src/snapshot.rs`,
-  completeness, low). Satisfies reproducibility (same seed+orders replays), but not mid-game resume.
-  The `Prng::state()` accessor already exists as the hook. ▶ Serialize `prng.state()` when save/resume
-  mid-game is added.
-- **TS4. `parse_weapon` silently falls back on bad data** (`src/scenario.rs`, data-hygiene, low).
-  Unknown weapon kind -> Phaser, unknown arc -> Forward, instead of a typed `LoadError`; the phaser
-  `damage` field is inert when `phaser_dice_by_range` is populated. ▶ Make unknown kind/arc a typed
-  load error; reconcile the redundant damage field.
+- **TS1–TS4.** REALIZED or obsolete under fleet-readiness hygiene (see section above).
 
 ---
 
@@ -163,21 +150,11 @@ Tribunal verdict PASS; none block Slice 2. All contained by the 1v1 scope (assum
 
 Architecture verdict PASS; no Critical/High. Distinct from TS1-TS4.
 
-- **AS1. Terminal modeled as two parallel Options** (`src/game_state.rs`, Medium, domain). `objective:
-  Option<Hex>` and `destruction_target: Option<u32>` with an implicit objective-wins precedence in
-  `refresh_status`. A single `Terminal` enum (ReachHex / DestroyShip) would collapse the branch and
-  make the both-set state unrepresentable. ▶ Fold into a schema pass (Medium blast radius: touches
-  GameState public fields + `new()` + snapshot access).
-- **AS2. Fire geometry recomputed** (`src/movement.rs`, `src/combat.rs`, Low/Medium). range +
-  relative_bearing computed in `movement::declare` and recomputed in `combat::resolve_fire`.
-  Behavior-preserving; consolidating intersects the still-unfirmed D2 simultaneous-resolution seam, so
-  premature. ▶ Consolidate when D2 lands.
-- **AS3. `FireOutcome` discarded** (`src/movement.rs`, Low). `resolve_fire` returns it but `resolve`
-  drops it. Deliberate hook for future combat logging, not a defect. ▶ Consume when combat logging /
-  replay is added.
-- **AS4. Combat indexes the ships Vec and clones the attacker** (`src/combat.rs`, Low). Uses public
-  index accessors + a clone to sidestep the borrow checker; consistent with the crate's "GameState as
-  public data bag" idiom. Acceptable at this size. ▶ Revisit if GameState encapsulation tightens.
+- **AS1.** REALIZED — `Terminal` enum (see fleet-readiness).
+- **AS2. Fire geometry recomputed** — still deferred until D2-fire.
+- **AS3. `FireOutcome` discarded** — still deferred until combat logging.
+- **AS4.** Largely obsolete after pure `resolve_fire` + encapsulation; clone of attacker remains for
+  borrow splitting.
 
 ---
 

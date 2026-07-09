@@ -43,6 +43,7 @@ fn phaser_damage_at_range(range: i32) -> u32 {
     let before = game.ship(2).expect("defender exists").shields;
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -102,6 +103,7 @@ fn test_fire_without_run_turn_no_damage() {
     let before = snapshot_json(&game);
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -124,6 +126,7 @@ fn test_tracer_fire_damages_shield() {
         .expect("defender shield 0 before");
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -162,6 +165,7 @@ fn test_fire_skipped_when_target_moves_out_of_range() {
     let before_shields = game.ship(2).unwrap().shields;
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -195,6 +199,7 @@ fn test_unknown_weapon_rejected() {
     let error = declare(
         &game,
         Order::Fire {
+            ship: 1,
             weapon: "missing_weapon".to_string(),
             target: 2,
         },
@@ -214,6 +219,7 @@ fn test_unknown_target_rejected() {
     let error = declare(
         &game,
         Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 99,
         },
@@ -230,6 +236,7 @@ fn test_fire_at_self_rejected() {
     let error = declare(
         &game,
         Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 1,
         },
@@ -247,6 +254,7 @@ fn test_out_of_range_rejected() {
     let error = declare(
         &game,
         Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         },
@@ -271,6 +279,7 @@ fn test_out_of_arc_rejected() {
     let error = declare(
         &game,
         Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         },
@@ -290,6 +299,7 @@ fn test_out_of_arc_rejected() {
 fn test_refire_rejected() {
     let mut game = load_combat();
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -298,6 +308,7 @@ fn test_refire_rejected() {
     let error = declare(
         &game,
         Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         },
@@ -306,8 +317,29 @@ fn test_refire_rejected() {
 
     assert_eq!(
         error,
-        OrderError::WeaponAlreadyFired("phaser_1".to_string())
+        OrderError::WeaponAlreadyFired { ship: 1, weapon: "phaser_1".to_string() }
     );
+}
+
+#[test]
+fn test_fire_requires_named_ship_and_weapon_on_that_ship() {
+    let game = load_combat();
+    // Same weapon id exists on ship 2's class, but ship 2 is the target here; firing as ship 99 fails.
+    let err = declare(
+        &game,
+        Order::Fire {
+            ship: 99,
+            weapon: "phaser_1".to_string(),
+            target: 2,
+        },
+    )
+    .expect_err("unknown firer");
+    assert_eq!(err, OrderError::ShipNotFound(99));
+
+    // Ship 2 owns phaser_1 too — declaring fire *as* ship 2 is legal ownership-wise even if
+    // geometry/arc may fail; ownership must not use global first-match.
+    let owned = game.ship_owns_weapon(2, "phaser_1");
+    assert!(owned, "escort also defines phaser_1");
 }
 
 #[test]
@@ -317,6 +349,7 @@ fn test_illegal_fire_no_mutation() {
     let before = snapshot_json(&game);
 
     let result = apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     });
@@ -345,6 +378,7 @@ fn test_face_order_changes_arc_eligibility() {
     declare(
         &game,
         Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         },
@@ -356,6 +390,7 @@ fn test_face_order_changes_arc_eligibility() {
     let error = declare(
         &game,
         Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         },
@@ -375,6 +410,7 @@ fn test_overflow_bleeds_then_stops() {
     game.set_ship_structure(2, 12).unwrap();
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -396,6 +432,7 @@ fn test_underflow_leaves_structure() {
     game.set_ship_structure(2, 12).unwrap();
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -417,12 +454,14 @@ fn test_depleted_facing_stays_down() {
     game.set_ship_structure(2, 12).unwrap();
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("first fire succeeds");
     apply_order(&mut game, Order::RunTurn).expect("resolve first fire");
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -453,6 +492,7 @@ fn test_damage_hits_bearing_facing() {
     game.set_ship_structure(2, 12).unwrap();
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -476,6 +516,7 @@ fn test_face_order_changes_hit_shield() {
     make_first_weapon_exact_damage(&mut baseline, 2);
     baseline.set_ship_shields(2, [6; 6]).unwrap();
     apply_order(&mut baseline, Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         })
@@ -487,6 +528,7 @@ fn test_face_order_changes_hit_shield() {
     turned.set_ship_shields(2, [6; 6]).unwrap();
     turned.set_ship_facing(2, 1).unwrap();
     apply_order(&mut turned, Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         })
@@ -531,6 +573,7 @@ fn test_fire_until_destroyed_wins() {
         assert_eq!(snapshot_json(&game)["status"], "InProgress");
 
         apply_order(&mut game, Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         })
@@ -563,6 +606,7 @@ fn test_disruptor_miss_then_hit_pinned_seed() {
     let before_miss = game.ship(2).unwrap().shields;
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "disruptor_1".to_string(),
         target: 2,
     })
@@ -575,6 +619,7 @@ fn test_disruptor_miss_then_hit_pinned_seed() {
     let before_hit = game.ship(2).expect("defender exists").shields;
 
     apply_order(&mut game, Order::Fire {
+        ship: 1,
         weapon: "disruptor_1".to_string(),
         target: 2,
     })
@@ -600,6 +645,7 @@ fn run_seeded_fire_sequence() -> String {
     game.set_ship_structure(2, 100).unwrap();
     for _ in 0..3 {
         apply_order(&mut game, Order::Fire {
+            ship: 1,
             weapon: "phaser_1".to_string(),
             target: 2,
         })

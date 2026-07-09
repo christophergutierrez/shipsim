@@ -44,6 +44,8 @@ pub struct StateSnapshot {
     pub impulse: u8,
     pub status: ScenarioStatus,
     pub seed: u64,
+    /// PRNG stream position for mid-game resume (TS3).
+    pub prng_state: u64,
     pub map: MapSnapshot,
     pub objective: Option<HexSnapshot>,
     pub ships: Vec<ShipSnapshot>,
@@ -56,6 +58,7 @@ impl StateSnapshot {
             impulse: game.impulse(),
             status: game.status(),
             seed: game.seed(),
+            prng_state: game.prng_state(),
             map: MapSnapshot {
                 width: game.board().width,
                 height: game.board().height,
