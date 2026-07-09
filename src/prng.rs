@@ -8,6 +8,10 @@ impl Prng {
         Self { state: seed }
     }
 
+    pub fn from_state(state: u64) -> Self {
+        Self { state }
+    }
+
     pub fn state(&self) -> u64 {
         self.state
     }

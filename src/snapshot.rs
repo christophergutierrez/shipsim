@@ -7,6 +7,7 @@ use crate::game_state::{GameState, ScenarioStatus};
 pub struct MapSnapshot {
     pub width: u32,
     pub height: u32,
+    pub mode: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +72,16 @@ pub struct StateSnapshot {
     pub objective: Option<HexSnapshot>,
     pub ships: Vec<ShipSnapshot>,
     pub seeking: Vec<SeekingSnapshot>,
+    pub combat_log: Vec<CombatLogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CombatLogEntry {
+    pub attacker: u32,
+    pub target: u32,
+    pub shield: usize,
+    pub damage: u32,
+    pub kind: String,
 }
 
 impl StateSnapshot {
@@ -84,6 +95,10 @@ impl StateSnapshot {
             map: MapSnapshot {
                 width: game.board().width,
                 height: game.board().height,
+                mode: match game.board().mode {
+                    crate::board::MapMode::Hard => "hard".into(),
+                    crate::board::MapMode::Floating => "floating".into(),
+                },
             },
             objective: game.objective().map(|objective| HexSnapshot {
                 q: objective.q,
@@ -138,6 +153,17 @@ impl StateSnapshot {
                     damage: m.damage,
                 })
                 .collect(),
+            combat_log: game
+                .combat_log()
+                .iter()
+                .map(|e| CombatLogEntry {
+                    attacker: e.attacker,
+                    target: e.target,
+                    shield: e.shield,
+                    damage: e.damage,
+                    kind: e.kind.clone(),
+                })
+                .collect(),
         }
     }
 }
@@ -147,6 +173,7 @@ fn weapon_kind_name(kind: &WeaponKind) -> &'static str {
         WeaponKind::Phaser => "Phaser",
         WeaponKind::Disruptor => "Disruptor",
         WeaponKind::Drone => "Drone",
+        WeaponKind::Plasma => "Plasma",
     }
 }
 

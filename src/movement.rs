@@ -115,7 +115,8 @@ pub fn validate_plot(game: &GameState, ship_id: u32, path: &[Hex]) -> Result<(),
     let mut straight: u32 = 0;
 
     for (step_index, step) in path.iter().enumerate() {
-        if !game.board().contains(*step) {
+        // Hard map: reject off-board. Floating map: allow (recenters after movement).
+        if game.board().mode == crate::board::MapMode::Hard && !game.board().contains(*step) {
             return Err(OrderError::OffMap {
                 q: step.q,
                 r: step.r,
@@ -209,10 +210,16 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
                 .ship(target)
                 .ok_or(OrderError::TargetNotFound(target))?;
             let attacker = game.ship(ship).expect("checked above");
-            if !attacker.can_afford_fire() {
+            let wdef = attacker
+                .weapons
+                .iter()
+                .find(|w| w.id == weapon)
+                .ok_or_else(|| OrderError::WeaponNotFound(weapon.clone()))?;
+            let need = energy::fire_energy_cost_for(wdef.energy_cost);
+            if !attacker.can_afford_weapon_cost(wdef.energy_cost) {
                 return Err(OrderError::InsufficientWeaponEnergy {
                     ship,
-                    need: energy::fire_energy_cost(),
+                    need,
                     have: attacker.weapons_energy,
                 });
             }

@@ -128,15 +128,24 @@ impl Ship {
     }
 
     pub fn can_afford_fire(&self) -> bool {
-        self.weapons_energy >= energy::fire_energy_cost()
+        self.can_afford_weapon_cost(energy::default_fire_energy_cost())
+    }
+
+    pub fn can_afford_weapon_cost(&self, cost: u32) -> bool {
+        let c = energy::fire_energy_cost_for(cost);
+        self.weapons_energy >= c
     }
 
     pub fn spend_fire_energy(&mut self) -> bool {
-        let cost = energy::fire_energy_cost();
-        if self.weapons_energy < cost {
+        self.spend_weapon_energy(energy::default_fire_energy_cost())
+    }
+
+    pub fn spend_weapon_energy(&mut self, cost: u32) -> bool {
+        let c = energy::fire_energy_cost_for(cost);
+        if self.weapons_energy < c {
             return false;
         }
-        self.weapons_energy -= cost;
+        self.weapons_energy -= c;
         true
     }
 }

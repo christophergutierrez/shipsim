@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::board::Board;
+use crate::board::{Board, MapMode};
 use crate::combat::{Arc, Weapon, WeaponKind};
 use crate::game_state::{GameState, NpcController, ScriptedPlan, Terminal};
 use crate::hex::Hex;
@@ -43,7 +43,12 @@ pub enum LoadError {
 pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     let text = read_to_string(path)?;
     let def: ScenarioDef = parse_toml(path, &text)?;
-    let board = Board::new(def.width, def.height);
+    let mode = def
+        .map_mode
+        .as_deref()
+        .map(MapMode::parse)
+        .unwrap_or_default();
+    let board = Board::new(def.width, def.height).with_mode(mode);
 
     let has_objective = def.objective.is_some();
     let has_destruction = def
@@ -207,6 +212,7 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
         "phaser" => WeaponKind::Phaser,
         "disruptor" => WeaponKind::Disruptor,
         "drone" => WeaponKind::Drone,
+        "plasma" => WeaponKind::Plasma,
         other => {
             return Err(LoadError::UnknownWeaponKind {
                 kind: other.to_string(),
@@ -233,6 +239,7 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
         arc,
         max_range: def.max_range,
         damage: def.damage,
+        energy_cost: def.energy_cost,
         phaser_dice_by_range: def.phaser_dice_by_range,
         to_hit_by_range: def.to_hit_by_range,
     })

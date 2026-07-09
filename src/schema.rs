@@ -38,6 +38,9 @@ pub struct ScenarioDef {
     pub height: u32,
     #[serde(default = "default_seed")]
     pub seed: u64,
+    /// `"hard"` (default) or `"floating"` (D4).
+    #[serde(default)]
+    pub map_mode: Option<String>,
     pub objective: Option<HexDef>,
     #[serde(default)]
     pub terminal: Option<TerminalDef>,
@@ -79,6 +82,8 @@ pub struct WeaponDef {
     pub max_range: u32,
     #[serde(default = "default_weapon_damage")]
     pub damage: u32,
+    #[serde(default = "default_weapon_energy_cost")]
+    pub energy_cost: u32,
     #[serde(default)]
     pub phaser_dice_by_range: Vec<u32>,
     #[serde(default)]
@@ -86,5 +91,9 @@ pub struct WeaponDef {
 }
 
 fn default_weapon_damage() -> u32 {
+    1
+}
+
+fn default_weapon_energy_cost() -> u32 {
     1
 }

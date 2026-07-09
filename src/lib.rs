@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod board;
+pub mod campaign;
 pub mod combat;
 pub mod energy;
 pub mod game_state;

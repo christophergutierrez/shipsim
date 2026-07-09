@@ -110,8 +110,19 @@ pub struct GameState {
     pending_fires: Vec<PendingFire>,
     seeking: Vec<SeekingMunition>,
     next_seeking_id: u32,
+    /// Hits applied this turn (cleared with turn ephemera). AS3 combat logging.
+    combat_log: Vec<CombatLogEvent>,
     /// Non-player controllers (scripted waypoints or AI). BTreeMap = deterministic order (T1).
     npcs: BTreeMap<u32, NpcController>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CombatLogEvent {
+    pub attacker: u32,
+    pub target: u32,
+    pub shield: usize,
+    pub damage: u32,
+    pub kind: String,
 }
 
 impl GameState {
@@ -146,6 +157,7 @@ impl GameState {
             pending_fires: Vec::new(),
             seeking: Vec::new(),
             next_seeking_id: 1,
+            combat_log: Vec::new(),
             npcs,
         };
         state.refresh_status();
@@ -380,6 +392,48 @@ impl GameState {
         }
     }
 
+    /// D4 floating map: translate all units so the formation stays on the board.
+    pub(crate) fn maybe_float_recenter(&mut self) {
+        if self.board.mode != crate::board::MapMode::Floating {
+            return;
+        }
+        let mut positions: Vec<Hex> = self.ships.iter().map(|s| s.pos).collect();
+        positions.extend(self.seeking.iter().map(|m| m.pos));
+        if positions.is_empty() {
+            return;
+        }
+        let (dq, dr) = Board::float_delta(&positions, self.board.width, self.board.height);
+        if dq == 0 && dr == 0 {
+            // Still clamp any outliers if formation larger than map.
+            self.clamp_all_to_board();
+            return;
+        }
+        for ship in &mut self.ships {
+            ship.pos.q += dq;
+            ship.pos.r += dr;
+        }
+        for m in &mut self.seeking {
+            m.pos.q += dq;
+            m.pos.r += dr;
+        }
+        self.clamp_all_to_board();
+    }
+
+    fn clamp_all_to_board(&mut self) {
+        let w = self.board.width as i32;
+        let h = self.board.height as i32;
+        let clamp = |hex: &mut Hex| {
+            hex.q = hex.q.clamp(0, w.saturating_sub(1).max(0));
+            hex.r = hex.r.clamp(0, h.saturating_sub(1).max(0));
+        };
+        for ship in &mut self.ships {
+            clamp(&mut ship.pos);
+        }
+        for m in &mut self.seeking {
+            clamp(&mut m.pos);
+        }
+    }
+
     pub(crate) fn allocate_energy(
         &mut self,
         ship_id: u32,
@@ -409,9 +463,13 @@ impl GameState {
     }
 
     pub(crate) fn queue_fire(&mut self, ship: u32, weapon: String, target: u32) {
+        let cost = self
+            .ship(ship)
+            .and_then(|s| s.weapons.iter().find(|w| w.id == weapon))
+            .map(|w| w.energy_cost)
+            .unwrap_or(1);
         if let Some(s) = self.ship_mut(ship) {
-            // Energy was checked at declare; spend on resolve.
-            let _ = s.spend_fire_energy();
+            let _ = s.spend_weapon_energy(cost);
         }
         self.fired_weapons_this_turn
             .insert((ship, weapon.clone()));
@@ -504,10 +562,19 @@ impl GameState {
             m.pos = step;
             if m.pos == target.pos {
                 let shield = approach_facing as usize;
-                if let Some(t) = self.ship_mut(m.target) {
-                    t.apply_hit(shield, m.damage);
+                let atk = m.owner;
+                let tgt = m.target;
+                let dmg = m.damage;
+                if let Some(t) = self.ship_mut(tgt) {
+                    t.apply_hit(shield, dmg);
                 }
-                // munition expended
+                self.combat_log.push(CombatLogEvent {
+                    attacker: atk,
+                    target: tgt,
+                    shield,
+                    damage: dmg,
+                    kind: "seeking".into(),
+                });
             } else {
                 next.push(m);
             }
@@ -572,7 +639,20 @@ impl GameState {
         self.pending_fires.clear();
     }
 
-    pub(crate) fn npc_ids(&self) -> Vec<u32> {
+    pub(crate) fn clear_combat_log(&mut self) {
+        self.combat_log.clear();
+    }
+
+    pub fn combat_log(&self) -> &[CombatLogEvent] {
+        &self.combat_log
+    }
+
+    /// Restore PRNG stream for mid-game resume (TS3).
+    pub fn set_prng_state(&mut self, state: u64) {
+        self.prng = Prng::from_state(state);
+    }
+
+    pub fn npc_ids(&self) -> Vec<u32> {
         self.npcs.keys().copied().collect()
     }
 
@@ -630,6 +710,13 @@ impl GameState {
             if let Some(target) = self.ships.iter_mut().find(|s| s.id == hit.target) {
                 target.apply_hit(hit.shield, hit.damage);
             }
+            self.combat_log.push(CombatLogEvent {
+                attacker: hit.attacker,
+                target: hit.target,
+                shield: hit.shield,
+                damage: hit.damage,
+                kind: "direct".into(),
+            });
         }
     }
 

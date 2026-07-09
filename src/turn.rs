@@ -10,6 +10,7 @@ use crate::movement::{self, Order};
 
 /// Resolve a full turn: NPC plot/fire, 32 impulses, terminals, advance turn.
 pub fn run_turn(game: &mut GameState) {
+    game.clear_combat_log();
     ensure_npc_orders(game);
 
     for impulse in 1u8..=32 {
@@ -22,7 +23,7 @@ pub fn run_turn(game: &mut GameState) {
     game.set_impulse(0);
     game.discard_pending_fires();
     game.sync_scripted_waypoints();
-    game.clear_turn_ephemera();
+    game.clear_turn_ephemera(); // keeps combat_log for post-turn snapshot
     game.reset_all_turn_energy();
     game.refresh_status();
     game.advance_turn_counter();
@@ -73,6 +74,7 @@ fn resolve_impulse_movement(game: &mut GameState, impulse: u8) {
         game.apply_ship_step(ship_id, next, facing);
         game.advance_plot_cursor(ship_id);
     }
+    game.maybe_float_recenter();
 }
 
 fn resolve_fires_on_impulse(game: &mut GameState, impulse: u8) {

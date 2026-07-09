@@ -33,9 +33,17 @@ pub fn default_buckets(power: u32, max_speed: u32) -> (u32, u32, u32) {
     (movement, weapons, 0)
 }
 
-/// Energy cost to fire one shot (Slice 4 deepen: flat 1 unless overridden later).
-pub fn fire_energy_cost() -> u32 {
+/// Default energy cost when a weapon does not specify one.
+pub fn default_fire_energy_cost() -> u32 {
     1
+}
+
+pub fn fire_energy_cost_for(cost: u32) -> u32 {
+    if cost == 0 {
+        default_fire_energy_cost()
+    } else {
+        cost
+    }
 }
 
 #[cfg(test)]

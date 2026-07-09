@@ -1,0 +1,40 @@
+width = 12
+height = 10
+seed = 99
+map_mode = "floating"
+
+[terminal]
+type = "destruction"
+target = 3
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 1
+r = 3
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 2
+class = "escort"
+q = 1
+r = 5
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 3
+class = "heavy_cruiser"
+q = 10
+r = 3
+facing = 3
+controller = "ai"
+
+[[ships]]
+id = 4
+class = "escort"
+q = 10
+r = 5
+facing = 3
+controller = "ai"

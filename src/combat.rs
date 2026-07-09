@@ -8,6 +8,8 @@ pub enum WeaponKind {
     Disruptor,
     /// Seeking munition: launched by Fire, tracks target over impulses (D5a).
     Drone,
+    /// Seeking plasma: higher energy cost, fixed warhead (D5a polish).
+    Plasma,
 }
 
 /// Impulse Fire Frequency (simplified): which impulses a **direct-fire** weapon may discharge.
@@ -19,12 +21,12 @@ pub fn fires_on_impulse(kind: &WeaponKind, impulse: u8) -> bool {
     match kind {
         WeaponKind::Phaser => impulse.is_multiple_of(4),
         WeaponKind::Disruptor => impulse.is_multiple_of(8),
-        WeaponKind::Drone => false,
+        WeaponKind::Drone | WeaponKind::Plasma => false,
     }
 }
 
 pub fn is_seeking(kind: &WeaponKind) -> bool {
-    matches!(kind, WeaponKind::Drone)
+    matches!(kind, WeaponKind::Drone | WeaponKind::Plasma)
 }
 
 /// Why a shot is illegal at a given pair of ship positions (declare-time or post-move).
@@ -82,6 +84,8 @@ pub struct Weapon {
     pub arc: Arc,
     pub max_range: u32,
     pub damage: u32,
+    /// Energy spent from weapons pool when firing (D7 polish). Default 1.
+    pub energy_cost: u32,
     pub phaser_dice_by_range: Vec<u32>,
     pub to_hit_by_range: Vec<u32>,
 }
@@ -158,7 +162,7 @@ fn resolve_weapon_damage(weapon: &Weapon, range: u32, prng: &mut Prng) -> u32 {
             }
         }
         // Seeking munitions apply fixed warhead damage on impact (no range dice).
-        WeaponKind::Drone => weapon.damage,
+        WeaponKind::Drone | WeaponKind::Plasma => weapon.damage,
     }
 }
 

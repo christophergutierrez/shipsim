@@ -29,3 +29,12 @@ kind = "drone"
 arc = "forward"
 max_range = 8
 damage = 3
+energy_cost = 1
+
+[[weapons]]
+id = "plasma_1"
+kind = "plasma"
+arc = "forward"
+max_range = 6
+damage = 6
+energy_cost = 2
