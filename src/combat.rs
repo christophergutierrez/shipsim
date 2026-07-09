@@ -8,6 +8,18 @@ pub enum WeaponKind {
     Disruptor,
 }
 
+/// Impulse Fire Frequency (simplified): which impulses a weapon class may discharge (D1-fire).
+/// Impulses are 1..=32. Phasers every 4th impulse; disruptors every 8th (both include 32).
+pub fn fires_on_impulse(kind: &WeaponKind, impulse: u8) -> bool {
+    if impulse == 0 || impulse > 32 {
+        return false;
+    }
+    match kind {
+        WeaponKind::Phaser => impulse.is_multiple_of(4),
+        WeaponKind::Disruptor => impulse.is_multiple_of(8),
+    }
+}
+
 /// Why a shot is illegal at a given pair of ship positions (declare-time or post-move).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FireIllegal {
@@ -150,4 +162,24 @@ pub fn resolve_fire(
         shield,
         damage,
     })
+}
+
+#[cfg(test)]
+mod fire_window_tests {
+    use super::*;
+
+    #[test]
+    fn test_phaser_windows() {
+        assert!(!fires_on_impulse(&WeaponKind::Phaser, 1));
+        assert!(fires_on_impulse(&WeaponKind::Phaser, 4));
+        assert!(fires_on_impulse(&WeaponKind::Phaser, 32));
+        assert!(!fires_on_impulse(&WeaponKind::Phaser, 3));
+    }
+
+    #[test]
+    fn test_disruptor_windows() {
+        assert!(!fires_on_impulse(&WeaponKind::Disruptor, 4));
+        assert!(fires_on_impulse(&WeaponKind::Disruptor, 8));
+        assert!(fires_on_impulse(&WeaponKind::Disruptor, 32));
+    }
 }

@@ -149,19 +149,19 @@ fn test_tracer_fire_damages_shield() {
 
 #[test]
 fn test_fire_skipped_when_target_moves_out_of_range() {
-    // Declare is legal at start; target plots far enough that post-move fire is skipped.
+    // D1-fire: shot resolves on the first weapon fire window after movement on that impulse.
+    // Target must leave range *before* the first fire window (phaser impulse 4).
+    // Speed 16 moves on impulse 2, so it can step away before impulse 4.
     let mut game = load_combat();
-    // Combat map is 4x4; place attacker at (0,0) facing 0, target at (1,0) then flee to (3,0)
-    // so range after move is 3 if attacker stays — need max_range 4 so still in range.
-    // Use max_range 1 weapon after setup: legal at dist 1, illegal after target moves to dist 2+.
     game.set_ship_pos(1, Hex::new(0, 0)).unwrap();
     game.set_ship_facing(1, 0).unwrap();
-    game.configure_weapon_as_disruptor(1, "phaser_1", 4, vec![6]).unwrap();
+    game.configure_weapon_exact_damage(1, "phaser_1", 4).unwrap();
     game.configure_weapon_max_range(1, "phaser_1", 1).unwrap();
     game.set_ship_pos(2, Hex::new(1, 0)).unwrap();
     game.set_ship_facing(2, 0).unwrap();
     game.set_ship_shields(2, [50; 6]).unwrap();
     game.set_ship_structure(2, 50).unwrap();
+    game.set_ship_power_profile(2, 16, 16).unwrap();
     let before_shields = game.ship(2).unwrap().shields;
 
     apply_order(&mut game, Order::Fire {
@@ -171,24 +171,18 @@ fn test_fire_skipped_when_target_moves_out_of_range() {
     })
     .expect("fire legal at declare (range 1)");
 
-    // Target moves to (3,0) — path (2,0),(3,0); escort speed 3, turn_mode 1.
     apply_order(&mut game, Order::Plot {
         ship: 2,
         path: vec![Hex::new(2, 0), Hex::new(3, 0)],
     })
     .expect("target plots away");
-    apply_order(&mut game, Order::RunTurn)
-        .expect("run turn applies movement then fire");
+    apply_order(&mut game, Order::RunTurn).expect("run turn");
 
-    assert_eq!(
-        game.ship(2).unwrap().pos,
-        Hex::new(3, 0),
-        "target must have moved"
-    );
+    assert_eq!(game.ship(2).unwrap().pos, Hex::new(3, 0));
     assert_eq!(
         game.ship(2).unwrap().shields,
         before_shields,
-        "fire must skip when post-move range exceeds max_range"
+        "fire must skip when range exceeds max_range at first fire window"
     );
 }
 

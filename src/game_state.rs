@@ -237,6 +237,20 @@ impl GameState {
         Ok(())
     }
 
+    /// Test helper: raise max speed / power and re-default this turn's energy buckets.
+    pub fn set_ship_power_profile(
+        &mut self,
+        id: u32,
+        max_speed: u32,
+        power: u32,
+    ) -> Result<(), StateError> {
+        let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
+        ship.speed = max_speed;
+        ship.power = power;
+        ship.reset_turn_energy();
+        Ok(())
+    }
+
     pub fn configure_weapon_exact_damage(
         &mut self,
         ship_id: u32,
@@ -395,11 +409,30 @@ impl GameState {
         self.plots.remove(&ship_id);
     }
 
-    pub(crate) fn take_pending_fires(&mut self) -> Vec<(u32, String, u32)> {
-        std::mem::take(&mut self.pending_fires)
-            .into_iter()
-            .map(|f| (f.ship, f.weapon, f.target))
-            .collect()
+    /// Drain pending fires whose weapon class may fire on `impulse` (D1-fire).
+    /// Others remain pending for a later impulse.
+    pub(crate) fn drain_fires_for_impulse(&mut self, impulse: u8) -> Vec<(u32, String, u32)> {
+        let pending = std::mem::take(&mut self.pending_fires);
+        let mut ready = Vec::new();
+        let mut keep = Vec::new();
+        for fire in pending {
+            let can = self
+                .ship(fire.ship)
+                .and_then(|s| s.weapon(&fire.weapon))
+                .map(|w| combat::fires_on_impulse(&w.kind, impulse))
+                .unwrap_or(false);
+            if can {
+                ready.push((fire.ship, fire.weapon, fire.target));
+            } else {
+                keep.push(fire);
+            }
+        }
+        self.pending_fires = keep;
+        ready
+    }
+
+    pub(crate) fn discard_pending_fires(&mut self) {
+        self.pending_fires.clear();
     }
 
     pub(crate) fn clear_turn_ephemera(&mut self) {

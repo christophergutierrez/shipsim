@@ -11,17 +11,19 @@ use crate::hex::Hex;
 use crate::impulse::{max_plot_steps, moves_on_impulse};
 use crate::movement;
 
-/// Resolve a full turn: scripted plots, impulses 1..=32, deferred fire, terminals, advance turn.
+/// Resolve a full turn: scripted plots, 32 impulses (move then impulse-gated fire), advance turn.
 pub fn run_turn(game: &mut GameState) {
     ensure_scripted_plots(game);
 
     for impulse in 1u8..=32 {
         game.set_impulse(impulse);
-        resolve_impulse(game, impulse);
+        resolve_impulse_movement(game, impulse);
+        resolve_fires_on_impulse(game, impulse);
     }
 
     game.set_impulse(0);
-    resolve_pending_fires(game);
+    // Any fire that never matched a window is dropped (all shipped weapons hit impulse 32).
+    game.discard_pending_fires();
     game.sync_scripted_waypoints();
     game.clear_turn_ephemera();
     game.reset_all_turn_energy();
@@ -29,7 +31,7 @@ pub fn run_turn(game: &mut GameState) {
     game.advance_turn_counter();
 }
 
-fn resolve_impulse(game: &mut GameState, impulse: u8) {
+fn resolve_impulse_movement(game: &mut GameState, impulse: u8) {
     let mut intents: Vec<(u32, Hex, u8)> = Vec::new();
 
     for ship_id in game.ship_ids() {
@@ -76,15 +78,16 @@ fn resolve_impulse(game: &mut GameState, impulse: u8) {
     }
 }
 
-fn resolve_pending_fires(game: &mut GameState) {
-    let pending = game.take_pending_fires();
-    for (ship, weapon, target) in pending {
+fn resolve_fires_on_impulse(game: &mut GameState, impulse: u8) {
+    let ready = game.drain_fires_for_impulse(impulse);
+    for (ship, weapon, target) in ready {
         let Some(attacker) = game.ship(ship).cloned() else {
             continue;
         };
         let Some(target_ship) = game.ship(target).cloned() else {
             continue;
         };
+        // Geometry at this impulse's post-movement positions (D1-fire + ADR-0008 spirit).
         if combat::fire_legality(&attacker, &weapon, &target_ship).is_err() {
             continue;
         }

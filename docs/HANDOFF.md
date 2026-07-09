@@ -1,26 +1,16 @@
-# shipsim Killhouse Handoff - post Slice 4 energy (minimal)
-
-Purpose: resume the Killhouse `ask-kh` pipeline. Transient process state, not durable product spec.
+# shipsim Killhouse Handoff
 
 ## Current State
 
-- Project / git root: `/mnt/storage/git_home/shipsim` (standalone repo).
-- Branch: `master` (not pushed; see git log).
-- **Slices 1–3 + state encapsulation + multi-ship readiness + Slice 4 D7 minimal: DONE.**
-- `cargo test` green; `cargo clippy --all-targets -- -D warnings` clean.
+- Git root: `/mnt/storage/git_home/shipsim`, branch `master` (local only; not pushed).
+- Slices 1–3, state encapsulation, multi-ship readiness, D7 multi-bucket energy, D1-fire: **DONE**.
+- `cargo test` green; clippy `-D warnings` clean.
 
-## Recent commits (newest first, local)
+## Latest
 
-1. Slice 4 energy allocation (Allocate / power / turn_speed)
-2. Multi-ship readiness (Fire ship id, Terminal, BTreeMap, load hygiene)
-3. GameState encapsulation
-4. Slice 3 architecture + feature
+- D7 deepen: multi-bucket Allocate, weapons_energy, shield_reinforce
+- D1-fire: impulse-gated discharge in RunTurn (ADR-0010)
 
-## Next recommended slices
+## Next
 
-- Full D7 multi-bucket EA, **or** D1-fire impulse-gated fire, **or** D9 AI.
-- Read `docs/ROADMAP.md`.
-
-## Constraints
-
-Pure core, thin CLI, generic ship data, 7-bit ASCII docs, declare/resolve seam.
+- D2-fire simultaneous fire, D6 SSD, D9 AI, or full EA polish — see ROADMAP.

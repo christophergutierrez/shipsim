@@ -54,11 +54,9 @@ Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, A
 
 ## Combat - deferred extensions (base direct-fire realized; see Slice 2 above)
 
-### D1-fire. Impulse-gated fire windows  🎯 later
-- Weapons fire only on specific impulses as defined by the 32-impulse IFF. This is the timing
-  layer that makes SFB movement meaningful for combat. (Slice 3 uses fire-at-turn-end simplification.)
-- ▶ Gate `Fire` declarations behind impulse-window checks in the `RunTurn` driver; each weapon
-  class defines which impulses are fire windows.
+### D1-fire. Impulse-gated fire windows  [REALIZED]
+- `combat::fires_on_impulse`; RunTurn resolves queued fire on matching impulses after movement
+  (ADR-0010). Phaser every 4th impulse; disruptor every 8th.
 
 ### D2-fire. Simultaneous fire resolution  🎯 later
 - Fire declared by both ships resolves simultaneously at turn end (not in declaration order).
@@ -77,10 +75,10 @@ Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, A
 
 ## Slice 4 - Energy Allocation minimal (REALIZED base)
 
-### D7. Energy Allocation Form  [PARTIAL - slice 4 minimal]
-- Landed: `power` + max `speed`, per-turn `turn_speed`, `Allocate { ship, speed }`, plot/IMC use
-  `turn_speed`, default full allocation `min(power, speed)`, `src/energy.rs`, ADR-0009.
-- Still deferred: multi-bucket EA Form (weapons/shields/EW spend power), overload, arming costs.
+### D7. Energy Allocation Form  [REALIZED core multi-bucket]
+- Multi-bucket `Allocate { movement, weapons, shields }`, fire energy cost, shield reinforce,
+  default max-movement then leftover weapons (ADR-0009 + deepen).
+- Still deferred: EW/overload, richer per-weapon arming costs, full paper EA Form UI.
 
 ## Deferred — Presentation & opponents
 
