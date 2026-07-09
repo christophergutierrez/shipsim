@@ -5,7 +5,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::combat;
 use crate::game_state::GameState;
 use crate::hex::Hex;
 use crate::impulse::{max_plot_steps, moves_on_impulse};
@@ -80,19 +79,9 @@ fn resolve_impulse_movement(game: &mut GameState, impulse: u8) {
 
 fn resolve_fires_on_impulse(game: &mut GameState, impulse: u8) {
     let ready = game.drain_fires_for_impulse(impulse);
-    for (ship, weapon, target) in ready {
-        let Some(attacker) = game.ship(ship).cloned() else {
-            continue;
-        };
-        let Some(target_ship) = game.ship(target).cloned() else {
-            continue;
-        };
-        // Geometry at this impulse's post-movement positions (D1-fire + ADR-0008 spirit).
-        if combat::fire_legality(&attacker, &weapon, &target_ship).is_err() {
-            continue;
-        }
-        game.apply_fire(ship, &weapon, target);
-    }
+    // D2-fire: all ready shots this impulse compute from a frozen pre-fire state, then apply.
+    // Tie-break / PRNG order: ascending ship id (then weapon, target).
+    game.resolve_simultaneous_fires(ready);
 }
 
 fn ensure_scripted_plots(game: &mut GameState) {

@@ -316,6 +316,48 @@ fn test_refire_rejected() {
 }
 
 #[test]
+fn test_simultaneous_fire_mutual_kill() {
+    // D2-fire: both ships shoot from a frozen pre-fire state. Sequential resolve would let
+    // ship 1 kill ship 2 before ship 2's shot landed; simultaneous applies both hits.
+    let mut game = load_combat();
+    game.set_ship_shields(1, [0; 6]).unwrap();
+    game.set_ship_structure(1, 1).unwrap();
+    game.set_ship_shields(2, [0; 6]).unwrap();
+    game.set_ship_structure(2, 1).unwrap();
+    game.configure_weapon_exact_damage(1, "phaser_1", 1).unwrap();
+    game.configure_weapon_exact_damage(2, "phaser_1", 1).unwrap();
+
+    apply_order(
+        &mut game,
+        Order::Fire {
+            ship: 1,
+            weapon: "phaser_1".to_string(),
+            target: 2,
+        },
+    )
+    .expect("ship 1 fires");
+    apply_order(
+        &mut game,
+        Order::Fire {
+            ship: 2,
+            weapon: "phaser_1".to_string(),
+            target: 1,
+        },
+    )
+    .expect("ship 2 fires");
+    apply_order(&mut game, Order::RunTurn).expect("run turn");
+
+    assert!(
+        game.ship(1).unwrap().destroyed,
+        "ship 1 must take ship 2's simultaneous hit"
+    );
+    assert!(
+        game.ship(2).unwrap().destroyed,
+        "ship 2 must take ship 1's simultaneous hit"
+    );
+}
+
+#[test]
 fn test_fire_requires_named_ship_and_weapon_on_that_ship() {
     let game = load_combat();
     // Same weapon id exists on ship 2's class, but ship 2 is the target here; firing as ship 99 fails.

@@ -87,6 +87,15 @@ pub struct FireOutcome {
     pub damage: u32,
 }
 
+/// Computed hit before application (D2-fire simultaneous phase).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FireHit {
+    pub attacker: u32,
+    pub target: u32,
+    pub shield: usize,
+    pub damage: u32,
+}
+
 pub fn bearing_to(from: Hex, to: Hex) -> u8 {
     let neighbors = from.neighbors();
     neighbors
@@ -144,23 +153,39 @@ fn resolve_weapon_damage(weapon: &Weapon, range: u32, prng: &mut Prng) -> u32 {
     }
 }
 
-/// Resolve a direct-fire shot against a target ship. Pure of `GameState` (ADR encapsulation).
+/// Compute damage for a shot without mutating the target (D2-fire phase 1).
+pub fn compute_fire(
+    attacker: &Ship,
+    weapon_id: &str,
+    target: &Ship,
+    prng: &mut Prng,
+) -> Option<FireHit> {
+    let weapon = attacker.weapon(weapon_id)?.clone();
+    let range = attacker.pos.distance(target.pos);
+    let shield = relative_bearing(target.facing, target.pos, attacker.pos) as usize;
+    let damage = resolve_weapon_damage(&weapon, range, prng);
+    Some(FireHit {
+        attacker: attacker.id,
+        target: target.id,
+        shield,
+        damage,
+    })
+}
+
+/// Resolve a single direct-fire shot immediately (compute + apply).
 pub fn resolve_fire(
     attacker: &Ship,
     weapon_id: &str,
     target: &mut Ship,
     prng: &mut Prng,
 ) -> Option<FireOutcome> {
-    let weapon = attacker.weapon(weapon_id)?.clone();
-    let range = attacker.pos.distance(target.pos);
-    let shield = relative_bearing(target.facing, target.pos, attacker.pos) as usize;
-    let damage = resolve_weapon_damage(&weapon, range, prng);
-    target.apply_hit(shield, damage);
+    let hit = compute_fire(attacker, weapon_id, target, prng)?;
+    target.apply_hit(hit.shield, hit.damage);
     Some(FireOutcome {
-        attacker: attacker.id,
-        target: target.id,
-        shield,
-        damage,
+        attacker: hit.attacker,
+        target: hit.target,
+        shield: hit.shield,
+        damage: hit.damage,
     })
 }
 

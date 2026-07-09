@@ -58,11 +58,10 @@ Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, A
 - `combat::fires_on_impulse`; RunTurn resolves queued fire on matching impulses after movement
   (ADR-0010). Phaser every 4th impulse; disruptor every 8th.
 
-### D2-fire. Simultaneous fire resolution  🎯 later
-- Fire declared by both ships resolves simultaneously at turn end (not in declaration order).
-  Slice 3 resolves fire sequentially in declaration order.
-- ▶ Collect fire orders at plot/turn-end, resolve all fire simultaneously; deterministic tie-break
-  by ship ID (ascending).
+### D2-fire. Simultaneous fire resolution  [REALIZED]
+- Per impulse fire window: compute all ready shots from a frozen pre-fire snapshot, then apply
+  hits (ADR-0011). Sort key `(ship_id, weapon_id, target_id)` for PRNG order. Mutual kill possible.
+
 
 ### D6. Itemized damage allocation / destroyable systems (SSD)  🎯 after D5
 - Damage-allocation chart distributes hits across systems; weapons/engines can be knocked out;
@@ -149,7 +148,7 @@ Tribunal verdict PASS; none block Slice 2. All contained by the 1v1 scope (assum
 Architecture verdict PASS; no Critical/High. Distinct from TS1-TS4.
 
 - **AS1.** REALIZED — `Terminal` enum (see fleet-readiness).
-- **AS2. Fire geometry recomputed** — still deferred until D2-fire.
+- **AS2. Fire geometry recomputed** — acceptable under D2-fire snapshot phase; optional later DRY.
 - **AS3. `FireOutcome` discarded** — still deferred until combat logging.
 - **AS4.** Largely obsolete after pure `resolve_fire` + encapsulation; clone of attacker remains for
   borrow splitting.

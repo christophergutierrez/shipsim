@@ -450,17 +450,48 @@ impl GameState {
         Some((plan.next_waypoint, plan.waypoints.as_slice()))
     }
 
-    pub(crate) fn apply_fire(&mut self, ship_id: u32, weapon_id: &str, target_id: u32) {
-        let Some(attacker) = self.ship(ship_id).cloned() else {
-            return;
-        };
-        if attacker.destroyed || attacker.weapon(weapon_id).is_none() {
-            return;
+    /// D2-fire: resolve a batch of ready shots simultaneously.
+    ///
+    /// 1. Sort by ship id (then weapon, target) for deterministic PRNG order.
+    /// 2. Legality + damage rolls use a frozen pre-fire ship snapshot (mutual kill possible).
+    /// 3. Apply all hits after computing every shot.
+    pub(crate) fn resolve_simultaneous_fires(&mut self, mut ready: Vec<(u32, String, u32)>) {
+        ready.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.cmp(&b.2))
+        });
+
+        let snapshot: std::collections::HashMap<u32, Ship> =
+            self.ships.iter().map(|s| (s.id, s.clone())).collect();
+
+        let mut hits: Vec<combat::FireHit> = Vec::new();
+        for (ship_id, weapon_id, target_id) in ready {
+            let Some(attacker) = snapshot.get(&ship_id) else {
+                continue;
+            };
+            // Destroyed before this fire phase cannot shoot; mutual fire still allowed.
+            if attacker.destroyed {
+                continue;
+            }
+            let Some(target) = snapshot.get(&target_id) else {
+                continue;
+            };
+            if combat::fire_legality(attacker, &weapon_id, target).is_err() {
+                continue;
+            }
+            if let Some(hit) =
+                combat::compute_fire(attacker, &weapon_id, target, &mut self.prng)
+            {
+                hits.push(hit);
+            }
         }
-        let Some(target) = self.ships.iter_mut().find(|ship| ship.id == target_id) else {
-            return;
-        };
-        let _ = combat::resolve_fire(&attacker, weapon_id, target, &mut self.prng);
+
+        for hit in hits {
+            if let Some(target) = self.ships.iter_mut().find(|s| s.id == hit.target) {
+                target.apply_hit(hit.shield, hit.damage);
+            }
+        }
     }
 
     pub fn refresh_status(&mut self) {

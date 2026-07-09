@@ -9,7 +9,7 @@
 ## Latest
 
 - D7 deepen: multi-bucket Allocate, weapons_energy, shield_reinforce
-- D1-fire: impulse-gated discharge in RunTurn (ADR-0010)
+- D1-fire + D2-fire simultaneous (ADR-0010, ADR-0011)
 
 ## Next
 
