@@ -13,8 +13,16 @@
 /tmp
 /.fastembed_cache
 
+# Ephemeral session handoffs (local sticky notes; not product docs)
+HANDOFF.md
+**/HANDOFF.md
+
 # IDE and tool artifacts
 .claude/
+.idea/
+.vscode/
+*.swp
+*~
 
 # OS artifacts
 .DS_Store
