@@ -11,8 +11,17 @@ use crate::impulse;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Order {
     Plot { ship: u32, path: Vec<Hex> },
-    /// Set movement allocation for this turn (Slice 4 / D7). Cost = speed; <= power and max speed.
-    Allocate { ship: u32, speed: u32 },
+    /// Multi-bucket energy allocation for this turn (D7).
+    /// `movement` may be provided as JSON alias `speed` for older clients.
+    Allocate {
+        ship: u32,
+        #[serde(alias = "speed")]
+        movement: u32,
+        #[serde(default)]
+        weapons: u32,
+        #[serde(default)]
+        shields: u32,
+    },
     /// `ship` is the firer (TS2 multi-firer: not inferred from weapon id alone).
     Fire { ship: u32, weapon: String, target: u32 },
     RunTurn,
@@ -21,7 +30,12 @@ pub enum Order {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclaredOrder {
     Plot { ship: u32, path: Vec<Hex> },
-    Allocate { ship: u32, speed: u32 },
+    Allocate {
+        ship: u32,
+        movement: u32,
+        weapons: u32,
+        shields: u32,
+    },
     Fire { ship: u32, weapon: String, target: u32 },
     RunTurn,
 }
@@ -62,14 +76,18 @@ pub enum OrderError {
     #[error("weapon {weapon} on ship {ship} has already fired this turn")]
     WeaponAlreadyFired { ship: u32, weapon: String },
     #[error(
-        "ship {ship} cannot allocate speed {requested} (power {power}, max speed {max_speed})"
+        "ship {ship} illegal allocation movement={movement} weapons={weapons} shields={shields} (power {power}, max speed {max_speed})"
     )]
     IllegalAllocation {
         ship: u32,
-        requested: u32,
+        movement: u32,
+        weapons: u32,
+        shields: u32,
         power: u32,
         max_speed: u32,
     },
+    #[error("ship {ship} lacks weapon energy to fire (need {need}, have {have})")]
+    InsufficientWeaponEnergy { ship: u32, need: u32, have: u32 },
 }
 
 /// Validate a plot path (adjacency, board, occupancy at submit, turn-mode, length).
@@ -147,20 +165,33 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             validate_plot(game, ship, &path)?;
             Ok(DeclaredOrder::Plot { ship, path })
         }
-        Order::Allocate { ship, speed } => {
+        Order::Allocate {
+            ship,
+            movement,
+            weapons,
+            shields,
+        } => {
             let s = game.ship(ship).ok_or(OrderError::ShipNotFound(ship))?;
             if s.destroyed {
                 return Err(OrderError::ShipNotFound(ship));
             }
-            if !energy::is_legal_allocation(s.power, s.speed, speed) {
+            if !energy::is_legal_multi_allocation(s.power, s.speed, movement, weapons, shields)
+            {
                 return Err(OrderError::IllegalAllocation {
                     ship,
-                    requested: speed,
+                    movement,
+                    weapons,
+                    shields,
                     power: s.power,
                     max_speed: s.speed,
                 });
             }
-            Ok(DeclaredOrder::Allocate { ship, speed })
+            Ok(DeclaredOrder::Allocate {
+                ship,
+                movement,
+                weapons,
+                shields,
+            })
         }
         Order::Fire {
             ship,
@@ -177,6 +208,13 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
                 .ship(target)
                 .ok_or(OrderError::TargetNotFound(target))?;
             let attacker = game.ship(ship).expect("checked above");
+            if !attacker.can_afford_fire() {
+                return Err(OrderError::InsufficientWeaponEnergy {
+                    ship,
+                    need: energy::fire_energy_cost(),
+                    have: attacker.weapons_energy,
+                });
+            }
             match combat::fire_legality(attacker, &weapon, target_ship) {
                 Ok(_) => {}
                 Err(FireIllegal::WeaponNotFound) => {
@@ -217,8 +255,13 @@ pub fn resolve(game: &mut GameState, order: DeclaredOrder) {
         DeclaredOrder::Plot { ship, path } => {
             game.store_plot(ship, path);
         }
-        DeclaredOrder::Allocate { ship, speed } => {
-            game.allocate_speed(ship, speed);
+        DeclaredOrder::Allocate {
+            ship,
+            movement,
+            weapons,
+            shields,
+        } => {
+            game.allocate_energy(ship, movement, weapons, shields);
         }
         DeclaredOrder::Fire {
             ship,

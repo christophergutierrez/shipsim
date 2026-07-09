@@ -1,7 +1,7 @@
 id = "escort"
 name = "Escort"
 speed = 3
-power = 3
+power = 6
 turn_mode = 1
 shields = [6, 6, 6, 6, 6, 6]
 structure = 12

@@ -47,7 +47,7 @@ fn test_snapshot_shape() {
     assert_eq!(ship["r"], 0);
     assert_eq!(ship["facing"], 0);
     assert_eq!(ship["speed"], 4);
-    assert_eq!(ship["power"], 4);
+    assert_eq!(ship["power"], 8);
     assert_eq!(ship["turn_speed"], 4);
     assert_eq!(ship["turn_mode"], 2);
 

@@ -328,9 +328,15 @@ impl GameState {
         }
     }
 
-    pub(crate) fn allocate_speed(&mut self, ship_id: u32, speed: u32) {
+    pub(crate) fn allocate_energy(
+        &mut self,
+        ship_id: u32,
+        movement: u32,
+        weapons: u32,
+        shields: u32,
+    ) {
         if let Some(ship) = self.ship_mut(ship_id) {
-            ship.turn_speed = speed;
+            ship.apply_allocation(movement, weapons, shields);
         }
     }
 
@@ -351,6 +357,10 @@ impl GameState {
     }
 
     pub(crate) fn queue_fire(&mut self, ship: u32, weapon: String, target: u32) {
+        if let Some(s) = self.ship_mut(ship) {
+            // Energy was checked at declare; spend on resolve.
+            let _ = s.spend_fire_energy();
+        }
         self.fired_weapons_this_turn
             .insert((ship, weapon.clone()));
         self.pending_fires.push(PendingFire {

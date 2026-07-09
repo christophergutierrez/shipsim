@@ -106,7 +106,8 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         let is_scripted = placement.controller == "scripted" || !waypoints.is_empty();
 
         let power = ship_def.power.unwrap_or(ship_def.speed);
-        let turn_speed = Ship::default_turn_speed(power, ship_def.speed);
+        let (turn_speed, weapons_energy, shield_reinforce) =
+            crate::energy::default_buckets(power, ship_def.speed);
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name,
@@ -115,6 +116,8 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             speed: ship_def.speed,
             power,
             turn_speed,
+            weapons_energy,
+            shield_reinforce,
             turn_mode: ship_def.turn_mode,
             weapons: ship_def
                 .weapons

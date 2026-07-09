@@ -25,6 +25,8 @@ fn two_ship_state() -> GameState {
                 speed: 4,
                 power: 4,
                 turn_speed: 4,
+                weapons_energy: 8,
+                shield_reinforce: 0,
                 turn_mode: 2,
                 weapons: Vec::new(),
                 shields: [0; 6],
@@ -39,6 +41,8 @@ fn two_ship_state() -> GameState {
                 speed: 3,
                 power: 3,
                 turn_speed: 3,
+                weapons_energy: 8,
+                shield_reinforce: 0,
                 turn_mode: 1,
                 weapons: Vec::new(),
                 shields: [0; 6],
@@ -129,7 +133,12 @@ fn test_allocate_reduces_plot_budget() {
     // two_ship ship 1 has speed 4 / power 4; allocate 1.
     apply_order(
         &mut game,
-        Order::Allocate { ship: 1, speed: 1 },
+        Order::Allocate {
+            ship: 1,
+            movement: 1,
+            weapons: 0,
+            shields: 0,
+        },
     )
     .unwrap();
     let err = apply_order(
@@ -152,11 +161,12 @@ fn test_allocate_reduces_plot_budget() {
     .expect("single hex ok at speed 1");
     apply_order(&mut game, Order::RunTurn).unwrap();
     assert_eq!(game.ship(1).unwrap().pos, Hex::new(1, 0));
-    // After turn, energy resets to full default allocation.
-    assert_eq!(
-        game.ship(1).unwrap().turn_speed,
-        game.ship(1).unwrap().power.min(game.ship(1).unwrap().speed)
-    );
+    // After turn, energy resets to default buckets (max movement, remainder weapons).
+    let s = game.ship(1).unwrap();
+    let (mov, weap, sh) = shipsim_core::energy::default_buckets(s.power, s.speed);
+    assert_eq!(s.turn_speed, mov);
+    assert_eq!(s.weapons_energy, weap);
+    assert_eq!(s.shield_reinforce, sh);
 }
 
 #[test]
@@ -164,10 +174,7 @@ fn test_illegal_allocation_rejected() {
     let mut game = two_ship_state();
     let err = apply_order(
         &mut game,
-        Order::Allocate {
-            ship: 1,
-            speed: 99,
-        },
+        Order::Allocate { ship: 1, movement: 99, weapons: 0, shields: 0 },
     )
     .expect_err("over budget");
     assert!(matches!(err, OrderError::IllegalAllocation { .. }));
@@ -286,6 +293,8 @@ fn test_collision_both_stop() {
                 speed: 1,
                 power: 1,
                 turn_speed: 1,
+                weapons_energy: 8,
+                shield_reinforce: 0,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -300,6 +309,8 @@ fn test_collision_both_stop() {
                 speed: 1,
                 power: 1,
                 turn_speed: 1,
+                weapons_energy: 8,
+                shield_reinforce: 0,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -344,6 +355,8 @@ fn test_collision_clears_remaining_plot() {
                 speed: 2,
                 power: 2,
                 turn_speed: 2,
+                weapons_energy: 8,
+                shield_reinforce: 0,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -358,6 +371,8 @@ fn test_collision_clears_remaining_plot() {
                 speed: 2,
                 power: 2,
                 turn_speed: 2,
+                weapons_energy: 8,
+                shield_reinforce: 0,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -466,6 +481,8 @@ fn test_plot_rejects_currently_occupied_hex() {
                 speed: 1,
                 power: 1,
                 turn_speed: 1,
+                weapons_energy: 8,
+                shield_reinforce: 0,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -480,6 +497,8 @@ fn test_plot_rejects_currently_occupied_hex() {
                 speed: 1,
                 power: 1,
                 turn_speed: 1,
+                weapons_energy: 8,
+                shield_reinforce: 0,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -495,4 +514,30 @@ fn test_plot_rejects_currently_occupied_hex() {
         })
         .expect_err("cannot plot into currently occupied hex");
     assert!(matches!(err, OrderError::HexOccupied { .. }));
+}
+
+
+#[test]
+fn test_fire_requires_weapon_energy() {
+    let mut game = load_scenario(&manifest_path("scenarios/combat.toml")).unwrap();
+    apply_order(
+        &mut game,
+        Order::Allocate {
+            ship: 1,
+            movement: 0,
+            weapons: 0,
+            shields: 0,
+        },
+    )
+    .unwrap();
+    let err = apply_order(
+        &mut game,
+        Order::Fire {
+            ship: 1,
+            weapon: "phaser_1".to_string(),
+            target: 2,
+        },
+    )
+    .expect_err("no weapon energy");
+    assert!(matches!(err, OrderError::InsufficientWeaponEnergy { .. }));
 }
