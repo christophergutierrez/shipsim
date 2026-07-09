@@ -1,18 +1,16 @@
-//! Turn orchestration: 32-impulse simultaneous movement, scripted auto-plot, deferred fire.
-//!
-//! Depends downward on `GameState` storage, pure `impulse` schedule, `movement` plot validation,
-//! and pure `combat` legality (damage applied via GameState::apply_fire).
+//! Turn orchestration: NPC orders, 32-impulse move + impulse-gated simultaneous fire.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::game_state::GameState;
+use crate::ai;
+use crate::game_state::{GameState, NpcController};
 use crate::hex::Hex;
 use crate::impulse::{max_plot_steps, moves_on_impulse};
-use crate::movement;
+use crate::movement::{self, Order};
 
-/// Resolve a full turn: scripted plots, 32 impulses (move then impulse-gated fire), advance turn.
+/// Resolve a full turn: NPC plot/fire, 32 impulses, terminals, advance turn.
 pub fn run_turn(game: &mut GameState) {
-    ensure_scripted_plots(game);
+    ensure_npc_orders(game);
 
     for impulse in 1u8..=32 {
         game.set_impulse(impulse);
@@ -21,7 +19,6 @@ pub fn run_turn(game: &mut GameState) {
     }
 
     game.set_impulse(0);
-    // Any fire that never matched a window is dropped (all shipped weapons hit impulse 32).
     game.discard_pending_fires();
     game.sync_scripted_waypoints();
     game.clear_turn_ephemera();
@@ -79,19 +76,37 @@ fn resolve_impulse_movement(game: &mut GameState, impulse: u8) {
 
 fn resolve_fires_on_impulse(game: &mut GameState, impulse: u8) {
     let ready = game.drain_fires_for_impulse(impulse);
-    // D2-fire: all ready shots this impulse compute from a frozen pre-fire state, then apply.
-    // Tie-break / PRNG order: ascending ship id (then weapon, target).
     game.resolve_simultaneous_fires(ready);
 }
 
-fn ensure_scripted_plots(game: &mut GameState) {
-    let scripted_ids = game.scripted_ship_ids();
-    for ship_id in scripted_ids {
-        if game.has_plot(ship_id) {
+fn ensure_npc_orders(game: &mut GameState) {
+    let npc_ids = game.npc_ids();
+    for ship_id in npc_ids {
+        if game.ship(ship_id).is_some_and(|s| s.destroyed) {
             continue;
         }
-        let path = generate_scripted_plot(game, ship_id);
-        game.store_plot(ship_id, path);
+        // Auto-plot if the player did not submit one for this NPC.
+        if !game.has_plot(ship_id) {
+            let path = match game.npc(ship_id) {
+                Some(NpcController::Scripted(_)) => generate_scripted_plot(game, ship_id),
+                Some(NpcController::GreedySeek) => ai::greedy_plot(game, ship_id),
+                None => Vec::new(),
+            };
+            game.store_plot(ship_id, path);
+        }
+        // AI opportunistic fire (scripted ships stay silent unless later extended).
+        if matches!(game.npc(ship_id), Some(NpcController::GreedySeek)) {
+            if let Some((weapon, target)) = ai::choose_fire(game, ship_id) {
+                let _ = movement::apply_order(
+                    game,
+                    Order::Fire {
+                        ship: ship_id,
+                        weapon,
+                        target,
+                    },
+                );
+            }
+        }
     }
 }
 
@@ -103,81 +118,18 @@ fn generate_scripted_plot(game: &mut GameState, ship_id: u32) -> Vec<Hex> {
         return Vec::new();
     }
     let max_steps = max_plot_steps(ship.turn_speed);
-    let mut path: Vec<Hex> = Vec::new();
-    let mut pos = ship.pos;
-    let mut waypoints_advanced = 0usize;
-
-    while (path.len() as u32) < max_steps {
-        let target = {
-            let Some((next_wp, waypoints)) = game.scripted_waypoint_view(ship_id) else {
-                break;
-            };
-            let mut idx = next_wp + waypoints_advanced;
-            while waypoints.get(idx).is_some_and(|w| *w == pos) {
-                waypoints_advanced += 1;
-                idx = next_wp + waypoints_advanced;
-            }
-            match waypoints.get(idx).copied() {
-                Some(t) => t,
-                None => break,
-            }
-        };
-
-        if pos.distance(target) == 0 {
-            break;
-        }
-
-        let next = if pos.distance(target) == 1
-            && game.board().contains(target)
-            && !game.is_occupied_by_other(ship_id, target)
-            && !path.contains(&target)
-        {
-            Some(target)
-        } else {
-            let mut best: Option<(u8, Hex)> = None;
-            for facing in 0u8..=5 {
-                let Some(delta) = Hex::direction(facing) else {
-                    continue;
-                };
-                let candidate = pos + delta;
-                if !game.board().contains(candidate) {
-                    continue;
-                }
-                if game.is_occupied_by_other(ship_id, candidate) {
-                    continue;
-                }
-                if path.contains(&candidate) {
-                    continue;
-                }
-                if candidate.distance(target) >= pos.distance(target) {
-                    continue;
-                }
-                match best {
-                    None => best = Some((facing, candidate)),
-                    Some((bf, _)) if facing < bf => best = Some((facing, candidate)),
-                    _ => {}
-                }
-            }
-            best.map(|(_, hex)| hex)
-        };
-
-        let Some(step) = next else {
-            break;
-        };
-        path.push(step);
-        if step == target {
-            waypoints_advanced += 1;
-        }
-        pos = step;
+    let Some((next_wp, waypoints)) = game.scripted_waypoint_view(ship_id) else {
+        return Vec::new();
+    };
+    // Resolve current waypoint target (clone waypoints for path builder).
+    let waypoints = waypoints.to_vec();
+    let mut idx = next_wp;
+    let pos = ship.pos;
+    while waypoints.get(idx).is_some_and(|w| *w == pos) {
+        idx += 1;
     }
-
-    while !path.is_empty() {
-        if movement::validate_plot(game, ship_id, &path).is_ok() {
-            break;
-        }
-        path.pop();
-    }
-
-    let _ = waypoints_advanced;
-    path
+    let Some(goal) = waypoints.get(idx).copied() else {
+        return Vec::new();
+    };
+    ai::build_path_toward(game, ship_id, goal, max_steps)
 }

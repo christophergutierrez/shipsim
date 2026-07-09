@@ -97,8 +97,8 @@ pub struct GameState {
     fired_weapons_this_turn: HashSet<(u32, String)>,
     plots: HashMap<u32, PlotState>,
     pending_fires: Vec<PendingFire>,
-    /// BTreeMap so multi-scripted iteration is deterministic (T1).
-    scripted_plans: BTreeMap<u32, ScriptedPlan>,
+    /// Non-player controllers (scripted waypoints or AI). BTreeMap = deterministic order (T1).
+    npcs: BTreeMap<u32, NpcController>,
 }
 
 impl GameState {
@@ -116,7 +116,7 @@ impl GameState {
         board: Board,
         ships: Vec<Ship>,
         terminal: Option<Terminal>,
-        scripted_plans: BTreeMap<u32, ScriptedPlan>,
+        npcs: BTreeMap<u32, NpcController>,
         seed: u64,
     ) -> Self {
         let mut state = Self {
@@ -131,7 +131,7 @@ impl GameState {
             fired_weapons_this_turn: HashSet::new(),
             plots: HashMap::new(),
             pending_fires: Vec::new(),
-            scripted_plans,
+            npcs,
         };
         state.refresh_status();
         state
@@ -464,13 +464,21 @@ impl GameState {
         self.pending_fires.clear();
     }
 
-    pub(crate) fn scripted_ship_ids(&self) -> Vec<u32> {
-        self.scripted_plans.keys().copied().collect()
+    pub(crate) fn npc_ids(&self) -> Vec<u32> {
+        self.npcs.keys().copied().collect()
+    }
+
+    pub(crate) fn npc(&self, ship_id: u32) -> Option<&NpcController> {
+        self.npcs.get(&ship_id)
     }
 
     pub(crate) fn scripted_waypoint_view(&self, ship_id: u32) -> Option<(usize, &[Hex])> {
-        let plan = self.scripted_plans.get(&ship_id)?;
-        Some((plan.next_waypoint, plan.waypoints.as_slice()))
+        match self.npcs.get(&ship_id)? {
+            NpcController::Scripted(plan) => {
+                Some((plan.next_waypoint, plan.waypoints.as_slice()))
+            }
+            NpcController::GreedySeek => None,
+        }
     }
 
     /// D2-fire: resolve a batch of ready shots simultaneously.
@@ -542,12 +550,19 @@ impl GameState {
     }
 
     pub(crate) fn sync_scripted_waypoints(&mut self) {
-        let scripted_ids: Vec<u32> = self.scripted_plans.keys().copied().collect();
+        let scripted_ids: Vec<u32> = self
+            .npcs
+            .iter()
+            .filter_map(|(id, c)| match c {
+                NpcController::Scripted(_) => Some(*id),
+                NpcController::GreedySeek => None,
+            })
+            .collect();
         for ship_id in scripted_ids {
             let Some(current) = self.ship(ship_id).map(|s| s.pos) else {
                 continue;
             };
-            let Some(plan) = self.scripted_plans.get_mut(&ship_id) else {
+            let Some(NpcController::Scripted(plan)) = self.npcs.get_mut(&ship_id) else {
                 continue;
             };
             while let Some(offset) = plan.waypoints[plan.next_waypoint..]
@@ -558,6 +573,12 @@ impl GameState {
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum NpcController {
+    Scripted(ScriptedPlan),
+    GreedySeek,
 }
 
 #[derive(Debug, Clone)]

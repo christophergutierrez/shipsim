@@ -85,9 +85,9 @@ Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, A
 - Love2D vs. Godot vs. web. Core stays untouched (renders JSON over the bridge).
 - ▶ Decide once the core plays through the CLI/JSON harness.
 
-### D9. AI opponent  🎯 slice 3+
-- **Why deferred:** slice 1 uses scripted waypoints.
-- ▶ Add `ai` module (start with a NorRust-style greedy seek), replacing/augmenting scripted ships.
+### D9. AI opponent  [REALIZED]
+- `src/ai.rs` greedy seek + opportunistic fire; `controller = "ai"` / `"greedy"` in scenarios
+  (ADR-0013). Scripted waypoints retained. `scenarios/ai.toml` duel.
 
 ### D10. Scenarios, campaigns, multi-ship, fleets  🎯 later
 - Beyond 1v1: multi-ship scenarios, campaign progression (NorRust has a model to borrow).

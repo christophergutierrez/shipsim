@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::board::Board;
 use crate::combat::{Arc, Weapon, WeaponKind};
-use crate::game_state::{GameState, ScriptedPlan, Terminal};
+use crate::game_state::{GameState, NpcController, ScriptedPlan, Terminal};
 use crate::hex::Hex;
 use crate::schema::{ScenarioDef, ShipDef, WeaponDef};
 use crate::ship::Ship;
@@ -72,7 +72,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     let seed = if def.seed == 0 { 1 } else { def.seed };
 
     let mut ships = Vec::with_capacity(def.ships.len());
-    let mut scripted_plans = BTreeMap::new();
+    let mut npcs: BTreeMap<u32, NpcController> = BTreeMap::new();
     let mut occupied: BTreeMap<(i32, i32), u32> = BTreeMap::new();
 
     for placement in def.ships {
@@ -103,7 +103,10 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
                 Ok(hex)
             })
             .collect::<Result<Vec<_>, LoadError>>()?;
-        let is_scripted = placement.controller == "scripted" || !waypoints.is_empty();
+        let ctrl = placement.controller.to_ascii_lowercase();
+        let is_ai = matches!(ctrl.as_str(), "ai" | "greedy");
+        let is_scripted =
+            !is_ai && (ctrl == "scripted" || !waypoints.is_empty());
 
         let power = ship_def.power.unwrap_or(ship_def.speed);
         let weapons: Vec<_> = ship_def
@@ -137,8 +140,13 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             ssd,
             destroyed: false,
         });
-        if is_scripted {
-            scripted_plans.insert(placement.id, ScriptedPlan::new(waypoints));
+        if is_ai {
+            npcs.insert(placement.id, NpcController::GreedySeek);
+        } else if is_scripted {
+            npcs.insert(
+                placement.id,
+                NpcController::Scripted(ScriptedPlan::new(waypoints)),
+            );
         }
     }
 
@@ -146,7 +154,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         board,
         ships,
         terminal,
-        scripted_plans,
+        npcs,
         seed,
     ))
 }
