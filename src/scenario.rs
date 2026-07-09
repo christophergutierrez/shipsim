@@ -105,12 +105,16 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             .collect::<Result<Vec<_>, LoadError>>()?;
         let is_scripted = placement.controller == "scripted" || !waypoints.is_empty();
 
+        let power = ship_def.power.unwrap_or(ship_def.speed);
+        let turn_speed = Ship::default_turn_speed(power, ship_def.speed);
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name,
             pos,
             facing: placement.facing,
             speed: ship_def.speed,
+            power,
+            turn_speed,
             turn_mode: ship_def.turn_mode,
             weapons: ship_def
                 .weapons

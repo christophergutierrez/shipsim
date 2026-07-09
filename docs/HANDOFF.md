@@ -1,41 +1,26 @@
-# shipsim Killhouse Handoff - Slice 3 movement fidelity COMPLETE
+# shipsim Killhouse Handoff - post Slice 4 energy (minimal)
 
 Purpose: resume the Killhouse `ask-kh` pipeline. Transient process state, not durable product spec.
 
 ## Current State
 
 - Project / git root: `/mnt/storage/git_home/shipsim` (standalone repo).
-- Branch: `master`.
-- **Slice 2 (D5 combat): DONE** (prior).
-- **Slice 3 (D1/D2/D3 movement fidelity): DONE.**
-  - PLAN: `implementation-plan-slice3.md` (verdict READY).
-  - IMPLEMENT: M1 IMC + M2 cutover (Plot/RunTurn, simultaneous collision, fire-at-turn-end,
-    speed rename, impulse scenario, full test migration) through M7 docs.
-  - ARCHITECTURE_DESIGN: converge PASS (3 passes). See `docs/ARCHITECTURE-slice3.md`.
-  - State encapsulation (post-RFC): `GameState` private storage; pure combat; setup APIs;
-    plan in `implementation-plan-state-encapsulation.md`.
-  - `cargo test`: all green.
-  - `cargo clippy --all-targets -- -D warnings`: clean.
-- Killhouse: Grok plugin v0.2.4; redqueen submodule synced (`uv sync`); mock evolve plumbing OK
-  (fitness 0.0 without a live model endpoint — IMPLEMENT used plan contracts, not evolved prompt).
+- Branch: `master` (not pushed; see git log).
+- **Slices 1–3 + state encapsulation + multi-ship readiness + Slice 4 D7 minimal: DONE.**
+- `cargo test` green; `cargo clippy --all-targets -- -D warnings` clean.
 
-## What landed (Slice 3)
+## Recent commits (newest first, local)
 
-- `src/impulse.rs` — IMC pure functions + unit tests.
-- Order API: `Plot` / `Fire` / `RunTurn` only (Move/Face/EndTurn removed).
-- Turn-mode + occupancy + adjacency plot validation at submit.
-- Per-impulse simultaneous apply; both-stop collision; scripted auto-plot.
-- Fire queued at declare, resolved after movement at RunTurn end.
-- Snapshot: `impulse`, ship field `speed` (was `speed_max`); TOML `speed`.
-- `scenarios/impulse.toml` + updated orders/tests/CLI data.
+1. Slice 4 energy allocation (Allocate / power / turn_speed)
+2. Multi-ship readiness (Fire ship id, Terminal, BTreeMap, load hygiene)
+3. GameState encapsulation
+4. Slice 3 architecture + feature
 
-## Deferred (not Slice 3)
+## Next recommended slices
 
-See `docs/ROADMAP.md`: D1-fire, D2-fire, D4 map, D5a weapons, D6 SSD, D7 energy, D8-D10, plus
-slice-2 TS*/AS* quality notes.
+- Full D7 multi-bucket EA, **or** D1-fire impulse-gated fire, **or** D9 AI.
+- Read `docs/ROADMAP.md`.
 
-## Resume prompt (next work)
+## Constraints
 
-Start a NEW slice via ask-kh / triage. Do not reopen Slice 2 or 3 unless fixing a regression.
-
-Read: `docs/HANDOFF.md`, `docs/ROADMAP.md`, latest PRD/CONTEXT for the new request, `docs/adr/`.
+Pure core, thin CLI, generic ship data, 7-bit ASCII docs, declare/resolve seam.

@@ -19,6 +19,9 @@ pub struct ShipDef {
     pub id: String,
     pub name: String,
     pub speed: u32,
+    /// Energy per turn; defaults to `speed` when omitted (full movement available).
+    #[serde(default)]
+    pub power: Option<u32>,
     #[serde(default = "default_turn_mode")]
     pub turn_mode: u32,
     #[serde(default = "default_shields")]

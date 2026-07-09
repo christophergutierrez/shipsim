@@ -75,12 +75,12 @@ Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, A
 - Seeking weapons (drones/plasma), reinforcement, richer arcs. (Slice 2 ships phasers + disruptors,
   direct-fire only.)
 
-## Deferred — Energy Allocation (SFB signature)
+## Slice 4 - Energy Allocation minimal (REALIZED base)
 
-### D7. Energy Allocation Form  🎯 slice 4
-- Per-turn power budget across movement/weapons/shields; speed becomes energy-driven (slice 1 uses a
-  fixed per-ship max speed).
-- ▶ Add `energy` module; ship gains power stats; movement speed reads from the allocated budget.
+### D7. Energy Allocation Form  [PARTIAL - slice 4 minimal]
+- Landed: `power` + max `speed`, per-turn `turn_speed`, `Allocate { ship, speed }`, plot/IMC use
+  `turn_speed`, default full allocation `min(power, speed)`, `src/energy.rs`, ADR-0009.
+- Still deferred: multi-bucket EA Form (weapons/shields/EW spend power), overload, arming costs.
 
 ## Deferred — Presentation & opponents
 

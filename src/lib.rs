@@ -1,5 +1,6 @@
 pub mod board;
 pub mod combat;
+pub mod energy;
 pub mod game_state;
 pub mod hex;
 pub mod impulse;

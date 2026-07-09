@@ -24,6 +24,7 @@ pub fn run_turn(game: &mut GameState) {
     resolve_pending_fires(game);
     game.sync_scripted_waypoints();
     game.clear_turn_ephemera();
+    game.reset_all_turn_energy();
     game.refresh_status();
     game.advance_turn_counter();
 }
@@ -38,7 +39,7 @@ fn resolve_impulse(game: &mut GameState, impulse: u8) {
         if ship.destroyed {
             continue;
         }
-        let speed = ship.speed.min(31) as u8;
+        let speed = ship.turn_speed.min(31) as u8;
         if !moves_on_impulse(speed, impulse) {
             continue;
         }
@@ -109,7 +110,7 @@ fn generate_scripted_plot(game: &mut GameState, ship_id: u32) -> Vec<Hex> {
     if ship.destroyed {
         return Vec::new();
     }
-    let max_steps = max_plot_steps(ship.speed);
+    let max_steps = max_plot_steps(ship.turn_speed);
     let mut path: Vec<Hex> = Vec::new();
     let mut pos = ship.pos;
     let mut waypoints_advanced = 0usize;

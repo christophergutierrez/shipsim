@@ -328,6 +328,18 @@ impl GameState {
         }
     }
 
+    pub(crate) fn allocate_speed(&mut self, ship_id: u32, speed: u32) {
+        if let Some(ship) = self.ship_mut(ship_id) {
+            ship.turn_speed = speed;
+        }
+    }
+
+    pub(crate) fn reset_all_turn_energy(&mut self) {
+        for ship in &mut self.ships {
+            ship.reset_turn_energy();
+        }
+    }
+
     pub(crate) fn store_plot(&mut self, ship_id: u32, path: Vec<Hex>) {
         self.plots.insert(
             ship_id,

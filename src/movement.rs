@@ -4,12 +4,15 @@ use thiserror::Error;
 use crate::combat::{self, FireIllegal};
 use crate::game_state::GameState;
 use crate::hex::Hex;
+use crate::energy;
 use crate::impulse;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Order {
     Plot { ship: u32, path: Vec<Hex> },
+    /// Set movement allocation for this turn (Slice 4 / D7). Cost = speed; <= power and max speed.
+    Allocate { ship: u32, speed: u32 },
     /// `ship` is the firer (TS2 multi-firer: not inferred from weapon id alone).
     Fire { ship: u32, weapon: String, target: u32 },
     RunTurn,
@@ -18,6 +21,7 @@ pub enum Order {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclaredOrder {
     Plot { ship: u32, path: Vec<Hex> },
+    Allocate { ship: u32, speed: u32 },
     Fire { ship: u32, weapon: String, target: u32 },
     RunTurn,
 }
@@ -57,6 +61,15 @@ pub enum OrderError {
     OutOfArc { weapon: String, target: u32 },
     #[error("weapon {weapon} on ship {ship} has already fired this turn")]
     WeaponAlreadyFired { ship: u32, weapon: String },
+    #[error(
+        "ship {ship} cannot allocate speed {requested} (power {power}, max speed {max_speed})"
+    )]
+    IllegalAllocation {
+        ship: u32,
+        requested: u32,
+        power: u32,
+        max_speed: u32,
+    },
 }
 
 /// Validate a plot path (adjacency, board, occupancy at submit, turn-mode, length).
@@ -68,11 +81,11 @@ pub fn validate_plot(game: &GameState, ship_id: u32, path: &[Hex]) -> Result<(),
         return Err(OrderError::ShipNotFound(ship_id));
     }
 
-    let max_steps = impulse::max_plot_steps(ship.speed);
+    let max_steps = impulse::max_plot_steps(ship.turn_speed);
     if path.len() as u32 > max_steps {
         return Err(OrderError::PlotTooLong {
             ship: ship_id,
-            speed: ship.speed,
+            speed: ship.turn_speed,
             path_len: path.len() as u32,
             max_steps,
         });
@@ -134,6 +147,21 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             validate_plot(game, ship, &path)?;
             Ok(DeclaredOrder::Plot { ship, path })
         }
+        Order::Allocate { ship, speed } => {
+            let s = game.ship(ship).ok_or(OrderError::ShipNotFound(ship))?;
+            if s.destroyed {
+                return Err(OrderError::ShipNotFound(ship));
+            }
+            if !energy::is_legal_allocation(s.power, s.speed, speed) {
+                return Err(OrderError::IllegalAllocation {
+                    ship,
+                    requested: speed,
+                    power: s.power,
+                    max_speed: s.speed,
+                });
+            }
+            Ok(DeclaredOrder::Allocate { ship, speed })
+        }
         Order::Fire {
             ship,
             weapon,
@@ -188,6 +216,9 @@ pub fn resolve(game: &mut GameState, order: DeclaredOrder) {
     match order {
         DeclaredOrder::Plot { ship, path } => {
             game.store_plot(ship, path);
+        }
+        DeclaredOrder::Allocate { ship, speed } => {
+            game.allocate_speed(ship, speed);
         }
         DeclaredOrder::Fire {
             ship,

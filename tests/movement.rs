@@ -23,6 +23,8 @@ fn two_ship_state() -> GameState {
                 pos: Hex::new(0, 0),
                 facing: 0,
                 speed: 4,
+                power: 4,
+                turn_speed: 4,
                 turn_mode: 2,
                 weapons: Vec::new(),
                 shields: [0; 6],
@@ -35,6 +37,8 @@ fn two_ship_state() -> GameState {
                 pos: Hex::new(4, 0),
                 facing: 3,
                 speed: 3,
+                power: 3,
+                turn_speed: 3,
                 turn_mode: 1,
                 weapons: Vec::new(),
                 shields: [0; 6],
@@ -117,6 +121,56 @@ fn test_plot_implies_facing_after_run_turn() {
     apply_order(&mut game, Order::RunTurn).unwrap();
     assert_eq!(game.ship(1).unwrap().pos, Hex::new(2, 1));
     assert_eq!(game.ship(1).unwrap().facing, 5);
+}
+
+#[test]
+fn test_allocate_reduces_plot_budget() {
+    let mut game = two_ship_state();
+    // two_ship ship 1 has speed 4 / power 4; allocate 1.
+    apply_order(
+        &mut game,
+        Order::Allocate { ship: 1, speed: 1 },
+    )
+    .unwrap();
+    let err = apply_order(
+        &mut game,
+        Order::Plot {
+            ship: 1,
+            path: vec![Hex::new(1, 0), Hex::new(2, 0)],
+        },
+    )
+    .expect_err("path longer than allocated speed");
+    assert!(matches!(err, OrderError::PlotTooLong { .. }));
+
+    apply_order(
+        &mut game,
+        Order::Plot {
+            ship: 1,
+            path: vec![Hex::new(1, 0)],
+        },
+    )
+    .expect("single hex ok at speed 1");
+    apply_order(&mut game, Order::RunTurn).unwrap();
+    assert_eq!(game.ship(1).unwrap().pos, Hex::new(1, 0));
+    // After turn, energy resets to full default allocation.
+    assert_eq!(
+        game.ship(1).unwrap().turn_speed,
+        game.ship(1).unwrap().power.min(game.ship(1).unwrap().speed)
+    );
+}
+
+#[test]
+fn test_illegal_allocation_rejected() {
+    let mut game = two_ship_state();
+    let err = apply_order(
+        &mut game,
+        Order::Allocate {
+            ship: 1,
+            speed: 99,
+        },
+    )
+    .expect_err("over budget");
+    assert!(matches!(err, OrderError::IllegalAllocation { .. }));
 }
 
 #[test]
@@ -230,6 +284,8 @@ fn test_collision_both_stop() {
                 pos: Hex::new(0, 0),
                 facing: 0,
                 speed: 1,
+                power: 1,
+                turn_speed: 1,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -242,6 +298,8 @@ fn test_collision_both_stop() {
                 pos: Hex::new(2, 0),
                 facing: 3,
                 speed: 1,
+                power: 1,
+                turn_speed: 1,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -284,6 +342,8 @@ fn test_collision_clears_remaining_plot() {
                 pos: Hex::new(0, 0),
                 facing: 0,
                 speed: 2,
+                power: 2,
+                turn_speed: 2,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -296,6 +356,8 @@ fn test_collision_clears_remaining_plot() {
                 pos: Hex::new(4, 0),
                 facing: 3,
                 speed: 2,
+                power: 2,
+                turn_speed: 2,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -402,6 +464,8 @@ fn test_plot_rejects_currently_occupied_hex() {
                 pos: Hex::new(0, 0),
                 facing: 0,
                 speed: 1,
+                power: 1,
+                turn_speed: 1,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
@@ -414,6 +478,8 @@ fn test_plot_rejects_currently_occupied_hex() {
                 pos: Hex::new(1, 0),
                 facing: 3,
                 speed: 1,
+                power: 1,
+                turn_speed: 1,
                 turn_mode: 0,
                 weapons: vec![],
                 shields: [0; 6],
