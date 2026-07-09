@@ -77,42 +77,24 @@ SEAM-01 (partial -- game_state no longer imports movement/combat).
 
 **Verify:** cargo test (55) + clippy green.
 
-## Residual -- RFC (High blast; not applied)
+## Residual RFC -- REALIZED (state encapsulation)
 
-### RFC: break combat <-> GameState cycle and deepen Ship/Plot
+Approved by maintainer: encapsulate `GameState` now. Landed as a dedicated plan
+(`implementation-plan-state-encapsulation.md`) and commit series after this review.
 
-#### Files
-- `src/combat.rs`, `src/game_state.rs`, `src/ship.rs`, `src/turn.rs`, `src/movement.rs`
+### Delivered
+1. `GameState` fields private; public reads via accessors (`status`, `impulse`, `turn_number`,
+   `seed`, `board`, `objective`, `ship`, `ships`).
+2. Explicit setup mutators (`set_ship_pos`, `set_ship_facing`, `set_ship_shields`,
+   `set_ship_structure`, weapon configure helpers) replace public `ship_mut` / field poking.
+3. `combat::resolve_fire(attacker, weapon_id, target, prng)` — no `GameState`.
+4. `Ship::apply_hit` owns shield/structure/destroyed application.
+5. `GameState::apply_fire` is the only bridge (PRNG + ship lookup) for turn resolution.
 
-#### Problem
-`combat::resolve_fire` still takes `&mut GameState` (PRNG + ships vec). `Ship` remains an
-anemic public bag. `DeclaredOrder` still mirrors wire `Order` rather than validated intents.
-Full encapsulation of `ships`/`board` would change the public Rust surface used by tests.
-
-#### Proposed Change (future slice / follow-up)
-1. `resolve_fire(attacker, weapon, target, prng) -> FireOutcome` pure-ish; apply damage via
-   `Ship::apply_damage`.
-2. Optional `Plot` domain type with cursor methods.
-3. Optional `ImcSpeed` / `Facing` newtypes at schema boundary.
-4. Narrow `GameState` public fields behind snapshot + accessors (High blast for tests).
-
-#### Benefits
-True DAG: primitives -> entities -> pure rules -> orchestration -> IO.
-
-#### Blast Radius
-High: combat API, ship encapsulation, many test setup sites that poke `ship_mut` fields.
-
-#### Risks
-Large mechanical rewrite; risk of silent combat drift without seeded characterization suite.
-
-#### Test Plan
-Existing combat seed-pinned tests + fire deferral / post-move skip tests from this loop.
-
-#### Alternatives
-Keep status quo for combat until D6 SSD forces Ship depth.
-
-#### Stop Conditions
-Human approval required before encapsulating `Ship` public fields or changing combat signatures.
+### Still deferred (optional)
+- Full `Ship` field privacy / newtypes (`ImcSpeed`, `Facing`)
+- First-class `Plot` type with methods
+- `DeclaredOrder` as validated intents rather than wire-isomorphic shapes
 
 ## Final verdict
 

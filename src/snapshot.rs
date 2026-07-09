@@ -52,20 +52,20 @@ pub struct StateSnapshot {
 impl StateSnapshot {
     pub fn from_game_state(game: &GameState) -> Self {
         Self {
-            turn: game.turn.number(),
-            impulse: game.impulse,
-            status: game.status,
-            seed: game.seed,
+            turn: game.turn_number(),
+            impulse: game.impulse(),
+            status: game.status(),
+            seed: game.seed(),
             map: MapSnapshot {
-                width: game.board.width,
-                height: game.board.height,
+                width: game.board().width,
+                height: game.board().height,
             },
-            objective: game.objective.map(|objective| HexSnapshot {
+            objective: game.objective().map(|objective| HexSnapshot {
                 q: objective.q,
                 r: objective.r,
             }),
             ships: game
-                .ships
+                .ships()
                 .iter()
                 .map(|ship| ShipSnapshot {
                     id: ship.id,

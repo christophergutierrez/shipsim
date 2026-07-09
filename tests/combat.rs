@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use serde_json::Value;
-use shipsim_core::combat::{bearing_to, WeaponKind};
+use shipsim_core::combat::bearing_to;
 use shipsim_core::hex::Hex;
 use shipsim_core::movement::{apply_order, declare, Order, OrderError};
 use shipsim_core::scenario::load_scenario;
@@ -20,14 +20,8 @@ fn snapshot_json(game: &shipsim_core::game_state::GameState) -> Value {
 }
 
 fn make_first_weapon_exact_damage(game: &mut shipsim_core::game_state::GameState, damage: u32) {
-    let attacker = game.ship_mut(1).expect("attacker exists");
-    let weapon = attacker
-        .weapons
-        .iter_mut()
-        .find(|weapon| weapon.id == "phaser_1")
+    game.configure_weapon_exact_damage(1, "phaser_1", damage)
         .expect("phaser_1 exists");
-    weapon.kind = WeaponKind::Disruptor;
-    weapon.damage = damage;
 }
 
 fn shield_damage_taken(before: &[u32; 6], after: &[u32; 6]) -> u32 {
@@ -40,16 +34,13 @@ fn shield_damage_taken(before: &[u32; 6], after: &[u32; 6]) -> u32 {
 
 fn phaser_damage_at_range(range: i32) -> u32 {
     let mut game = load_combat();
-    let attacker = game.ship_mut(1).expect("attacker exists");
-    attacker.pos = Hex::new(1, 0);
-    attacker.facing = 3;
-
-    let defender = game.ship_mut(2).expect("defender exists");
-    defender.pos = Hex::new(1 - range, 0);
-    defender.facing = 0;
-    defender.shields = [100; 6];
-    defender.structure = 100;
-    let before = defender.shields;
+    game.set_ship_pos(1, Hex::new(1, 0)).unwrap();
+    game.set_ship_facing(1, 3).unwrap();
+    game.set_ship_pos(2, Hex::new(1 - range, 0)).unwrap();
+    game.set_ship_facing(2, 0).unwrap();
+    game.set_ship_shields(2, [100; 6]).unwrap();
+    game.set_ship_structure(2, 100).unwrap();
+    let before = game.ship(2).expect("defender exists").shields;
 
     apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
@@ -160,27 +151,14 @@ fn test_fire_skipped_when_target_moves_out_of_range() {
     // Combat map is 4x4; place attacker at (0,0) facing 0, target at (1,0) then flee to (3,0)
     // so range after move is 3 if attacker stays — need max_range 4 so still in range.
     // Use max_range 1 weapon after setup: legal at dist 1, illegal after target moves to dist 2+.
-    {
-        let attacker = game.ship_mut(1).expect("attacker");
-        attacker.pos = Hex::new(0, 0);
-        attacker.facing = 0;
-        let weapon = attacker
-            .weapons
-            .iter_mut()
-            .find(|w| w.id == "phaser_1")
-            .expect("phaser");
-        weapon.max_range = 1;
-        weapon.kind = WeaponKind::Disruptor;
-        weapon.damage = 4;
-        weapon.to_hit_by_range = vec![6];
-    }
-    {
-        let defender = game.ship_mut(2).expect("defender");
-        defender.pos = Hex::new(1, 0);
-        defender.facing = 0;
-        defender.shields = [50; 6];
-        defender.structure = 50;
-    }
+    game.set_ship_pos(1, Hex::new(0, 0)).unwrap();
+    game.set_ship_facing(1, 0).unwrap();
+    game.configure_weapon_as_disruptor(1, "phaser_1", 4, vec![6]).unwrap();
+    game.configure_weapon_max_range(1, "phaser_1", 1).unwrap();
+    game.set_ship_pos(2, Hex::new(1, 0)).unwrap();
+    game.set_ship_facing(2, 0).unwrap();
+    game.set_ship_shields(2, [50; 6]).unwrap();
+    game.set_ship_structure(2, 50).unwrap();
     let before_shields = game.ship(2).unwrap().shields;
 
     apply_order(&mut game, Order::Fire {
@@ -264,7 +242,7 @@ fn test_fire_at_self_rejected() {
 #[test]
 fn test_out_of_range_rejected() {
     let mut game = load_combat();
-    game.ship_mut(2).expect("target exists").pos = Hex::new(3, 3);
+    game.set_ship_pos(2, Hex::new(3, 3)).unwrap();
 
     let error = declare(
         &game,
@@ -288,7 +266,7 @@ fn test_out_of_range_rejected() {
 #[test]
 fn test_out_of_arc_rejected() {
     let mut game = load_combat();
-    game.ship_mut(1).expect("attacker exists").facing = 0;
+    game.set_ship_facing(1, 0).unwrap();
 
     let error = declare(
         &game,
@@ -335,7 +313,7 @@ fn test_refire_rejected() {
 #[test]
 fn test_illegal_fire_no_mutation() {
     let mut game = load_combat();
-    game.ship_mut(1).expect("attacker exists").facing = 0;
+    game.set_ship_facing(1, 0).unwrap();
     let before = snapshot_json(&game);
 
     let result = apply_order(&mut game, Order::Fire {
@@ -373,7 +351,7 @@ fn test_face_order_changes_arc_eligibility() {
     )
     .expect("initial facing gives forward arc");
 
-    game.ship_mut(1).expect("attacker exists").facing = 0;
+    game.set_ship_facing(1, 0).unwrap();
 
     let error = declare(
         &game,
@@ -391,9 +369,10 @@ fn test_face_order_changes_arc_eligibility() {
 fn test_overflow_bleeds_then_stops() {
     let mut game = load_combat();
     make_first_weapon_exact_damage(&mut game, 8);
-    let defender = game.ship_mut(2).expect("defender exists");
-    defender.shields[0] = 3;
-    defender.structure = 12;
+    let mut shields = game.ship(2).unwrap().shields;
+    shields[0] = 3;
+    game.set_ship_shields(2, shields).unwrap();
+    game.set_ship_structure(2, 12).unwrap();
 
     apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
@@ -411,9 +390,10 @@ fn test_overflow_bleeds_then_stops() {
 fn test_underflow_leaves_structure() {
     let mut game = load_combat();
     make_first_weapon_exact_damage(&mut game, 2);
-    let defender = game.ship_mut(2).expect("defender exists");
-    defender.shields[0] = 6;
-    defender.structure = 12;
+    let mut shields = game.ship(2).unwrap().shields;
+    shields[0] = 6;
+    game.set_ship_shields(2, shields).unwrap();
+    game.set_ship_structure(2, 12).unwrap();
 
     apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
@@ -431,9 +411,10 @@ fn test_underflow_leaves_structure() {
 fn test_depleted_facing_stays_down() {
     let mut game = load_combat();
     make_first_weapon_exact_damage(&mut game, 4);
-    let defender = game.ship_mut(2).expect("defender exists");
-    defender.shields[0] = 3;
-    defender.structure = 12;
+    let mut shields = game.ship(2).unwrap().shields;
+    shields[0] = 3;
+    game.set_ship_shields(2, shields).unwrap();
+    game.set_ship_structure(2, 12).unwrap();
 
     apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
@@ -465,13 +446,11 @@ fn test_damage_hits_bearing_facing() {
     let expected_shield =
         ((bearing_to(target_pos, attacker_pos) + 6 - defender_facing) % 6) as usize;
 
-    let attacker = game.ship_mut(1).expect("attacker exists");
-    attacker.pos = attacker_pos;
-    attacker.facing = attacker_facing;
-    let defender = game.ship_mut(2).expect("defender exists");
-    defender.facing = defender_facing;
-    defender.shields = [6; 6];
-    defender.structure = 12;
+    game.set_ship_pos(1, attacker_pos).unwrap();
+    game.set_ship_facing(1, attacker_facing).unwrap();
+    game.set_ship_facing(2, defender_facing).unwrap();
+    game.set_ship_shields(2, [6; 6]).unwrap();
+    game.set_ship_structure(2, 12).unwrap();
 
     apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
@@ -495,7 +474,7 @@ fn test_damage_hits_bearing_facing() {
 fn test_face_order_changes_hit_shield() {
     let mut baseline = load_combat();
     make_first_weapon_exact_damage(&mut baseline, 2);
-    baseline.ship_mut(2).expect("defender exists").shields = [6; 6];
+    baseline.set_ship_shields(2, [6; 6]).unwrap();
     apply_order(&mut baseline, Order::Fire {
             weapon: "phaser_1".to_string(),
             target: 2,
@@ -505,8 +484,8 @@ fn test_face_order_changes_hit_shield() {
 
     let mut turned = load_combat();
     make_first_weapon_exact_damage(&mut turned, 2);
-    turned.ship_mut(2).expect("defender exists").shields = [6; 6];
-    turned.ship_mut(2).expect("defender exists").facing = 1;
+    turned.set_ship_shields(2, [6; 6]).unwrap();
+    turned.set_ship_facing(2, 1).unwrap();
     apply_order(&mut turned, Order::Fire {
             weapon: "phaser_1".to_string(),
             target: 2,
@@ -575,16 +554,13 @@ fn test_fire_until_destroyed_wins() {
 #[test]
 fn test_disruptor_miss_then_hit_pinned_seed() {
     let mut game = load_combat();
-    let attacker = game.ship_mut(1).expect("attacker exists");
-    attacker.pos = Hex::new(1, 0);
-    attacker.facing = 3;
-
-    let defender = game.ship_mut(2).expect("defender exists");
-    defender.pos = Hex::new(-3, 0);
-    defender.facing = 0;
-    defender.shields = [100; 6];
-    defender.structure = 100;
-    let before_miss = defender.shields;
+    game.set_ship_pos(1, Hex::new(1, 0)).unwrap();
+    game.set_ship_facing(1, 3).unwrap();
+    game.set_ship_pos(2, Hex::new(-3, 0)).unwrap();
+    game.set_ship_facing(2, 0).unwrap();
+    game.set_ship_shields(2, [100; 6]).unwrap();
+    game.set_ship_structure(2, 100).unwrap();
+    let before_miss = game.ship(2).unwrap().shields;
 
     apply_order(&mut game, Order::Fire {
         weapon: "disruptor_1".to_string(),
@@ -595,7 +571,7 @@ fn test_disruptor_miss_then_hit_pinned_seed() {
     let after_miss = game.ship(2).expect("defender exists").shields;
     assert_eq!(shield_damage_taken(&before_miss, &after_miss), 0);
 
-    game.ship_mut(2).expect("defender exists").pos = Hex::new(0, 0);
+    game.set_ship_pos(2, Hex::new(0, 0)).unwrap();
     let before_hit = game.ship(2).expect("defender exists").shields;
 
     apply_order(&mut game, Order::Fire {
@@ -620,9 +596,8 @@ fn run_seeded_fire_sequence() -> String {
     // damage lands on the toward-attacker facing without saturating to zero -- the
     // drawn value stays observable in the final snapshot, so any change to the
     // draw sequence changes the serialized output.
-    let defender = game.ship_mut(2).expect("defender exists");
-    defender.shields = [100; 6];
-    defender.structure = 100;
+    game.set_ship_shields(2, [100; 6]).unwrap();
+    game.set_ship_structure(2, 100).unwrap();
     for _ in 0..3 {
         apply_order(&mut game, Order::Fire {
             weapon: "phaser_1".to_string(),

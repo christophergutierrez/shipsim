@@ -83,7 +83,7 @@ pub fn validate_plot(game: &GameState, ship_id: u32, path: &[Hex]) -> Result<(),
     let mut straight: u32 = 0;
 
     for (step_index, step) in path.iter().enumerate() {
-        if !game.board.contains(*step) {
+        if !game.board().contains(*step) {
             return Err(OrderError::OffMap {
                 q: step.q,
                 r: step.r,
@@ -134,13 +134,15 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             Ok(DeclaredOrder::Plot { ship, path })
         }
         Order::Fire { weapon, target } => {
-            let attacker_index = game
-                .weapon_owner_index(&weapon)
+            let owner_id = game
+                .weapon_owner_id(&weapon)
                 .ok_or_else(|| OrderError::WeaponNotFound(weapon.clone()))?;
             let target_ship = game
                 .ship(target)
                 .ok_or(OrderError::TargetNotFound(target))?;
-            let attacker = &game.ships[attacker_index];
+            let attacker = game
+                .ship(owner_id)
+                .ok_or_else(|| OrderError::WeaponNotFound(weapon.clone()))?;
             match combat::fire_legality(attacker, &weapon, target_ship) {
                 Ok(_) => {}
                 Err(FireIllegal::WeaponNotFound) => {

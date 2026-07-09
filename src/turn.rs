@@ -1,7 +1,7 @@
 //! Turn orchestration: 32-impulse simultaneous movement, scripted auto-plot, deferred fire.
 //!
 //! Depends downward on `GameState` storage, pure `impulse` schedule, `movement` plot validation,
-//! and `combat` legality/damage. Keeps the turn driver off the state bag (ADR-0002 / seams).
+//! and pure `combat` legality (damage applied via GameState::apply_fire).
 
 use std::collections::{HashMap, HashSet};
 
@@ -16,23 +16,22 @@ pub fn run_turn(game: &mut GameState) {
     ensure_scripted_plots(game);
 
     for impulse in 1u8..=32 {
-        game.impulse = impulse;
+        game.set_impulse(impulse);
         resolve_impulse(game, impulse);
     }
 
-    game.impulse = 0;
+    game.set_impulse(0);
     resolve_pending_fires(game);
     game.sync_scripted_waypoints();
     game.clear_turn_ephemera();
     game.refresh_status();
-    game.turn.advance();
+    game.advance_turn_counter();
 }
 
 fn resolve_impulse(game: &mut GameState, impulse: u8) {
     let mut intents: Vec<(u32, Hex, u8)> = Vec::new();
-    let ship_ids: Vec<u32> = game.ships.iter().map(|s| s.id).collect();
 
-    for ship_id in ship_ids {
+    for ship_id in game.ship_ids() {
         let Some(ship) = game.ship(ship_id) else {
             continue;
         };
@@ -49,12 +48,7 @@ fn resolve_impulse(game: &mut GameState, impulse: u8) {
         intents.push((ship_id, next, facing));
     }
 
-    let mut post: HashMap<u32, Hex> = game
-        .ships
-        .iter()
-        .filter(|s| !s.destroyed)
-        .map(|s| (s.id, s.pos))
-        .collect();
+    let mut post = game.alive_positions();
     for (ship_id, next, _) in &intents {
         post.insert(*ship_id, *next);
     }
@@ -76,10 +70,7 @@ fn resolve_impulse(game: &mut GameState, impulse: u8) {
             game.abort_plot(ship_id);
             continue;
         }
-        if let Some(ship) = game.ship_mut(ship_id) {
-            ship.pos = next;
-            ship.facing = facing;
-        }
+        game.apply_ship_step(ship_id, next, facing);
         game.advance_plot_cursor(ship_id);
     }
 }
@@ -87,17 +78,19 @@ fn resolve_impulse(game: &mut GameState, impulse: u8) {
 fn resolve_pending_fires(game: &mut GameState) {
     let pending = game.take_pending_fires();
     for (weapon, target) in pending {
-        let Some(attacker_index) = game.weapon_owner_index(&weapon) else {
+        let Some(owner_id) = game.weapon_owner_id(&weapon) else {
+            continue;
+        };
+        let Some(attacker) = game.ship(owner_id).cloned() else {
             continue;
         };
         let Some(target_ship) = game.ship(target).cloned() else {
             continue;
         };
-        let attacker = game.ships[attacker_index].clone();
         if combat::fire_legality(&attacker, &weapon, &target_ship).is_err() {
             continue;
         }
-        combat::resolve_fire(game, &weapon, target);
+        game.apply_fire(&weapon, target);
     }
 }
 
@@ -145,7 +138,7 @@ fn generate_scripted_plot(game: &mut GameState, ship_id: u32) -> Vec<Hex> {
         }
 
         let next = if pos.distance(target) == 1
-            && game.board.contains(target)
+            && game.board().contains(target)
             && !game.is_occupied_by_other(ship_id, target)
             && !path.contains(&target)
         {
@@ -157,7 +150,7 @@ fn generate_scripted_plot(game: &mut GameState, ship_id: u32) -> Vec<Hex> {
                     continue;
                 };
                 let candidate = pos + delta;
-                if !game.board.contains(candidate) {
+                if !game.board().contains(candidate) {
                     continue;
                 }
                 if game.is_occupied_by_other(ship_id, candidate) {

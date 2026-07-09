@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 
 use crate::board::Board;
+use crate::combat::{self, WeaponKind};
 use crate::hex::Hex;
 use crate::prng::Prng;
 use crate::ship::Ship;
@@ -12,6 +13,27 @@ pub enum ScenarioStatus {
     InProgress,
     Won,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StateError {
+    ShipNotFound(u32),
+    WeaponNotFound { ship: u32, weapon: String },
+    InvalidFacing(u8),
+}
+
+impl std::fmt::Display for StateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StateError::ShipNotFound(id) => write!(f, "ship {id} was not found"),
+            StateError::WeaponNotFound { ship, weapon } => {
+                write!(f, "weapon {weapon} not found on ship {ship}")
+            }
+            StateError::InvalidFacing(facing) => write!(f, "facing {facing} is not in 0..=5"),
+        }
+    }
+}
+
+impl std::error::Error for StateError {}
 
 #[derive(Debug, Clone)]
 pub struct Turn {
@@ -50,20 +72,20 @@ struct PendingFire {
     target: u32,
 }
 
-/// Passive game aggregate: board, ships, plots, pending fire, terminals.
-/// Order application lives in `movement`; turn resolution lives in `turn`.
+/// Encapsulated game aggregate. Storage is private; mutate via orders (`movement::apply_order`)
+/// or explicit setup APIs — never by poking internal collections.
 #[derive(Debug, Clone)]
 pub struct GameState {
-    pub board: Board,
-    pub ships: Vec<Ship>,
-    pub objective: Option<Hex>,
-    pub destruction_target: Option<u32>,
-    pub seed: u64,
-    pub(crate) prng: Prng,
-    pub turn: Turn,
-    /// 0 between turns; 1..=32 only during an in-progress RunTurn (atomic, so tests see 0 after).
-    pub impulse: u8,
-    pub status: ScenarioStatus,
+    board: Board,
+    ships: Vec<Ship>,
+    objective: Option<Hex>,
+    destruction_target: Option<u32>,
+    seed: u64,
+    prng: Prng,
+    turn: Turn,
+    /// 0 between turns; 1..=32 only during an in-progress RunTurn.
+    impulse: u8,
+    status: ScenarioStatus,
     fired_weapons_this_turn: HashSet<String>,
     plots: HashMap<u32, PlotState>,
     pending_fires: Vec<PendingFire>,
@@ -102,22 +124,42 @@ impl GameState {
         state
     }
 
+    // ----- public reads -----
+
+    pub fn status(&self) -> ScenarioStatus {
+        self.status
+    }
+
+    pub fn impulse(&self) -> u8 {
+        self.impulse
+    }
+
+    pub fn turn_number(&self) -> u32 {
+        self.turn.number()
+    }
+
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    pub fn board(&self) -> &Board {
+        &self.board
+    }
+
+    pub fn objective(&self) -> Option<Hex> {
+        self.objective
+    }
+
+    pub fn destruction_target(&self) -> Option<u32> {
+        self.destruction_target
+    }
+
     pub fn ship(&self, id: u32) -> Option<&Ship> {
         self.ships.iter().find(|ship| ship.id == id)
     }
 
-    pub fn ship_mut(&mut self, id: u32) -> Option<&mut Ship> {
-        self.ships.iter_mut().find(|ship| ship.id == id)
-    }
-
-    pub fn ship_index(&self, id: u32) -> Option<usize> {
-        self.ships.iter().position(|ship| ship.id == id)
-    }
-
-    pub fn weapon_owner_index(&self, weapon_id: &str) -> Option<usize> {
-        self.ships.iter().position(|ship| {
-            !ship.destroyed && ship.weapons.iter().any(|weapon| weapon.id == weapon_id)
-        })
+    pub fn ships(&self) -> &[Ship] {
+        &self.ships
     }
 
     pub fn is_occupied_by_other(&self, moving_ship: u32, hex: Hex) -> bool {
@@ -128,6 +170,139 @@ impl GameState {
 
     pub fn weapon_fired_this_turn(&self, weapon_id: &str) -> bool {
         self.fired_weapons_this_turn.contains(weapon_id)
+    }
+
+    /// First non-destroyed ship that owns `weapon_id` (1v1-safe; multi-ship is ROADMAP TS2).
+    pub fn weapon_owner_id(&self, weapon_id: &str) -> Option<u32> {
+        self.ships.iter().find_map(|ship| {
+            if !ship.destroyed && ship.weapon(weapon_id).is_some() {
+                Some(ship.id)
+            } else {
+                None
+            }
+        })
+    }
+
+    // ----- public setup mutators (explicit; replace free bag poking) -----
+
+    pub fn set_ship_pos(&mut self, id: u32, pos: Hex) -> Result<(), StateError> {
+        let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
+        ship.pos = pos;
+        Ok(())
+    }
+
+    pub fn set_ship_facing(&mut self, id: u32, facing: u8) -> Result<(), StateError> {
+        if facing > 5 {
+            return Err(StateError::InvalidFacing(facing));
+        }
+        let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
+        ship.facing = facing;
+        Ok(())
+    }
+
+    pub fn set_ship_shields(&mut self, id: u32, shields: [u32; 6]) -> Result<(), StateError> {
+        let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
+        ship.shields = shields;
+        Ok(())
+    }
+
+    pub fn set_ship_structure(&mut self, id: u32, structure: u32) -> Result<(), StateError> {
+        let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
+        ship.structure = structure;
+        ship.destroyed = structure == 0;
+        Ok(())
+    }
+
+    /// Test/scenario helper: make a weapon a fixed-damage disruptor (exact rolls for tests).
+    pub fn configure_weapon_exact_damage(
+        &mut self,
+        ship_id: u32,
+        weapon_id: &str,
+        damage: u32,
+    ) -> Result<(), StateError> {
+        let ship = self
+            .ship_mut(ship_id)
+            .ok_or(StateError::ShipNotFound(ship_id))?;
+        let weapon = ship.weapon_mut(weapon_id).ok_or(StateError::WeaponNotFound {
+            ship: ship_id,
+            weapon: weapon_id.to_string(),
+        })?;
+        weapon.kind = WeaponKind::Disruptor;
+        weapon.damage = damage;
+        weapon.to_hit_by_range = vec![6];
+        weapon.phaser_dice_by_range.clear();
+        Ok(())
+    }
+
+    pub fn configure_weapon_max_range(
+        &mut self,
+        ship_id: u32,
+        weapon_id: &str,
+        max_range: u32,
+    ) -> Result<(), StateError> {
+        let ship = self
+            .ship_mut(ship_id)
+            .ok_or(StateError::ShipNotFound(ship_id))?;
+        let weapon = ship.weapon_mut(weapon_id).ok_or(StateError::WeaponNotFound {
+            ship: ship_id,
+            weapon: weapon_id.to_string(),
+        })?;
+        weapon.max_range = max_range;
+        Ok(())
+    }
+
+    pub fn configure_weapon_as_disruptor(
+        &mut self,
+        ship_id: u32,
+        weapon_id: &str,
+        damage: u32,
+        to_hit_by_range: Vec<u32>,
+    ) -> Result<(), StateError> {
+        let ship = self
+            .ship_mut(ship_id)
+            .ok_or(StateError::ShipNotFound(ship_id))?;
+        let weapon = ship.weapon_mut(weapon_id).ok_or(StateError::WeaponNotFound {
+            ship: ship_id,
+            weapon: weapon_id.to_string(),
+        })?;
+        weapon.kind = WeaponKind::Disruptor;
+        weapon.damage = damage;
+        weapon.to_hit_by_range = to_hit_by_range;
+        weapon.phaser_dice_by_range.clear();
+        Ok(())
+    }
+
+    // ----- crate-internal mutation for turn / movement / combat apply -----
+
+    pub(crate) fn ship_mut(&mut self, id: u32) -> Option<&mut Ship> {
+        self.ships.iter_mut().find(|ship| ship.id == id)
+    }
+
+    pub(crate) fn set_impulse(&mut self, impulse: u8) {
+        self.impulse = impulse;
+    }
+
+    pub(crate) fn advance_turn_counter(&mut self) {
+        self.turn.advance();
+    }
+
+    pub(crate) fn ship_ids(&self) -> Vec<u32> {
+        self.ships.iter().map(|s| s.id).collect()
+    }
+
+    pub(crate) fn alive_positions(&self) -> HashMap<u32, Hex> {
+        self.ships
+            .iter()
+            .filter(|s| !s.destroyed)
+            .map(|s| (s.id, s.pos))
+            .collect()
+    }
+
+    pub(crate) fn apply_ship_step(&mut self, ship_id: u32, pos: Hex, facing: u8) {
+        if let Some(ship) = self.ship_mut(ship_id) {
+            ship.pos = pos;
+            ship.facing = facing;
+        }
     }
 
     pub(crate) fn store_plot(&mut self, ship_id: u32, path: Vec<Hex>) {
@@ -192,6 +367,21 @@ impl GameState {
         Some((plan.next_waypoint, plan.waypoints.as_slice()))
     }
 
+    /// Apply a queued fire using pure combat + this state's PRNG.
+    pub(crate) fn apply_fire(&mut self, weapon_id: &str, target_id: u32) {
+        let Some(owner_id) = self.weapon_owner_id(weapon_id) else {
+            return;
+        };
+        let Some(attacker) = self.ship(owner_id).cloned() else {
+            return;
+        };
+        // Disjoint borrows: ships[] and prng are separate fields.
+        let Some(target) = self.ships.iter_mut().find(|ship| ship.id == target_id) else {
+            return;
+        };
+        let _ = combat::resolve_fire(&attacker, weapon_id, target, &mut self.prng);
+    }
+
     pub fn refresh_status(&mut self) {
         self.status = if let Some(objective) = self.objective {
             if self.ships.iter().any(|ship| ship.pos == objective) {
@@ -214,10 +404,6 @@ impl GameState {
         };
     }
 
-    /// After movement, advance scripted waypoint indices based on current position.
-    ///
-    /// If the ship ends on a later waypoint in the list, skip intermediate waypoints
-    /// already passed during the same turn (multi-step plots).
     pub(crate) fn sync_scripted_waypoints(&mut self) {
         let scripted_ids: Vec<u32> = self.scripted_plans.keys().copied().collect();
         for ship_id in scripted_ids {
@@ -251,3 +437,4 @@ impl ScriptedPlan {
         }
     }
 }
+

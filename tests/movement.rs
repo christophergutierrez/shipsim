@@ -101,8 +101,8 @@ fn test_run_turn_applies_plot() {
     .unwrap();
     apply_order(&mut game, Order::RunTurn).unwrap();
     assert_eq!(game.ship(1).unwrap().pos, Hex::new(3, 0));
-    assert_eq!(game.impulse, 0);
-    assert_eq!(game.turn.number(), 2);
+    assert_eq!(game.impulse(), 0);
+    assert_eq!(game.turn_number(), 2);
 }
 
 #[test]
@@ -374,18 +374,18 @@ fn test_scripted_ship_auto_plots_toward_waypoint() {
 #[test]
 fn test_turn_container_advances_via_run_turn() {
     let mut game = two_ship_state();
-    assert_eq!(game.turn.number(), 1);
+    assert_eq!(game.turn_number(), 1);
     apply_order(&mut game, Order::RunTurn).unwrap();
-    assert_eq!(game.turn.number(), 2);
+    assert_eq!(game.turn_number(), 2);
     apply_order(&mut game, Order::RunTurn).unwrap();
-    assert_eq!(game.turn.number(), 3);
+    assert_eq!(game.turn_number(), 3);
 }
 
 #[test]
 fn test_run_without_objective_stays_in_progress() {
     let mut game = load_scenario(&manifest_path("scenarios/combat.toml")).unwrap();
     apply_order(&mut game, Order::RunTurn).unwrap();
-    assert_eq!(game.status, ScenarioStatus::InProgress);
+    assert_eq!(game.status(), ScenarioStatus::InProgress);
 }
 
 #[test]

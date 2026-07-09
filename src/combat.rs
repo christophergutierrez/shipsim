@@ -1,5 +1,5 @@
-use crate::game_state::GameState;
 use crate::hex::Hex;
+use crate::prng::Prng;
 use crate::ship::Ship;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,9 +31,7 @@ pub fn fire_legality<'a>(
         return Err(FireIllegal::FireAtSelf);
     }
     let weapon = attacker
-        .weapons
-        .iter()
-        .find(|weapon| weapon.id == weapon_id)
+        .weapon(weapon_id)
         .ok_or(FireIllegal::WeaponNotFound)?;
     let range = attacker.pos.distance(target.pos);
     if range > weapon.max_range {
@@ -111,18 +109,18 @@ fn ranged_value(values: &[u32], range: u32) -> Option<u32> {
         .or_else(|| values.last().copied())
 }
 
-fn resolve_weapon_damage(weapon: &Weapon, range: u32, game: &mut GameState) -> u32 {
+fn resolve_weapon_damage(weapon: &Weapon, range: u32, prng: &mut Prng) -> u32 {
     match weapon.kind {
         WeaponKind::Phaser => {
             if let Some(dice) = ranged_value(&weapon.phaser_dice_by_range, range) {
-                (0..dice).map(|_| game.prng.roll(6)).sum()
+                (0..dice).map(|_| prng.roll(6)).sum()
             } else {
-                weapon.damage + game.prng.roll(2) - 1
+                weapon.damage + prng.roll(2) - 1
             }
         }
         WeaponKind::Disruptor => {
             if let Some(threshold) = ranged_value(&weapon.to_hit_by_range, range) {
-                if game.prng.roll(6) <= threshold {
+                if prng.roll(6) <= threshold {
                     weapon.damage
                 } else {
                     0
@@ -134,32 +132,21 @@ fn resolve_weapon_damage(weapon: &Weapon, range: u32, game: &mut GameState) -> u
     }
 }
 
-pub fn resolve_fire(game: &mut GameState, weapon_id: &str, target_id: u32) -> Option<FireOutcome> {
-    let attacker_index = game.weapon_owner_index(weapon_id)?;
-    let target_index = game.ship_index(target_id)?;
-
-    let attacker = game.ships[attacker_index].clone();
-    let weapon = attacker
-        .weapons
-        .iter()
-        .find(|weapon| weapon.id == weapon_id)?
-        .clone();
-    let target_pos = game.ships[target_index].pos;
-    let range = attacker.pos.distance(target_pos);
-    let shield =
-        relative_bearing(game.ships[target_index].facing, target_pos, attacker.pos) as usize;
-    let damage = resolve_weapon_damage(&weapon, range, game);
-
-    let target = &mut game.ships[target_index];
-    let absorbed = target.shields[shield].min(damage);
-    target.shields[shield] -= absorbed;
-    let overflow = damage - absorbed;
-    target.structure = target.structure.saturating_sub(overflow);
-    target.destroyed = target.structure == 0;
-
+/// Resolve a direct-fire shot against a target ship. Pure of `GameState` (ADR encapsulation).
+pub fn resolve_fire(
+    attacker: &Ship,
+    weapon_id: &str,
+    target: &mut Ship,
+    prng: &mut Prng,
+) -> Option<FireOutcome> {
+    let weapon = attacker.weapon(weapon_id)?.clone();
+    let range = attacker.pos.distance(target.pos);
+    let shield = relative_bearing(target.facing, target.pos, attacker.pos) as usize;
+    let damage = resolve_weapon_damage(&weapon, range, prng);
+    target.apply_hit(shield, damage);
     Some(FireOutcome {
         attacker: attacker.id,
-        target: target_id,
+        target: target.id,
         shield,
         damage,
     })

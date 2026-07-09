@@ -33,7 +33,7 @@ fn run_winning_route() -> StateSnapshot {
     })
     .expect("plot is legal");
     apply_order(&mut game, Order::RunTurn).expect("run turn 1");
-    assert_eq!(game.status, ScenarioStatus::InProgress);
+    assert_eq!(game.status(), ScenarioStatus::InProgress);
     assert_eq!(game.ship(1).unwrap().pos, Hex::new(4, 0));
 
     // Turn 2: final step onto objective.
@@ -76,7 +76,7 @@ fn test_non_winning_run_stays_in_progress() {
 
     let snapshot = serde_json::to_value(StateSnapshot::from_game_state(&game)).unwrap();
     assert_eq!(snapshot["status"], "InProgress");
-    assert_eq!(game.status, ScenarioStatus::InProgress);
+    assert_eq!(game.status(), ScenarioStatus::InProgress);
 }
 
 #[test]
@@ -119,8 +119,8 @@ fn test_impulse_turn_end_positions() {
 
     assert_eq!(game.ship(1).unwrap().pos, Hex::new(4, 5));
     assert_eq!(game.ship(2).unwrap().pos, Hex::new(3, 0));
-    assert_eq!(game.impulse, 0);
-    assert_eq!(game.status, ScenarioStatus::InProgress);
+    assert_eq!(game.impulse(), 0);
+    assert_eq!(game.status(), ScenarioStatus::InProgress);
 
     // IMC anchors used by the turn (not observed mid-turn, but pinned).
     for impulse in 1u8..=32 {

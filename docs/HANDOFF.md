@@ -12,9 +12,9 @@ Purpose: resume the Killhouse `ask-kh` pipeline. Transient process state, not du
   - IMPLEMENT: M1 IMC + M2 cutover (Plot/RunTurn, simultaneous collision, fire-at-turn-end,
     speed rename, impulse scenario, full test migration) through M7 docs.
   - ARCHITECTURE_DESIGN: converge PASS (3 passes). See `docs/ARCHITECTURE-slice3.md`.
-    Characterization tests + `fire_legality` + `max_plot_steps` + `turn` module extraction.
-    Residual High blast (Ship/Plot types, combat pure of GameState) recorded as RFC.
-  - `cargo test`: all green (55 tests).
+  - State encapsulation (post-RFC): `GameState` private storage; pure combat; setup APIs;
+    plan in `implementation-plan-state-encapsulation.md`.
+  - `cargo test`: all green.
   - `cargo clippy --all-targets -- -D warnings`: clean.
 - Killhouse: Grok plugin v0.2.4; redqueen submodule synced (`uv sync`); mock evolve plumbing OK
   (fitness 0.0 without a live model endpoint — IMPLEMENT used plan contracts, not evolved prompt).
