@@ -49,6 +49,17 @@ pub struct WeaponSnapshot {
 }
 
 #[derive(Debug, Serialize)]
+pub struct SeekingSnapshot {
+    pub id: u32,
+    pub owner: u32,
+    pub weapon: String,
+    pub target: u32,
+    pub q: i32,
+    pub r: i32,
+    pub damage: u32,
+}
+
+#[derive(Debug, Serialize)]
 pub struct StateSnapshot {
     pub turn: u32,
     pub impulse: u8,
@@ -59,6 +70,7 @@ pub struct StateSnapshot {
     pub map: MapSnapshot,
     pub objective: Option<HexSnapshot>,
     pub ships: Vec<ShipSnapshot>,
+    pub seeking: Vec<SeekingSnapshot>,
 }
 
 impl StateSnapshot {
@@ -113,6 +125,19 @@ impl StateSnapshot {
                         .collect(),
                 })
                 .collect(),
+            seeking: game
+                .seeking_munitions()
+                .iter()
+                .map(|m| SeekingSnapshot {
+                    id: m.id,
+                    owner: m.owner,
+                    weapon: m.weapon_id.clone(),
+                    target: m.target,
+                    q: m.pos.q,
+                    r: m.pos.r,
+                    damage: m.damage,
+                })
+                .collect(),
         }
     }
 }
@@ -121,6 +146,7 @@ fn weapon_kind_name(kind: &WeaponKind) -> &'static str {
     match kind {
         WeaponKind::Phaser => "Phaser",
         WeaponKind::Disruptor => "Disruptor",
+        WeaponKind::Drone => "Drone",
     }
 }
 

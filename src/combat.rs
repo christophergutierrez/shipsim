@@ -6,10 +6,12 @@ use crate::ship::Ship;
 pub enum WeaponKind {
     Phaser,
     Disruptor,
+    /// Seeking munition: launched by Fire, tracks target over impulses (D5a).
+    Drone,
 }
 
-/// Impulse Fire Frequency (simplified): which impulses a weapon class may discharge (D1-fire).
-/// Impulses are 1..=32. Phasers every 4th impulse; disruptors every 8th (both include 32).
+/// Impulse Fire Frequency (simplified): which impulses a **direct-fire** weapon may discharge.
+/// Drones launch immediately on Fire (not IFF-gated).
 pub fn fires_on_impulse(kind: &WeaponKind, impulse: u8) -> bool {
     if impulse == 0 || impulse > 32 {
         return false;
@@ -17,7 +19,12 @@ pub fn fires_on_impulse(kind: &WeaponKind, impulse: u8) -> bool {
     match kind {
         WeaponKind::Phaser => impulse.is_multiple_of(4),
         WeaponKind::Disruptor => impulse.is_multiple_of(8),
+        WeaponKind::Drone => false,
     }
+}
+
+pub fn is_seeking(kind: &WeaponKind) -> bool {
+    matches!(kind, WeaponKind::Drone)
 }
 
 /// Why a shot is illegal at a given pair of ship positions (declare-time or post-move).
@@ -150,6 +157,8 @@ fn resolve_weapon_damage(weapon: &Weapon, range: u32, prng: &mut Prng) -> u32 {
                 weapon.damage
             }
         }
+        // Seeking munitions apply fixed warhead damage on impact (no range dice).
+        WeaponKind::Drone => weapon.damage,
     }
 }
 

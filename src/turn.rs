@@ -15,6 +15,7 @@ pub fn run_turn(game: &mut GameState) {
     for impulse in 1u8..=32 {
         game.set_impulse(impulse);
         resolve_impulse_movement(game, impulse);
+        game.advance_seeking_munitions();
         resolve_fires_on_impulse(game, impulse);
     }
 

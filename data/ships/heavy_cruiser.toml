@@ -22,3 +22,10 @@ arc = "forward"
 max_range = 4
 damage = 4
 to_hit_by_range = [6, 4, 2, 1]
+
+[[weapons]]
+id = "drone_1"
+kind = "drone"
+arc = "forward"
+max_range = 8
+damage = 3

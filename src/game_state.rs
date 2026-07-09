@@ -80,6 +80,17 @@ struct PendingFire {
     target: u32,
 }
 
+/// In-flight seeking munition (D5a drone).
+#[derive(Debug, Clone)]
+pub struct SeekingMunition {
+    pub id: u32,
+    pub owner: u32,
+    pub weapon_id: String,
+    pub pos: Hex,
+    pub target: u32,
+    pub damage: u32,
+}
+
 /// Encapsulated game aggregate. Storage is private; mutate via orders (`movement::apply_order`)
 /// or explicit setup APIs — never by poking internal collections.
 #[derive(Debug, Clone)]
@@ -97,6 +108,8 @@ pub struct GameState {
     fired_weapons_this_turn: HashSet<(u32, String)>,
     plots: HashMap<u32, PlotState>,
     pending_fires: Vec<PendingFire>,
+    seeking: Vec<SeekingMunition>,
+    next_seeking_id: u32,
     /// Non-player controllers (scripted waypoints or AI). BTreeMap = deterministic order (T1).
     npcs: BTreeMap<u32, NpcController>,
 }
@@ -131,6 +144,8 @@ impl GameState {
             fired_weapons_this_turn: HashSet::new(),
             plots: HashMap::new(),
             pending_fires: Vec::new(),
+            seeking: Vec::new(),
+            next_seeking_id: 1,
             npcs,
         };
         state.refresh_status();
@@ -400,11 +415,104 @@ impl GameState {
         }
         self.fired_weapons_this_turn
             .insert((ship, weapon.clone()));
-        self.pending_fires.push(PendingFire {
-            ship,
-            weapon,
+
+        // Seeking weapons launch a munition immediately; direct-fire waits for IFF windows.
+        let is_seek = self
+            .ship(ship)
+            .and_then(|s| s.weapons.iter().find(|w| w.id == weapon))
+            .map(|w| combat::is_seeking(&w.kind))
+            .unwrap_or(false);
+        if is_seek {
+            self.launch_seeking(ship, weapon, target);
+        } else {
+            self.pending_fires.push(PendingFire {
+                ship,
+                weapon,
+                target,
+            });
+        }
+    }
+
+    pub fn seeking_munitions(&self) -> &[SeekingMunition] {
+        &self.seeking
+    }
+
+    fn launch_seeking(&mut self, owner: u32, weapon_id: String, target: u32) {
+        let Some(launcher) = self.ship(owner) else {
+            return;
+        };
+        let Some(w) = launcher.weapons.iter().find(|w| w.id == weapon_id) else {
+            return;
+        };
+        let damage = w.damage;
+        let pos = launcher.pos;
+        let id = self.next_seeking_id;
+        self.next_seeking_id = self.next_seeking_id.saturating_add(1);
+        self.seeking.push(SeekingMunition {
+            id,
+            owner,
+            weapon_id,
+            pos,
             target,
+            damage,
         });
+    }
+
+    /// Move each seeking munition one hex toward its target; impact applies damage.
+    pub(crate) fn advance_seeking_munitions(&mut self) {
+        let mut next: Vec<SeekingMunition> = Vec::new();
+        let munitions = std::mem::take(&mut self.seeking);
+        for mut m in munitions {
+            let Some(target) = self.ship(m.target).cloned() else {
+                continue; // target gone
+            };
+            if target.destroyed {
+                continue;
+            }
+            if m.pos == target.pos {
+                // Already on hex (rare): detonate.
+                let facing = 0usize;
+                if let Some(t) = self.ship_mut(m.target) {
+                    t.apply_hit(facing, m.damage);
+                }
+                continue;
+            }
+            // Greedy one-hex step toward target.
+            let mut best: Option<(u8, Hex)> = None;
+            for facing in 0u8..=5 {
+                let Some(delta) = Hex::direction(facing) else {
+                    continue;
+                };
+                let candidate = m.pos + delta;
+                if !self.board.contains(candidate) {
+                    continue;
+                }
+                if candidate.distance(target.pos) >= m.pos.distance(target.pos) {
+                    continue;
+                }
+                match best {
+                    None => best = Some((facing, candidate)),
+                    Some((bf, _)) if facing < bf => best = Some((facing, candidate)),
+                    _ => {}
+                }
+            }
+            let Some((approach_facing, step)) = best else {
+                // Stuck: keep munition for a later impulse (target may move).
+                next.push(m);
+                continue;
+            };
+            m.pos = step;
+            if m.pos == target.pos {
+                let shield = approach_facing as usize;
+                if let Some(t) = self.ship_mut(m.target) {
+                    t.apply_hit(shield, m.damage);
+                }
+                // munition expended
+            } else {
+                next.push(m);
+            }
+        }
+        self.seeking = next;
     }
 
     pub(crate) fn has_plot(&self, ship_id: u32) -> bool {

@@ -206,6 +206,7 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
     let kind = match def.kind.as_str() {
         "phaser" => WeaponKind::Phaser,
         "disruptor" => WeaponKind::Disruptor,
+        "drone" => WeaponKind::Drone,
         other => {
             return Err(LoadError::UnknownWeaponKind {
                 kind: other.to_string(),

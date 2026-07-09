@@ -68,9 +68,9 @@ Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, A
   allocates systems (ADR-0012). Destroyed on hull or bridge 0; dead weapons cannot fire;
   engines/power scale movement and energy.
 
-### D5a. More weapon classes / seeking weapons  🎯 after D5
-- Seeking weapons (drones/plasma), reinforcement, richer arcs. (Slice 2 ships phasers + disruptors,
-  direct-fire only.)
+### D5a. More weapon classes / seeking weapons  [REALIZED core]
+- `WeaponKind::Drone`: launch on Fire, seeks one hex/impulse, impact damage (ADR-0014).
+  Cruiser mounts `drone_1`. Plasma / multi-turn arming still deferred.
 
 ## Slice 4 - Energy Allocation minimal (REALIZED base)
 
