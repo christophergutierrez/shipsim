@@ -8,10 +8,10 @@ Legend: 🎯 target slice · 🪝 designed-for hook already in slice 1 · ▶ re
 
 ---
 
-## Slice 1 — Movement Skeleton (CURRENT)
+## Slice 1 — Movement Skeleton (REALIZED)
 
 Simplified N-hexes/turn sequential movement, 6-facing, player-plotted + scripted ship, objective-hex
-win, CLI/JSON harness, headless test. See `CONTEXT.md`.
+win, CLI/JSON harness, headless test. See `CONTEXT.md`. Superseded for movement by Slice 3.
 
 ## Slice 2 - Direct-fire Combat (REALIZED)
 
@@ -28,25 +28,25 @@ bleed-through to a single structure pool, seeded dice (ADR-0005), and the destru
 - Hook check: the ADR-0002 declare/resolve seam held (fire reused it, no rewrite) and the slice-1
   objective-hex terminal was preserved (the destruction terminal was added alongside it).
 
-## Deferred — Movement fidelity (the SFB "feel")
+## Slice 3 - Movement fidelity (REALIZED)
 
-### D1. Full 32-impulse turn + Impulse Movement Chart  🎯 slice 2
-- **Why deferred:** biggest complexity driver; slice 1 proves the loop with simplified movement.
-- 🪝 Turn modeled as an impulse-capable container; simplified movement is a policy inside it.
-- ▶ Replace the "N hexes/turn" policy with the Impulse Chart lookup (Speed → which impulses move).
-  End-state requirement confirmed by maintainer.
+32-impulse IMC, `Plot`/`RunTurn`, simultaneous per-impulse resolution, turn-mode at plot submit.
+Fire deferred to turn end (mechanics unchanged). See `docs/CONTEXT-slice3.md`, ADR-0007, ADR-0008,
+`implementation-plan-slice3.md`.
 
-### D2. Simultaneous plot-then-resolve movement  🎯 slice 2–3
-- **Why deferred:** slice 1 resolves the two ships sequentially.
-- 🪝 Movement is modeled as *declare order → resolve order*; collect both declarations per impulse to
-  resolve together.
-- ▶ Add a per-impulse declaration collection phase; resolve all ships' declared moves simultaneously.
-  End-state requirement confirmed by maintainer.
+### D1. Full 32-impulse turn + Impulse Movement Chart  [REALIZED - slice 3]
+- `src/impulse.rs`: `moves_on_impulse` / `move_count` pure IMC schedule (speeds 0..=31).
+- `Order::RunTurn` drives impulses 1..=32 atomically.
 
-### D3. Turn-mode enforcement  🎯 slice 2
-- **Why deferred:** slice 1 allows free facing changes.
-- 🪝 `ship.turn_mode` field exists in the schema, unenforced.
-- ▶ Enforce "must move `turn_mode` hexes straight between facing changes"; validate in movement.
+### D2. Simultaneous plot-then-resolve movement  [REALIZED - slice 3]
+- `Order::Plot { ship, path }` stores a path; `RunTurn` collects per-impulse intents and applies
+  them atomically. Same-hex collision: both movers stop and clear remaining plot.
+
+### D3. Turn-mode enforcement  [REALIZED - slice 3]
+- Plot submission validates turn-mode (first step free; need `turn_mode` straight steps before a
+  direction change). Whole plot rejected on violation.
+
+## Deferred — Movement / map residual
 
 ### D4. SFB fixed/floating map + off-map rules  🎯 later
 - **Why deferred:** slice 1 uses a bounded rectangle from the scenario TOML, no wraparound.

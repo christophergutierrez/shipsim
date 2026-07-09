@@ -2,6 +2,7 @@ pub mod board;
 pub mod combat;
 pub mod game_state;
 pub mod hex;
+pub mod impulse;
 pub mod movement;
 pub mod prng;
 pub mod scenario;

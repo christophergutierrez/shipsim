@@ -16,7 +16,7 @@ fn default_shields() -> [u32; 6] {
 pub struct ShipDef {
     pub id: String,
     pub name: String,
-    pub speed_max: u32,
+    pub speed: u32,
     #[serde(default = "default_turn_mode")]
     pub turn_mode: u32,
     #[serde(default = "default_shields")]

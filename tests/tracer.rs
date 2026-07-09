@@ -15,11 +15,13 @@ fn test_snapshot_shape() {
     let scenario_path = manifest_path("scenarios/tracer.toml");
     let mut game = load_scenario(&scenario_path).expect("tracer scenario loads");
 
-    game.apply_order(Order::Move {
+    game.apply_order(Order::Plot {
         ship: 1,
-        to: Hex::new(1, 0),
+        path: vec![Hex::new(1, 0)],
     })
-    .expect("one adjacent move is valid");
+    .expect("plot is valid");
+    game.apply_order(Order::RunTurn)
+        .expect("run turn applies plot");
 
     let snapshot = StateSnapshot::from_game_state(&game);
     let json_line = serde_json::to_string(&snapshot).expect("snapshot serializes to JSON");
@@ -27,7 +29,8 @@ fn test_snapshot_shape() {
 
     let json = serde_json::to_value(&snapshot).expect("snapshot serializes");
 
-    assert_eq!(json["turn"], 1);
+    assert_eq!(json["turn"], 2);
+    assert_eq!(json["impulse"], 0);
     assert_eq!(json["status"], "InProgress");
     assert_eq!(json["map"]["width"], 4);
     assert_eq!(json["map"]["height"], 4);
@@ -43,7 +46,7 @@ fn test_snapshot_shape() {
     assert_eq!(ship["q"], 1);
     assert_eq!(ship["r"], 0);
     assert_eq!(ship["facing"], 0);
-    assert_eq!(ship["speed_max"], 4);
+    assert_eq!(ship["speed"], 4);
     assert_eq!(ship["turn_mode"], 2);
 
     let _: Value = json;

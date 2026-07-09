@@ -8,18 +8,16 @@ use crate::hex::Hex;
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Order {
-    Move { ship: u32, to: Hex },
-    Face { ship: u32, facing: u8 },
+    Plot { ship: u32, path: Vec<Hex> },
     Fire { weapon: String, target: u32 },
-    EndTurn,
+    RunTurn,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclaredOrder {
-    Move { ship: u32, to: Hex },
-    Face { ship: u32, facing: u8 },
+    Plot { ship: u32, path: Vec<Hex> },
     Fire { weapon: String, target: u32 },
-    EndTurn,
+    RunTurn,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -28,18 +26,19 @@ pub enum OrderError {
     ShipNotFound(u32),
     #[error("destination ({q},{r}) is off the map")]
     OffMap { q: i32, r: i32 },
-    #[error("moving ship {ship} would exceed speed {speed_max} with attempted hex {attempted}")]
-    BeyondSpeed {
-        ship: u32,
-        speed_max: u32,
-        attempted: u32,
-    },
     #[error("destination ({q},{r}) is occupied")]
     HexOccupied { q: i32, r: i32 },
     #[error("destination ({q},{r}) is not adjacent")]
     NotAdjacent { q: i32, r: i32 },
-    #[error("facing {0} is not in 0..=5")]
-    NotSixFacing(u8),
+    #[error("path length {path_len} exceeds speed {speed} for ship {ship} (max {max_steps})")]
+    PlotTooLong {
+        ship: u32,
+        speed: u32,
+        path_len: u32,
+        max_steps: u32,
+    },
+    #[error("turn-mode violation for ship {ship} at path step {step_index}")]
+    TurnModeViolation { ship: u32, step_index: usize },
     #[error("weapon {0} was not found")]
     WeaponNotFound(String),
     #[error("target {0} was not found")]
@@ -58,38 +57,80 @@ pub enum OrderError {
     WeaponAlreadyFired(String),
 }
 
+/// Validate a plot path (adjacency, board, occupancy at submit, turn-mode, length).
+pub fn validate_plot(game: &GameState, ship_id: u32, path: &[Hex]) -> Result<(), OrderError> {
+    let ship = game
+        .ship(ship_id)
+        .ok_or(OrderError::ShipNotFound(ship_id))?;
+    if ship.destroyed {
+        return Err(OrderError::ShipNotFound(ship_id));
+    }
+
+    let max_steps = ship.speed;
+    if path.len() as u32 > max_steps {
+        return Err(OrderError::PlotTooLong {
+            ship: ship_id,
+            speed: ship.speed,
+            path_len: path.len() as u32,
+            max_steps,
+        });
+    }
+
+    let turn_mode = ship.turn_mode;
+    let mut prev = ship.pos;
+    let mut prev_dir: Option<u8> = None;
+    let mut straight: u32 = 0;
+
+    for (step_index, step) in path.iter().enumerate() {
+        if !game.board.contains(*step) {
+            return Err(OrderError::OffMap {
+                q: step.q,
+                r: step.r,
+            });
+        }
+        if prev.distance(*step) != 1 {
+            return Err(OrderError::NotAdjacent {
+                q: step.q,
+                r: step.r,
+            });
+        }
+        if game.is_occupied_by_other(ship_id, *step) {
+            return Err(OrderError::HexOccupied {
+                q: step.q,
+                r: step.r,
+            });
+        }
+
+        let dir = Hex::facing_between(prev, *step).expect("adjacent hex has a unit facing");
+        if let Some(previous) = prev_dir {
+            if dir != previous {
+                if turn_mode > 0 && straight < turn_mode {
+                    return Err(OrderError::TurnModeViolation {
+                        ship: ship_id,
+                        step_index,
+                    });
+                }
+                straight = 1;
+                prev_dir = Some(dir);
+            } else {
+                straight = straight.saturating_add(1);
+            }
+        } else {
+            // First step establishes facing; never a turn-mode violation.
+            prev_dir = Some(dir);
+            straight = 1;
+        }
+        prev = *step;
+    }
+
+    Ok(())
+}
+
 pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderError> {
     match order {
-        Order::Move { ship, to } => {
-            let moving_ship = game.ship(ship).ok_or(OrderError::ShipNotFound(ship))?;
-            let current = moving_ship.pos;
-            if !game.board.contains(to) {
-                return Err(OrderError::OffMap { q: to.q, r: to.r });
-            }
-            if game.is_occupied_by_other(ship, to) {
-                return Err(OrderError::HexOccupied { q: to.q, r: to.r });
-            }
-            if current.distance(to) != 1 {
-                return Err(OrderError::NotAdjacent { q: to.q, r: to.r });
-            }
-            let attempted = game.hexes_moved_this_turn(ship) + 1;
-            if attempted > moving_ship.speed_max {
-                return Err(OrderError::BeyondSpeed {
-                    ship,
-                    speed_max: moving_ship.speed_max,
-                    attempted,
-                });
-            }
-            Ok(DeclaredOrder::Move { ship, to })
-        }
-        Order::Face { ship, facing } => {
-            if game.ship(ship).is_none() {
-                return Err(OrderError::ShipNotFound(ship));
-            }
-            if facing > 5 {
-                return Err(OrderError::NotSixFacing(facing));
-            }
-            Ok(DeclaredOrder::Face { ship, facing })
+        Order::Plot { ship, path } => {
+            validate_plot(game, ship, &path)?;
+            Ok(DeclaredOrder::Plot { ship, path })
         }
         Order::Fire { weapon, target } => {
             let attacker_index = game
@@ -98,6 +139,9 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             let target_ship = game
                 .ship(target)
                 .ok_or(OrderError::TargetNotFound(target))?;
+            if target_ship.destroyed {
+                return Err(OrderError::TargetNotFound(target));
+            }
             let attacker = &game.ships[attacker_index];
             if attacker.id == target {
                 return Err(OrderError::FireAtSelf(target));
@@ -125,29 +169,20 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             }
             Ok(DeclaredOrder::Fire { weapon, target })
         }
-        Order::EndTurn => Ok(DeclaredOrder::EndTurn),
+        Order::RunTurn => Ok(DeclaredOrder::RunTurn),
     }
 }
 
 pub fn resolve(game: &mut GameState, order: DeclaredOrder) {
     match order {
-        DeclaredOrder::Move { ship, to } => {
-            if let Some(ship) = game.ship_mut(ship) {
-                ship.pos = to;
-            }
-            game.record_hex_moved(ship);
-            game.refresh_status();
-        }
-        DeclaredOrder::Face { ship, facing } => {
-            if let Some(ship) = game.ship_mut(ship) {
-                ship.facing = facing;
-            }
+        DeclaredOrder::Plot { ship, path } => {
+            game.store_plot(ship, path);
         }
         DeclaredOrder::Fire { weapon, target } => {
-            crate::combat::resolve_fire(game, &weapon, target);
-            game.record_weapon_fired(weapon);
-            game.refresh_status();
+            game.queue_fire(weapon, target);
         }
-        DeclaredOrder::EndTurn => game.end_turn(),
+        DeclaredOrder::RunTurn => {
+            game.run_turn();
+        }
     }
 }

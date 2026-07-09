@@ -53,6 +53,15 @@ impl Hex {
         DIRECTIONS.get(facing as usize).copied()
     }
 
+    /// Exact unit-step facing from `from` to adjacent `to`, if the delta is a hex direction.
+    pub fn facing_between(from: Hex, to: Hex) -> Option<u8> {
+        let delta = to - from;
+        DIRECTIONS
+            .iter()
+            .position(|direction| *direction == delta)
+            .map(|index| index as u8)
+    }
+
     fn to_cube(self) -> (i32, i32, i32) {
         let x = self.q;
         let z = self.r;

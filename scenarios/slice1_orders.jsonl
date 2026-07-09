@@ -1,6 +1,4 @@
-{"type":"move","ship":1,"to":{"q":1,"r":0}}
-{"type":"move","ship":1,"to":{"q":2,"r":0}}
-{"type":"move","ship":1,"to":{"q":3,"r":0}}
-{"type":"move","ship":1,"to":{"q":4,"r":0}}
-{"type":"end_turn"}
-{"type":"move","ship":1,"to":{"q":4,"r":1}}
+{"type":"plot","ship":1,"path":[{"q":1,"r":0},{"q":2,"r":0},{"q":3,"r":0},{"q":4,"r":0}]}
+{"type":"run_turn"}
+{"type":"plot","ship":1,"path":[{"q":4,"r":1}]}
+{"type":"run_turn"}

@@ -43,11 +43,11 @@ fn test_orders_file_mode_prints_winning_snapshots() {
         String::from_utf8_lossy(&output.stderr)
     );
     let snapshots = parse_stdout(&output.stdout);
-    assert_eq!(snapshots.len(), 6);
+    assert_eq!(snapshots.len(), 4);
 
     let final_snapshot = snapshots.last().expect("at least one snapshot");
     assert_eq!(final_snapshot["status"], "Won");
-    assert_eq!(final_snapshot["turn"], 2);
+    assert_eq!(final_snapshot["turn"], 3);
     assert_eq!(final_snapshot["ships"][0]["q"], 4);
     assert_eq!(final_snapshot["ships"][0]["r"], 1);
     assert_eq!(final_snapshot["ships"][0]["turn_mode"], 2);
@@ -84,7 +84,7 @@ fn test_stdin_mode_prints_snapshot_per_order() {
     );
 
     let snapshots = parse_stdout(&output.stdout);
-    assert_eq!(snapshots.len(), 6);
+    assert_eq!(snapshots.len(), 4);
     assert_eq!(snapshots.last().unwrap()["status"], "Won");
 }
 

@@ -77,7 +77,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             class: ship_def.name,
             pos,
             facing: placement.facing,
-            speed_max: ship_def.speed_max,
+            speed: ship_def.speed,
             turn_mode: ship_def.turn_mode,
             weapons: ship_def
                 .weapons

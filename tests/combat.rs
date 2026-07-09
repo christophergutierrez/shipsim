@@ -56,6 +56,7 @@ fn phaser_damage_at_range(range: i32) -> u32 {
         target: 2,
     })
     .expect("phaser fire succeeds");
+    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
 
     shield_damage_taken(&before, &game.ship(2).expect("defender exists").shields)
 }
@@ -117,6 +118,7 @@ fn test_tracer_fire_damages_shield() {
         target: 2,
     })
     .expect("tracer fire order succeeds");
+    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
 
     let after_snapshot = StateSnapshot::from_game_state(&game);
     let after = serde_json::to_value(&after_snapshot).expect("snapshot serializes");
@@ -210,8 +212,7 @@ fn test_out_of_range_rejected() {
 #[test]
 fn test_out_of_arc_rejected() {
     let mut game = load_combat();
-    game.apply_order(Order::Face { ship: 1, facing: 0 })
-        .expect("face order succeeds");
+    game.ship_mut(1).expect("attacker exists").facing = 0;
 
     let error = declare(
         &game,
@@ -258,8 +259,7 @@ fn test_refire_rejected() {
 #[test]
 fn test_illegal_fire_no_mutation() {
     let mut game = load_combat();
-    game.apply_order(Order::Face { ship: 1, facing: 0 })
-        .expect("face order succeeds");
+    game.ship_mut(1).expect("attacker exists").facing = 0;
     let before = snapshot_json(&game);
 
     let result = game.apply_order(Order::Fire {
@@ -297,8 +297,7 @@ fn test_face_order_changes_arc_eligibility() {
     )
     .expect("initial facing gives forward arc");
 
-    game.apply_order(Order::Face { ship: 1, facing: 0 })
-        .expect("face order succeeds");
+    game.ship_mut(1).expect("attacker exists").facing = 0;
 
     let error = declare(
         &game,
@@ -325,6 +324,7 @@ fn test_overflow_bleeds_then_stops() {
         target: 2,
     })
     .expect("fire succeeds");
+    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 0);
@@ -344,6 +344,7 @@ fn test_underflow_leaves_structure() {
         target: 2,
     })
     .expect("fire succeeds");
+    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 4);
@@ -363,12 +364,13 @@ fn test_depleted_facing_stays_down() {
         target: 2,
     })
     .expect("first fire succeeds");
-    game.apply_order(Order::EndTurn).expect("turn ends");
+    game.apply_order(Order::RunTurn).expect("resolve first fire");
     game.apply_order(Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("second fire succeeds");
+    game.apply_order(Order::RunTurn).expect("resolve second fire");
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 0);
@@ -400,6 +402,7 @@ fn test_damage_hits_bearing_facing() {
         target: 2,
     })
     .expect("fire succeeds");
+    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
 
     let defender = game.ship(2).expect("defender exists");
     for (index, shield) in defender.shields.iter().enumerate() {
@@ -423,19 +426,19 @@ fn test_face_order_changes_hit_shield() {
             target: 2,
         })
         .expect("baseline fire succeeds");
+    baseline.apply_order(Order::RunTurn).expect("resolve baseline fire");
 
     let mut turned = load_combat();
     make_first_weapon_exact_damage(&mut turned, 2);
     turned.ship_mut(2).expect("defender exists").shields = [6; 6];
-    turned
-        .apply_order(Order::Face { ship: 2, facing: 1 })
-        .expect("defender face order succeeds");
+    turned.ship_mut(2).expect("defender exists").facing = 1;
     turned
         .apply_order(Order::Fire {
             weapon: "phaser_1".to_string(),
             target: 2,
         })
         .expect("turned fire succeeds");
+    turned.apply_order(Order::RunTurn).expect("resolve turned fire");
 
     let baseline_shields = baseline.ship(2).expect("defender exists").shields;
     let turned_shields = turned.ship(2).expect("defender exists").shields;
@@ -479,12 +482,12 @@ fn test_fire_until_destroyed_wins() {
             target: 2,
         })
         .expect("attacker fire succeeds");
+        game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
 
         if game.ship(2).expect("enemy exists").destroyed {
             fatal = true;
             break;
         }
-        game.apply_order(Order::EndTurn).expect("turn ends");
     }
 
     assert!(fatal, "enemy should be destroyed within the volley budget");
@@ -514,10 +517,10 @@ fn test_disruptor_miss_then_hit_pinned_seed() {
         target: 2,
     })
     .expect("first disruptor fire succeeds");
+    game.apply_order(Order::RunTurn).expect("resolve miss fire");
     let after_miss = game.ship(2).expect("defender exists").shields;
     assert_eq!(shield_damage_taken(&before_miss, &after_miss), 0);
 
-    game.apply_order(Order::EndTurn).expect("turn ends");
     game.ship_mut(2).expect("defender exists").pos = Hex::new(0, 0);
     let before_hit = game.ship(2).expect("defender exists").shields;
 
@@ -526,6 +529,7 @@ fn test_disruptor_miss_then_hit_pinned_seed() {
         target: 2,
     })
     .expect("second disruptor fire succeeds");
+    game.apply_order(Order::RunTurn).expect("resolve hit fire");
 
     let after_hit = game.ship(2).expect("defender exists").shields;
     assert_eq!(shield_damage_taken(&before_hit, &after_hit), 4);
@@ -551,7 +555,7 @@ fn run_seeded_fire_sequence() -> String {
             target: 2,
         })
         .expect("phaser fire succeeds");
-        game.apply_order(Order::EndTurn).expect("turn ends");
+        game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
     }
     serde_json::to_string(&StateSnapshot::from_game_state(&game)).expect("snapshot serializes")
 }

@@ -22,7 +22,7 @@ pub struct ShipSnapshot {
     pub q: i32,
     pub r: i32,
     pub facing: u8,
-    pub speed_max: u32,
+    pub speed: u32,
     pub turn_mode: u32,
     pub shields: [u32; 6],
     pub structure: u32,
@@ -41,6 +41,7 @@ pub struct WeaponSnapshot {
 #[derive(Debug, Serialize)]
 pub struct StateSnapshot {
     pub turn: u32,
+    pub impulse: u8,
     pub status: ScenarioStatus,
     pub seed: u64,
     pub map: MapSnapshot,
@@ -52,6 +53,7 @@ impl StateSnapshot {
     pub fn from_game_state(game: &GameState) -> Self {
         Self {
             turn: game.turn.number(),
+            impulse: game.impulse,
             status: game.status,
             seed: game.seed,
             map: MapSnapshot {
@@ -71,7 +73,7 @@ impl StateSnapshot {
                     q: ship.pos.q,
                     r: ship.pos.r,
                     facing: ship.facing,
-                    speed_max: ship.speed_max,
+                    speed: ship.speed,
                     turn_mode: ship.turn_mode,
                     shields: ship.shields,
                     structure: ship.structure,

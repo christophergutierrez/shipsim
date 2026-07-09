@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::board::Board;
 use crate::hex::Hex;
+use crate::impulse::{move_count, moves_on_impulse};
 use crate::movement::{self, Order, OrderError};
 use crate::prng::Prng;
 use crate::ship::Ship;
@@ -40,6 +41,18 @@ impl Default for Turn {
 }
 
 #[derive(Debug, Clone)]
+struct PlotState {
+    path: Vec<Hex>,
+    cursor: usize,
+}
+
+#[derive(Debug, Clone)]
+struct PendingFire {
+    weapon: String,
+    target: u32,
+}
+
+#[derive(Debug, Clone)]
 pub struct GameState {
     pub board: Board,
     pub ships: Vec<Ship>,
@@ -48,9 +61,12 @@ pub struct GameState {
     pub seed: u64,
     pub(crate) prng: Prng,
     pub turn: Turn,
+    /// 0 between turns; 1..=32 only during an in-progress RunTurn (atomic, so tests see 0 after).
+    pub impulse: u8,
     pub status: ScenarioStatus,
-    moves_this_turn: HashMap<u32, u32>,
     fired_weapons_this_turn: HashSet<String>,
+    plots: HashMap<u32, PlotState>,
+    pending_fires: Vec<PendingFire>,
     scripted_plans: HashMap<u32, ScriptedPlan>,
 }
 
@@ -75,9 +91,11 @@ impl GameState {
             seed,
             prng: Prng::new(seed),
             turn: Turn::new(),
+            impulse: 0,
             status: ScenarioStatus::InProgress,
-            moves_this_turn: HashMap::new(),
             fired_weapons_this_turn: HashSet::new(),
+            plots: HashMap::new(),
+            pending_fires: Vec::new(),
             scripted_plans,
         };
         state.refresh_status();
@@ -119,43 +137,273 @@ impl GameState {
     pub fn is_occupied_by_other(&self, moving_ship: u32, hex: Hex) -> bool {
         self.ships
             .iter()
-            .any(|ship| ship.id != moving_ship && ship.pos == hex)
+            .any(|ship| ship.id != moving_ship && !ship.destroyed && ship.pos == hex)
     }
 
     pub fn weapon_fired_this_turn(&self, weapon_id: &str) -> bool {
         self.fired_weapons_this_turn.contains(weapon_id)
     }
 
-    pub fn record_weapon_fired(&mut self, weapon_id: String) {
-        self.fired_weapons_this_turn.insert(weapon_id);
+    pub(crate) fn store_plot(&mut self, ship_id: u32, path: Vec<Hex>) {
+        self.plots.insert(
+            ship_id,
+            PlotState {
+                path,
+                cursor: 0,
+            },
+        );
     }
 
-    pub fn hexes_moved_this_turn(&self, ship: u32) -> u32 {
-        self.moves_this_turn.get(&ship).copied().unwrap_or(0)
+    pub(crate) fn queue_fire(&mut self, weapon: String, target: u32) {
+        self.fired_weapons_this_turn.insert(weapon.clone());
+        self.pending_fires.push(PendingFire { weapon, target });
     }
 
-    pub fn record_hex_moved(&mut self, ship: u32) {
-        *self.moves_this_turn.entry(ship).or_insert(0) += 1;
-    }
+    /// Resolve a full 32-impulse turn: auto-plot scripted ships, simultaneous movement, then fire.
+    pub fn run_turn(&mut self) {
+        self.ensure_scripted_plots();
 
-    pub fn end_turn(&mut self) {
-        self.advance_scripted_ships();
-        self.turn.advance();
-        self.moves_this_turn.clear();
+        for impulse in 1u8..=32 {
+            self.impulse = impulse;
+            self.resolve_impulse(impulse);
+        }
+
+        self.impulse = 0;
+        self.resolve_pending_fires();
+        self.sync_scripted_waypoints();
+        self.plots.clear();
         self.fired_weapons_this_turn.clear();
+        self.pending_fires.clear();
         self.refresh_status();
+        self.turn.advance();
+    }
+
+    fn resolve_impulse(&mut self, impulse: u8) {
+        // Collect intents: (ship_id, next_hex, new_facing)
+        let mut intents: Vec<(u32, Hex, u8)> = Vec::new();
+        let ship_ids: Vec<u32> = self.ships.iter().map(|s| s.id).collect();
+
+        for ship_id in ship_ids {
+            let Some(ship) = self.ship(ship_id) else {
+                continue;
+            };
+            if ship.destroyed {
+                continue;
+            }
+            let speed = ship.speed.min(31) as u8;
+            if !moves_on_impulse(speed, impulse) {
+                continue;
+            }
+            let Some(plot) = self.plots.get(&ship_id) else {
+                continue;
+            };
+            if plot.cursor >= plot.path.len() {
+                continue;
+            }
+            let next = plot.path[plot.cursor];
+            let facing = Hex::facing_between(ship.pos, next).unwrap_or(ship.facing);
+            intents.push((ship_id, next, facing));
+        }
+
+        // Tentative post positions for all ships
+        let mut post: HashMap<u32, Hex> = self
+            .ships
+            .iter()
+            .filter(|s| !s.destroyed)
+            .map(|s| (s.id, s.pos))
+            .collect();
+        for (ship_id, next, _) in &intents {
+            post.insert(*ship_id, *next);
+        }
+
+        let mut occupancy: HashMap<Hex, u32> = HashMap::new();
+        for hex in post.values() {
+            *occupancy.entry(*hex).or_insert(0) += 1;
+        }
+
+        let mut failed: HashSet<u32> = HashSet::new();
+        for (ship_id, next, _) in &intents {
+            if occupancy.get(next).copied().unwrap_or(0) > 1 {
+                failed.insert(*ship_id);
+            }
+        }
+
+        for (ship_id, next, facing) in intents {
+            if failed.contains(&ship_id) {
+                // Both-stop: leave position; clear remaining plot.
+                self.plots.remove(&ship_id);
+                continue;
+            }
+            if let Some(ship) = self.ship_mut(ship_id) {
+                ship.pos = next;
+                ship.facing = facing;
+            }
+            if let Some(plot) = self.plots.get_mut(&ship_id) {
+                plot.cursor += 1;
+            }
+        }
+    }
+
+    fn resolve_pending_fires(&mut self) {
+        let pending = std::mem::take(&mut self.pending_fires);
+        for fire in pending {
+            // Re-validate geometry at post-movement positions; skip if now illegal.
+            let Some(attacker_index) = self.weapon_owner_index(&fire.weapon) else {
+                continue;
+            };
+            let Some(target_ship) = self.ship(fire.target).cloned() else {
+                continue;
+            };
+            if target_ship.destroyed {
+                continue;
+            }
+            let attacker = self.ships[attacker_index].clone();
+            if attacker.id == fire.target {
+                continue;
+            }
+            let Some(weapon_def) = attacker
+                .weapons
+                .iter()
+                .find(|w| w.id == fire.weapon)
+                .cloned()
+            else {
+                continue;
+            };
+            let range = attacker.pos.distance(target_ship.pos);
+            if range > weapon_def.max_range {
+                continue;
+            }
+            let relative_bearing =
+                crate::combat::relative_bearing(attacker.facing, attacker.pos, target_ship.pos);
+            if !crate::combat::arc_contains(&weapon_def.arc, relative_bearing) {
+                continue;
+            }
+            crate::combat::resolve_fire(self, &fire.weapon, fire.target);
+        }
+    }
+
+    fn ensure_scripted_plots(&mut self) {
+        let scripted_ids: Vec<u32> = self.scripted_plans.keys().copied().collect();
+        for ship_id in scripted_ids {
+            if self.plots.contains_key(&ship_id) {
+                continue;
+            }
+            let path = self.generate_scripted_plot(ship_id);
+            // Store even if empty so we do not regenerate mid-turn.
+            self.plots.insert(
+                ship_id,
+                PlotState {
+                    path,
+                    cursor: 0,
+                },
+            );
+        }
+    }
+
+    fn generate_scripted_plot(&mut self, ship_id: u32) -> Vec<Hex> {
+        let Some(ship) = self.ship(ship_id).cloned() else {
+            return Vec::new();
+        };
+        if ship.destroyed {
+            return Vec::new();
+        }
+        let max_steps = move_count(ship.speed.min(31) as u8) as u32;
+        let mut path: Vec<Hex> = Vec::new();
+        let mut pos = ship.pos;
+        let mut waypoints_advanced = 0usize;
+
+        while (path.len() as u32) < max_steps {
+            let target = {
+                let plan = match self.scripted_plans.get(&ship_id) {
+                    Some(p) => p,
+                    None => break,
+                };
+                let mut idx = plan.next_waypoint + waypoints_advanced;
+                while plan.waypoints.get(idx).is_some_and(|w| *w == pos) {
+                    waypoints_advanced += 1;
+                    idx = plan.next_waypoint + waypoints_advanced;
+                }
+                match plan.waypoints.get(idx).copied() {
+                    Some(t) => t,
+                    None => break,
+                }
+            };
+
+            if pos.distance(target) == 0 {
+                break;
+            }
+
+            // Prefer stepping onto the waypoint if adjacent and free.
+            let next = if pos.distance(target) == 1
+                && self.board.contains(target)
+                && !self.is_occupied_by_other(ship_id, target)
+                && !path.contains(&target)
+            {
+                Some(target)
+            } else {
+                // Deterministic: lowest facing index among neighbors that reduce distance.
+                let mut best: Option<(u8, Hex)> = None;
+                for facing in 0u8..=5 {
+                    let Some(delta) = Hex::direction(facing) else {
+                        continue;
+                    };
+                    let candidate = pos + delta;
+                    if !self.board.contains(candidate) {
+                        continue;
+                    }
+                    if self.is_occupied_by_other(ship_id, candidate) {
+                        continue;
+                    }
+                    if path.contains(&candidate) {
+                        continue;
+                    }
+                    if candidate.distance(target) >= pos.distance(target) {
+                        continue;
+                    }
+                    match best {
+                        None => best = Some((facing, candidate)),
+                        Some((bf, _)) if facing < bf => best = Some((facing, candidate)),
+                        _ => {}
+                    }
+                }
+                best.map(|(_, hex)| hex)
+            };
+
+            let Some(step) = next else {
+                break;
+            };
+            path.push(step);
+            if step == target {
+                waypoints_advanced += 1;
+            }
+            pos = step;
+        }
+
+        // Shorten to longest turn-mode-valid prefix.
+        while !path.is_empty() {
+            if movement::validate_plot(self, ship_id, &path).is_ok() {
+                break;
+            }
+            path.pop();
+        }
+
+        // Advance waypoint bookkeeping for steps that land on waypoints (applied after successful plot).
+        // Actual mark happens as positions are reached during the turn via post-turn sync.
+        // For simplicity: after generating path, update next_waypoint for any prefix of waypoints
+        // that appear as terminal steps in order — done after RunTurn movement by scanning final pos.
+        // Here we only return the path; waypoint index is advanced after run_turn based on final pos.
+        let _ = waypoints_advanced;
+        path
     }
 
     pub fn refresh_status(&mut self) {
         self.status = if let Some(objective) = self.objective {
-            // Objective-hex terminal (slice 1): a ship reaching the objective wins.
             if self.ships.iter().any(|ship| ship.pos == objective) {
                 ScenarioStatus::Won
             } else {
                 ScenarioStatus::InProgress
             }
         } else if let Some(target) = self.destruction_target {
-            // Destruction terminal: the designated enemy ship being destroyed wins.
             if self
                 .ships
                 .iter()
@@ -170,50 +418,25 @@ impl GameState {
         };
     }
 
-    fn advance_scripted_ships(&mut self) {
+    /// After movement, advance scripted waypoint indices based on current position.
+    ///
+    /// If the ship ends on a later waypoint in the list, skip intermediate waypoints
+    /// already passed during the same turn (multi-step plots).
+    pub(crate) fn sync_scripted_waypoints(&mut self) {
         let scripted_ids: Vec<u32> = self.scripted_plans.keys().copied().collect();
         for ship_id in scripted_ids {
-            let Some(target) = self.next_scripted_target(ship_id) else {
+            let Some(current) = self.ship(ship_id).map(|s| s.pos) else {
                 continue;
             };
-            let Some(current) = self.ship(ship_id).map(|ship| ship.pos) else {
+            let Some(plan) = self.scripted_plans.get_mut(&ship_id) else {
                 continue;
             };
-            if current.distance(target) == 1
-                && self.board.contains(target)
-                && !self.is_occupied_by_other(ship_id, target)
+            while let Some(offset) = plan.waypoints[plan.next_waypoint..]
+                .iter()
+                .position(|waypoint| *waypoint == current)
             {
-                if let Some(ship) = self.ship_mut(ship_id) {
-                    ship.pos = target;
-                }
-                self.mark_scripted_target_reached(ship_id, target);
+                plan.next_waypoint += offset + 1;
             }
-        }
-    }
-
-    fn next_scripted_target(&mut self, ship_id: u32) -> Option<Hex> {
-        let current = self.ship(ship_id)?.pos;
-        let plan = self.scripted_plans.get_mut(&ship_id)?;
-        while plan
-            .waypoints
-            .get(plan.next_waypoint)
-            .is_some_and(|waypoint| *waypoint == current)
-        {
-            plan.next_waypoint += 1;
-        }
-        plan.waypoints.get(plan.next_waypoint).copied()
-    }
-
-    fn mark_scripted_target_reached(&mut self, ship_id: u32, target: Hex) {
-        let Some(plan) = self.scripted_plans.get_mut(&ship_id) else {
-            return;
-        };
-        if plan
-            .waypoints
-            .get(plan.next_waypoint)
-            .is_some_and(|waypoint| *waypoint == target)
-        {
-            plan.next_waypoint += 1;
         }
     }
 }

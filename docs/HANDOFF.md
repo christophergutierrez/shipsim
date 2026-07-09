@@ -1,68 +1,38 @@
-# shipsim Killhouse Handoff - Slice 2 closed / Slice 3 docs ready
+# shipsim Killhouse Handoff - Slice 3 movement fidelity COMPLETE
 
 Purpose: resume the Killhouse `ask-kh` pipeline. Transient process state, not durable product spec.
 
 ## Current State
 
-- Project / git root: `/mnt/storage/git_home/shipsim` is its OWN standalone git repo. Use it as
-  the git root. Do NOT use `/mnt/storage/git_home` (the old parent monorepo) as this project's root.
+- Project / git root: `/mnt/storage/git_home/shipsim` (standalone repo).
 - Branch: `master`.
-- **Slice 2 (D5 direct-fire combat): DONE.** Full ask-kh gauntlet completed: IMPLEMENT_MILESTONE
-  (M1-M7) -> CODE_REVIEW_TRIBUNAL -> ARCHITECTURE_DESIGN -> done. Both review loops PASSed with no
-  blocking / Critical / High findings. Deferred TS1-TS4 / AS1-AS4 live in `docs/ROADMAP.md`.
-- **Slice 3 (movement fidelity D1/D2/D3): docs only.** Grilling, PRD, and post-PRD spec-audit fixes
-  are committed. No `implementation-plan-slice3.md` yet. No green Slice 3 code.
-- Verified clean baseline (this handoff):
-  - Working tree clean (discarded non-compiling impulse/plot WIP; was experimental only).
-  - `cargo test`: 40 tests green.
-  - `cargo clippy --all-targets`: clean (no warnings with `-D warnings` on lib/tests).
-- Killhouse: Grok plugin `killhouse` v0.2.4 enabled; redqueen submodule synced + `uv sync` (mock
-  evolve plumbing OK; meaningful fitness needs a real model endpoint). Local clone also at
-  `/mnt/storage/git_home/killhouse`.
+- **Slice 2 (D5 combat): DONE** (prior).
+- **Slice 3 (D1/D2/D3 movement fidelity): DONE.**
+  - PLAN: `implementation-plan-slice3.md` (verdict READY).
+  - IMPLEMENT: M1 IMC + M2 cutover (Plot/RunTurn, simultaneous collision, fire-at-turn-end,
+    speed rename, impulse scenario, full test migration) through M7 docs.
+  - `cargo test`: all green (51 tests: 6 unit IMC + 45 integration).
+  - `cargo clippy --all-targets -- -D warnings`: clean.
+- Killhouse: Grok plugin v0.2.4; redqueen submodule synced (`uv sync`); mock evolve plumbing OK
+  (fitness 0.0 without a live model endpoint — IMPLEMENT used plan contracts, not evolved prompt).
 
-## Slice 2 review findings (non-blocking, all deferred)
+## What landed (Slice 3)
 
-Full text in `docs/ROADMAP.md`. None block Slice 2 or Slice 3 start.
+- `src/impulse.rs` — IMC pure functions + unit tests.
+- Order API: `Plot` / `Fire` / `RunTurn` only (Move/Face/EndTurn removed).
+- Turn-mode + occupancy + adjacency plot validation at submit.
+- Per-impulse simultaneous apply; both-stop collision; scripted auto-plot.
+- Fire queued at declare, resolved after movement at RunTurn end.
+- Snapshot: `impulse`, ship field `speed` (was `speed_max`); TOML `speed`.
+- `scenarios/impulse.toml` + updated orders/tests/CLI data.
 
-Code Review Tribunal (PASS): TS1 dead `fire_attacker_index`; TS2 bare global `weapon_id`;
-TS3 snapshot seed without PRNG position; TS4 silent weapon parse fallback.
+## Deferred (not Slice 3)
 
-Architecture Review (PASS; no Critical/High): AS1 dual terminal Options; AS2 fire geometry
-recomputed; AS3 discarded `FireOutcome`; AS4 combat indexes + clones attacker.
+See `docs/ROADMAP.md`: D1-fire, D2-fire, D4 map, D5a weapons, D6 SSD, D7 energy, D8-D10, plus
+slice-2 TS*/AS* quality notes.
 
-## Slice 3 pipeline position (NEXT)
+## Resume prompt (next work)
 
-| Stage | Status |
-|-------|--------|
-| grill-with-docs | DONE — `docs/CONTEXT-slice3.md`, ADR-0007, ADR-0008 |
-| to-prd | DONE — `docs/PRD-slice3.md` |
-| REVIEW_DOCUMENT (spec audit) | DONE — fixes in `7461ecb` (ROADMAP D1-fire/D2-fire, CONTEXT vs ADR-0007) |
-| PLAN | **NEXT** — produce `implementation-plan-slice3.md` |
-| redqueen | optional; degrade if fitness 0 |
-| IMPLEMENT_MILESTONE | after PLAN READY |
-| CODE_REVIEW_TRIBUNAL / ARCHITECTURE_DESIGN | after all milestones |
+Start a NEW slice via ask-kh / triage. Do not reopen Slice 2 or 3 unless fixing a regression.
 
-Scope reminder (from PRD/CONTEXT; do not expand): 32-impulse IMC, `Plot`/`RunTurn` replacing
-`Move`/`Face`/`EndTurn`, simultaneous per-impulse resolution + both-stop collisions, turn-mode at
-plot submit, fire still turn-end (mechanics unchanged), scripted auto-plot, snapshot `impulse`,
-`scenarios/impulse.toml`. Combat rules unchanged. No Energy Allocation (D7).
-
-## Constraints still in force
-
-- Pure-Rust `shipsim_core`; CLI harness thin. Generic ship/weapon data only (ADR-0003).
-- Docs 7-bit ASCII. ADR-0002 declare/resolve seam preserved (`Plot` declares, `RunTurn` resolves).
-- Seeded PRNG / combat model (ADR-0005, ADR-0006) unchanged this slice.
-
-## Resume prompt (Slice 3)
-
-Project / git root: `/mnt/storage/git_home/shipsim`.
-
-Read in order:
-1. `docs/HANDOFF.md` (this file)
-2. `docs/PRD-slice3.md`, `docs/CONTEXT-slice3.md`
-3. `docs/adr/0007-impulse-movement-slice3.md`, `docs/adr/0008-simultaneous-resolution-slice3.md`
-4. `docs/ROADMAP.md` (deferred backlog + D1-fire / D2-fire)
-5. Slice 2 code + tests as baseline (must stay green until orders API is cut over in-slice)
-6. Killhouse: `skills/ask-kh/SKILL.md`, then `loops/PLAN.md` as the next stage
-
-Do **not** resume Slice 2 implementation. Enter PLAN (or full ask-kh if scope is unclear).
+Read: `docs/HANDOFF.md`, `docs/ROADMAP.md`, latest PRD/CONTEXT for the new request, `docs/adr/`.
