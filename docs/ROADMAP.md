@@ -24,8 +24,10 @@ Legend: REALIZED · 🎯 later · ▶ residual polish
 
 ## Stop line for this effort
 
-### D8. Graphical frontend  🎯 **NEXT product phase** (ADR-0004)
-- Love2D vs Godot vs web. Core emits JSON snapshots; no rendering in this crate.
+### D8. Graphical frontend  🎯 **NEXT product phase** (ADR-0017)
+- **Love2D** thin client over **JSON subprocess** (`shipsim --stdin`); no rules in Lua.
+- Agent workflow + slices: `docs/D8-FRONTEND-BRIEF.md`. Contract sample: `tests/fixtures/d8/`.
+- Core emits JSON only; no rendering in this crate. FFI deferred.
 
 ## Residual polish (not blocking core)
 

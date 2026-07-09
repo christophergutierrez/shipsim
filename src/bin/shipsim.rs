@@ -40,12 +40,15 @@ fn run() -> Result<(), String> {
     match args.mode {
         Mode::Scenario(path) => {
             let mut game = load_scenario(&path).map_err(|e| e.to_string())?;
+            // Post-load snapshot so a thin client can paint before any order (D8).
+            emit_snapshot(&game)?;
             apply_orders(&mut game, &args.orders)?;
         }
         Mode::Campaign(path) => {
             let mut campaign = Campaign::load(&path).map_err(|e| e.to_string())?;
             loop {
                 let mut game = campaign.load_current().map_err(|e| e.to_string())?;
+                emit_snapshot(&game)?;
                 apply_orders(&mut game, &args.orders)?;
                 if game.status() == ScenarioStatus::Won {
                     match campaign.advance_on_win(&game) {
@@ -61,6 +64,15 @@ fn run() -> Result<(), String> {
         }
     }
 
+    Ok(())
+}
+
+fn emit_snapshot(game: &GameState) -> Result<(), String> {
+    let snapshot = StateSnapshot::from_game_state(game);
+    println!(
+        "{}",
+        serde_json::to_string(&snapshot).map_err(|error| error.to_string())?
+    );
     Ok(())
 }
 
@@ -141,11 +153,5 @@ fn apply_order_line(game: &mut GameState, line: &str) -> Result<(), String> {
         .map_err(|error| format!("cannot parse order {line:?}: {error}"))?;
     apply_order(game, order)
         .map_err(|error| format!("cannot apply order {line:?}: {error}"))?;
-
-    let snapshot = StateSnapshot::from_game_state(game);
-    println!(
-        "{}",
-        serde_json::to_string(&snapshot).map_err(|error| error.to_string())?
-    );
-    Ok(())
+    emit_snapshot(game)
 }

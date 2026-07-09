@@ -43,7 +43,10 @@ fn test_orders_file_mode_prints_winning_snapshots() {
         String::from_utf8_lossy(&output.stderr)
     );
     let snapshots = parse_stdout(&output.stdout);
-    assert_eq!(snapshots.len(), 4);
+    // post-load snapshot + one per order line
+    assert_eq!(snapshots.len(), 5);
+    assert_eq!(snapshots[0]["status"], "InProgress");
+    assert_eq!(snapshots[0]["turn"], 1);
 
     let final_snapshot = snapshots.last().expect("at least one snapshot");
     assert_eq!(final_snapshot["status"], "Won");
@@ -84,7 +87,9 @@ fn test_stdin_mode_prints_snapshot_per_order() {
     );
 
     let snapshots = parse_stdout(&output.stdout);
-    assert_eq!(snapshots.len(), 4);
+    // post-load snapshot + one per order line
+    assert_eq!(snapshots.len(), 5);
+    assert_eq!(snapshots[0]["status"], "InProgress");
     assert_eq!(snapshots.last().unwrap()["status"], "Won");
 }
 
@@ -116,4 +121,47 @@ fn test_orders_output_is_reproducible() {
         String::from_utf8_lossy(&second.stderr)
     );
     assert_eq!(first.stdout, second.stdout);
+}
+
+/// Golden stream for the D8 Love client (post-load + allocate/fire/run_turn).
+#[test]
+fn test_d8_frontend_fixture_matches_harness() {
+    let output = shipsim_command()
+        .arg("--scenario")
+        .arg(manifest_path("scenarios/combat.toml"))
+        .arg("--orders")
+        .arg(manifest_path("scenarios/d8_frontend_orders.jsonl"))
+        .output()
+        .expect("shipsim binary runs");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let expected = std::fs::read(manifest_path("tests/fixtures/d8/snapshots.jsonl"))
+        .expect("d8 golden fixture present");
+    assert_eq!(
+        output.stdout, expected,
+        "D8 fixture drift — regenerate tests/fixtures/d8/snapshots.jsonl if intentional"
+    );
+
+    let snapshots = parse_stdout(&output.stdout);
+    assert_eq!(snapshots.len(), 4, "load + 3 orders");
+    assert_eq!(snapshots[0]["status"], "InProgress");
+    assert_eq!(snapshots[0]["ships"].as_array().unwrap().len(), 2);
+    let last = snapshots.last().unwrap();
+    assert_eq!(last["turn"], 2);
+    assert_eq!(last["combat_log"].as_array().unwrap().len(), 1);
+    assert_eq!(last["combat_log"][0]["attacker"], 1);
+    assert_eq!(last["combat_log"][0]["target"], 2);
+    // Defender took shield/structure damage from the phaser volley.
+    let escort = last["ships"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == 2)
+        .expect("escort present");
+    assert!(escort["shields"][0].as_u64().unwrap() < 6 || escort["structure"].as_u64().unwrap() < 12);
 }
