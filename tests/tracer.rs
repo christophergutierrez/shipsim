@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 use shipsim_core::hex::Hex;
-use shipsim_core::movement::Order;
+use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
 
@@ -15,12 +15,12 @@ fn test_snapshot_shape() {
     let scenario_path = manifest_path("scenarios/tracer.toml");
     let mut game = load_scenario(&scenario_path).expect("tracer scenario loads");
 
-    game.apply_order(Order::Plot {
+    apply_order(&mut game, Order::Plot {
         ship: 1,
         path: vec![Hex::new(1, 0)],
     })
     .expect("plot is valid");
-    game.apply_order(Order::RunTurn)
+    apply_order(&mut game, Order::RunTurn)
         .expect("run turn applies plot");
 
     let snapshot = StateSnapshot::from_game_state(&game);

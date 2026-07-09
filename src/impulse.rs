@@ -24,6 +24,12 @@ pub fn move_count(speed: u8) -> u8 {
         .count() as u8
 }
 
+/// Maximum legal plot path length for a ship speed field (u32 from schema).
+/// Single source of truth for plot length vs IMC schedule (caps at 31).
+pub fn max_plot_steps(speed: u32) -> u32 {
+    u32::from(move_count(speed.min(31) as u8))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

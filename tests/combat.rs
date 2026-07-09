@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde_json::Value;
 use shipsim_core::combat::{bearing_to, WeaponKind};
 use shipsim_core::hex::Hex;
-use shipsim_core::movement::{declare, Order, OrderError};
+use shipsim_core::movement::{apply_order, declare, Order, OrderError};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
 
@@ -51,12 +51,12 @@ fn phaser_damage_at_range(range: i32) -> u32 {
     defender.structure = 100;
     let before = defender.shields;
 
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("phaser fire succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
+    apply_order(&mut game, Order::RunTurn).expect("resolve fire at turn end");
 
     shield_damage_taken(&before, &game.ship(2).expect("defender exists").shields)
 }
@@ -106,6 +106,25 @@ fn test_combat_snapshot_shape() {
 }
 
 #[test]
+fn test_fire_without_run_turn_no_damage() {
+    let mut game = load_combat();
+    let before = snapshot_json(&game);
+
+    apply_order(&mut game, Order::Fire {
+        weapon: "phaser_1".to_string(),
+        target: 2,
+    })
+    .expect("fire declares");
+
+    // Fire is deferred: no damage until RunTurn (ADR-0008).
+    assert_eq!(snapshot_json(&game)["ships"][1]["shields"], before["ships"][1]["shields"]);
+    assert_eq!(
+        snapshot_json(&game)["ships"][1]["structure"],
+        before["ships"][1]["structure"]
+    );
+}
+
+#[test]
 fn test_tracer_fire_damages_shield() {
     let mut game = load_combat();
     let before = snapshot_json(&game);
@@ -113,12 +132,12 @@ fn test_tracer_fire_damages_shield() {
         .as_u64()
         .expect("defender shield 0 before");
 
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("tracer fire order succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
+    apply_order(&mut game, Order::RunTurn).expect("resolve fire at turn end");
 
     let after_snapshot = StateSnapshot::from_game_state(&game);
     let after = serde_json::to_value(&after_snapshot).expect("snapshot serializes");
@@ -132,6 +151,63 @@ fn test_tracer_fire_damages_shield() {
         "defender toward-attacker shield should drop"
     );
     assert_eq!(after["status"], "InProgress");
+}
+
+#[test]
+fn test_fire_skipped_when_target_moves_out_of_range() {
+    // Declare is legal at start; target plots far enough that post-move fire is skipped.
+    let mut game = load_combat();
+    // Combat map is 4x4; place attacker at (0,0) facing 0, target at (1,0) then flee to (3,0)
+    // so range after move is 3 if attacker stays — need max_range 4 so still in range.
+    // Use max_range 1 weapon after setup: legal at dist 1, illegal after target moves to dist 2+.
+    {
+        let attacker = game.ship_mut(1).expect("attacker");
+        attacker.pos = Hex::new(0, 0);
+        attacker.facing = 0;
+        let weapon = attacker
+            .weapons
+            .iter_mut()
+            .find(|w| w.id == "phaser_1")
+            .expect("phaser");
+        weapon.max_range = 1;
+        weapon.kind = WeaponKind::Disruptor;
+        weapon.damage = 4;
+        weapon.to_hit_by_range = vec![6];
+    }
+    {
+        let defender = game.ship_mut(2).expect("defender");
+        defender.pos = Hex::new(1, 0);
+        defender.facing = 0;
+        defender.shields = [50; 6];
+        defender.structure = 50;
+    }
+    let before_shields = game.ship(2).unwrap().shields;
+
+    apply_order(&mut game, Order::Fire {
+        weapon: "phaser_1".to_string(),
+        target: 2,
+    })
+    .expect("fire legal at declare (range 1)");
+
+    // Target moves to (3,0) — path (2,0),(3,0); escort speed 3, turn_mode 1.
+    apply_order(&mut game, Order::Plot {
+        ship: 2,
+        path: vec![Hex::new(2, 0), Hex::new(3, 0)],
+    })
+    .expect("target plots away");
+    apply_order(&mut game, Order::RunTurn)
+        .expect("run turn applies movement then fire");
+
+    assert_eq!(
+        game.ship(2).unwrap().pos,
+        Hex::new(3, 0),
+        "target must have moved"
+    );
+    assert_eq!(
+        game.ship(2).unwrap().shields,
+        before_shields,
+        "fire must skip when post-move range exceeds max_range"
+    );
 }
 
 #[test]
@@ -235,7 +311,7 @@ fn test_out_of_arc_rejected() {
 #[test]
 fn test_refire_rejected() {
     let mut game = load_combat();
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
@@ -262,7 +338,7 @@ fn test_illegal_fire_no_mutation() {
     game.ship_mut(1).expect("attacker exists").facing = 0;
     let before = snapshot_json(&game);
 
-    let result = game.apply_order(Order::Fire {
+    let result = apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     });
@@ -319,12 +395,12 @@ fn test_overflow_bleeds_then_stops() {
     defender.shields[0] = 3;
     defender.structure = 12;
 
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("fire succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
+    apply_order(&mut game, Order::RunTurn).expect("resolve fire at turn end");
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 0);
@@ -339,12 +415,12 @@ fn test_underflow_leaves_structure() {
     defender.shields[0] = 6;
     defender.structure = 12;
 
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("fire succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
+    apply_order(&mut game, Order::RunTurn).expect("resolve fire at turn end");
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 4);
@@ -359,18 +435,18 @@ fn test_depleted_facing_stays_down() {
     defender.shields[0] = 3;
     defender.structure = 12;
 
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("first fire succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve first fire");
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::RunTurn).expect("resolve first fire");
+    apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("second fire succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve second fire");
+    apply_order(&mut game, Order::RunTurn).expect("resolve second fire");
 
     let defender = game.ship(2).expect("defender exists");
     assert_eq!(defender.shields[0], 0);
@@ -397,12 +473,12 @@ fn test_damage_hits_bearing_facing() {
     defender.shields = [6; 6];
     defender.structure = 12;
 
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "phaser_1".to_string(),
         target: 2,
     })
     .expect("fire succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
+    apply_order(&mut game, Order::RunTurn).expect("resolve fire at turn end");
 
     let defender = game.ship(2).expect("defender exists");
     for (index, shield) in defender.shields.iter().enumerate() {
@@ -420,25 +496,23 @@ fn test_face_order_changes_hit_shield() {
     let mut baseline = load_combat();
     make_first_weapon_exact_damage(&mut baseline, 2);
     baseline.ship_mut(2).expect("defender exists").shields = [6; 6];
-    baseline
-        .apply_order(Order::Fire {
+    apply_order(&mut baseline, Order::Fire {
             weapon: "phaser_1".to_string(),
             target: 2,
         })
         .expect("baseline fire succeeds");
-    baseline.apply_order(Order::RunTurn).expect("resolve baseline fire");
+    apply_order(&mut baseline, Order::RunTurn).expect("resolve baseline fire");
 
     let mut turned = load_combat();
     make_first_weapon_exact_damage(&mut turned, 2);
     turned.ship_mut(2).expect("defender exists").shields = [6; 6];
     turned.ship_mut(2).expect("defender exists").facing = 1;
-    turned
-        .apply_order(Order::Fire {
+    apply_order(&mut turned, Order::Fire {
             weapon: "phaser_1".to_string(),
             target: 2,
         })
         .expect("turned fire succeeds");
-    turned.apply_order(Order::RunTurn).expect("resolve turned fire");
+    apply_order(&mut turned, Order::RunTurn).expect("resolve turned fire");
 
     let baseline_shields = baseline.ship(2).expect("defender exists").shields;
     let turned_shields = turned.ship(2).expect("defender exists").shields;
@@ -477,12 +551,12 @@ fn test_fire_until_destroyed_wins() {
         assert!(!game.ship(2).expect("enemy exists").destroyed);
         assert_eq!(snapshot_json(&game)["status"], "InProgress");
 
-        game.apply_order(Order::Fire {
+        apply_order(&mut game, Order::Fire {
             weapon: "phaser_1".to_string(),
             target: 2,
         })
         .expect("attacker fire succeeds");
-        game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
+        apply_order(&mut game, Order::RunTurn).expect("resolve fire at turn end");
 
         if game.ship(2).expect("enemy exists").destroyed {
             fatal = true;
@@ -512,24 +586,24 @@ fn test_disruptor_miss_then_hit_pinned_seed() {
     defender.structure = 100;
     let before_miss = defender.shields;
 
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "disruptor_1".to_string(),
         target: 2,
     })
     .expect("first disruptor fire succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve miss fire");
+    apply_order(&mut game, Order::RunTurn).expect("resolve miss fire");
     let after_miss = game.ship(2).expect("defender exists").shields;
     assert_eq!(shield_damage_taken(&before_miss, &after_miss), 0);
 
     game.ship_mut(2).expect("defender exists").pos = Hex::new(0, 0);
     let before_hit = game.ship(2).expect("defender exists").shields;
 
-    game.apply_order(Order::Fire {
+    apply_order(&mut game, Order::Fire {
         weapon: "disruptor_1".to_string(),
         target: 2,
     })
     .expect("second disruptor fire succeeds");
-    game.apply_order(Order::RunTurn).expect("resolve hit fire");
+    apply_order(&mut game, Order::RunTurn).expect("resolve hit fire");
 
     let after_hit = game.ship(2).expect("defender exists").shields;
     assert_eq!(shield_damage_taken(&before_hit, &after_hit), 4);
@@ -550,12 +624,12 @@ fn run_seeded_fire_sequence() -> String {
     defender.shields = [100; 6];
     defender.structure = 100;
     for _ in 0..3 {
-        game.apply_order(Order::Fire {
+        apply_order(&mut game, Order::Fire {
             weapon: "phaser_1".to_string(),
             target: 2,
         })
         .expect("phaser fire succeeds");
-        game.apply_order(Order::RunTurn).expect("resolve fire at turn end");
+        apply_order(&mut game, Order::RunTurn).expect("resolve fire at turn end");
     }
     serde_json::to_string(&StateSnapshot::from_game_state(&game)).expect("snapshot serializes")
 }

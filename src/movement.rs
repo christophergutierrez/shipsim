@@ -1,9 +1,10 @@
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::combat;
+use crate::combat::{self, FireIllegal};
 use crate::game_state::GameState;
 use crate::hex::Hex;
+use crate::impulse;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -66,7 +67,7 @@ pub fn validate_plot(game: &GameState, ship_id: u32, path: &[Hex]) -> Result<(),
         return Err(OrderError::ShipNotFound(ship_id));
     }
 
-    let max_steps = ship.speed;
+    let max_steps = impulse::max_plot_steps(ship.speed);
     if path.len() as u32 > max_steps {
         return Err(OrderError::PlotTooLong {
             ship: ship_id,
@@ -139,30 +140,28 @@ pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderErr
             let target_ship = game
                 .ship(target)
                 .ok_or(OrderError::TargetNotFound(target))?;
-            if target_ship.destroyed {
-                return Err(OrderError::TargetNotFound(target));
-            }
             let attacker = &game.ships[attacker_index];
-            if attacker.id == target {
-                return Err(OrderError::FireAtSelf(target));
-            }
-            let weapon_def = attacker
-                .weapons
-                .iter()
-                .find(|weapon_def| weapon_def.id == weapon)
-                .expect("owner lookup proved weapon exists");
-            let range = attacker.pos.distance(target_ship.pos);
-            if range > weapon_def.max_range {
-                return Err(OrderError::OutOfRange {
-                    weapon,
-                    range,
-                    max_range: weapon_def.max_range,
-                });
-            }
-            let relative_bearing =
-                combat::relative_bearing(attacker.facing, attacker.pos, target_ship.pos);
-            if !combat::arc_contains(&weapon_def.arc, relative_bearing) {
-                return Err(OrderError::OutOfArc { weapon, target });
+            match combat::fire_legality(attacker, &weapon, target_ship) {
+                Ok(_) => {}
+                Err(FireIllegal::WeaponNotFound) => {
+                    return Err(OrderError::WeaponNotFound(weapon));
+                }
+                Err(FireIllegal::TargetDestroyed) => {
+                    return Err(OrderError::TargetNotFound(target));
+                }
+                Err(FireIllegal::FireAtSelf) => {
+                    return Err(OrderError::FireAtSelf(target));
+                }
+                Err(FireIllegal::OutOfRange { range, max_range }) => {
+                    return Err(OrderError::OutOfRange {
+                        weapon,
+                        range,
+                        max_range,
+                    });
+                }
+                Err(FireIllegal::OutOfArc) => {
+                    return Err(OrderError::OutOfArc { weapon, target });
+                }
             }
             if game.weapon_fired_this_turn(&weapon) {
                 return Err(OrderError::WeaponAlreadyFired(weapon));
@@ -182,7 +181,14 @@ pub fn resolve(game: &mut GameState, order: DeclaredOrder) {
             game.queue_fire(weapon, target);
         }
         DeclaredOrder::RunTurn => {
-            game.run_turn();
+            crate::turn::run_turn(game);
         }
     }
+}
+
+/// Apply a wire order through declare/resolve (orchestration entrypoint).
+pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError> {
+    let declared = declare(game, order)?;
+    resolve(game, declared);
+    Ok(())
 }

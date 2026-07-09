@@ -1,10 +1,52 @@
 use crate::game_state::GameState;
 use crate::hex::Hex;
+use crate::ship::Ship;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WeaponKind {
     Phaser,
     Disruptor,
+}
+
+/// Why a shot is illegal at a given pair of ship positions (declare-time or post-move).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FireIllegal {
+    WeaponNotFound,
+    TargetDestroyed,
+    FireAtSelf,
+    OutOfRange { range: u32, max_range: u32 },
+    OutOfArc,
+}
+
+/// Shared fire legality at the given attacker/target positions (ADR-0008 pre- and post-move).
+pub fn fire_legality<'a>(
+    attacker: &'a Ship,
+    weapon_id: &str,
+    target: &Ship,
+) -> Result<&'a Weapon, FireIllegal> {
+    if target.destroyed {
+        return Err(FireIllegal::TargetDestroyed);
+    }
+    if attacker.id == target.id {
+        return Err(FireIllegal::FireAtSelf);
+    }
+    let weapon = attacker
+        .weapons
+        .iter()
+        .find(|weapon| weapon.id == weapon_id)
+        .ok_or(FireIllegal::WeaponNotFound)?;
+    let range = attacker.pos.distance(target.pos);
+    if range > weapon.max_range {
+        return Err(FireIllegal::OutOfRange {
+            range,
+            max_range: weapon.max_range,
+        });
+    }
+    let relative = relative_bearing(attacker.facing, attacker.pos, target.pos);
+    if !arc_contains(&weapon.arc, relative) {
+        return Err(FireIllegal::OutOfArc);
+    }
+    Ok(weapon)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

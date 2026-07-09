@@ -4,7 +4,7 @@ use serde_json::Value;
 use shipsim_core::game_state::{GameState, ScenarioStatus};
 use shipsim_core::hex::Hex;
 use shipsim_core::impulse::{move_count, moves_on_impulse};
-use shipsim_core::movement::Order;
+use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
 
@@ -22,7 +22,7 @@ fn run_winning_route() -> StateSnapshot {
     assert_eq!(Hex::new(0, 0).distance(Hex::new(4, 1)), 5);
 
     // Turn 1: plot four hexes along +q (speed 4).
-    game.apply_order(Order::Plot {
+    apply_order(&mut game, Order::Plot {
         ship: 1,
         path: vec![
             Hex::new(1, 0),
@@ -32,17 +32,17 @@ fn run_winning_route() -> StateSnapshot {
         ],
     })
     .expect("plot is legal");
-    game.apply_order(Order::RunTurn).expect("run turn 1");
+    apply_order(&mut game, Order::RunTurn).expect("run turn 1");
     assert_eq!(game.status, ScenarioStatus::InProgress);
     assert_eq!(game.ship(1).unwrap().pos, Hex::new(4, 0));
 
     // Turn 2: final step onto objective.
-    game.apply_order(Order::Plot {
+    apply_order(&mut game, Order::Plot {
         ship: 1,
         path: vec![Hex::new(4, 1)],
     })
     .expect("final plot is legal");
-    game.apply_order(Order::RunTurn).expect("run turn 2");
+    apply_order(&mut game, Order::RunTurn).expect("run turn 2");
 
     StateSnapshot::from_game_state(&game)
 }
@@ -67,12 +67,12 @@ fn test_player_reaches_objective_wins() {
 fn test_non_winning_run_stays_in_progress() {
     let mut game = load_slice1();
 
-    game.apply_order(Order::Plot {
+    apply_order(&mut game, Order::Plot {
         ship: 1,
         path: vec![Hex::new(1, 0)],
     })
     .unwrap();
-    game.apply_order(Order::RunTurn).unwrap();
+    apply_order(&mut game, Order::RunTurn).unwrap();
 
     let snapshot = serde_json::to_value(StateSnapshot::from_game_state(&game)).unwrap();
     assert_eq!(snapshot["status"], "InProgress");
@@ -100,7 +100,7 @@ fn test_impulse_turn_end_positions() {
     assert_eq!(move_count(ship1_speed), 4);
     assert_eq!(move_count(ship2_speed), 3);
 
-    game.apply_order(Order::Plot {
+    apply_order(&mut game, Order::Plot {
         ship: 1,
         path: vec![
             Hex::new(1, 5),
@@ -110,12 +110,12 @@ fn test_impulse_turn_end_positions() {
         ],
     })
     .expect("ship 1 plot");
-    game.apply_order(Order::Plot {
+    apply_order(&mut game, Order::Plot {
         ship: 2,
         path: vec![Hex::new(1, 0), Hex::new(2, 0), Hex::new(3, 0)],
     })
     .expect("ship 2 plot");
-    game.apply_order(Order::RunTurn).expect("run turn");
+    apply_order(&mut game, Order::RunTurn).expect("run turn");
 
     assert_eq!(game.ship(1).unwrap().pos, Hex::new(4, 5));
     assert_eq!(game.ship(2).unwrap().pos, Hex::new(3, 0));

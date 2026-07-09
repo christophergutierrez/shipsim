@@ -9,3 +9,7 @@ pub mod scenario;
 pub mod schema;
 pub mod ship;
 pub mod snapshot;
+pub mod turn;
+
+// Convenience re-export so harness/tests keep a short order-application path.
+pub use movement::apply_order;

@@ -3,7 +3,7 @@ use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use shipsim_core::movement::Order;
+use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
 
@@ -99,7 +99,7 @@ fn apply_order_line(
 
     let order: Order = serde_json::from_str(line)
         .map_err(|error| format!("cannot parse order {line:?}: {error}"))?;
-    game.apply_order(order)
+    apply_order(game, order)
         .map_err(|error| format!("cannot apply order {line:?}: {error}"))?;
 
     let snapshot = StateSnapshot::from_game_state(game);
