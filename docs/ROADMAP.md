@@ -24,10 +24,12 @@ Legend: REALIZED · 🎯 later · ▶ residual polish
 
 ## Rules pivot (next major effort)
 
-### Combat model v2  🎯 **NEXT** (ADR-0020)
+### Combat model v2  REALIZED MVP (ADR-0020)
 - Momentum moves; allocate move/weapons/shields; move-phase ↔ fire-phase loop; d20 range tables.
 - Supersedes Bocchino 3-round MVP (ADR-0019) and SFB impulse (ADR-0002) as product target.
-- PRD: `docs/PRD-combat-model-v2.md`. Plan: **`implementation-plan-combat-v2.md`** (M0–M9, READY).
+- PRD: `docs/PRD-combat-model-v2.md`. Plan: **`implementation-plan-combat-v2.md`** (M0–M9, COMPLETE).
+- Milestones M0–M9 complete: pure rules modules, data model + Allocate, movement + momentum, firing + simultaneous resolve, turn loop + win, AI + multi-ship, FASA/legacy deletion, Love client v2, acceptance package.
+- Acceptance: `tests/acceptance.rs` (two move cycles, deterministic seed 4242) + golden fixture `tests/fixtures/v2/duel.jsonl` (byte-lock).
 
 ### Historical: FASA / Bocchino MVP (ADR-0019)
 - 3-round action loop briefly implemented; superseded by ADR-0020.
