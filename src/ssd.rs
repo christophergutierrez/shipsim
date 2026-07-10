@@ -69,11 +69,7 @@ impl Ssd {
     }
 
     pub fn weapon_operational(&self, weapon_index: usize) -> bool {
-        self.weapon_boxes
-            .get(weapon_index)
-            .copied()
-            .unwrap_or(0)
-            > 0
+        self.weapon_boxes.get(weapon_index).copied().unwrap_or(0) > 0
     }
 
     /// Effective max speed given surviving engines (0 if engines gone).
@@ -133,11 +129,7 @@ impl Ssd {
                 true
             }
             DacSlot::Weapon => {
-                if let Some(idx) = self
-                    .weapon_boxes
-                    .iter()
-                    .position(|&boxes| boxes > 0)
-                {
+                if let Some(idx) = self.weapon_boxes.iter().position(|&boxes| boxes > 0) {
                     self.weapon_boxes[idx] -= 1;
                     true
                 } else {

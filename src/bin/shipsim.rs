@@ -76,6 +76,30 @@ fn emit_snapshot(game: &GameState) -> Result<(), String> {
     Ok(())
 }
 
+/// Soft-reject line (ADR-0018). Process stays alive; state unchanged.
+fn emit_error(
+    code: &str,
+    message: &str,
+    order: Option<serde_json::Value>,
+    source: &str,
+) -> Result<(), String> {
+    let mut body = serde_json::json!({
+        "type": "error",
+        "ok": false,
+        "code": code,
+        "message": message,
+        "source": source,
+    });
+    if let Some(order) = order {
+        body["order"] = order;
+    }
+    println!(
+        "{}",
+        serde_json::to_string(&body).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
 fn apply_orders(game: &mut GameState, orders: &OrderSource) -> Result<(), String> {
     match orders {
         OrderSource::File(path) => {
@@ -149,9 +173,30 @@ fn apply_order_line(game: &mut GameState, line: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let order: Order = serde_json::from_str(line)
-        .map_err(|error| format!("cannot parse order {line:?}: {error}"))?;
-    apply_order(game, order)
-        .map_err(|error| format!("cannot apply order {line:?}: {error}"))?;
-    emit_snapshot(game)
+    let parsed: Result<Order, _> = serde_json::from_str(line);
+    let order = match parsed {
+        Ok(order) => order,
+        Err(error) => {
+            let order_val = serde_json::from_str(line).ok();
+            return emit_error(
+                "parse_error",
+                &format!("cannot parse order: {error}"),
+                order_val,
+                "harness",
+            );
+        }
+    };
+
+    match apply_order(game, order) {
+        Ok(()) => emit_snapshot(game),
+        Err(error) => {
+            let order_val = serde_json::from_str(line).ok();
+            emit_error(
+                "order_illegal",
+                &error.to_string(),
+                order_val,
+                "harness",
+            )
+        }
+    }
 }

@@ -1,64 +1,70 @@
+//! Orders for Combat v2 play (ADR-0019).
+//! Allocate → Move → Fire → Ready → EndTurn phase machine.
+
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use thiserror::Error;
 
-use crate::combat::{self, FireIllegal};
-use crate::game_state::GameState;
+use crate::game_state::{GameState, Phase};
 use crate::hex::Hex;
-use crate::energy;
-use crate::impulse;
+use crate::momentum;
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MoveMode {
+    Forward,
+    Reverse,
+    TurnPort,
+    TurnStarboard,
+}
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Order {
-    Plot { ship: u32, path: Vec<Hex> },
-    /// Multi-bucket energy allocation for this turn (D7).
-    /// `movement` may be provided as JSON alias `speed` for older clients.
-    Allocate {
-        ship: u32,
-        #[serde(alias = "speed")]
-        movement: u32,
-        #[serde(default)]
-        weapons: u32,
-        #[serde(default)]
-        shields: u32,
-    },
-    /// `ship` is the firer (TS2 multi-firer: not inferred from weapon id alone).
-    Fire { ship: u32, weapon: String, target: u32 },
-    RunTurn,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DeclaredOrder {
-    Plot { ship: u32, path: Vec<Hex> },
+    /// Combat v2: allocate movement, weapon charge, and shield power for one ship.
     Allocate {
         ship: u32,
         movement: u32,
-        weapons: u32,
-        shields: u32,
+        weapons: BTreeMap<String, u32>,
+        shields: [u32; 6],
     },
-    Fire { ship: u32, weapon: String, target: u32 },
-    RunTurn,
+    /// Spend power to move or turn (basic move).
+    Move {
+        ship: u32,
+        mode: MoveMode,
+    },
+    /// Combat v2: pass this ship's movement decision for the current movement phase.
+    PassMove {
+        ship: u32,
+    },
+    CommitFire {
+        ship: u32,
+        weapon: String,
+        target: u32,
+        shield_facing: u8,
+    },
+    ReadyFire {
+        ship: u32,
+    },
+    /// Combat v2: end the current turn and advance to the next turn's allocation.
+    /// Legal in any phase after allocation; always advances (the UI owns any warning).
+    EndTurn,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum OrderError {
     #[error("ship {0} was not found")]
     ShipNotFound(u32),
+    #[error("ship {ship} is not the active ship (active={active:?})")]
+    NotActiveShip { ship: u32, active: Option<u32> },
     #[error("destination ({q},{r}) is off the map")]
     OffMap { q: i32, r: i32 },
     #[error("destination ({q},{r}) is occupied")]
     HexOccupied { q: i32, r: i32 },
-    #[error("destination ({q},{r}) is not adjacent")]
-    NotAdjacent { q: i32, r: i32 },
-    #[error("path length {path_len} exceeds speed {speed} for ship {ship} (max {max_steps})")]
-    PlotTooLong {
-        ship: u32,
-        speed: u32,
-        path_len: u32,
-        max_steps: u32,
-    },
-    #[error("turn-mode violation for ship {ship} at path step {step_index}")]
-    TurnModeViolation { ship: u32, step_index: usize },
+    #[error("ship {ship} lacks power (need {need}, have {have})")]
+    InsufficientPower { ship: u32, need: u32, have: u32 },
+    #[error("ship {ship} lacks move power (need {need}, have {have})")]
+    InsufficientMovePower { ship: u32, need: u32, have: u32 },
     #[error("weapon {0} was not found")]
     WeaponNotFound(String),
     #[error("target {0} was not found")]
@@ -75,218 +81,173 @@ pub enum OrderError {
     OutOfArc { weapon: String, target: u32 },
     #[error("weapon {weapon} on ship {ship} has already fired this turn")]
     WeaponAlreadyFired { ship: u32, weapon: String },
-    #[error(
-        "ship {ship} illegal allocation movement={movement} weapons={weapons} shields={shields} (power {power}, max speed {max_speed})"
-    )]
-    IllegalAllocation {
-        ship: u32,
-        movement: u32,
-        weapons: u32,
-        shields: u32,
-        power: u32,
-        max_speed: u32,
+    #[error("weapon {weapon} on ship {ship} has already been committed this phase")]
+    WeaponAlreadyCommitted { ship: u32, weapon: String },
+    #[error("weapon {weapon} on ship {ship} is not charged")]
+    WeaponNotCharged { ship: u32, weapon: String },
+    #[error("ship {0} is already ready to fire")]
+    FireAlreadyReady(u32),
+    #[error("weapon {weapon} would deal no damage at range {range} with charge {charge}")]
+    NoDamage {
+        weapon: String,
+        range: u32,
+        charge: u32,
     },
-    #[error("ship {ship} lacks weapon energy to fire (need {need}, have {have})")]
-    InsufficientWeaponEnergy { ship: u32, need: u32, have: u32 },
+    #[error("shield facing {requested} is not legal; legal facings: {legal:?}")]
+    IllegalShieldFacing { requested: u8, legal: Vec<u8> },
+    #[error("ship {0} has already allocated power this turn")]
+    AlreadyAllocated(u32),
+    #[error("cannot end the turn during allocation")]
+    EndTurnDuringAllocation,
+    #[error("ship {0} has already moved or passed this movement phase")]
+    AlreadyMovedThisPhase(u32),
+    #[error("order requires phase {expected}, actual phase is {actual}")]
+    WrongPhase {
+        expected: &'static str,
+        actual: &'static str,
+    },
+    #[error("ship {ship} allocated {total} power, only {available} available")]
+    OverAllocated {
+        ship: u32,
+        total: u32,
+        available: u32,
+    },
+    #[error("weapon {weapon} on ship {ship} charged {charge}, max {max}")]
+    WeaponChargeTooHigh {
+        ship: u32,
+        weapon: String,
+        charge: u32,
+        max: u32,
+    },
+    #[error("ship {ship} shield facing {facing} has {power}, max {max}")]
+    ShieldPowerTooHigh {
+        ship: u32,
+        facing: u8,
+        power: u32,
+        max: u32,
+    },
+    #[error("invalid move")]
+    InvalidMove,
 }
 
-/// Validate a plot path (adjacency, board, occupancy at submit, turn-mode, length).
-pub fn validate_plot(game: &GameState, ship_id: u32, path: &[Hex]) -> Result<(), OrderError> {
-    let ship = game
-        .ship(ship_id)
-        .ok_or(OrderError::ShipNotFound(ship_id))?;
-    if ship.destroyed {
-        return Err(OrderError::ShipNotFound(ship_id));
-    }
-
-    let max_steps = impulse::max_plot_steps(ship.turn_speed);
-    if path.len() as u32 > max_steps {
-        return Err(OrderError::PlotTooLong {
-            ship: ship_id,
-            speed: ship.turn_speed,
-            path_len: path.len() as u32,
-            max_steps,
-        });
-    }
-
-    let turn_mode = ship.turn_mode;
-    let mut prev = ship.pos;
-    let mut prev_dir: Option<u8> = None;
-    let mut straight: u32 = 0;
-
-    for (step_index, step) in path.iter().enumerate() {
-        // Hard map: reject off-board. Floating map: allow (recenters after movement).
-        if game.board().mode == crate::board::MapMode::Hard && !game.board().contains(*step) {
-            return Err(OrderError::OffMap {
-                q: step.q,
-                r: step.r,
-            });
-        }
-        if prev.distance(*step) != 1 {
-            return Err(OrderError::NotAdjacent {
-                q: step.q,
-                r: step.r,
-            });
-        }
-        if game.is_occupied_by_other(ship_id, *step) {
-            return Err(OrderError::HexOccupied {
-                q: step.q,
-                r: step.r,
-            });
-        }
-
-        let dir = Hex::facing_between(prev, *step).expect("adjacent hex has a unit facing");
-        if let Some(previous) = prev_dir {
-            if dir != previous {
-                if turn_mode > 0 && straight < turn_mode {
-                    return Err(OrderError::TurnModeViolation {
-                        ship: ship_id,
-                        step_index,
-                    });
-                }
-                straight = 1;
-                prev_dir = Some(dir);
-            } else {
-                straight = straight.saturating_add(1);
-            }
-        } else {
-            // First step establishes facing; never a turn-mode violation.
-            prev_dir = Some(dir);
-            straight = 1;
-        }
-        prev = *step;
-    }
-
-    Ok(())
-}
-
-pub fn declare(game: &GameState, order: Order) -> Result<DeclaredOrder, OrderError> {
+pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError> {
     match order {
-        Order::Plot { ship, path } => {
-            validate_plot(game, ship, &path)?;
-            Ok(DeclaredOrder::Plot { ship, path })
-        }
         Order::Allocate {
             ship,
             movement,
             weapons,
             shields,
-        } => {
-            let s = game.ship(ship).ok_or(OrderError::ShipNotFound(ship))?;
-            if s.destroyed {
-                return Err(OrderError::ShipNotFound(ship));
-            }
-            let max_speed = s.effective_max_speed();
-            let power = s.effective_power();
-            if !energy::is_legal_multi_allocation(power, max_speed, movement, weapons, shields) {
-                return Err(OrderError::IllegalAllocation {
-                    ship,
-                    movement,
-                    weapons,
-                    shields,
-                    power,
-                    max_speed,
-                });
-            }
-            Ok(DeclaredOrder::Allocate {
-                ship,
-                movement,
-                weapons,
-                shields,
-            })
-        }
-        Order::Fire {
+        } => game.allocate_v2(ship, movement, weapons, shields),
+        Order::Move { ship, mode } => apply_v2_move(game, ship, mode),
+        Order::PassMove { ship } => apply_v2_pass_move(game, ship),
+        Order::CommitFire {
             ship,
             weapon,
             target,
-        } => {
-            if game.ship(ship).is_none() {
-                return Err(OrderError::ShipNotFound(ship));
-            }
-            if !game.ship_owns_weapon(ship, &weapon) {
-                return Err(OrderError::WeaponNotFound(weapon));
-            }
-            let target_ship = game
-                .ship(target)
-                .ok_or(OrderError::TargetNotFound(target))?;
-            let attacker = game.ship(ship).expect("checked above");
-            let wdef = attacker
-                .weapons
-                .iter()
-                .find(|w| w.id == weapon)
-                .ok_or_else(|| OrderError::WeaponNotFound(weapon.clone()))?;
-            let need = energy::fire_energy_cost_for(wdef.energy_cost);
-            if !attacker.can_afford_weapon_cost(wdef.energy_cost) {
-                return Err(OrderError::InsufficientWeaponEnergy {
-                    ship,
-                    need,
-                    have: attacker.weapons_energy,
-                });
-            }
-            match combat::fire_legality(attacker, &weapon, target_ship) {
-                Ok(_) => {}
-                Err(FireIllegal::WeaponNotFound) => {
-                    return Err(OrderError::WeaponNotFound(weapon));
-                }
-                Err(FireIllegal::TargetDestroyed) => {
-                    return Err(OrderError::TargetNotFound(target));
-                }
-                Err(FireIllegal::FireAtSelf) => {
-                    return Err(OrderError::FireAtSelf(target));
-                }
-                Err(FireIllegal::OutOfRange { range, max_range }) => {
-                    return Err(OrderError::OutOfRange {
-                        weapon,
-                        range,
-                        max_range,
-                    });
-                }
-                Err(FireIllegal::OutOfArc) => {
-                    return Err(OrderError::OutOfArc { weapon, target });
-                }
-            }
-            if game.weapon_fired_this_turn(ship, &weapon) {
-                return Err(OrderError::WeaponAlreadyFired { ship, weapon });
-            }
-            Ok(DeclaredOrder::Fire {
-                ship,
-                weapon,
-                target,
-            })
-        }
-        Order::RunTurn => Ok(DeclaredOrder::RunTurn),
-    }
-}
-
-pub fn resolve(game: &mut GameState, order: DeclaredOrder) {
-    match order {
-        DeclaredOrder::Plot { ship, path } => {
-            game.store_plot(ship, path);
-        }
-        DeclaredOrder::Allocate {
-            ship,
-            movement,
-            weapons,
-            shields,
-        } => {
-            game.allocate_energy(ship, movement, weapons, shields);
-        }
-        DeclaredOrder::Fire {
+            shield_facing,
+        } => game.commit_fire_v2(crate::game_state::FireCommit {
             ship,
             weapon,
             target,
-        } => {
-            game.queue_fire(ship, weapon, target);
-        }
-        DeclaredOrder::RunTurn => {
-            crate::turn::run_turn(game);
-        }
+            shield_facing,
+        }),
+        Order::ReadyFire { ship } => game.ready_fire_v2(ship),
+        Order::EndTurn => game.end_turn_v2(),
     }
 }
 
-/// Apply a wire order through declare/resolve (orchestration entrypoint).
-pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError> {
-    let declared = declare(game, order)?;
-    resolve(game, declared);
+fn require_v2_active_mover(game: &GameState, ship: u32) -> Result<(), OrderError> {
+    if game.phase() != Phase::Movement {
+        return Err(OrderError::WrongPhase {
+            expected: "movement",
+            actual: game.phase_name(),
+        });
+    }
+    if game.ship(ship).is_none_or(|s| s.destroyed) {
+        return Err(OrderError::ShipNotFound(ship));
+    }
+    if game.has_moved_this_phase(ship) {
+        return Err(OrderError::AlreadyMovedThisPhase(ship));
+    }
+    let active = game.active_v2_mover();
+    if active != Some(ship) {
+        return Err(OrderError::NotActiveShip { ship, active });
+    }
+    Ok(())
+}
+
+fn apply_v2_pass_move(game: &mut GameState, ship: u32) -> Result<(), OrderError> {
+    require_v2_active_mover(game, ship)?;
+    game.mark_v2_move_decision(ship);
+    Ok(())
+}
+
+fn apply_v2_move(game: &mut GameState, ship_id: u32, mode: MoveMode) -> Result<(), OrderError> {
+    require_v2_active_mover(game, ship_id)?;
+
+    let (pos, facing, keel) = {
+        let s = game
+            .ship(ship_id)
+            .ok_or(OrderError::ShipNotFound(ship_id))?;
+        (s.pos, s.facing, s.keel)
+    };
+    let v2_mode = match mode {
+        MoveMode::Forward => momentum::MoveMode::Forward,
+        MoveMode::Reverse => momentum::MoveMode::Reverse,
+        MoveMode::TurnPort => momentum::MoveMode::TurnPort,
+        MoveMode::TurnStarboard => momentum::MoveMode::TurnStarboard,
+    };
+    let (cost, next_keel) = momentum::move_cost(keel, v2_mode);
+    let have = game.ship(ship_id).map(|s| s.move_remaining).unwrap_or(0);
+    if have < cost {
+        return Err(OrderError::InsufficientMovePower {
+            ship: ship_id,
+            need: cost,
+            have,
+        });
+    }
+
+    match mode {
+        MoveMode::TurnPort => {
+            let nf = (facing + 5) % 6;
+            game.set_ship_facing(ship_id, nf)
+                .map_err(|_| OrderError::ShipNotFound(ship_id))?;
+        }
+        MoveMode::TurnStarboard => {
+            let nf = (facing + 1) % 6;
+            game.set_ship_facing(ship_id, nf)
+                .map_err(|_| OrderError::ShipNotFound(ship_id))?;
+        }
+        MoveMode::Forward | MoveMode::Reverse => {
+            let direction = if mode == MoveMode::Forward {
+                facing
+            } else {
+                (facing + 3) % 6
+            };
+            let next = Hex::direction(direction)
+                .map(|d| pos + d)
+                .ok_or(OrderError::InvalidMove)?;
+            if game.board().mode == crate::board::MapMode::Hard && !game.board().contains(next) {
+                return Err(OrderError::OffMap {
+                    q: next.q,
+                    r: next.r,
+                });
+            }
+            if game.is_occupied_by_other(ship_id, next) {
+                return Err(OrderError::HexOccupied {
+                    q: next.q,
+                    r: next.r,
+                });
+            }
+            game.set_ship_pos(ship_id, next)
+                .map_err(|_| OrderError::ShipNotFound(ship_id))?;
+        }
+    }
+
+    game.spend_v2_move_power(ship_id, cost)?;
+    game.set_v2_keel(ship_id, next_keel)
+        .map_err(|_| OrderError::ShipNotFound(ship_id))?;
+    game.mark_v2_move_decision(ship_id);
+    game.maybe_float_recenter();
     Ok(())
 }

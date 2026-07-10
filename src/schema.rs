@@ -26,6 +26,8 @@ pub struct ShipDef {
     pub turn_mode: u32,
     #[serde(default = "default_shields")]
     pub shields: [u32; 6],
+    #[serde(default = "default_max_shield_per_facing")]
+    pub max_shield_per_facing: u32,
     #[serde(default)]
     pub structure: u32,
     #[serde(default)]
@@ -78,8 +80,12 @@ pub struct TerminalDef {
 pub struct WeaponDef {
     pub id: String,
     pub kind: String,
+    #[serde(default)]
+    pub mount: Option<String>,
     pub arc: String,
     pub max_range: u32,
+    #[serde(default = "default_max_charge")]
+    pub max_charge: u32,
     #[serde(default = "default_weapon_damage")]
     pub damage: u32,
     #[serde(default = "default_weapon_energy_cost")]
@@ -96,4 +102,12 @@ fn default_weapon_damage() -> u32 {
 
 fn default_weapon_energy_cost() -> u32 {
     1
+}
+
+fn default_max_charge() -> u32 {
+    4
+}
+
+fn default_max_shield_per_facing() -> u32 {
+    6
 }

@@ -1,143 +1,78 @@
+//! Combat v2 acceptance: allocate, move into range, commit fire, ready, end turn.
+
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use serde_json::Value;
-use shipsim_core::game_state::{GameState, ScenarioStatus};
-use shipsim_core::hex::Hex;
-use shipsim_core::impulse::{move_count, moves_on_impulse};
 use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
-use shipsim_core::snapshot::StateSnapshot;
 
 fn manifest_path(relative: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
 
-fn load_slice1() -> GameState {
-    load_scenario(&manifest_path("scenarios/slice1.toml")).expect("slice1 scenario loads")
-}
-
-fn run_winning_route() -> StateSnapshot {
-    let mut game = load_slice1();
-
-    assert_eq!(Hex::new(0, 0).distance(Hex::new(4, 1)), 5);
-
-    // Turn 1: plot four hexes along +q (speed 4).
-    apply_order(&mut game, Order::Plot {
-        ship: 1,
-        path: vec![
-            Hex::new(1, 0),
-            Hex::new(2, 0),
-            Hex::new(3, 0),
-            Hex::new(4, 0),
-        ],
-    })
-    .expect("plot is legal");
-    apply_order(&mut game, Order::RunTurn).expect("run turn 1");
-    assert_eq!(game.status(), ScenarioStatus::InProgress);
-    assert_eq!(game.ship(1).unwrap().pos, Hex::new(4, 0));
-
-    // Turn 2: final step onto objective.
-    apply_order(&mut game, Order::Plot {
-        ship: 1,
-        path: vec![Hex::new(4, 1)],
-    })
-    .expect("final plot is legal");
-    apply_order(&mut game, Order::RunTurn).expect("run turn 2");
-
-    StateSnapshot::from_game_state(&game)
+fn empty_shields() -> [u32; 6] {
+    [0; 6]
 }
 
 #[test]
-fn test_player_reaches_objective_wins() {
-    let snapshot = run_winning_route();
-    let json = serde_json::to_value(&snapshot).expect("snapshot serializes");
+fn test_v2_allocate_move_fire_end_turn() {
+    let mut game = load_scenario(&manifest_path("scenarios/combat.toml")).expect("scenario");
 
-    println!("{}", serde_json::to_string(&snapshot).unwrap());
-    // Started turn 1; two RunTurns -> turn 3.
-    assert_eq!(json["turn"], 3);
-    assert_eq!(json["impulse"], 0);
-    assert_eq!(json["status"], "Won");
-    assert_eq!(json["objective"]["q"], 4);
-    assert_eq!(json["objective"]["r"], 1);
-    assert_eq!(json["ships"][0]["q"], 4);
-    assert_eq!(json["ships"][0]["r"], 1);
-}
-
-#[test]
-fn test_non_winning_run_stays_in_progress() {
-    let mut game = load_slice1();
-
-    apply_order(&mut game, Order::Plot {
-        ship: 1,
-        path: vec![Hex::new(1, 0)],
-    })
+    // --- Turn 1, Allocation phase ---
+    // Ship 1 (heavy cruiser, power 22): allocate movement + charge beam_1.
+    let mut weapons_1 = BTreeMap::new();
+    weapons_1.insert("beam_1".to_string(), 1);
+    apply_order(
+        &mut game,
+        Order::Allocate {
+            ship: 1,
+            movement: 4,
+            weapons: weapons_1,
+            shields: empty_shields(),
+        },
+    )
     .unwrap();
-    apply_order(&mut game, Order::RunTurn).unwrap();
 
-    let snapshot = serde_json::to_value(StateSnapshot::from_game_state(&game)).unwrap();
-    assert_eq!(snapshot["status"], "InProgress");
-    assert_eq!(game.status(), ScenarioStatus::InProgress);
-}
+    // Ship 2 (escort, power 14): allocate movement + charge beam_1.
+    let mut weapons_2 = BTreeMap::new();
+    weapons_2.insert("beam_1".to_string(), 1);
+    apply_order(
+        &mut game,
+        Order::Allocate {
+            ship: 2,
+            movement: 2,
+            weapons: weapons_2,
+            shields: empty_shields(),
+        },
+    )
+    .unwrap();
 
-#[test]
-fn test_run_is_reproducible() {
-    let first = serde_json::to_value(run_winning_route()).unwrap();
-    let second = serde_json::to_value(run_winning_route()).unwrap();
+    // --- Movement phase ---
+    // Ship 1 is at (1,0) facing 3 (toward ship 2 at (0,0)). They are adjacent.
+    // Move ship 1 forward (toward ship 2) — but (0,0) is occupied, so just pass.
+    apply_order(&mut game, Order::PassMove { ship: 1 }).unwrap();
+    apply_order(&mut game, Order::PassMove { ship: 2 }).unwrap();
 
-    let _: Value = first.clone();
-    assert_eq!(first, second);
-}
+    // --- Firing phase ---
+    // Ship 1 fires beam_1 at ship 2 (adjacent, range 1, forward arc).
+    apply_order(
+        &mut game,
+        Order::CommitFire {
+            ship: 1,
+            weapon: "beam_1".to_string(),
+            target: 2,
+            shield_facing: 0,
+        },
+    )
+    .unwrap();
+    apply_order(&mut game, Order::ReadyFire { ship: 1 }).unwrap();
+    // Ship 2 must also ready before the batch resolves.
+    apply_order(&mut game, Order::ReadyFire { ship: 2 }).unwrap();
 
-#[test]
-fn test_impulse_turn_end_positions() {
-    let mut game =
-        load_scenario(&manifest_path("scenarios/impulse.toml")).expect("impulse scenario loads");
+    // The fire batch resolves when all living ships are ready; the combat log
+    // captures the resolved shot. (EndTurn clears the per-turn log.)
+    assert!(!game.combat_log().is_empty());
 
-    let ship1_speed = game.ship(1).unwrap().speed as u8;
-    let ship2_speed = game.ship(2).unwrap().speed as u8;
-    assert_eq!(ship1_speed, 4);
-    assert_eq!(ship2_speed, 3);
-    assert_eq!(move_count(ship1_speed), 4);
-    assert_eq!(move_count(ship2_speed), 3);
-
-    apply_order(&mut game, Order::Plot {
-        ship: 1,
-        path: vec![
-            Hex::new(1, 5),
-            Hex::new(2, 5),
-            Hex::new(3, 5),
-            Hex::new(4, 5),
-        ],
-    })
-    .expect("ship 1 plot");
-    apply_order(&mut game, Order::Plot {
-        ship: 2,
-        path: vec![Hex::new(1, 0), Hex::new(2, 0), Hex::new(3, 0)],
-    })
-    .expect("ship 2 plot");
-    apply_order(&mut game, Order::RunTurn).expect("run turn");
-
-    assert_eq!(game.ship(1).unwrap().pos, Hex::new(4, 5));
-    assert_eq!(game.ship(2).unwrap().pos, Hex::new(3, 0));
-    assert_eq!(game.impulse(), 0);
-    assert_eq!(game.status(), ScenarioStatus::InProgress);
-
-    // IMC anchors used by the turn (not observed mid-turn, but pinned).
-    for impulse in 1u8..=32 {
-        if moves_on_impulse(ship1_speed, impulse) {
-            // speed 4 has exactly 4 move impulses
-        }
-    }
-    assert_eq!(
-        (1u8..=32)
-            .filter(|&i| moves_on_impulse(ship1_speed, i))
-            .count(),
-        4
-    );
-    assert_eq!(
-        (1u8..=32)
-            .filter(|&i| moves_on_impulse(ship2_speed, i))
-            .count(),
-        3
-    );
+    // --- End turn ---
+    apply_order(&mut game, Order::EndTurn).unwrap();
 }

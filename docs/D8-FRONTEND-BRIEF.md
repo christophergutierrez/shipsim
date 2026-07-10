@@ -26,8 +26,8 @@ love stdin→shipsim: NDJSON Order, one object per line
 
 1. **Post-load:** first snapshot line (initial paint; no order yet).
 2. **Per order:** client writes one order line → one snapshot line back.
-3. **Errors:** illegal orders fail the harness process with a message on stderr (v1). Client must
-   treat non-zero exit / broken pipe as failure; do not invent success state.
+3. **Errors (ADR-0018):** illegal orders → one NDJSON `{"type":"error",...}` line; process stays
+   up. Fatal spawn/IO still kills the process — status strip, do not invent success state.
 
 ### Order shapes (Rust `Order`)
 
@@ -79,17 +79,21 @@ Never ask a human to "open Love and check" for correctness. Run this ladder your
 ## Recommended module layout (thin)
 
 ```text
-shipsim_love/          # or love/ — pick one root when scaffolding
-  main.lua             # love.load/update/draw; spawn harness
+frontend/love/
+  main.lua             # love.load/update/draw; screens: picker / play / end
   conf.lua
-  harness.lua          # process IO, line buffer, parse JSON
-  state.lua            # last snapshot only (view model)
-  hex.lua              # pure layout math (unit-test without Love)
+  harness.lua          # spawn shipsim, NDJSON IO, soft-error lines
+  state.lua            # last snapshot + phase + selection (view model)
+  hex.lua              # flat-top layout math (unit-test without Love)
+  phases.lua           # Energy → Plot → Weapons → Resolve
   draw_board.lua
   draw_hud.lua
-  input.lua            # keys/mouse → Order tables
+  input.lua            # mouse primary + keyboard shortcuts → Order tables
+  ui_status.lua        # shared status strip (error/warn/info)
   tests/               # luajit-runnable pure tests
 ```
+
+Binary: prefer `target/debug/shipsim`, override `SHIPSIM_BIN`; harness cwd = **repo root**.
 
 No second copy of SSD damage, IFF, IMC, or AI in Lua.
 

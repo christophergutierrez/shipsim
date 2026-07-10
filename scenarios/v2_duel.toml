@@ -1,0 +1,26 @@
+width = 24
+height = 20
+seed = 7
+
+# Fully AI-drivable duel: both ships are greedy v2 AI so the v2 NPC driver can
+# play the whole scenario headless (M6 gate G1).
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 4
+r = 10
+facing = 0
+controller = "ai"
+
+[[ships]]
+id = 2
+class = "escort"
+q = 19
+r = 10
+facing = 3
+controller = "ai"

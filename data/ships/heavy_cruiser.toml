@@ -1,10 +1,10 @@
 id = "heavy_cruiser"
 name = "Heavy Cruiser"
 speed = 4
-# power > speed so default leftover funds weapon fire (D7 deepen)
-power = 8
+power = 22
 turn_mode = 2
 shields = [6, 6, 6, 6, 6, 6]
+max_shield_per_facing = 6
 structure = 12
 
 [[weapons]]
@@ -14,6 +14,22 @@ arc = "forward"
 max_range = 4
 damage = 2
 phaser_dice_by_range = [3, 2, 1, 1]
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "torp_1"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1
 
 [[weapons]]
 id = "disruptor_1"
@@ -35,6 +51,8 @@ energy_cost = 1
 id = "plasma_1"
 kind = "plasma"
 arc = "forward"
+mount = "forward"
 max_range = 6
+max_charge = 1
 damage = 6
 energy_cost = 2

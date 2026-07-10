@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
+
 use crate::combat::Weapon;
 use crate::energy;
 use crate::hex::Hex;
+use crate::momentum::Keel;
 use crate::ssd::Ssd;
 
 #[derive(Debug, Clone)]
@@ -13,15 +16,30 @@ pub struct Ship {
     pub speed: u32,
     /// Design energy generated each turn (before power_sys damage).
     pub power: u32,
-    /// Allocated movement speed for the current turn (drives IMC + plot length).
+    /// FASA: remaining power this turn (shared pool for move/fire/soak).
+    pub power_remaining: u32,
+    /// FASA: power cost of one basic move action.
+    pub movement_point_ratio: u32,
+    /// FASA: damage points absorbed per 1 power (SPR inverse; 2 => 1 power per 2 damage).
+    pub shield_point_ratio_den: u32,
+    /// Legacy SFB fields retained for content compatibility (unused in FASA path).
     pub turn_speed: u32,
-    /// Remaining weapon energy this turn (spent when firing).
     pub weapons_energy: u32,
-    /// Temporary shield reinforcement pool (absorbs before facing shields).
     pub shield_reinforce: u32,
     pub turn_mode: u32,
     pub weapons: Vec<Weapon>,
     pub shields: [u32; 6],
+    /// Combat v2: per-facing shield power bought during allocation.
+    pub shields_powered: [u32; 6],
+    /// Combat v2: remaining per-facing powered shields this turn.
+    pub shields_remaining: [u32; 6],
+    pub max_shield_per_facing: u32,
+    /// Combat v2: movement budget bought this turn.
+    pub movement_allocated: u32,
+    pub move_remaining: u32,
+    pub keel: Keel,
+    /// Combat v2: weapon id -> charge bought this turn.
+    pub weapon_charges: BTreeMap<String, u32>,
     /// Itemized internals (D6). `ssd.hull` replaces the old flat structure pool for internals.
     pub ssd: Ssd,
     pub destroyed: bool,
@@ -74,10 +92,22 @@ impl Ship {
     }
 
     pub fn reset_turn_energy(&mut self) {
+        // FASA: restore full power pool for the turn.
+        self.power_remaining = self.effective_power();
+        // Keep legacy buckets loosely in sync for snapshot display.
         let max_spd = self.effective_max_speed();
         let max_pow = self.effective_power();
         let (movement, weapons, shields) = energy::default_buckets(max_pow, max_spd);
         self.apply_allocation(movement, weapons, shields);
+    }
+
+    pub fn reset_v2_allocation(&mut self) {
+        self.shields_powered = [0; 6];
+        self.shields_remaining = [0; 6];
+        self.movement_allocated = 0;
+        self.move_remaining = 0;
+        self.keel = Keel::Stopped;
+        self.weapon_charges.clear();
     }
 
     /// Apply damage: reinforce → shield facing → SSD allocation for overflow.
@@ -133,7 +163,7 @@ impl Ship {
 
     pub fn can_afford_weapon_cost(&self, cost: u32) -> bool {
         let c = energy::fire_energy_cost_for(cost);
-        self.weapons_energy >= c
+        self.power_remaining >= c
     }
 
     pub fn spend_fire_energy(&mut self) -> bool {

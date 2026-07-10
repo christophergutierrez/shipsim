@@ -1,0 +1,387 @@
+-- v2 HUD (Combat Model v2, ADR-0020).
+-- Phase-aware panels: Allocate, Movement, Firing, TurnEnd.
+
+local phases = require("phases")
+local hex = require("hex")
+local ui = require("ui")
+
+local draw_hud = {}
+
+local SHIELD_FACE = { "F", "FR", "RR", "R", "RL", "FL" }
+
+function draw_hud.panel_width()
+  return math.floor(300 * ui.scale)
+end
+
+function draw_hud.left_rail_width()
+  return 0
+end
+
+function draw_hud.top_h()
+  return math.floor(34 * ui.scale)
+end
+
+function draw_hud.bottom_h()
+  return math.floor(30 * ui.scale)
+end
+
+local function line(s, x, color)
+  love.graphics.setColor(color or { 0.95, 0.95, 0.95 })
+  love.graphics.print(s, x)
+end
+
+local function section(title, x)
+  love.graphics.setColor(0.35, 0.9, 0.55)
+  love.graphics.print(title, x)
+end
+
+local function ship_label(s)
+  local ctrl = s.controller == "player" and "" or (" [" .. s.controller .. "]")
+  return string.format("#%d %s%s", s.id, s.class or "?", ctrl)
+end
+
+local function find_ship(snap, id)
+  if not snap or not id then
+    return nil
+  end
+  for _, s in ipairs(snap.ships or {}) do
+    if s.id == id then
+      return s
+    end
+  end
+  return nil
+end
+
+-- Projected beam damage for a charged weapon (duplicates the core
+-- combat_tables formula for UI preview; core is authoritative).
+local function projected_damage(ship, weapon_id)
+  if not ship or not weapon_id then
+    return nil
+  end
+  local w = nil
+  for _, ww in ipairs(ship.weapons or {}) do
+    if ww.id == weapon_id then
+      w = ww
+      break
+    end
+  end
+  if not w then
+    return nil
+  end
+  local charge = w.charge or w.level or 1
+  local dice = w.damage_dice or 2
+  local per = w.damage_per_die or 4
+  return dice * per * charge, charge
+end
+
+function draw_hud.draw(app)
+  local snap = app.session and app.session.snapshot
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  local pw = draw_hud.panel_width()
+  local px = W - pw
+  local pad = math.floor(10 * ui.scale)
+  local content_w = pw - 2 * pad
+
+  love.graphics.setColor(0.1, 0.11, 0.14, 0.96)
+  love.graphics.rectangle("fill", 0, 0, W, draw_hud.top_h())
+  ui.use(14)
+  love.graphics.setColor(1, 1, 1)
+  local turn = (snap and snap.turn) or 1
+  local phase = app.phase or (snap and snap.phase) or phases.ALLOCATE
+  local active = snap and snap.active_ship
+  love.graphics.print(
+    string.format("Turn %d  %s  Active #%s", turn, phase, tostring(active)),
+    pad, (draw_hud.top_h() - ui.font(14):getHeight()) / 2
+  )
+
+  love.graphics.setColor(0.08, 0.09, 0.12, 0.97)
+  love.graphics.rectangle("fill", px, draw_hud.top_h(), pw, H - draw_hud.top_h() - draw_hud.bottom_h())
+  local y = draw_hud.top_h() + pad
+  ui.use(13)
+
+  if not snap then
+    section("No scenario loaded", px + pad)
+    return
+  end
+
+  section("Ships", px + pad)
+  y = y + ui.line_h(13)
+  for _, s in ipairs(snap.ships or {}) do
+    local mark = (s.id == app.selected_id) and ">" or " "
+    local dest = s.destroyed and " (destroyed)" or ""
+    love.graphics.setColor(s.controller == "player" and { 0.7, 0.9, 1 } or { 1, 0.6, 0.6 })
+    love.graphics.print(string.format("%s %s pwr %d%s", mark, ship_label(s), s.power_remaining or 0, dest), px + pad, y)
+    y = y + ui.line_h(13)
+  end
+
+  y = y + 4
+  section("Phase: " .. phase, px + pad)
+  y = y + ui.line_h(13)
+
+  if phase == phases.ALLOCATE then
+    y = draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
+  elseif phase == phases.MOVEMENT then
+    y = draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
+  elseif phase == phases.FIRING then
+    y = draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
+  elseif phase == phases.TURN_END then
+    y = draw_hud.draw_turn_end_panel(app, snap, px, pad, y, content_w)
+  end
+
+  y = y + 6
+  section("Combat log", px + pad)
+  y = y + ui.line_h(13)
+  local log = snap.combat_log or {}
+  if #log == 0 then
+    love.graphics.setColor(0.6, 0.6, 0.65)
+    love.graphics.print("(empty)", px + pad, y)
+    y = y + ui.line_h(13)
+  else
+    local start = math.max(1, #log - 5)
+    for i = start, #log do
+      local e = log[i]
+      local face = SHIELD_FACE[(e.shield or 0) + 1] or "?"
+      if e.kind == "miss" or (e.damage or 0) == 0 then
+        love.graphics.setColor(0.85, 0.75, 0.4)
+        love.graphics.print(string.format("%d->%d MISS (face %s)", e.attacker, e.target, face), px + pad, y)
+      else
+        love.graphics.setColor(0.95, 0.95, 0.95)
+        love.graphics.print(string.format("%d->%d HIT %s dmg %d", e.attacker, e.target, face, e.damage), px + pad, y)
+      end
+      y = y + ui.line_h(13)
+    end
+  end
+
+  ui.button("Scenarios", px + pad, H - draw_hud.bottom_h() - math.floor(32 * ui.scale), content_w, math.floor(26 * ui.scale), "menu", nil, false)
+
+  if app.show_help then
+    draw_hud.draw_help_overlay()
+  end
+end
+
+function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
+  local bh = math.floor(24 * ui.scale)
+  for _, s in ipairs(snap.ships or {}) do
+    if s.controller == "player" and not s.destroyed then
+      love.graphics.setColor(0.8, 0.85, 0.9)
+      love.graphics.print(ship_label(s), px + pad, y)
+      y = y + ui.line_h(13)
+      local a = app.alloc[s.id] or { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 } }
+      love.graphics.setColor(0.7, 0.75, 0.8)
+      love.graphics.print(string.format("move %d", a.movement), px + pad, y)
+      ui.button("-", px + pad + 60, y - 2, 20, bh, "alloc_movement_dn", { id = s.id }, false)
+      ui.button("+", px + pad + 84, y - 2, 20, bh, "alloc_movement_up", { id = s.id }, false)
+      y = y + ui.line_h(13) + 2
+      for _, w in ipairs(s.weapons or {}) do
+        local ch = a.weapons[w.id] or 0
+        love.graphics.setColor(0.7, 0.75, 0.8)
+        love.graphics.print(string.format("%s ch %d", w.id, ch), px + pad, y)
+        ui.button("-", px + pad + 100, y - 2, 20, bh, "alloc_weapon_dn", { id = s.id, weapon = w.id }, false)
+        ui.button("+", px + pad + 124, y - 2, 20, bh, "alloc_weapon_up", { id = s.id, weapon = w.id }, false)
+        y = y + ui.line_h(13) + 1
+      end
+      ui.button("Allocate", px + pad, y, content_w, bh, "alloc_confirm", { id = s.id }, false)
+      y = y + bh + 6
+    end
+  end
+  return y
+end
+
+function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
+  local bh = math.floor(24 * ui.scale)
+  local active = snap.active_ship
+  local ship = find_ship(snap, active)
+  if not ship then
+    love.graphics.setColor(0.7, 0.75, 0.8)
+    love.graphics.print("No active mover", px + pad, y)
+    y = y + ui.line_h(13)
+    return y
+  end
+  love.graphics.setColor(0.8, 0.85, 0.9)
+  love.graphics.print(string.format("Moving #%d (%s)", ship.id, ship.class or "?"), px + pad, y)
+  y = y + ui.line_h(13) + 2
+  love.graphics.setColor(0.7, 0.75, 0.8)
+  love.graphics.print(string.format("move power %d", ship.move_remaining or 0), px + pad, y)
+  y = y + ui.line_h(13) + 4
+  ui.button("Forward (W)", px + pad, y, content_w, bh, "move_forward", nil, false)
+  y = y + bh + 3
+  ui.button("Turn Port", px + pad, y, content_w, bh, "move_port", nil, false)
+  y = y + bh + 3
+  ui.button("Turn Stbd", px + pad, y, content_w, bh, "move_starboard", nil, false)
+  y = y + bh + 3
+  ui.button("Pass (P)", px + pad, y, content_w, bh, "pass_move", nil, false)
+  y = y + bh + 6
+  return y
+end
+
+function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
+  local bh = math.floor(24 * ui.scale)
+  local ship = find_ship(snap, app.selected_id)
+  if not ship or ship.controller ~= "player" then
+    love.graphics.setColor(0.7, 0.75, 0.8)
+    love.graphics.print("Select one of your ships", px + pad, y)
+    y = y + ui.line_h(13)
+    return y
+  end
+  love.graphics.setColor(0.8, 0.85, 0.9)
+  love.graphics.print("Weapon:", px + pad, y)
+  y = y + ui.line_h(13) + 1
+  for _, w in ipairs(ship.weapons or {}) do
+    local sel = (app.weapon_id == w.id)
+    ui.button(w.id, px + pad, y, content_w, bh, "pick_weapon", { id = w.id }, sel)
+    y = y + bh + 2
+  end
+  y = y + 2
+  love.graphics.setColor(0.8, 0.85, 0.9)
+  love.graphics.print("Target:", px + pad, y)
+  y = y + ui.line_h(13) + 1
+  for _, s in ipairs(snap.ships or {}) do
+    if s.id ~= ship.id and not s.destroyed then
+      local sel = (app.target_id == s.id)
+      ui.button(string.format("#%d %s", s.id, s.class or "?"), px + pad, y, content_w, bh, "pick_target", { id = s.id }, sel)
+      y = y + bh + 2
+    end
+  end
+  y = y + 2
+  love.graphics.setColor(0.8, 0.85, 0.9)
+  love.graphics.print(string.format("Shield face: %s", SHIELD_FACE[app.shield_facing + 1]), px + pad, y)
+  y = y + ui.line_h(13) + 1
+  local fw = math.floor((content_w - 5 * 3) / 6)
+  for i = 0, 5 do
+    local sel = (app.shield_facing == i)
+    ui.button(SHIELD_FACE[i + 1], px + pad + i * (fw + 3), y, fw, bh, "pick_shield_facing", { face = i }, sel)
+  end
+  y = y + bh + 4
+  local dmg, charge = projected_damage(ship, app.weapon_id)
+  if dmg then
+    love.graphics.setColor(0.9, 0.8, 0.4)
+    love.graphics.print(string.format("proj dmg ~%d (ch %d)", dmg, charge), px + pad, y)
+    y = y + ui.line_h(13) + 3
+  end
+  ui.button("Commit Fire", px + pad, y, content_w, bh, "fire_confirm", nil, false)
+  y = y + bh + 3
+  ui.button("Ready (R)", px + pad, y, content_w, bh, "ready_fire", nil, false)
+  y = y + bh + 6
+  return y
+end
+
+function draw_hud.draw_turn_end_panel(app, snap, px, pad, y, content_w)
+  local bh = math.floor(24 * ui.scale)
+  love.graphics.setColor(0.7, 0.75, 0.8)
+  love.graphics.print("End of turn", px + pad, y)
+  y = y + ui.line_h(13) + 4
+  if snap.end_turn_warning then
+    love.graphics.setColor(0.9, 0.75, 0.3)
+    love.graphics.print("WARNING: unresolved fire", px + pad, y)
+    y = y + ui.line_h(13) + 3
+  end
+  ui.button("End Turn (E)", px + pad, y, content_w, bh, "end_turn", nil, false)
+  y = y + bh + 6
+  return y
+end
+
+function draw_hud.draw_end_warning(app)
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  love.graphics.setColor(0, 0, 0, 0.72)
+  love.graphics.rectangle("fill", 0, 0, W, H)
+  local box_w = math.min(W - 80, math.floor(420 * ui.scale))
+  local box_h = math.floor(160 * ui.scale)
+  local bx = (W - box_w) / 2
+  local by = (H - box_h) / 2
+  love.graphics.setColor(0.18, 0.14, 0.08, 0.98)
+  love.graphics.rectangle("fill", bx, by, box_w, box_h, 6, 6)
+  love.graphics.setColor(0.95, 0.8, 0.3)
+  ui.use(18)
+  love.graphics.print("End turn anyway?", bx + 16, by + 14)
+  ui.use(13)
+  love.graphics.setColor(0.9, 0.9, 0.92)
+  love.graphics.print("There is unresolved fire or unspent power.", bx + 16, by + 48)
+  local bw = math.floor(160 * ui.scale)
+  ui.button("Confirm", bx + 16, by + box_h - 44, bw, 30, "end_warning_confirm", nil, false)
+  ui.button("Cancel", bx + 16 + bw + 12, by + box_h - 44, bw, 30, "end_warning_cancel", nil, false)
+end
+
+function draw_hud.draw_help_overlay()
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  love.graphics.setColor(0, 0, 0, 0.72)
+  love.graphics.rectangle("fill", 0, 0, W, H)
+  local box_w = math.min(W - 80, math.floor(560 * ui.scale))
+  local box_h = math.floor(360 * ui.scale)
+  local bx = (W - box_w) / 2
+  local by = (H - box_h) / 2
+  love.graphics.setColor(0.12, 0.13, 0.16, 0.98)
+  love.graphics.rectangle("fill", bx, by, box_w, box_h, 6, 6)
+  love.graphics.setColor(0.4, 0.85, 0.55)
+  ui.use(18)
+  love.graphics.print("Help — Combat v2 turns", bx + 16, by + 12)
+  ui.use(13)
+  love.graphics.setColor(0.9, 0.9, 0.92)
+  local lines = {
+    "Allocate: spend power on movement, weapon charges, shields.",
+    "  End turn to advance to Movement.",
+    "Movement: the active ship (header) moves. W=forward, P=pass.",
+    "Firing: pick weapon + target + shield face, Commit Fire,",
+    "  then Ready. Core resolves the shot.",
+    "End Turn (E): advances the turn. Warning dialog if",
+    "  there is unresolved fire or unspent power.",
+    "Right-click drag to pan, wheel to zoom. Ctrl -/= to scale UI.",
+    "? or H toggles this help. Esc returns to scenario picker.",
+  }
+  local y = by + 48
+  for _, s in ipairs(lines) do
+    love.graphics.print(s, bx + 16, y)
+    y = y + ui.line_h(13)
+  end
+  ui.button("Close", bx + 16, by + box_h - 40, math.floor(120 * ui.scale), 28, "toggle_help", nil, false)
+end
+
+function draw_hud.draw_picker(app)
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  love.graphics.setColor(0.08, 0.09, 0.11)
+  love.graphics.rectangle("fill", 0, 0, W, H)
+  local pad = math.floor(20 * ui.scale)
+  ui.use(22)
+  love.graphics.setColor(0.4, 0.85, 0.55)
+  love.graphics.print("Combat v2 — choose a scenario", pad, pad)
+  ui.use(14)
+  love.graphics.setColor(0.7, 0.75, 0.8)
+  love.graphics.print("Up/Down to select, Enter to start.", pad, pad + math.floor(34 * ui.scale))
+  local y = pad + math.floor(70 * ui.scale)
+  local bw = math.min(W - 2 * pad, math.floor(460 * ui.scale))
+  local bh = math.floor(30 * ui.scale)
+  for i, sc in ipairs(app.scenarios) do
+    local sel = (i == app.picker_index)
+    ui.button(sc.name, pad, y, bw, bh, "pick_scenario", { index = i }, sel)
+    y = y + bh + 4
+  end
+  if #app.scenarios == 0 then
+    love.graphics.setColor(0.9, 0.6, 0.4)
+    love.graphics.print("No scenarios found. Check repo_root.", pad, y)
+  end
+end
+
+function draw_hud.status_strip(st)
+  if not st or not st.msg then
+    return
+  end
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  local h = draw_hud.bottom_h()
+  local color = { 0.6, 0.6, 0.65 }
+  if st.kind == "error" then
+    color = { 0.95, 0.4, 0.4 }
+  elseif st.kind == "warn" then
+    color = { 0.95, 0.75, 0.3 }
+  elseif st.kind == "info" then
+    color = { 0.5, 0.8, 0.6 }
+  end
+  love.graphics.setColor(0.06, 0.07, 0.09, 0.95)
+  love.graphics.rectangle("fill", 0, H - h, W, h)
+  love.graphics.setColor(color)
+  ui.use(13)
+  love.graphics.print(st.msg, math.floor(10 * ui.scale), H - h + (h - ui.font(13):getHeight()) / 2)
+end

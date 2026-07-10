@@ -1,6 +1,7 @@
 use crate::hex::Hex;
 use crate::prng::Prng;
 use crate::ship::Ship;
+use crate::{arc, combat_tables};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WeaponKind {
@@ -81,8 +82,12 @@ pub enum Arc {
 pub struct Weapon {
     pub id: String,
     pub kind: WeaponKind,
+    /// Combat v2 kind, when this weapon participates in the v2 ruleset.
+    pub v2_kind: Option<combat_tables::WeaponKind>,
     pub arc: Arc,
+    pub mount: Option<arc::Mount>,
     pub max_range: u32,
+    pub max_charge: u32,
     pub damage: u32,
     /// Energy spent from weapons pool when firing (D7 polish). Default 1.
     pub energy_cost: u32,

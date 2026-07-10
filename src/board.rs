@@ -41,10 +41,7 @@ impl Board {
     }
 
     pub fn contains(&self, hex: Hex) -> bool {
-        hex.q >= 0
-            && hex.r >= 0
-            && hex.q < self.width as i32
-            && hex.r < self.height as i32
+        hex.q >= 0 && hex.r >= 0 && hex.q < self.width as i32 && hex.r < self.height as i32
     }
 
     /// Translate a set of positions so the bounding box fits on the board when possible.
@@ -63,16 +60,8 @@ impl Board {
         let h = height as i32;
 
         // Prefer centering the formation in the board.
-        let target_min_q = if span_q < w {
-            (w - span_q) / 2
-        } else {
-            0
-        };
-        let target_min_r = if span_r < h {
-            (h - span_r) / 2
-        } else {
-            0
-        };
+        let target_min_q = if span_q < w { (w - span_q) / 2 } else { 0 };
+        let target_min_r = if span_r < h { (h - span_r) / 2 } else { 0 };
         (target_min_q - min_q, target_min_r - min_r)
     }
 }
@@ -85,10 +74,7 @@ mod tests {
     fn test_float_delta_centers() {
         let pos = [Hex::new(10, 10), Hex::new(11, 10)];
         let (dq, dr) = Board::float_delta(&pos, 8, 8);
-        let shifted: Vec<Hex> = pos
-            .iter()
-            .map(|h| Hex::new(h.q + dq, h.r + dr))
-            .collect();
+        let shifted: Vec<Hex> = pos.iter().map(|h| Hex::new(h.q + dq, h.r + dr)).collect();
         let board = Board::new(8, 8);
         for h in &shifted {
             assert!(board.contains(*h), "shifted {h:?} should be on 8x8 board");

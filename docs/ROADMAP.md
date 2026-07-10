@@ -22,12 +22,26 @@ Legend: REALIZED · 🎯 later · ▶ residual polish
 | Hygiene | Multi-ship readiness | Fire ship id, Terminal, BTreeMap, load checks |
 | Arch | Encapsulation, turn module, pure combat | ARCHITECTURE-slice3 + state plan |
 
-## Stop line for this effort
+## Rules pivot (next major effort)
 
-### D8. Graphical frontend  🎯 **NEXT product phase** (ADR-0017)
-- **Love2D** thin client over **JSON subprocess** (`shipsim --stdin`); no rules in Lua.
-- Agent workflow + slices: `docs/D8-FRONTEND-BRIEF.md`. Contract sample: `tests/fixtures/d8/`.
-- Core emits JSON only; no rendering in this crate. FFI deferred.
+### Combat model v2  🎯 **NEXT** (ADR-0020)
+- Momentum moves; allocate move/weapons/shields; move-phase ↔ fire-phase loop; d20 range tables.
+- Supersedes Bocchino 3-round MVP (ADR-0019) and SFB impulse (ADR-0002) as product target.
+- PRD: `docs/PRD-combat-model-v2.md`. Plan: **`implementation-plan-combat-v2.md`** (M0–M9, READY).
+
+### Historical: FASA / Bocchino MVP (ADR-0019)
+- 3-round action loop briefly implemented; superseded by ADR-0020.
+
+### Historical: SFB impulse core (ADR-0002 path)
+- Superseded; legacy tests removed.
+
+## Stop line for prior effort
+
+### D8. Graphical frontend  REALIZED (ADR-0017, ADR-0018) — built on impulse core; will retarget in FASA M7
+- **Love2D** at `frontend/love/` over **JSON orders-file replay**; no rules in Lua.
+- Soft-error NDJSON + `controller` on snapshot. Scenario picker, phases, multi-ship, win/defeat.
+- Launch: `cargo build && love frontend/love`. Headless: `luajit frontend/love/tests/run_all.lua`.
+- Agent workflow: `docs/D8-FRONTEND-BRIEF.md`. Golden: `tests/fixtures/d8/`. FFI deferred.
 
 ## Residual polish (not blocking core)
 
@@ -38,6 +52,7 @@ Legend: REALIZED · 🎯 later · ▶ residual polish
 - **PRNG resume** — `prng_state` + `set_prng_state` (done); full save/load document format later
 - **AS2** geometry DRY optional
 - **Impulse-by-impulse stepping** frontend concern (T4)
+- **Core `Lost` status** — first-class defeat in snapshot (D8 uses client-derived defeat for now)
 
 ---
 

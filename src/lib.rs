@@ -1,11 +1,14 @@
 pub mod ai;
+pub mod arc;
 pub mod board;
 pub mod campaign;
 pub mod combat;
+pub mod combat_tables;
 pub mod energy;
 pub mod game_state;
 pub mod hex;
 pub mod impulse;
+pub mod momentum;
 pub mod movement;
 pub mod prng;
 pub mod scenario;

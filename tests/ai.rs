@@ -1,52 +1,49 @@
-use std::path::PathBuf;
+//! AI unit tests (seek target still valid).
 
-use shipsim_core::movement::{apply_order, Order};
-use shipsim_core::scenario::load_scenario;
-use shipsim_core::snapshot::StateSnapshot;
+use shipsim_core::ai::seek_target;
+use shipsim_core::board::Board;
+use shipsim_core::game_state::GameState;
+use shipsim_core::hex::Hex;
+use shipsim_core::momentum::Keel;
+use shipsim_core::ship::Ship;
+use shipsim_core::ssd::Ssd;
+use std::collections::BTreeMap;
 
-fn manifest_path(relative: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
-}
-
-#[test]
-fn test_ai_seeks_and_can_close_distance() {
-    let mut game = load_scenario(&manifest_path("scenarios/ai.toml")).expect("ai scenario");
-    let start = game.ship(2).unwrap().pos.distance(game.ship(1).unwrap().pos);
-
-    // Player holds; AI should auto-plot toward the player on RunTurn.
-    apply_order(&mut game, Order::RunTurn).expect("run turn");
-
-    let after = game.ship(2).unwrap().pos.distance(game.ship(1).unwrap().pos);
-    assert!(
-        after < start,
-        "greedy AI should move closer (start dist {start}, after {after})"
-    );
-}
-
-#[test]
-fn test_ai_may_queue_fire_when_in_arc() {
-    let mut game = load_scenario(&manifest_path("scenarios/ai.toml")).expect("ai scenario");
-    // Place AI adjacent and facing the player so fire is legal.
-    game.set_ship_pos(1, shipsim_core::hex::Hex::new(4, 4)).unwrap();
-    game.set_ship_pos(2, shipsim_core::hex::Hex::new(5, 4)).unwrap();
-    game.set_ship_facing(2, 3).unwrap(); // face -q toward player
-    game.set_ship_facing(1, 0).unwrap();
-
-    let before = game.ship(1).unwrap().shields;
-    // Several turns so a fire window lands and PRNG can deal damage.
-    for _ in 0..6 {
-        if game.ship(1).unwrap().destroyed {
-            break;
-        }
-        apply_order(&mut game, Order::RunTurn).unwrap();
+fn ship(id: u32, q: i32, r: i32) -> Ship {
+    Ship {
+        id,
+        class: "t".into(),
+        pos: Hex::new(q, r),
+        facing: 0,
+        speed: 4,
+        power: 8,
+        power_remaining: 8,
+        movement_point_ratio: 1,
+        shield_point_ratio_den: 1,
+        turn_speed: 4,
+        weapons_energy: 4,
+        shield_reinforce: 0,
+        turn_mode: 0,
+        weapons: vec![],
+        shields: [0; 6],
+        shields_powered: [0; 6],
+        shields_remaining: [0; 6],
+        max_shield_per_facing: 6,
+        movement_allocated: 0,
+        move_remaining: 0,
+        keel: Keel::Stopped,
+        weapon_charges: BTreeMap::new(),
+        ssd: Ssd::new(10, 4, 2, 0),
+        destroyed: false,
     }
-    let after = game.ship(1).unwrap().shields;
-    let damaged = before.iter().zip(after.iter()).any(|(b, a)| a < b)
-        || game.ship(1).unwrap().structure() < 12
-        || game.ship(1).unwrap().destroyed;
-    assert!(
-        damaged,
-        "AI should eventually fire when adjacent; snapshot={}",
-        serde_json::to_string(&StateSnapshot::from_game_state(&game)).unwrap()
+}
+
+#[test]
+fn test_seek_nearest() {
+    let game = GameState::new(
+        Board::new(10, 10),
+        vec![ship(1, 0, 0), ship(2, 5, 0), ship(3, 3, 0)],
+        Hex::new(9, 9),
     );
+    assert_eq!(seek_target(&game, 1), Some(3));
 }

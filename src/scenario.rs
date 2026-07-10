@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::arc::Mount;
 use crate::board::{Board, MapMode};
 use crate::combat::{Arc, Weapon, WeaponKind};
+use crate::combat_tables;
 use crate::game_state::{GameState, NpcController, ScriptedPlan, Terminal};
 use crate::hex::Hex;
 use crate::schema::{ScenarioDef, ShipDef, WeaponDef};
@@ -110,8 +112,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             .collect::<Result<Vec<_>, LoadError>>()?;
         let ctrl = placement.controller.to_ascii_lowercase();
         let is_ai = matches!(ctrl.as_str(), "ai" | "greedy");
-        let is_scripted =
-            !is_ai && (ctrl == "scripted" || !waypoints.is_empty());
+        let is_scripted = !is_ai && (ctrl == "scripted" || !waypoints.is_empty());
 
         let power = ship_def.power.unwrap_or(ship_def.speed);
         let weapons: Vec<_> = ship_def
@@ -119,12 +120,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             .into_iter()
             .map(parse_weapon)
             .collect::<Result<Vec<_>, LoadError>>()?;
-        let ssd = crate::ssd::Ssd::new(
-            ship_def.structure,
-            ship_def.speed.max(1),
-            2,
-            weapons.len(),
-        );
+        let ssd = crate::ssd::Ssd::new(ship_def.structure, ship_def.speed.max(1), 2, weapons.len());
         let max_spd = ssd.effective_max_speed(ship_def.speed);
         let max_pow = ssd.effective_power(power);
         let (turn_speed, weapons_energy, shield_reinforce) =
@@ -136,12 +132,22 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             facing: placement.facing,
             speed: ship_def.speed,
             power,
+            power_remaining: max_pow,
+            movement_point_ratio: 1,
+            shield_point_ratio_den: 1,
             turn_speed,
             weapons_energy,
             shield_reinforce,
             turn_mode: ship_def.turn_mode,
             weapons,
             shields: ship_def.shields,
+            shields_powered: [0; 6],
+            shields_remaining: [0; 6],
+            max_shield_per_facing: ship_def.max_shield_per_facing,
+            movement_allocated: 0,
+            move_remaining: 0,
+            keel: crate::momentum::Keel::Stopped,
+            weapon_charges: BTreeMap::new(),
             ssd,
             destroyed: false,
         });
@@ -156,11 +162,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     }
 
     Ok(GameState::new_with_options(
-        board,
-        ships,
-        terminal,
-        npcs,
-        seed,
+        board, ships, terminal, npcs, seed,
     ))
 }
 
@@ -208,11 +210,13 @@ fn validate_on_board(board: &Board, hex: Hex) -> Result<(), LoadError> {
 }
 
 fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
-    let kind = match def.kind.as_str() {
-        "phaser" => WeaponKind::Phaser,
-        "disruptor" => WeaponKind::Disruptor,
-        "drone" => WeaponKind::Drone,
-        "plasma" => WeaponKind::Plasma,
+    let (kind, v2_kind) = match def.kind.as_str() {
+        "phaser" => (WeaponKind::Phaser, None),
+        "disruptor" => (WeaponKind::Disruptor, None),
+        "drone" => (WeaponKind::Drone, None),
+        "plasma" => (WeaponKind::Plasma, Some(combat_tables::WeaponKind::Plasma)),
+        "beam" => (WeaponKind::Phaser, Some(combat_tables::WeaponKind::Beam)),
+        "torp" => (WeaponKind::Disruptor, Some(combat_tables::WeaponKind::Torp)),
         other => {
             return Err(LoadError::UnknownWeaponKind {
                 kind: other.to_string(),
@@ -233,11 +237,29 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
             });
         }
     };
+    let mount = match def.mount.as_deref().unwrap_or(def.arc.as_str()) {
+        "forward" => Some(Mount::Forward),
+        "forward_starboard" => Some(Mount::ForwardStarboard),
+        "aft_starboard" => Some(Mount::AftStarboard),
+        "aft" | "rear" => Some(Mount::Aft),
+        "aft_port" => Some(Mount::AftPort),
+        "forward_port" => Some(Mount::ForwardPort),
+        "left" | "right" | "all" => None,
+        other => {
+            return Err(LoadError::UnknownWeaponArc {
+                arc: other.to_string(),
+                weapon_id: def.id.clone(),
+            });
+        }
+    };
     Ok(Weapon {
         id: def.id,
         kind,
+        v2_kind,
         arc,
+        mount,
         max_range: def.max_range,
+        max_charge: def.max_charge,
         damage: def.damage,
         energy_cost: def.energy_cost,
         phaser_dice_by_range: def.phaser_dice_by_range,

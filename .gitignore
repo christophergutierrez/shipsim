@@ -27,3 +27,6 @@ HANDOFF.md
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Ephemeral agent runtime state
+.flocode/
