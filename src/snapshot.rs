@@ -1,7 +1,9 @@
 use serde::Serialize;
 
-use crate::combat::{Arc, WeaponKind};
-use crate::game_state::{GameState, ScenarioStatus};
+use crate::arc::Mount;
+use crate::combat::{Arc, Weapon, WeaponKind};
+use crate::combat_tables;
+use crate::game_state::{FireCommit, GameState, ScenarioStatus};
 
 #[derive(Debug, Serialize)]
 pub struct MapSnapshot {
@@ -20,11 +22,21 @@ pub struct HexSnapshot {
 pub struct ShipSnapshot {
     pub id: u32,
     pub class: String,
+    /// `player`, `ai`, or `scripted` (ADR-0018).
+    pub controller: String,
     pub q: i32,
     pub r: i32,
     pub facing: u8,
     pub speed: u32,
     pub power: u32,
+    /// FASA remaining power this turn.
+    pub power_remaining: u32,
+    pub movement_allocated: u32,
+    pub move_remaining: u32,
+    pub keel: String,
+    pub shields_powered: [u32; 6],
+    pub shields_remaining: [u32; 6],
+    pub movement_point_ratio: u32,
     pub turn_speed: u32,
     pub weapons_energy: u32,
     pub shield_reinforce: u32,
@@ -45,7 +57,11 @@ pub struct WeaponSnapshot {
     pub id: String,
     pub kind: String,
     pub arc: String,
+    pub mount: Option<String>,
     pub max_range: u32,
+    pub charge: u32,
+    pub fired: bool,
+    pub max_charge: u32,
     pub operational: bool,
 }
 
@@ -63,16 +79,24 @@ pub struct SeekingSnapshot {
 #[derive(Debug, Serialize)]
 pub struct StateSnapshot {
     pub turn: u32,
-    pub impulse: u8,
+    /// Ship that may move now (v2 active mover), or `None` outside the movement phase.
+    pub active_ship: Option<u32>,
     pub status: ScenarioStatus,
+    pub phase: String,
+    pub move_order: Vec<u32>,
+    pub ships_moved_this_phase: Vec<u32>,
+    pub ships_ready_fire: Vec<u32>,
     pub seed: u64,
     /// PRNG stream position for mid-game resume (TS3).
     pub prng_state: u64,
     pub map: MapSnapshot,
     pub objective: Option<HexSnapshot>,
     pub ships: Vec<ShipSnapshot>,
+    pub fire_commits: Vec<FireCommit>,
     pub seeking: Vec<SeekingSnapshot>,
     pub combat_log: Vec<CombatLogEntry>,
+    /// Advisory (never blocks EndTurn): some living ship could still move or fire legally.
+    pub end_turn_warning: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -88,8 +112,12 @@ impl StateSnapshot {
     pub fn from_game_state(game: &GameState) -> Self {
         Self {
             turn: game.turn_number(),
-            impulse: game.impulse(),
+            active_ship: game.active_v2_mover(),
             status: game.status(),
+            phase: game.phase_name().to_string(),
+            move_order: game.move_order().to_vec(),
+            ships_moved_this_phase: game.moved_this_phase(),
+            ships_ready_fire: game.ready_fire(),
             seed: game.seed(),
             prng_state: game.prng_state(),
             map: MapSnapshot {
@@ -110,11 +138,19 @@ impl StateSnapshot {
                 .map(|ship| ShipSnapshot {
                     id: ship.id,
                     class: ship.class.clone(),
+                    controller: game.controller_label(ship.id).to_string(),
                     q: ship.pos.q,
                     r: ship.pos.r,
                     facing: ship.facing,
                     speed: ship.speed,
                     power: ship.power,
+                    power_remaining: ship.power_remaining,
+                    movement_allocated: ship.movement_allocated,
+                    move_remaining: ship.move_remaining,
+                    keel: format!("{:?}", ship.keel).to_ascii_lowercase(),
+                    shields_powered: ship.shields_powered,
+                    shields_remaining: ship.shields_remaining,
+                    movement_point_ratio: ship.movement_point_ratio,
                     turn_speed: ship.turn_speed,
                     weapons_energy: ship.weapons_energy,
                     shield_reinforce: ship.shield_reinforce,
@@ -132,14 +168,19 @@ impl StateSnapshot {
                         .enumerate()
                         .map(|(idx, weapon)| WeaponSnapshot {
                             id: weapon.id.clone(),
-                            kind: weapon_kind_name(&weapon.kind).to_string(),
+                            kind: weapon_kind_name(weapon).to_string(),
                             arc: arc_name(&weapon.arc).to_string(),
+                            mount: weapon.mount.map(|mount| mount_name(mount).to_string()),
                             max_range: weapon.max_range,
+                            charge: ship.weapon_charges.get(&weapon.id).copied().unwrap_or(0),
+                            fired: game.weapon_fired_this_turn(ship.id, &weapon.id),
+                            max_charge: weapon.max_charge,
                             operational: ship.ssd.weapon_operational(idx),
                         })
                         .collect(),
                 })
                 .collect(),
+            fire_commits: game.fire_commits().to_vec(),
             seeking: game
                 .seeking_munitions()
                 .iter()
@@ -164,16 +205,22 @@ impl StateSnapshot {
                     kind: e.kind.clone(),
                 })
                 .collect(),
+            end_turn_warning: game.end_turn_warning(),
         }
     }
 }
 
-fn weapon_kind_name(kind: &WeaponKind) -> &'static str {
-    match kind {
-        WeaponKind::Phaser => "Phaser",
-        WeaponKind::Disruptor => "Disruptor",
-        WeaponKind::Drone => "Drone",
-        WeaponKind::Plasma => "Plasma",
+fn weapon_kind_name(weapon: &Weapon) -> &'static str {
+    match weapon.v2_kind {
+        Some(combat_tables::WeaponKind::Beam) => "Beam",
+        Some(combat_tables::WeaponKind::Plasma) => "Plasma",
+        Some(combat_tables::WeaponKind::Torp) => "Torp",
+        None => match weapon.kind {
+            WeaponKind::Phaser => "Phaser",
+            WeaponKind::Disruptor => "Disruptor",
+            WeaponKind::Drone => "Drone",
+            WeaponKind::Plasma => "Plasma",
+        },
     }
 }
 
@@ -184,5 +231,16 @@ fn arc_name(arc: &Arc) -> &'static str {
         Arc::Left => "Left",
         Arc::Right => "Right",
         Arc::All => "All",
+    }
+}
+
+fn mount_name(mount: Mount) -> &'static str {
+    match mount {
+        Mount::Forward => "forward",
+        Mount::ForwardStarboard => "forward_starboard",
+        Mount::AftStarboard => "aft_starboard",
+        Mount::Aft => "aft",
+        Mount::AftPort => "aft_port",
+        Mount::ForwardPort => "forward_port",
     }
 }
