@@ -410,3 +410,5 @@ function draw_hud.status_strip(st)
   ui.use(13)
   love.graphics.print(st.msg, math.floor(10 * ui.scale), H - h + (h - ui.font(13):getHeight()) / 2)
 end
+
+return draw_hud

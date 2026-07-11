@@ -12,6 +12,14 @@ Every order is one JSON object on one line and must include:
 
 Supported `type` values are `allocate`, `move`, `pass_move`, `commit_fire`, `ready_fire`, and `end_turn`. Their fields are defined by `src/movement.rs::Order`; representative complete streams live in `tests/fixtures/v2/duel_orders.jsonl`.
 
+### Phase protocol (v2)
+
+1. **allocate** — each living ship once; when all allocated, phase becomes `movement` and `move_order` is fixed.
+2. **move** / **pass_move** — only the current `active_mover` (first in `move_order` with move power left that has not decided this phase). When every living ship has decided or has zero move power, phase becomes `firing`.
+3. **commit_fire** — zero or more per ship while not yet `ready_fire` for that ship. Illegal commits do not mutate state.
+4. **ready_fire** — marks a ship done committing. When **all** living ships have readied, the core resolves all commits simultaneously (hit **or miss** both clear that weapon's charge and mark it fired), then either returns to `movement` if useful actions remain or `turn_end`.
+5. **end_turn** — legal after allocation; always advances turn. Snapshot `end_turn_warning` is true if useful move/fire still existed.
+
 Missing or unsupported versions produce an `unsupported_protocol` soft error. Malformed and illegal orders also produce soft errors and do not mutate state. The process continues reading subsequent lines.
 
 ## Snapshots

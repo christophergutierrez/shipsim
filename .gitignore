@@ -17,6 +17,10 @@
 HANDOFF.md
 **/HANDOFF.md
 
+# Local-only agent pointer (points at tmp/ scratch; do not commit)
+AGENT-LOCAL.md
+**/AGENT-LOCAL.md
+
 # IDE and tool artifacts
 .claude/
 .idea/

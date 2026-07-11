@@ -63,13 +63,25 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 ## Invariants
 
 - Rust is the sole rules authority; clients may project but not decide legality.
-- Power allocation cannot exceed ship power and is locked for the turn.
-- Initiative is determined once per turn and remains stable through its action cycles.
-- Each eligible ship makes at most one movement decision per movement phase.
-- Fire resolution uses pre-resolution commitments and supports mutual destruction.
-- Random outcomes use the seeded project PRNG and are reproducible.
+- Power allocation cannot exceed ship power (and per-facing shield max) and is locked for the turn.
+- **Movement allocation is power units**, not hex count; reverse after forward costs 2 units.
+- Initiative is sorted **once per turn** by movement allocation (high first); ties broken once with PRNG; order frozen.
+- Movement phase is **sequential**: one ACTIVE mover at a time (`active_mover`); each ship at most one Move/Pass per phase.
+- Ships with `move_remaining == 0` are skipped; when every living ship has decided or has no move power, phase advances to firing.
+- Firing phase: `CommitFire` then `ReadyFire` per ship; when **all living ships** are ready, resolve simultaneously. AI must ReadyFire (core `resolve_v2_npc_actions` does).
+- **Miss still consumes charge** and marks the weapon fired this turn.
+- Turn continues after fire only if `can_any_move()` (legal **hex-changing** forward/reverse) or `can_any_legal_fire()`; turn-in-place alone does not keep the turn open.
+- `end_turn_warning` is true when useful move/fire remains; EndTurn still always advances after allocation.
+- Fire resolution uses pre-resolution ship snapshot; mutual destruction possible.
+- Random outcomes use seeded PRNG (`roll(20)` is 1..=20 for to-hit).
 - Content remains generic and does not copy protected game data.
-- Invalid external orders do not crash the harness or partially mutate state.
+- Invalid external orders soft-fail without partial mutation (ADR-0018 / protocol v1).
+
+## Local agent state (not in git)
+
+Ephemeral session notes live under `/tmp` (gitignored) and optional root `AGENT-LOCAL.md` (gitignored).
+Checked-in docs must not depend on those paths. Agents: if `AGENT-LOCAL.md` exists, read it for
+pointers to live scratch (handoffs, killhouse artifacts, PDFs under `tmp/`).
 
 ## Persistence and compatibility
 
@@ -84,3 +96,5 @@ The external NDJSON contract is now versioned; see `docs/PROTOCOL.md`. Save file
 - `tests/fixtures/v2/duel.jsonl` is the golden end-to-end v2 replay.
 
 Architecture decisions and supersession history live in `docs/adr/`.
+
+Combat constants: `docs/combat-v2-tables.md`. Play guide: `docs/PLAY-V2.md`.

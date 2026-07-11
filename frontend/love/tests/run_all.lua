@@ -21,17 +21,21 @@ local phases = require("phases")
 local end_condition = require("end_condition")
 local harness = require("harness")
 local paths = require("paths")
+local draw_hud = require("draw_hud")
 
 local pass = 0
 local function ok(msg)
   pass = pass + 1
   print("  OK  " .. msg)
 end
+
 local function assert_eq(a, b, msg)
   if a ~= b then
     error(string.format("FAIL %s: %s vs %s", msg, tostring(a), tostring(b)), 2)
   end
 end
+
+assert_eq(type(draw_hud), "table", "draw_hud module contract")
 
 print("order builders (gate 3)")
 local a = orders.allocate(1, 4, { beam_1 = 1 }, { 0, 0, 0, 0, 0, 0 })

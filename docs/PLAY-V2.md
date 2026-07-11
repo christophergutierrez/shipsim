@@ -2,40 +2,51 @@
 
 ## Turn structure
 
-Each **turn** has four phases, in order:
+Each **turn**:
 
-1. **Allocate** — spend each ship's power pool on movement points, weapon
-   charges, and six shield facings, then confirm the allocation.
-2. **Movement** — ships move in id order. The **active ship** is shown
-   in the header. Move it (Forward / Turn port / Turn starboard) or
-   Pass, then the next ship moves.
-3. **Firing** — for each of your ships, pick a weapon, a target, and
-   the shield facing the shot strikes, then **Commit Fire**. When done,
-   **Ready** the ship. The core resolves all committed shots.
-4. **Turn End** — **End Turn** advances to the next turn and clears
-   turn-scoped allocation. If useful actions remain, a warning
-   dialog asks you to confirm.
+1. **Allocate** — split each ship's **power pool** into movement power, weapon
+   charges, and six shield facings (sum ≤ power), then confirm.
+2. **Movement phase** — ships act **one at a time** in **initiative order**
+   (highest **movement allocation** first; ties broken once per turn).
+   Only the **ACTIVE** ship can move. Forward / Reverse / Turn / Pass, then
+   the next ship. When every living ship has decided (or has no move power
+   left), go to Firing.
+3. **Firing phase** — commit zero or more legal shots (weapon + target +
+   shield facing), then **Ready** each of your ships. When **all** living
+   ships are Ready, all commits resolve **simultaneously**.
+4. Repeat Movement → Firing while anyone can still make a **useful hex move**
+   or a **legal fire**. Otherwise the turn ends (or use **End Turn** early).
+5. **End Turn** — advances to the next turn. If useful move/fire still
+   exists, the UI warns about leftover power.
+
+There is no separate “end round” counter; the turn is a loop of move/fire pairs.
 
 ## Allocate
 
-- **Movement** — points spent on hex moves this turn.
-- **Weapon charge** — 1..3; higher charge = more damage.
-- **Shields** — 6 facings (F, FR, RR, R, RL, FL); power per facing.
+- **Movement** — **power units** for steps this turn (not “hex count”).
+  Reverse after going forward costs **2** units; forward/turn usually **1**.
+- **Weapon charge** — beam 1..max (all spent on one shot); plasma/torp 0 or 1.
+- **Shields** — power per facing (F, FR, RR, R, RL, FL), up to ship max per face.
 
-## Move
+## Move (ACTIVE ship only)
 
-- **Forward (W)** — one hex in facing direction.
-- **Turn port / starboard** — change facing.
-- **Pass (P)** — skip this ship's move.
+- **Forward** — one hex ahead (cost 1, or 2 if reversing keel from reverse).
+- **Reverse** — one hex aft (cost 1, or 2 if keel was forward).
+- **Turn port / starboard** — change facing (cost 1; does not flip keel).
+- **Pass** — skip this ship's decision this movement phase.
+
+With two player ships: finish **End/Pass on ship #1**, then ship #2 becomes Active.
 
 ## Fire
 
-- Pick a **weapon** (must be charged in Allocate).
-- Pick a **target** (click an enemy ship on the board, or use the panel).
-- Pick the **shield facing** the shot strikes (0..5).
-- **Commit Fire** — records the shot for simultaneous resolution.
-- **Ready (R)** — marks this ship as done committing fire for this firing phase.
-  Resolution occurs after all living ships are ready.
+- Pick a **weapon** (must still have charge; not already fired this turn).
+- Pick a **target** and **shield facing** (only geometry-legal facings).
+- **Commit Fire** — queues the shot; does not resolve yet.
+- **Ready** — this ship is done committing. When every living ship is Ready,
+  resolve all shots together (hit **or miss**).
+- **A miss still uses the weapon charge** and marks the weapon fired for the turn.
+- Beam: more charge → more damage; long range may need higher charge or the
+  shot is illegal (would deal 0 after rounding).
 
 ## Controls
 

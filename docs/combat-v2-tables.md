@@ -46,10 +46,11 @@ Tune only with an explicit doc change.
 | Escort | 14 |
 | Cruiser | 22 |
 
-## Weapon Mount Arcs
+## Weapon Mount Arcs (frozen)
 
-Facing 0 is straight ahead. Forward-port and forward-starboard mounts can also
-hit straight ahead, but no mount reaches past its neighboring face.
+Facing 0 is straight ahead. This table is **locked** (not an implementer choice).
+Forward-port and forward-starboard can also bear straight ahead; pure Forward is
+only relative facing 0.
 
 | Mount | Relative facings |
 |-------|------------------|
@@ -59,3 +60,8 @@ hit straight ahead, but no mount reaches past its neighboring face.
 | Aft | 3 |
 | Aft Port | 3, 4 |
 | Forward Port | 5, 0 |
+
+## Miss and charge
+
+A committed shot that **misses** the d20 still **consumes** that weapon's charge
+and marks the weapon **fired for the turn**.

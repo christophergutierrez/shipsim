@@ -586,6 +586,8 @@ impl GameState {
             results.push((commit.clone(), hit, damage, roll));
         }
 
+        // Miss and hit both consume charge and mark the weapon fired this turn (ADR-0020 /
+        // maintainer decision: a miss still uses the weapon).
         for (commit, hit, damage, _roll) in results {
             if let Some(attacker) = self.ship_mut(commit.ship) {
                 attacker.weapon_charges.insert(commit.weapon.clone(), 0);
@@ -618,11 +620,44 @@ impl GameState {
         Ok(())
     }
 
-    /// Any living ship still has movement power (a turn-in-place is always a legal move).
+    /// True if some living ship can still make a **useful** move: a hex-changing step
+    /// (forward or reverse) that is legal and affordable. Turn-in-place alone does not
+    /// keep the turn open (avoids infinite turn-only loops when move power remains).
+    ///
+    /// `move_remaining` is **movement power units**, not hex count: reverse after forward
+    /// costs 2 units from this pool (see `momentum::move_cost`).
     pub fn can_any_move(&self) -> bool {
         self.ships
             .iter()
-            .any(|ship| !ship.destroyed && ship.move_remaining > 0)
+            .any(|ship| !ship.destroyed && self.ship_has_useful_hex_move(ship))
+    }
+
+    /// Forward or reverse into a free on-board hex, with enough move power for the momentum cost.
+    fn ship_has_useful_hex_move(&self, ship: &Ship) -> bool {
+        use crate::momentum::{self, MoveMode};
+        for mode in [MoveMode::Forward, MoveMode::Reverse] {
+            let (cost, _) = momentum::move_cost(ship.keel, mode);
+            if cost > ship.move_remaining {
+                continue;
+            }
+            let direction = match mode {
+                MoveMode::Forward => ship.facing,
+                MoveMode::Reverse => (ship.facing + 3) % 6,
+                MoveMode::TurnPort | MoveMode::TurnStarboard => continue,
+            };
+            let Some(delta) = Hex::direction(direction) else {
+                continue;
+            };
+            let next = ship.pos + delta;
+            if self.board.mode == crate::board::MapMode::Hard && !self.board.contains(next) {
+                continue;
+            }
+            if self.is_occupied_by_other(ship.id, next) {
+                continue;
+            }
+            return true;
+        }
+        false
     }
 
     /// Any living ship has a charged, unfired v2 weapon with at least one currently-legal shot.

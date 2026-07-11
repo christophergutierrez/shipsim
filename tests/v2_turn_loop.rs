@@ -241,3 +241,29 @@ fn test_g6_new_turn_resets_allocation() {
         }
     }
 }
+
+/// Turn loop must not stay open when only turn-in-place remains (no hex change possible).
+#[test]
+fn test_can_any_move_requires_hex_changing_step() {
+    use shipsim_core::hex::Hex;
+    let mut game = load_combat();
+    // Tiny hard map: pin both ships so forward/reverse hexes are blocked or off-map.
+    game.set_ship_pos(1, Hex::new(0, 0)).unwrap();
+    game.set_ship_facing(1, 3).unwrap(); // reverse would be facing 0 -> +q; forward -q off map
+    game.set_ship_pos(2, Hex::new(1, 0)).unwrap(); // blocks forward for ship1 if facing 0
+
+    allocate(&mut game, 1, 3, &[], [0; 6]);
+    allocate(&mut game, 2, 0, &[], [0; 6]);
+
+    // Facing 0 at (0,0): forward to (1,0) occupied; reverse to off-map for hard map?
+    // At (0,0) face 0 forward = (1,0) occupied by 2. reverse face 3 = (-1,0) off map.
+    game.set_ship_facing(1, 0).unwrap();
+    assert!(
+        !game.can_any_move(),
+        "no hex-changing move should be available; turn-only must not count"
+    );
+    assert!(
+        !game.end_turn_warning() || game.can_any_legal_fire(),
+        "without fire options, warning should be false when no hex move"
+    );
+}
