@@ -581,7 +581,21 @@ def format_snapshot(
 def format_error(err: dict[str, Any]) -> str:
     code = err.get("code", "error")
     msg = err.get("message", "")
-    return sty_err(f"! {code}: {msg}")
+    hint = ""
+    low = str(msg).lower()
+    if "phase firing" in low and "movement" in low:
+        hint = (
+            "\n  → You are still in movement: pass or move the ACTIVE ship first, "
+            "then fire when phase is firing."
+        )
+    elif "phase movement" in low and "firing" in low:
+        hint = (
+            "\n  → You are in firing: use f/ready (not m). "
+            "A single move already used this ship's movement decision."
+        )
+    elif "already moved" in low:
+        hint = "\n  → This ship already moved/passed this movement phase."
+    return sty_err(f"! {code}: {msg}") + hint
 
 
 def snapshot_delta(before: Optional[dict[str, Any]], after: dict[str, Any]) -> str:

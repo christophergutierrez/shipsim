@@ -7,19 +7,23 @@ over stdin/stdout NDJSON (`protocol_version: 1`).
 
 ```
 frontend/repl/
-  repl.py client.py commands.py view.py hexutil.py style.py
-  README.md
-  ASCII-UI.md     # terminal / ASCII presentation practices (read for UI work)
+  repl.py client.py commands.py view.py hexutil.py style.py screen.py
+  README.md       # this file — run, flags, map of docs
+  GAMEPLAY.md     # how to play (phases, commands, traps)  ← start here to play
+  ASCII-UI.md     # terminal presentation practices (for UI work)
   .gitignore
-  local/          # gitignored: orders, stderr, readline history
+  local/          # gitignored: session logs, orders, readline history
 ```
 
-## Presentation
+## Docs in this tree
 
-Terminal/ASCII design notes for this client (and future sessions) live in
-**[`ASCII-UI.md`](ASCII-UI.md)** — model/view split, hex-on-character-grid,
-color restraint, glyphs, bars, allocate UX, and a change checklist. Keep UI
-work aligned with that file; rules stay in Rust.
+| File | Audience |
+|---|---|
+| **[`GAMEPLAY.md`](GAMEPLAY.md)** | Players / agents learning the play loop in this client |
+| **[`ASCII-UI.md`](ASCII-UI.md)** | Anyone changing layout, colors, map glyphs, draft UX |
+| `README.md` | Run commands, logging, isolation |
+
+Rules of the game (engine): `docs/PLAY-V2.md`, `docs/PROTOCOL.md`, ADR-0020.
 
 ## Run
 
@@ -30,72 +34,43 @@ python3 frontend/repl/repl.py scenarios/ai.toml --debug              # verbose f
 python3 frontend/repl/repl.py scenarios/ai.toml --log-file /tmp/x.log
 python3 frontend/repl/repl.py scenarios/ai.toml --no-session-log
 python3 frontend/repl/repl.py scenarios/ai.toml --scroll             # old long scrolling UI
+python3 frontend/repl/client.py                                      # non-interactive smoke
 ```
 
-**Play frame (default):** clears and redraws map + ships each step so shield/hull/weapon
-bars update in place. A **RECENT** strip holds the last few events; type `log` to
-toggle longer scrollback. Controls stay under the board.
+**Play frame (default):** redraws map + ships each step so shield/hull/weapon bars
+update in place. **RECENT** holds the last events; `log` toggles longer scrollback.
 
-**Session log (default on):** full text transcript under
-`frontend/repl/local/session-YYYYMMDD-HHMMSS.log` (gitignored). Path is printed at
-start/end. Use `--log-file PATH` to override, `--no-session-log` to disable.
-
-**`--debug`:** same session file, but **verbose** (timestamps + every outbound
-`ORDER` JSON line). Does not change the on-screen play frame.
+**Session log (default on):** `frontend/repl/local/session-YYYYMMDD-HHMMSS.log`
+(gitignored). Shown in the footer and at quit. `--log-file PATH` overrides;
+`--no-session-log` disables. **`--debug`** keeps that file but adds timestamps and
+full `ORDER` JSON lines (does not change the play frame).
 
 Arrow-up recalls prior command lines (`local/history`).
 
-## Play loop
+## Play loop (summary)
 
-### Focus / allocate
-`a` lists player ships still needing allocate (auto-opens draft if only one).
-Ship id `1` also focuses and opens a draft in allocate phase.
+Full detail: **[`GAMEPLAY.md`](GAMEPLAY.md)**.
 
 ```
-a                 # pick ship (or auto)
-mov 6             # or: mov  then  6  on the next line
-w                 # weapons group — then shortcuts, no leading w
-t1 1              # b1=beam_1  t1=torp_1  p1=plasma_1
-b1 2
-done
-sh                # shields group
-0 3
-done
-commit            # only now hits the engine
+allocate (draft → commit) → movement (one decision / ship) → firing (queue → ready)
+    ↑________________________ move/fire may repeat _________________________|
 ```
 
-Root shortcuts still work: `w t1 1`, bare `t1 1`, `sh F 3`.
+| Phase | Typical commands |
+|---|---|
+| Allocate | `a` → `mov` / `w` / `sh` → `commit` |
+| Movement | `m f` / `m 0..5` / `p` (ACTIVE ship only; **one** order per ship) |
+| Firing | `f` (optional) → `r` / `done` / `nofire` (not `e`) |
+| End turn | `e` (whole turn; confirm in firing) |
 
-**Pitfall fixed:** a lone number while drafting is **movement power**, not
-“select ship again”. Re-picking a ship used to **wipe** the draft to all zeros;
-committing that skipped movement and left weapons uncharged. Empty commit now
-asks for confirmation. After commit, the engine echo shows applied mov/weapons.
+**Essentials:**
 
-### Movement (facing 0..5 universal)
-```
-m 0               # step absolute map dir 0 (auto-turns then forward/reverse)
-m 1 … m 5         # other absolute directions
-m f / m r         # relative forward / reverse
-m port / m stbd   # turn only
-p                 # pass movement (ACTIVE ship)
-```
-
-Absolute `m N` may issue several turn orders then one step. Engine modes remain
-forward / reverse / turn_port / turn_starboard.
-
-### Firing
-```
-f                 # commit optional shot (shows legal shields on target)
-r / nofire / done # leave fire phase WITHOUT shooting
-e                 # whole turn (confirms if in firing)
-```
-
-After resolution: **HIT/MISS**, shield face, and target card (hull + shields).
-
-### Status
-`s` / `status` — your ship card + contacts (which of *their* shields face you,
-shield rem/powered bars, hull bars).
+- Facing arrows match **forward on the board** (0→ is +q / right). See GAMEPLAY.
+- `m N` is **one** turn *or* one step — not turn-then-step in one command.
+- `commit_fire` **queues**; charge drops when **all** ships **ready**.
+- Weapon lines: `CHG` → `QUEUED` → `FIRED HIT/MISS`.
 
 ## Isolation
 
-Scratch only under `frontend/repl/local/`.
+Scratch only under `frontend/repl/local/`. Do not write REPL logs to the repo root.
+Love and the future ratatui client are sibling trees under `frontend/`.

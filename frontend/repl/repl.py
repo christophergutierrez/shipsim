@@ -173,18 +173,39 @@ def _auto_fire_offer(
         and not w.get("fired")
         and int(w.get("charge") or 0) > 0
     ]
+    # Exclude already-queued commits so we don't re-offer spent slots.
+    already = {
+        str(c.get("weapon"))
+        for c in (snap.get("fire_commits") or [])
+        if int(c.get("ship") or -1) == int(sid)
+    }
+    charged = [
+        w
+        for w in charged
+        if str(w.get("id")) not in already
+    ]
     if not charged:
-        ui.log("  no charged weapons on focus — r/nofire to leave fire phase")
+        if already:
+            ui.log(
+                "  shots already queued — type r / ready / nofire / done "
+                "to leave fire phase (not f)"
+            )
+        else:
+            ui.log("  no charged weapons on focus — r/nofire to leave fire phase")
         return None
     ui.log(
-        "  firing: charged weapons — pick a shot "
-        "(weapon -1 cancels; r/nofire when done)"
+        "  firing: optional shot menu once on phase entry. "
+        "Cancel with -1, then r/ready/done to finish. "
+        "Menu will not auto-reopen."
     )
     with ui.dialog():
         paint_frame(ui, session, ctx)
         order = interactive_fire(snap, sid)
     if order is None:
-        ui.log("  no shot committed — f again to shoot, or r/nofire to finish")
+        ui.log(
+            "  no shot committed — type f to shoot again, or r/ready/done "
+            "to finish fire phase"
+        )
         return None
     return send_orders(ui, session, ctx, [order], prev_log_len=log_len)
 
@@ -309,7 +330,11 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
             turn = snap.get("turn", "?")
             active = snap.get("active_ship")
 
+            # Phase transition hooks — run once per entry into a phase.
+            # Do NOT clear last_phase after every order (that re-opened auto-fire
+            # forever so r/done/ready could never escape the fire menu).
             if phase != last_phase:
+                prev_phase = last_phase
                 ui.log(phase_hint(snap, ctx))
                 if phase == "allocate" and ctx.draft is None:
                     msg = ctx.begin_allocate_picker(snap)
@@ -320,11 +345,19 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 last_phase = phase
                 if not ui.scroll:
                     paint_frame(ui, session, ctx)
-                if phase == "firing":
+                # Auto weapon menu only when *entering* firing from another phase.
+                if phase == "firing" and prev_phase != "firing":
                     auto = _auto_fire_offer(ui, session, ctx, log_len)
                     if auto is not None:
                         log_len = auto
-                        last_phase = None
+                        # Keep last_phase = "firing" if still there; if phase
+                        # advanced, reset last_phase so the next iteration runs
+                        # the new phase's entry hooks once.
+                        after = str(
+                            (session.snapshot or {}).get("phase") or phase
+                        )
+                        if after != phase:
+                            last_phase = phase  # force transition detection
                         continue
 
             focus = ctx.selected
@@ -333,6 +366,12 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 prompt += f"@{focus}"
             if phase == "movement" and active is not None:
                 prompt += f"*{active}"
+            if phase == "firing":
+                ready = snap.get("ships_ready_fire") or []
+                if focus is not None and focus in ready:
+                    prompt += "/ready"
+                else:
+                    prompt += "/r=done"
             if ctx.draft is not None:
                 prompt += f" draft{ctx.draft.used()}/{ctx.draft.power}"
                 if ctx.draft_group:
@@ -426,8 +465,16 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 paint_frame(ui, session, ctx)
                 continue
 
+            phase_before = phase
             log_len = send_orders(ui, session, ctx, act.orders, prev_log_len=log_len)
-            last_phase = None
+            # If phase changed, leave last_phase as phase_before so the next
+            # loop runs entry hooks once. If unchanged (e.g. ready while still
+            # firing), keep last_phase == current so auto-fire does not re-open.
+            phase_after = str((session.snapshot or {}).get("phase") or phase_before)
+            if phase_after == phase_before:
+                last_phase = phase_after
+            else:
+                last_phase = phase_before
 
         ui.log(f"session orders: {session.orders_log}")
         if ui.session_path:

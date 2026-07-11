@@ -148,8 +148,12 @@ the client beyond presentation.
 ### Absolute move vs engine orders
 
 The engine only accepts relative orders: forward / reverse / turn port /
-starboard. Absolute `m 0..5` is a **client convenience** that expands to turns +
-step. Document that expansion in the UI when multi-order; stop on soft error.
+starboard. Each is **one decision** per ship per movement phase.
+
+Absolute `m 0..5` is a client convenience that emits **at most one** order:
+turn toward the dir, **or** forward/reverse if already aligned. Never batch
+turn+step in one command — that ends the ship’s movement after the first order
+while the client keeps sending moves into the fire phase (regression).
 
 ---
 

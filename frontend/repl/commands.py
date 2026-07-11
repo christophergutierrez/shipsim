@@ -41,7 +41,7 @@ Allocate (local draft until commit — pick ship first)
     show | reset | commit | cancel
     done | ..              leave weapons/shields group
 
-Movement: m <0-5> | m f/r/port/stbd | p pass
+Movement: m <0-5> (one turn OR one step — one decision) | m f/r/port/stbd | p pass
 Firing:   f fire | r/nofire ready without shots | e end WHOLE turn
 """.strip()
 
@@ -425,47 +425,49 @@ def plan_absolute_move(
     snap: dict[str, Any], ship_id: int, abs_dir: int
 ) -> tuple[list[dict[str, Any]], str]:
     """
-    Absolute map direction 0..5: turn until forward or reverse aligns, then step.
+    Absolute map direction 0..5 — **one engine order only**.
 
-    Returns (orders, note). Orders may be multiple (turns + move).
+    Combat v2 allows a single Move/Pass decision per ship per movement phase.
+    Batching turn+turn+forward in one `m N` was a regression: the first turn
+    consumed the decision, AI finished the phase, and later steps failed or
+    left the player in firing with a confusing soft-error.
+
+    If not aligned: emit one turn toward the target dir and tell the player to
+    press `m N` again. If aligned: one forward or reverse step.
     """
     ship = ship_by_id(snap, ship_id)
     if ship is None:
         return [], f"ship #{ship_id} not found"
     facing = int(ship.get("facing") or 0) % 6
     abs_dir %= 6
-    orders: list[dict[str, Any]] = []
-    # Simulate facing locally for multi-turn plan (max 3 turns).
-    face = facing
-    for _ in range(3):
-        rev = (face + 3) % 6
-        if abs_dir == face:
-            orders.append(_order("move", ship=ship_id, mode="forward"))
-            note = f"step absolute {abs_dir} via forward (face={face})"
-            return orders, note
-        if abs_dir == rev:
-            orders.append(_order("move", ship=ship_id, mode="reverse"))
-            note = f"step absolute {abs_dir} via reverse (face={face})"
-            return orders, note
-        mode = turn_toward(face, abs_dir)
-        if mode == "forward":
-            break
-        orders.append(_order("move", ship=ship_id, mode=mode))
-        if mode == "turn_starboard":
-            face = (face + 1) % 6
-        else:
-            face = (face + 5) % 6
-    # After turns, should be aligned; add step
-    rev = (face + 3) % 6
-    if abs_dir == face:
-        orders.append(_order("move", ship=ship_id, mode="forward"))
-    elif abs_dir == rev:
-        orders.append(_order("move", ship=ship_id, mode="reverse"))
+    rev = (facing + 3) % 6
+
+    if abs_dir == facing:
+        return (
+            [_order("move", ship=ship_id, mode="forward")],
+            f"step absolute {abs_dir} via forward (face={facing})",
+        )
+    if abs_dir == rev:
+        return (
+            [_order("move", ship=ship_id, mode="reverse")],
+            f"step absolute {abs_dir} via reverse (face={facing})",
+        )
+
+    mode = turn_toward(facing, abs_dir)
+    if mode == "forward":
+        return [], f"could not plan turn from face {facing} toward {abs_dir}"
+    # Predict face after this single turn for the note.
+    if mode == "turn_starboard":
+        new_face = (facing + 1) % 6
     else:
-        return orders, f"could not align face {facing} → dir {abs_dir}"
-    n_turns = len(orders) - 1
-    note = f"absolute {abs_dir}: {n_turns} turn(s) then step (end face≈{face})"
-    return orders, note
+        new_face = (facing + 5) % 6
+    return (
+        [_order("move", ship=ship_id, mode=mode)],
+        f"turn toward absolute {abs_dir} ({mode}); face {facing}→{new_face}. "
+        f"This uses your movement decision for this phase — next phase or "
+        f"next turn to step; or if you still have another movement phase, "
+        f"m {abs_dir} again when active.",
+    )
 
 
 # Relative move aliases (single order).
@@ -932,16 +934,18 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
 
         token = rest[0].lower()
         if token.isdigit() and 0 <= int(token) <= 5:
+            if phase != "movement":
+                print(
+                    f"  cannot move: phase is {phase!r} (need movement). "
+                    f"Finish fire with ready/nofire, or end turn."
+                )
+                return Action(side="empty")
             orders, note = plan_absolute_move(snap, ship_id, int(token))
             print(f"  {note}")
             if not orders:
                 return Action(side="empty")
-            # Multi-order: turns may need sequential apply — repl sends one-by-one
-            # but plan is based on pre-move facing; for multi-turn we must re-plan
-            # each step. Simpler: only emit FIRST order if multiple turns needed,
-            # OR emit all if only one turn+move with simulated facing.
-            # plan_absolute_move already simulates facing — OK to send all in sequence.
-            return Action(orders=orders, note=note)
+            # One decision only — never batch turn+step (engine marks moved after one).
+            return Action(orders=orders[:1], note=note)
 
         mode = REL_MOVE.get(token)
         if mode is None:
@@ -989,8 +993,23 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if sid is None:
             print("  select ship first")
             return Action(side="empty")
-        if phase == "firing":
-            print(f"  ready_fire #{sid} (no more shots this phase)")
+        if phase != "firing":
+            print(
+                f"  ready_fire only in firing phase (now {phase}). "
+                f"Finish movement first, or use m/p during movement."
+            )
+            return Action(side="empty")
+        ready_already = set(snap.get("ships_ready_fire") or [])
+        if sid in ready_already:
+            print(
+                f"  ship #{sid} is already ready — waiting for other ships. "
+                f"ready so far={sorted(ready_already)}"
+            )
+            return Action(side="empty")
+        print(
+            f"  ready_fire #{sid} — done committing this fire phase "
+            f"(phase ends when every living ship has readied)"
+        )
         return Action(orders=[_order("ready_fire", ship=sid)])
 
     if cmd in ("end", "e", "end_turn"):
