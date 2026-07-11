@@ -25,6 +25,21 @@ shipsim binary  --NDJSON snapshot/order-->  REPL (view + input only)
 If a future client (Love, ratatui, tcod, web) appears, it should consume the
 **same** snapshot stream. Improving ASCII presentation must not fork rules.
 
+### Display-geometry boundary
+
+`hexutil.py` mirrors core hex/arc **geometry** (distance, bearings, legal
+shield facings) for display hints only — the engine still validates every
+order. That mirror is the ceiling for client-side computation:
+
+- **Allowed in the client:** pure geometry (range, bearing, which shield faces
+  are geometry-legal), and *reprinting* the frozen tables from
+  `docs/combat-v2-tables.md` as reference text.
+- **Not allowed:** computing to-hit odds, expected damage, or order legality
+  and presenting them as authoritative. If the fire UI should show odds or a
+  "this shot would round to 0 damage" pre-warning, that data must arrive in
+  the snapshot or soft error — extend the protocol, don't fork the math into
+  Python.
+
 ### Coordinate truth
 
 - Core uses **axial** hexes (`src/hex.rs`) — same family as
@@ -64,6 +79,26 @@ minimalism), not from dumping every color on every line.
 
 Implementation today: `style.py` (`paint`, `panel`, hit/miss/player/enemy helpers).
 
+Current semantic roles — the enforceable version of "8–16 roles". Keep this
+table in sync with `style.py` when adding a helper:
+
+| Role | Helper | Style | Means |
+|---|---|---|---|
+| player | `player` | cyan | player callsigns/ships |
+| enemy | `enemy` | yellow | AI / scripted callsigns |
+| focus | `focus` | bold bright_cyan | UI focus ship |
+| active | `active` | bold bright_white | ACTIVE mover; phase name |
+| hit | `hit` | bold bright_red | HIT banners, hull damage |
+| miss | `miss` | dim yellow | MISS results |
+| ok | `ok` | bright_green | accepted orders; `Won` |
+| warn | `warn` | bright_yellow | leftover-power ⚠, confirms |
+| err | `err` | bold bright_red | soft errors; `Lost` |
+| muted | `muted` | dim gray | empty hexes, debug/queue lines |
+
+`hit` and `err` deliberately share bold bright red — both mean "something bad
+just happened." Do not extend that style to a third meaning, and do not add a
+new color for decoration; a new entry here needs a new *meaning*.
+
 ### Glyph semantics
 
 | Glyph / pattern | Meaning (keep stable) |
@@ -77,6 +112,15 @@ Implementation today: `style.py` (`paint`, `panel`, hit/miss/player/enemy helper
 | `FIRED HIT/MISS` | Phase resolved; charge spent (`chg=0`) |
 | `DEAD` | Weapon box gone |
 | `←` on a shield row | That face is relevant to the observer (e.g. facing you) |
+| `arc=… rng≤…` on a weapon line | Mount arc + max range (engine data, frozen tables) |
+| `rel bearing: N` | Direction to focus target relative to your nose (0 = F) |
+| `⚠ leftover useful actions` | `end_turn_warning` — useful move/fire still existed |
+| `status=Won` / `status=Lost` | Endgame; painted ok / err in the header |
+| `move_order=[…] moved=[…]` | Initiative queue + who already decided (muted) |
+| `ready_fire=[…]` | Ships already readied this fire phase (muted) |
+
+Prompt fragments (`*1`, `draft11/22`, `/ready`, …) have their canonical table
+in `GAMEPLAY.md` §7 — update both together when the prompt language changes.
 
 One glyph family → one meaning. Do not reuse bright red for both “cosmetic
 header” and “you just took hull damage.”
@@ -104,12 +148,27 @@ header” and “you just took hull damage.”
 
 Cheap and high-impact when we add them later:
 
-- Loud HIT/MISS banner (already).
-- One-line Δ after every order (already).
+- Loud HIT/MISS banner and one-line Δ after every order — implemented in
+  `view.py` (banner + Δ helpers); status lives in code, not this sentence.
 - Later: brief color flash on the map cell that was hit; multi-step projectile
   trace on the ASCII map; message-log panel with last N events.
 
 Never require animation for correctness. Never put timing into the engine.
+
+### Terminal geometry
+
+Design target is a **plain 80×24 terminal**: panels use a soft ~72-col rule
+width (`style.panel`), and the default play frame (header + YOUR SHIP +
+CONTACTS + MAP + RECENT + prompt) should fit without scrolling for current
+scenarios.
+
+- Never let a line hard-wrap mid-bar or mid-map-row; shorten labels or
+  truncate before that happens (ANSI codes make wrapped lines lie about
+  length).
+- Maps wider than the terminal, or frames taller than it, have **no viewport
+  strategy yet**. Treat that as a known limit of the current design: when a
+  scenario outgrows 80×24, the answer is a deliberate viewport/scroll design,
+  not per-panel improvisation.
 
 ---
 
@@ -182,6 +241,55 @@ Also allow one-shot forms: `w t1 1`, bare `t1 1` when unambiguous.
 
 Shields: `sh` then `0 3` / `F 2`. Facing numbers are universal 0..5.
 
+### Targeting decision-support (firing)
+
+Firing is the range-math phase: to-hit falls steeply with range and beam
+damage is `half_up(charge × factor)` (`docs/combat-v2-tables.md`), so "is this
+shot worth committing?" is *the* decision the UI must support. Carry as much
+of that as the §1 boundary allows:
+
+- Always show **range** next to targets and each weapon's `rng≤` cap in the
+  weapon menu (both exist today). Prefer marking out-of-range or out-of-arc
+  targets up front over letting the soft error be the only feedback.
+- Geometry-legal shield facings come from `hexutil.legal_shield_facings` — a
+  display mirror; the engine still validates the commit.
+- To-hit odds and expected damage are **engine data**, not client math. Until
+  the snapshot carries them, the sanctioned fallback is reprinting the frozen
+  tables as reference text (e.g. a future `tables` command) — presentation of
+  docs, not recomputation.
+
+### Threat display (allocate)
+
+Contacts show which of *their* shields face you — that serves offense. The
+defensive question during allocate is the inverse: **which of my faces do
+enemies currently bear on?** `hexutil.relative_bearing` already computes it
+(the ship card prints `rel bearing` vs the focus contact). Presentation goal:
+mark threatened faces directly in the shield **draft** bars so the player
+knows where to stack power without doing hex math in their head.
+
+### Initiative queue
+
+`move_order` is fixed once per turn and decides who is ACTIVE — moving before
+or after an enemy is real tactical information. Today it prints as a muted raw
+list (`move_order=[…] moved=[…]`). Preferred presentation: a short callsign
+queue, e.g. `next: A1* → B2 → A2`, with already-moved ships muted. Same idea
+for `ready_fire=[…]` during firing: who is still holding up the resolve.
+
+### Endgame and turn_end
+
+Snapshot `status` is `InProgress` / `Won` / `Lost`, and `phase` includes
+`turn_end` — presentation must handle all of them, not just the three
+interactive phases:
+
+- `Won` paints ok-green, `Lost` paints err-red in the header
+  (`view.format_header`). On the transition, be at least as loud as FIRE
+  RESOLUTION — the game is over; don't let the player keep typing orders into
+  soft errors without noticing.
+- After endgame the hint should offer `quit` (and, later, rematch/scenario
+  select) and repeat the session-log path.
+- `turn_end` is a real protocol phase; the prompt and hint must name it rather
+  than showing a stale `firing`.
+
 ### Phase prompts
 
 - Prompt should encode turn, phase, focus, active (movement), draft used/free.
@@ -237,7 +345,7 @@ snapshot contract.
 
 Before merging presentation work:
 
-1. Still **view-only**? (no new rules in Python)
+1. Still **view-only**? (no new rules in Python — geometry mirror ceiling per §1)
 2. Still works with **`NO_COLOR=1`**?
 3. Snapshot fields painted **after** the order that changed them?
 4. Combat log cursor correct across **EndTurn**?
@@ -245,6 +353,10 @@ Before merging presentation work:
 6. Shield/hull bars **move** when rem/structure change?
 7. Scratch files only under **`frontend/repl/local/`**?
 8. README / this file updated if commands or glyph meanings changed?
+9. Absolute `m N` still emits exactly **one** engine order (past regression)?
+10. Fire menu still opens **once per phase entry** — no auto-reopen after `r`?
+11. New markers/colors added to the **glyph and palette tables** in §2?
+12. Play frame still fits **80×24** with no mid-bar / mid-map wrapping?
 
 ---
 
