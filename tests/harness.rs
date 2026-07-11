@@ -45,7 +45,7 @@ fn test_orders_file_emits_snapshots() {
     assert!(snaps.len() >= 2, "post-load + orders");
     assert_eq!(snaps[0]["turn"], 1);
     assert_eq!(snaps[0]["phase"], "allocate");
-    assert!(snaps[0]["ships"][0]["power_remaining"].as_u64().is_some());
+    assert!(snaps[0]["ships"][0]["power"].as_u64().is_some());
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn test_soft_reject_illegal_fire() {
         // v2: fire before allocating — CommitFire is illegal in the Allocate phase.
         writeln!(
             stdin,
-            r#"{{"type":"commit_fire","ship":1,"weapon":"phaser_1","target":2,"shield_facing":3}}"#
+            r#"{{"type":"commit_fire","ship":1,"weapon":"missing_weapon","target":2,"shield_facing":3}}"#
         )
         .unwrap();
     }

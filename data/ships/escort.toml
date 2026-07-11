@@ -2,18 +2,8 @@ id = "escort"
 name = "Escort"
 speed = 3
 power = 14
-turn_mode = 1
-shields = [6, 6, 6, 6, 6, 6]
 max_shield_per_facing = 6
 structure = 12
-
-[[weapons]]
-id = "phaser_1"
-kind = "phaser"
-arc = "forward"
-max_range = 4
-damage = 2
-phaser_dice_by_range = [3, 2, 1, 1]
 
 [[weapons]]
 id = "beam_1"

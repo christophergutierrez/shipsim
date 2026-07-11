@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use crate::arc::Mount;
-use crate::combat::{Arc, Weapon, WeaponKind};
+use crate::combat::{Arc, Weapon};
 use crate::combat_tables;
 use crate::game_state::{FireCommit, GameState, ScenarioStatus};
 
@@ -29,19 +29,11 @@ pub struct ShipSnapshot {
     pub facing: u8,
     pub speed: u32,
     pub power: u32,
-    /// FASA remaining power this turn.
-    pub power_remaining: u32,
     pub movement_allocated: u32,
     pub move_remaining: u32,
     pub keel: String,
     pub shields_powered: [u32; 6],
     pub shields_remaining: [u32; 6],
-    pub movement_point_ratio: u32,
-    pub turn_speed: u32,
-    pub weapons_energy: u32,
-    pub shield_reinforce: u32,
-    pub turn_mode: u32,
-    pub shields: [u32; 6],
     /// Hull boxes remaining (SSD).
     pub structure: u32,
     pub engine: u32,
@@ -66,17 +58,6 @@ pub struct WeaponSnapshot {
 }
 
 #[derive(Debug, Serialize)]
-pub struct SeekingSnapshot {
-    pub id: u32,
-    pub owner: u32,
-    pub weapon: String,
-    pub target: u32,
-    pub q: i32,
-    pub r: i32,
-    pub damage: u32,
-}
-
-#[derive(Debug, Serialize)]
 pub struct StateSnapshot {
     pub turn: u32,
     /// Ship that may move now (v2 active mover), or `None` outside the movement phase.
@@ -93,7 +74,6 @@ pub struct StateSnapshot {
     pub objective: Option<HexSnapshot>,
     pub ships: Vec<ShipSnapshot>,
     pub fire_commits: Vec<FireCommit>,
-    pub seeking: Vec<SeekingSnapshot>,
     pub combat_log: Vec<CombatLogEntry>,
     /// Advisory (never blocks EndTurn): some living ship could still move or fire legally.
     pub end_turn_warning: bool,
@@ -144,18 +124,11 @@ impl StateSnapshot {
                     facing: ship.facing,
                     speed: ship.speed,
                     power: ship.power,
-                    power_remaining: ship.power_remaining,
                     movement_allocated: ship.movement_allocated,
                     move_remaining: ship.move_remaining,
                     keel: format!("{:?}", ship.keel).to_ascii_lowercase(),
                     shields_powered: ship.shields_powered,
                     shields_remaining: ship.shields_remaining,
-                    movement_point_ratio: ship.movement_point_ratio,
-                    turn_speed: ship.turn_speed,
-                    weapons_energy: ship.weapons_energy,
-                    shield_reinforce: ship.shield_reinforce,
-                    turn_mode: ship.turn_mode,
-                    shields: ship.shields,
                     structure: ship.structure(),
                     engine: ship.ssd.engine,
                     power_sys: ship.ssd.power_sys,
@@ -181,19 +154,6 @@ impl StateSnapshot {
                 })
                 .collect(),
             fire_commits: game.fire_commits().to_vec(),
-            seeking: game
-                .seeking_munitions()
-                .iter()
-                .map(|m| SeekingSnapshot {
-                    id: m.id,
-                    owner: m.owner,
-                    weapon: m.weapon_id.clone(),
-                    target: m.target,
-                    q: m.pos.q,
-                    r: m.pos.r,
-                    damage: m.damage,
-                })
-                .collect(),
             combat_log: game
                 .combat_log()
                 .iter()
@@ -211,16 +171,10 @@ impl StateSnapshot {
 }
 
 fn weapon_kind_name(weapon: &Weapon) -> &'static str {
-    match weapon.v2_kind {
-        Some(combat_tables::WeaponKind::Beam) => "Beam",
-        Some(combat_tables::WeaponKind::Plasma) => "Plasma",
-        Some(combat_tables::WeaponKind::Torp) => "Torp",
-        None => match weapon.kind {
-            WeaponKind::Phaser => "Phaser",
-            WeaponKind::Disruptor => "Disruptor",
-            WeaponKind::Drone => "Drone",
-            WeaponKind::Plasma => "Plasma",
-        },
+    match weapon.kind {
+        combat_tables::WeaponKind::Beam => "Beam",
+        combat_tables::WeaponKind::Plasma => "Plasma",
+        combat_tables::WeaponKind::Torp => "Torp",
     }
 }
 

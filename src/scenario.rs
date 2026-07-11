@@ -5,9 +5,9 @@ use thiserror::Error;
 
 use crate::arc::Mount;
 use crate::board::{Board, MapMode};
-use crate::combat::{Arc, Weapon, WeaponKind};
-use crate::combat_tables;
-use crate::game_state::{GameState, NpcController, ScriptedPlan, Terminal};
+use crate::combat::{Arc, Weapon};
+use crate::combat_tables::WeaponKind;
+use crate::game_state::{GameState, NpcController, Terminal};
 use crate::hex::Hex;
 use crate::schema::{ScenarioDef, ShipDef, WeaponDef};
 use crate::ship::Ship;
@@ -101,18 +101,9 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         }
 
         let ship_def = load_ship_def(path, &placement.class)?;
-        let waypoints = placement
-            .waypoints
-            .into_iter()
-            .map(|waypoint| {
-                let hex = Hex::new(waypoint.q, waypoint.r);
-                validate_on_board(&board, hex)?;
-                Ok(hex)
-            })
-            .collect::<Result<Vec<_>, LoadError>>()?;
         let ctrl = placement.controller.to_ascii_lowercase();
         let is_ai = matches!(ctrl.as_str(), "ai" | "greedy");
-        let is_scripted = !is_ai && (ctrl == "scripted" || !waypoints.is_empty());
+        let is_scripted = !is_ai && ctrl == "scripted";
 
         let power = ship_def.power.unwrap_or(ship_def.speed);
         let weapons: Vec<_> = ship_def
@@ -121,10 +112,6 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             .map(parse_weapon)
             .collect::<Result<Vec<_>, LoadError>>()?;
         let ssd = crate::ssd::Ssd::new(ship_def.structure, ship_def.speed.max(1), 2, weapons.len());
-        let max_spd = ssd.effective_max_speed(ship_def.speed);
-        let max_pow = ssd.effective_power(power);
-        let (turn_speed, weapons_energy, shield_reinforce) =
-            crate::energy::default_buckets(max_pow, max_spd);
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name,
@@ -132,15 +119,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             facing: placement.facing,
             speed: ship_def.speed,
             power,
-            power_remaining: max_pow,
-            movement_point_ratio: 1,
-            shield_point_ratio_den: 1,
-            turn_speed,
-            weapons_energy,
-            shield_reinforce,
-            turn_mode: ship_def.turn_mode,
             weapons,
-            shields: ship_def.shields,
             shields_powered: [0; 6],
             shields_remaining: [0; 6],
             max_shield_per_facing: ship_def.max_shield_per_facing,
@@ -154,10 +133,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         if is_ai {
             npcs.insert(placement.id, NpcController::GreedySeek);
         } else if is_scripted {
-            npcs.insert(
-                placement.id,
-                NpcController::Scripted(ScriptedPlan::new(waypoints)),
-            );
+            npcs.insert(placement.id, NpcController::Scripted);
         }
     }
 
@@ -210,13 +186,10 @@ fn validate_on_board(board: &Board, hex: Hex) -> Result<(), LoadError> {
 }
 
 fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
-    let (kind, v2_kind) = match def.kind.as_str() {
-        "phaser" => (WeaponKind::Phaser, None),
-        "disruptor" => (WeaponKind::Disruptor, None),
-        "drone" => (WeaponKind::Drone, None),
-        "plasma" => (WeaponKind::Plasma, Some(combat_tables::WeaponKind::Plasma)),
-        "beam" => (WeaponKind::Phaser, Some(combat_tables::WeaponKind::Beam)),
-        "torp" => (WeaponKind::Disruptor, Some(combat_tables::WeaponKind::Torp)),
+    let kind = match def.kind.as_str() {
+        "plasma" => WeaponKind::Plasma,
+        "beam" => WeaponKind::Beam,
+        "torp" => WeaponKind::Torp,
         other => {
             return Err(LoadError::UnknownWeaponKind {
                 kind: other.to_string(),
@@ -255,14 +228,9 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
     Ok(Weapon {
         id: def.id,
         kind,
-        v2_kind,
         arc,
         mount,
         max_range: def.max_range,
         max_charge: def.max_charge,
-        damage: def.damage,
-        energy_cost: def.energy_cost,
-        phaser_dice_by_range: def.phaser_dice_by_range,
-        to_hit_by_range: def.to_hit_by_range,
     })
 }

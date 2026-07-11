@@ -1,62 +1,33 @@
-# shipsim - Roadmap and Deferred Backlog
+# shipsim Roadmap
 
-The current product definition is `docs/PRD.md`; system structure is documented in
-`docs/ARCHITECTURE.md`. Earlier rulesets remain recorded in ADRs but are not active product modes.
+The current product definition is `docs/PRD.md`; system structure is documented in `docs/ARCHITECTURE.md`. Combat Model v2 (ADR-0020) is the only supported ruleset.
 
----
+## Shipped MVP
 
-## Core simulation (REALIZED)
+- Turn-start allocation across movement, individual weapons, and six shield facings.
+- Momentum-aware movement with stable per-turn initiative.
+- Alternating movement and simultaneous firing phases.
+- Beam, plasma, and torpedo range/damage profiles with deterministic d20 resolution.
+- Powered shields, SSD hull/internals, destruction victory, multi-ship scenarios, and greedy AI.
+- TOML ship/scenario/campaign loading and an NDJSON CLI harness with soft errors.
+- Love2D thin client and deterministic Rust/Lua acceptance coverage.
 
-| ID | Item | Notes |
-|----|------|--------|
-| Slice 1 | Movement skeleton | Superseded by Slice 3 |
-| D5 | Direct-fire combat | Phaser/disruptor, shields, PRNG |
-| D1/D2/D3 | Impulse movement fidelity | IMC, Plot/RunTurn, turn-mode |
-| D1-fire | Impulse-gated fire | ADR-0010 |
-| D2-fire | Simultaneous fire | ADR-0011 |
-| D6 | SSD damage allocation | ADR-0012 |
-| D7 | Multi-bucket energy | ADR-0009 + deepen; residual polish below |
-| D5a | Seeking weapons | Drone + plasma (ADR-0014); arming residual |
-| D9 | AI opponent | Greedy seek (ADR-0013) |
-| D4 | Map edge policy | Hard vs floating recenter (ADR-0015) |
-| D10 | Fleets + campaigns | fleet.toml, campaigns/, CLI `--campaign` (ADR-0016) |
-| Hygiene | Multi-ship readiness | Fire ship id, Terminal, BTreeMap, load checks |
-| Arch | Encapsulation, turn module, pure combat | `docs/ARCHITECTURE.md` |
+The retired impulse, FASA, seeking-munition, and multi-bucket compatibility implementations have been removed. Their design history remains in `docs/adr/`.
 
-## Rules pivot (next major effort)
+## Recommended next work
 
-### Combat model v2  REALIZED MVP (ADR-0020)
-- Momentum moves; allocate move/weapons/shields; move-phase ↔ fire-phase loop; d20 range tables.
-- Supersedes Bocchino 3-round MVP (ADR-0019) and SFB impulse (ADR-0002) as product target.
-- PRD: `docs/PRD.md`.
-- Milestones M0–M9 complete: pure rules modules, data model + Allocate, movement + momentum, firing + simultaneous resolve, turn loop + win, AI + multi-ship, FASA/legacy deletion, Love client v2, acceptance package.
-- Acceptance: `tests/acceptance.rs` (two move cycles, deterministic seed 4242) + golden fixture `tests/fixtures/v2/duel.jsonl` (byte-lock).
+1. Perform a manual Love2D playthrough on desktop and verify allocation, repeated move/fire cycles, mutual fire, victory, scaling, pan, and zoom.
+2. Add a first-class `Lost` scenario status instead of deriving player defeat in the client.
+3. Version the NDJSON snapshot/order contract before external clients depend on it.
+4. Add a documented save/resume format around scenario identity, snapshot state, and PRNG state.
+5. Improve combat-log presentation and replay navigation.
 
-### Historical: FASA / Bocchino MVP (ADR-0019)
-- 3-round action loop briefly implemented; superseded by ADR-0020.
+## Later features
 
-### Historical: SFB impulse core (ADR-0002 path)
-- Superseded; legacy tests removed.
+- Electronic warfare, overloads, sensors, cloak, and crew quality.
+- More ship and weapon content within the generic-content policy.
+- Campaign persistence, branching campaigns, and campaign UI.
+- Richer critical damage and repair.
+- Network multiplayer.
 
-## Stop line for prior effort
-
-### D8. Graphical frontend - REALIZED (ADR-0017, ADR-0018)
-- **Love2D** at `frontend/love/` over **JSON orders-file replay**; no rules in Lua.
-- Soft-error NDJSON + `controller` on snapshot. Scenario picker, phases, multi-ship, win/defeat.
-- Launch: `cargo build && love frontend/love`. Headless: `luajit frontend/love/tests/run_all.lua`.
-- Golden replay: `tests/fixtures/v2/duel.jsonl`. FFI deferred.
-
-## Residual polish (not blocking core)
-
-- **D7+** EW / overload / full paper EA Form UX
-- **D5a+** Multi-turn plasma arming, more seeking classes
-- **D10+** Campaign persistence, branching campaigns, multi-fleet design tools
-- **Combat logging** — turn combat_log in snapshot (done basic); richer replay UI later
-- **PRNG resume** — `prng_state` + `set_prng_state` (done); full save/load document format later
-- **AS2** geometry DRY optional
-- **Impulse-by-impulse stepping** frontend concern (T4)
-- **Core `Lost` status** — first-class defeat in snapshot (D8 uses client-derived defeat for now)
-
----
-
-*When picking up residual polish, prefer small commits against the core API above.*
+Keep future rules in the Rust core and treat Love2D as a projection and order-entry client.

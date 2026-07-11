@@ -1,2 +1,2 @@
-//! FASA turn helpers. Impulse RunTurn removed (ADR-0019).
+//! Shared turn counter for Combat Model v2.
 //! NPC resolution: `GameState::resolve_npc_actions`.

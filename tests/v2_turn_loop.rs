@@ -65,9 +65,11 @@ fn commit(game: &mut shipsim_core::game_state::GameState, ship: u32, weapon: &st
 #[test]
 fn test_g1_loop_back_to_movement_when_move_remaining() {
     let mut game = load_combat();
-    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0)).unwrap();
+    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0))
+        .unwrap();
     game.set_ship_facing(1, 3).unwrap();
-    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0)).unwrap();
+    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0))
+        .unwrap();
     game.set_ship_facing(2, 0).unwrap();
 
     // ship1 keeps movement power (passes its move); ship2 has none (auto-pass).
@@ -92,9 +94,11 @@ fn test_g1_loop_back_to_movement_when_move_remaining() {
 #[test]
 fn test_g2_turn_end_when_no_actions_remain() {
     let mut game = load_combat();
-    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0)).unwrap();
+    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0))
+        .unwrap();
     game.set_ship_facing(1, 3).unwrap();
-    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0)).unwrap();
+    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0))
+        .unwrap();
     game.set_ship_facing(2, 0).unwrap();
 
     allocate(&mut game, 1, 0, &[("beam_1", 2)], [0; 6]);
@@ -111,9 +115,11 @@ fn test_g2_turn_end_when_no_actions_remain() {
 #[test]
 fn test_g3_end_turn_warning_true_and_end_turn_advances() {
     let mut game = load_combat();
-    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0)).unwrap();
+    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0))
+        .unwrap();
     game.set_ship_facing(1, 3).unwrap();
-    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0)).unwrap();
+    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0))
+        .unwrap();
     game.set_ship_facing(2, 0).unwrap();
 
     allocate(&mut game, 1, 2, &[("beam_1", 2)], [0; 6]);
@@ -135,9 +141,11 @@ fn test_g3_end_turn_warning_true_and_end_turn_advances() {
 #[test]
 fn test_g4_end_turn_warning_false_when_no_actions() {
     let mut game = load_combat();
-    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0)).unwrap();
+    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0))
+        .unwrap();
     game.set_ship_facing(1, 3).unwrap();
-    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0)).unwrap();
+    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0))
+        .unwrap();
     game.set_ship_facing(2, 0).unwrap();
 
     allocate(&mut game, 1, 0, &[("beam_1", 2)], [0; 6]);
@@ -156,9 +164,11 @@ fn test_g4_end_turn_warning_false_when_no_actions() {
 #[test]
 fn test_g5_destruction_win() {
     let mut game = load_combat();
-    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0)).unwrap();
+    game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0))
+        .unwrap();
     game.set_ship_facing(1, 3).unwrap();
-    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0)).unwrap();
+    game.set_ship_pos(2, shipsim_core::hex::Hex::new(0, 0))
+        .unwrap();
     game.set_ship_facing(2, 0).unwrap();
     game.set_ship_structure(2, 1).unwrap();
 
@@ -174,7 +184,10 @@ fn test_g5_destruction_win() {
     apply_order(&mut game, Order::ReadyFire { ship: 1 }).unwrap();
     apply_order(&mut game, Order::ReadyFire { ship: 2 }).unwrap();
 
-    assert_eq!(StateSnapshot::from_game_state(&game).status, ScenarioStatus::Won);
+    assert_eq!(
+        StateSnapshot::from_game_state(&game).status,
+        ScenarioStatus::Won
+    );
 }
 
 /// G6: a fresh turn clears allocations, resets keel to stopped, zeroes shields and

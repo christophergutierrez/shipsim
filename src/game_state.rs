@@ -1,11 +1,11 @@
-//! Game aggregate for Combat v2 (ADR-0019).
+//! Game aggregate for Combat v2 (ADR-0020).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
 
 use crate::board::Board;
-use crate::combat::{self, WeaponKind};
+use crate::combat;
 use crate::hex::Hex;
 use crate::prng::Prng;
 use crate::ship::Ship;
@@ -86,17 +86,6 @@ pub struct FireCommit {
     pub shield_facing: u8,
 }
 
-/// In-flight seeking munition (D5a drone).
-#[derive(Debug, Clone)]
-pub struct SeekingMunition {
-    pub id: u32,
-    pub owner: u32,
-    pub weapon_id: String,
-    pub pos: Hex,
-    pub target: u32,
-    pub damage: u32,
-}
-
 /// Encapsulated game aggregate. Storage is private; mutate via orders (`movement::apply_order`)
 /// or explicit setup APIs — never by poking internal collections.
 #[derive(Debug, Clone)]
@@ -116,12 +105,9 @@ pub struct GameState {
     ready_fire: HashSet<u32>,
     /// Keys are (ship_id, weapon_id) for multi-firer safety (TS2).
     fired_weapons_this_turn: HashSet<(u32, String)>,
-    /// In-flight seeking munitions (D5a drones).
-    seeking: Vec<SeekingMunition>,
-    next_seeking_id: u32,
     /// Hits applied this turn (cleared with turn ephemera). AS3 combat logging.
     combat_log: Vec<CombatLogEvent>,
-    /// Non-player controllers (scripted waypoints or AI). BTreeMap = deterministic order (T1).
+    /// Non-player controller labels and AI behavior. BTreeMap keeps iteration deterministic.
     npcs: BTreeMap<u32, NpcController>,
 }
 
@@ -167,8 +153,6 @@ impl GameState {
             fire_commits: Vec::new(),
             ready_fire: HashSet::new(),
             fired_weapons_this_turn: HashSet::new(),
-            seeking: Vec::new(),
-            next_seeking_id: 1,
             combat_log: Vec::new(),
             npcs,
         };
@@ -207,29 +191,19 @@ impl GameState {
         ids
     }
 
-    /// In-flight seeking munitions (D5a drones).
-    pub fn seeking_munitions(&self) -> &[SeekingMunition] {
-        &self.seeking
-    }
-
     pub fn turn_number(&self) -> u32 {
         self.turn.number()
     }
 
-
-    /// Recompute the action order. v2 computes `action_order` on demand, so this
-    /// is a no-op kept for construction compatibility.
-    fn rebuild_action_order(&mut self) {}
-
     /// Record that `weapon` on `ship` has fired this turn (TS2 multi-firer safety).
     fn mark_weapon_fired(&mut self, ship: u32, weapon: &str) {
-        self.fired_weapons_this_turn.insert((ship, weapon.to_string()));
+        self.fired_weapons_this_turn
+            .insert((ship, weapon.to_string()));
     }
 
     pub fn reset_all_power(&mut self) {
         for s in &mut self.ships {
             if !s.destroyed {
-                s.power_remaining = s.effective_power();
                 s.reset_v2_allocation();
             }
         }
@@ -534,9 +508,7 @@ impl GameState {
                 weapon: commit.weapon.clone(),
             });
         }
-        let kind = weapon
-            .v2_kind
-            .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(commit.weapon.clone()))?;
+        let kind = weapon.kind;
         let range = attacker.pos.distance(target.pos);
         let max_range = crate::combat_tables::max_range(kind);
         if range > max_range {
@@ -593,7 +565,7 @@ impl GameState {
             let weapon = attacker.weapon(&commit.weapon).ok_or_else(|| {
                 crate::movement::OrderError::WeaponNotFound(commit.weapon.clone())
             })?;
-            let kind = weapon.v2_kind.expect("validated v2 weapon");
+            let kind = weapon.kind;
             let range = attacker.pos.distance(target.pos);
             let threshold =
                 crate::combat_tables::to_hit_threshold(kind, range).ok_or_else(|| {
@@ -669,7 +641,10 @@ impl GameState {
         self.ships
             .iter()
             .filter(|target| !target.destroyed && target.id != attacker.id)
-            .any(|target| self.v2_shot_shield_facing(attacker, weapon, target).is_some())
+            .any(|target| {
+                self.v2_shot_shield_facing(attacker, weapon, target)
+                    .is_some()
+            })
     }
 
     /// Shared v2 fire-legality predicate for AI + advisory queries. Mirrors commit-time
@@ -685,7 +660,7 @@ impl GameState {
         if target.destroyed || target.id == attacker.id {
             return None;
         }
-        let kind = weapon.v2_kind?;
+        let kind = weapon.kind;
         attacker.weapon(&weapon.id)?; // SSD-destroyed weapon
         let charge = attacker
             .weapon_charges
@@ -778,9 +753,7 @@ impl GameState {
                 weapon: commit.weapon.clone(),
             });
         }
-        let kind = weapon
-            .v2_kind
-            .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(commit.weapon.clone()))?;
+        let kind = weapon.kind;
         let range = attacker.pos.distance(target.pos);
         let max_range = crate::combat_tables::max_range(kind);
         if range > max_range {
@@ -973,7 +946,6 @@ impl GameState {
         }
     }
 
-
     pub fn seed(&self) -> u64 {
         self.seed
     }
@@ -1010,7 +982,7 @@ impl GameState {
         match self.npc(ship_id) {
             None => "player",
             Some(NpcController::GreedySeek) => "ai",
-            Some(NpcController::Scripted(_)) => "scripted",
+            Some(NpcController::Scripted) => "scripted",
         }
     }
 
@@ -1056,13 +1028,11 @@ impl GameState {
         Ok(())
     }
 
-
     pub fn set_ship_structure(&mut self, id: u32, structure: u32) -> Result<(), StateError> {
         let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
         ship.set_structure(structure);
         Ok(())
     }
-
 
     // ----- crate-internal -----
 
@@ -1070,19 +1040,16 @@ impl GameState {
         self.ships.iter_mut().find(|ship| ship.id == id)
     }
 
-
     pub(crate) fn advance_turn_counter(&mut self) {
         self.turn.advance();
     }
-
 
     /// D4 floating map: translate all units so the formation stays on the board.
     pub(crate) fn maybe_float_recenter(&mut self) {
         if self.board.mode != crate::board::MapMode::Floating {
             return;
         }
-        let mut positions: Vec<Hex> = self.ships.iter().map(|s| s.pos).collect();
-        positions.extend(self.seeking.iter().map(|m| m.pos));
+        let positions: Vec<Hex> = self.ships.iter().map(|s| s.pos).collect();
         if positions.is_empty() {
             return;
         }
@@ -1095,10 +1062,6 @@ impl GameState {
         for ship in &mut self.ships {
             ship.pos.q += dq;
             ship.pos.r += dr;
-        }
-        for m in &mut self.seeking {
-            m.pos.q += dq;
-            m.pos.r += dr;
         }
         self.clamp_all_to_board();
     }
@@ -1113,47 +1076,15 @@ impl GameState {
         for ship in &mut self.ships {
             clamp(&mut ship.pos);
         }
-        for m in &mut self.seeking {
-            clamp(&mut m.pos);
-        }
-    }
-
-
-    fn launch_seeking(&mut self, owner: u32, weapon_id: String, target: u32) {
-        let Some(launcher) = self.ship(owner) else {
-            return;
-        };
-        let Some(w) = launcher.weapons.iter().find(|w| w.id == weapon_id) else {
-            return;
-        };
-        let damage = w.damage;
-        let pos = launcher.pos;
-        let id = self.next_seeking_id;
-        self.next_seeking_id = self.next_seeking_id.saturating_add(1);
-        self.seeking.push(SeekingMunition {
-            id,
-            owner,
-            weapon_id,
-            pos,
-            target,
-            damage,
-        });
-    }
-
-
-    pub(crate) fn clear_combat_log(&mut self) {
-        self.combat_log.clear();
     }
 
     pub fn combat_log(&self) -> &[CombatLogEvent] {
         &self.combat_log
     }
 
-
     pub(crate) fn npc(&self, ship_id: u32) -> Option<&NpcController> {
         self.npcs.get(&ship_id)
     }
-
 
     pub fn refresh_status(&mut self) {
         self.status = match self.terminal {
@@ -1178,26 +1109,10 @@ impl GameState {
             None => ScenarioStatus::InProgress,
         };
     }
-
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum NpcController {
-    Scripted(ScriptedPlan),
+    Scripted,
     GreedySeek,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ScriptedPlan {
-    waypoints: Vec<Hex>,
-    next_waypoint: usize,
-}
-
-impl ScriptedPlan {
-    pub(crate) fn new(waypoints: Vec<Hex>) -> Self {
-        Self {
-            waypoints,
-            next_waypoint: 0,
-        }
-    }
 }

@@ -1,51 +1,43 @@
-# shipsim Love2D frontend (D8)
+# shipsim Love2D frontend
 
-Thin client over the `shipsim` JSON harness. **No game rules in Lua.**
+Thin client for Combat Model v2 over the `shipsim` NDJSON harness. All movement and combat rules remain in Rust.
 
-See `docs/adr/0017-love2d-json-thin-client.md`,
-`docs/adr/0018-d8-harness-soft-errors-and-controller.md`, `docs/ARCHITECTURE.md`, and
-`docs/PRD.md`.
+See `docs/ARCHITECTURE.md`, `docs/PRD.md`, and ADR-0017, ADR-0018, and ADR-0020 under `docs/adr/`.
 
 ## Requirements
 
 - Love2D 11.x (`love`)
-- Built `shipsim` binary (`cargo build`)
-- LuaJIT for headless tests (`luajit`)
+- Rust toolchain (`cargo`)
+- LuaJIT for headless frontend tests (`luajit`)
 
 ## Launch
 
-From the **repository root**:
+From the repository root:
 
 ```bash
 cargo build -q
 love frontend/love
 ```
 
-Overrides:
+The scenario picker loads current TOML scenarios. The client replays accepted orders through the Rust harness and displays its latest snapshot.
 
-- `SHIPSIM_BIN` - path to shipsim executable
-- `SHIPSIM_ROOT` - repository root (Cargo.toml + scenarios/)
+Environment overrides:
 
-## Play
+- `SHIPSIM_BIN`: shipsim executable path
+- `SHIPSIM_ROOT`: repository root
 
-**Everything important is clickable** on the right panel (and scenario list).
+## Turn flow
 
-1. **Picker:** click a scenario row (or Up/Down + Enter)
-2. **Energy:** right panel Move/Wpn/Shd buttons → **CONFIRM allocate**
-3. **Plot:** left-click hexes → **CONFIRM plot**
-4. **Weapons:** click weapon buttons, click enemy ship → **FIRE** (or Skip to Resolve)
-5. **Resolve:** **RUN TURN**
-6. **Ships:** click blue ships on board or player ship buttons in the panel
-7. **UI text size:** `Ctrl -` / `Ctrl =` (or Ctrl + mouse wheel)
-8. Pan: right-drag · Zoom: mouse wheel · Esc: back to scenarios
+1. Allocate ship power among movement and weapon charges, then confirm each player ship. The Rust order contract supports six shield facings, but the current Love panel does not expose those controls yet.
+2. Move or pass for the active ship during each movement phase.
+3. Select charged weapons, a target, and a legal shield facing; commit fire and mark each ship ready.
+4. After simultaneous resolution, continue the next movement/firing cycle or end the turn.
 
-Keyboard still works (1–4 phases, `[` `]` move, `,` `.` weapons, `-` `=` shields, Enter confirms).
+Implemented actions are available in the right panel. Ships and targets can be selected on the board. Right-drag pans, the mouse wheel zooms, and `Ctrl` with `-` or `=` changes UI scale.
 
-## Headless tests (agents)
+## Verification
 
 ```bash
 cargo build -q
 luajit frontend/love/tests/run_all.lua
 ```
-
-Do not gate correctness on opening the Love window.

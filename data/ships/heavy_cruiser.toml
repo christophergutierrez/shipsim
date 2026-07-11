@@ -2,18 +2,8 @@ id = "heavy_cruiser"
 name = "Heavy Cruiser"
 speed = 4
 power = 22
-turn_mode = 2
-shields = [6, 6, 6, 6, 6, 6]
 max_shield_per_facing = 6
 structure = 12
-
-[[weapons]]
-id = "phaser_1"
-kind = "phaser"
-arc = "forward"
-max_range = 4
-damage = 2
-phaser_dice_by_range = [3, 2, 1, 1]
 
 [[weapons]]
 id = "beam_1"
@@ -32,27 +22,9 @@ max_range = 12
 max_charge = 1
 
 [[weapons]]
-id = "disruptor_1"
-kind = "disruptor"
-arc = "forward"
-max_range = 4
-damage = 4
-to_hit_by_range = [6, 4, 2, 1]
-
-[[weapons]]
-id = "drone_1"
-kind = "drone"
-arc = "forward"
-max_range = 8
-damage = 3
-energy_cost = 1
-
-[[weapons]]
 id = "plasma_1"
 kind = "plasma"
 arc = "forward"
 mount = "forward"
 max_range = 6
 max_charge = 1
-damage = 6
-energy_cost = 2

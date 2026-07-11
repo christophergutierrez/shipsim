@@ -4,16 +4,17 @@
 
 Each **turn** has four phases, in order:
 
-1. **Allocate** — spend your power pool on movement points, weapon
-   charges, and shield facings. End turn to advance.
+1. **Allocate** — spend each ship's power pool on movement points and weapon
+   charges, then confirm the allocation. Shield allocation exists in the core and
+   NDJSON order but is not yet exposed by the Love2D allocation panel.
 2. **Movement** — ships move in id order. The **active ship** is shown
    in the header. Move it (Forward / Turn port / Turn starboard) or
    Pass, then the next ship moves.
 3. **Firing** — for each of your ships, pick a weapon, a target, and
    the shield facing the shot strikes, then **Commit Fire**. When done,
    **Ready** the ship. The core resolves all committed shots.
-4. **Turn End** — **End Turn** advances to the next turn and refills
-   power. If there is unresolved fire or unspent power, a warning
+4. **Turn End** — **End Turn** advances to the next turn and clears
+   turn-scoped allocation. If useful actions remain, a warning
    dialog asks you to confirm.
 
 ## Allocate
@@ -33,9 +34,9 @@ Each **turn** has four phases, in order:
 - Pick a **weapon** (must be charged in Allocate).
 - Pick a **target** (click an enemy ship on the board, or use the panel).
 - Pick the **shield facing** the shot strikes (0..5).
-- **Commit Fire** — the core resolves the shot immediately and logs
-  the result (hit/miss, damage, facing) to the combat log.
-- **Ready (R)** — marks this ship as done firing for the turn.
+- **Commit Fire** — records the shot for simultaneous resolution.
+- **Ready (R)** — marks this ship as done committing fire for this firing phase.
+  Resolution occurs after all living ships are ready.
 
 ## Controls
 

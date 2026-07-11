@@ -1,1 +1,0 @@
-//! Legacy SFB combat tests removed (ADR-0019). See `tests/fasa.rs`.

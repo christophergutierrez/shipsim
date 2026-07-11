@@ -4,15 +4,8 @@ fn default_seed() -> u64 {
     1
 }
 
-fn default_turn_mode() -> u32 {
-    0
-}
-
-fn default_shields() -> [u32; 6] {
-    [0; 6]
-}
-
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShipDef {
     /// Catalog key from the ship TOML file (kept for data identity; runtime id is placement).
     #[serde(default)]
@@ -22,10 +15,6 @@ pub struct ShipDef {
     /// Energy per turn; defaults to `speed` when omitted (full movement available).
     #[serde(default)]
     pub power: Option<u32>,
-    #[serde(default = "default_turn_mode")]
-    pub turn_mode: u32,
-    #[serde(default = "default_shields")]
-    pub shields: [u32; 6],
     #[serde(default = "default_max_shield_per_facing")]
     pub max_shield_per_facing: u32,
     #[serde(default)]
@@ -64,8 +53,6 @@ pub struct ShipPlacementDef {
     pub facing: u8,
     #[serde(default)]
     pub controller: String,
-    #[serde(default)]
-    pub waypoints: Vec<HexDef>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,6 +64,7 @@ pub struct TerminalDef {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WeaponDef {
     pub id: String,
     pub kind: String,
@@ -86,22 +74,6 @@ pub struct WeaponDef {
     pub max_range: u32,
     #[serde(default = "default_max_charge")]
     pub max_charge: u32,
-    #[serde(default = "default_weapon_damage")]
-    pub damage: u32,
-    #[serde(default = "default_weapon_energy_cost")]
-    pub energy_cost: u32,
-    #[serde(default)]
-    pub phaser_dice_by_range: Vec<u32>,
-    #[serde(default)]
-    pub to_hit_by_range: Vec<u32>,
-}
-
-fn default_weapon_damage() -> u32 {
-    1
-}
-
-fn default_weapon_energy_cost() -> u32 {
-    1
 }
 
 fn default_max_charge() -> u32 {

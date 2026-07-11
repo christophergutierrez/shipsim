@@ -111,7 +111,7 @@ function draw_hud.draw(app)
     local mark = (s.id == app.selected_id) and ">" or " "
     local dest = s.destroyed and " (destroyed)" or ""
     love.graphics.setColor(s.controller == "player" and { 0.7, 0.9, 1 } or { 1, 0.6, 0.6 })
-    love.graphics.print(string.format("%s %s pwr %d%s", mark, ship_label(s), s.power_remaining or 0, dest), px + pad, y)
+    love.graphics.print(string.format("%s %s pwr %d%s", mark, ship_label(s), s.power or 0, dest), px + pad, y)
     y = y + ui.line_h(13)
   end
 

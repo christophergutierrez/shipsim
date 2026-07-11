@@ -167,12 +167,6 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
     end
   end
 
-  for _, m in ipairs(snapshot.seeking or {}) do
-    local cx, cy = hex.to_pixel(m.q, m.r, SIZE)
-    love.graphics.setColor(1, 0.5, 0)
-    love.graphics.circle("fill", cx, cy, 6)
-  end
-
   love.graphics.pop()
 end
 

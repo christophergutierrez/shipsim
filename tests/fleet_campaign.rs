@@ -1,4 +1,4 @@
-//! Campaign load still works under FASA state init.
+//! Campaign manifests load current Combat Model v2 scenarios.
 
 use std::path::PathBuf;
 
@@ -12,6 +12,9 @@ fn manifest_path(relative: &str) -> PathBuf {
 fn test_campaign_loads() {
     let c = Campaign::load(&manifest_path("campaigns/demo.toml")).expect("campaign");
     let game = c.load_current().expect("scenario");
-    assert_eq!(game.status(), shipsim_core::game_state::ScenarioStatus::InProgress);
+    assert_eq!(
+        game.status(),
+        shipsim_core::game_state::ScenarioStatus::InProgress
+    );
     assert_eq!(game.turn_number(), 1);
 }

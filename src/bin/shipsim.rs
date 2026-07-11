@@ -191,12 +191,7 @@ fn apply_order_line(game: &mut GameState, line: &str) -> Result<(), String> {
         Ok(()) => emit_snapshot(game),
         Err(error) => {
             let order_val = serde_json::from_str(line).ok();
-            emit_error(
-                "order_illegal",
-                &error.to_string(),
-                order_val,
-                "harness",
-            )
+            emit_error("order_illegal", &error.to_string(), order_val, "harness")
         }
     }
 }

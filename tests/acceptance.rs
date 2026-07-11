@@ -30,7 +30,9 @@ fn charged_beam() -> BTreeMap<String, u32> {
 /// Run one full turn cycle up to (but not including) EndTurn: allocate both
 /// ships, pass-move both, ship 1 fires beam_1 at ship 2, both ready. Returns
 /// the resolved combat log for this turn (EndTurn clears it).
-fn run_fire_cycle(game: &mut shipsim_core::game_state::GameState) -> Vec<shipsim_core::game_state::CombatLogEvent> {
+fn run_fire_cycle(
+    game: &mut shipsim_core::game_state::GameState,
+) -> Vec<shipsim_core::game_state::CombatLogEvent> {
     apply_order(
         game,
         Order::Allocate {

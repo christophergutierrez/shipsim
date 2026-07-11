@@ -46,9 +46,9 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 |---|---|---|
 | Aggregate and protocol | `game_state`, `movement`, `snapshot` | State machine, orders, validation, serialized views |
 | Geometry | `hex`, `board`, `arc`, `momentum` | Coordinates, occupancy, facings, firing arcs, movement cost |
-| Combat | `combat`, `combat_tables`, `energy`, `ssd`, `prng` | Hit/damage rules, allocation, damage application, determinism |
+| Combat | `combat`, `combat_tables`, `ssd`, `prng` | Weapon data, hit/damage rules, damage application, determinism |
 | Content | `schema`, `scenario`, `ship`, `campaign` | TOML schemas, loading, ship instances, campaign setup |
-| Orchestration | `turn`, `ai`, `impulse` | Turn helpers, NPC actions, retained shared timing types |
+| Orchestration | `turn`, `ai` | Turn counter and NPC actions |
 | Adapters | `src/bin/shipsim.rs`, `frontend/love/` | NDJSON harness and graphical client |
 
 ## Data and control flow
