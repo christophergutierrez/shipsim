@@ -69,6 +69,8 @@ pub struct StateSnapshot {
     pub move_order: Vec<u32>,
     pub ships_moved_this_phase: Vec<u32>,
     pub ships_ready_fire: Vec<u32>,
+    /// Living ships that have completed v2 power allocation this turn.
+    pub ships_allocated_this_turn: Vec<u32>,
     pub seed: u64,
     /// PRNG stream position for mid-game resume (TS3).
     pub prng_state: u64,
@@ -85,6 +87,7 @@ pub struct StateSnapshot {
 pub struct CombatLogEntry {
     pub attacker: u32,
     pub target: u32,
+    pub weapon: String,
     pub shield: usize,
     pub damage: u32,
     pub kind: String,
@@ -101,6 +104,7 @@ impl StateSnapshot {
             move_order: game.move_order().to_vec(),
             ships_moved_this_phase: game.moved_this_phase(),
             ships_ready_fire: game.ready_fire(),
+            ships_allocated_this_turn: game.allocated_this_turn(),
             seed: game.seed(),
             prng_state: game.prng_state(),
             map: MapSnapshot {
@@ -164,6 +168,7 @@ impl StateSnapshot {
                 .map(|e| CombatLogEntry {
                     attacker: e.attacker,
                     target: e.target,
+                    weapon: e.weapon.clone(),
                     shield: e.shield,
                     damage: e.damage,
                     kind: e.kind.clone(),

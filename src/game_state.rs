@@ -116,6 +116,7 @@ pub struct GameState {
 pub struct CombatLogEvent {
     pub attacker: u32,
     pub target: u32,
+    pub weapon: String,
     pub shield: usize,
     pub damage: u32,
     pub kind: String,
@@ -188,6 +189,13 @@ impl GameState {
 
     pub fn ready_fire(&self) -> Vec<u32> {
         let mut ids: Vec<u32> = self.ready_fire.iter().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Ships that have finished allocate this turn (sorted for deterministic snapshots).
+    pub fn allocated_this_turn(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self.allocated_this_turn.iter().copied().collect();
         ids.sort_unstable();
         ids
     }
@@ -599,6 +607,7 @@ impl GameState {
             self.combat_log.push(CombatLogEvent {
                 attacker: commit.ship,
                 target: commit.target,
+                weapon: commit.weapon.clone(),
                 shield: commit.shield_facing as usize,
                 damage,
                 kind: if hit { "hit".into() } else { "miss".into() },

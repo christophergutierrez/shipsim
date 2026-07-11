@@ -1,0 +1,4 @@
+# Session scratch stays under this tree only.
+/local/
+/target/
+**/*.log
