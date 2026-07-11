@@ -9,6 +9,8 @@ pub mod hex;
 pub mod momentum;
 pub mod movement;
 pub mod prng;
+pub mod protocol;
+pub mod save;
 pub mod scenario;
 pub mod schema;
 pub mod ship;

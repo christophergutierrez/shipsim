@@ -34,6 +34,7 @@ pub struct ShipSnapshot {
     pub keel: String,
     pub shields_powered: [u32; 6],
     pub shields_remaining: [u32; 6],
+    pub max_shield_per_facing: u32,
     /// Hull boxes remaining (SSD).
     pub structure: u32,
     pub engine: u32,
@@ -59,6 +60,7 @@ pub struct WeaponSnapshot {
 
 #[derive(Debug, Serialize)]
 pub struct StateSnapshot {
+    pub protocol_version: u32,
     pub turn: u32,
     /// Ship that may move now (v2 active mover), or `None` outside the movement phase.
     pub active_ship: Option<u32>,
@@ -91,6 +93,7 @@ pub struct CombatLogEntry {
 impl StateSnapshot {
     pub fn from_game_state(game: &GameState) -> Self {
         Self {
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
             turn: game.turn_number(),
             active_ship: game.active_v2_mover(),
             status: game.status(),
@@ -129,6 +132,7 @@ impl StateSnapshot {
                     keel: format!("{:?}", ship.keel).to_ascii_lowercase(),
                     shields_powered: ship.shields_powered,
                     shields_remaining: ship.shields_remaining,
+                    max_shield_per_facing: ship.max_shield_per_facing,
                     structure: ship.structure(),
                     engine: ship.ssd.engine,
                     power_sys: ship.ssd.power_sys,

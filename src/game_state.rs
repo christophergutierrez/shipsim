@@ -14,6 +14,7 @@ use crate::ship::Ship;
 pub enum ScenarioStatus {
     InProgress,
     Won,
+    Lost,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1087,6 +1088,15 @@ impl GameState {
     }
 
     pub fn refresh_status(&mut self) {
+        let player_ships: Vec<_> = self
+            .ships
+            .iter()
+            .filter(|ship| !self.npcs.contains_key(&ship.id))
+            .collect();
+        if !player_ships.is_empty() && !player_ships.iter().any(|ship| !ship.destroyed) {
+            self.status = ScenarioStatus::Lost;
+            return;
+        }
         self.status = match self.terminal {
             Some(Terminal::ReachHex(objective)) => {
                 if self.ships.iter().any(|ship| ship.pos == objective) {

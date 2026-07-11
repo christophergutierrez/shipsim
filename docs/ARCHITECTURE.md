@@ -73,7 +73,9 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 
 ## Persistence and compatibility
 
-Scenarios, ship definitions, campaigns, and test order streams are version-controlled inputs. Snapshots are the integration representation, not a stable long-term save format. Protocol changes may be breaking before a formal schema version is introduced, but fixtures and both clients must be updated together.
+Scenarios, ship definitions, campaigns, and test order streams are version-controlled inputs. Snapshots are the integration representation, while save files are deterministic replay documents. Breaking wire changes require a new protocol version, and fixtures and clients must be updated together.
+
+The external NDJSON contract is now versioned; see `docs/PROTOCOL.md`. Save files use deterministic scenario-plus-order replay with a verified PRNG checkpoint; see `docs/SAVE-FORMAT.md`.
 
 ## Verification
 

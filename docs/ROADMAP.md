@@ -16,11 +16,10 @@ The retired impulse, FASA, seeking-munition, and multi-bucket compatibility impl
 
 ## Recommended next work
 
-1. Perform a manual Love2D playthrough on desktop and verify allocation, repeated move/fire cycles, mutual fire, victory, scaling, pan, and zoom.
-2. Add a first-class `Lost` scenario status instead of deriving player defeat in the client.
-3. Version the NDJSON snapshot/order contract before external clients depend on it.
-4. Add a documented save/resume format around scenario identity, snapshot state, and PRNG state.
-5. Improve combat-log presentation and replay navigation.
+1. Build a simulation runner for automated gameplay evaluation and balance analysis.
+2. Use simulation results to drive a manual Love2D playthrough focused on high-value gameplay paths and UI behavior.
+3. Add campaign save/resume after campaign state and progression semantics are finalized.
+4. Improve combat-log presentation and replay navigation.
 
 ## Later features
 

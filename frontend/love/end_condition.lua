@@ -1,4 +1,4 @@
--- Win from core status; defeat derived from player ships (ADR-0018).
+-- Battle outcome from the core status.
 
 local end_condition = {}
 
@@ -23,18 +23,7 @@ function end_condition.evaluate(snapshot)
   if snapshot.status == "Won" then
     return "won"
   end
-  local players = end_condition.player_ships(snapshot)
-  if #players == 0 then
-    return nil
-  end
-  local any_alive = false
-  for _, s in ipairs(players) do
-    if not s.destroyed then
-      any_alive = true
-      break
-    end
-  end
-  if not any_alive then
+  if snapshot.status == "Lost" then
     return "defeat"
   end
   return nil

@@ -1,6 +1,6 @@
 # D8 frontend contract fixture
 
-Golden NDJSON stream for the Love thin client (ADR-0017).
+Golden protocol-v1 NDJSON stream for the Love thin client (ADR-0017).
 
 | File | Role |
 |------|------|
@@ -17,4 +17,4 @@ cargo run -q --bin shipsim -- \
   > tests/fixtures/d8/snapshots.jsonl
 ```
 
-Locked by `tests/harness.rs` (`test_d8_frontend_fixture_matches_harness`).
+Locked by `tests/harness.rs` (`test_d8_fixture_regenerate_lock`).

@@ -55,7 +55,7 @@ Players can inspect hull, shields, weapon readiness, movement power, phase, init
 
 ### Interface and automation
 
-- The Love2D client supports movement/weapon allocation, movement, passing, multi-weapon fire commitment, target-facing selection, turn ending, and battle outcome display. Six-facing defensive shield allocation remains a client UI gap; the Rust order contract already supports it.
+- The Love2D client supports movement, weapon, and six-facing shield allocation; movement and passing; multi-weapon fire commitment; target-facing selection; turn ending; and battle outcome display.
 - The CLI accepts NDJSON orders and emits snapshots suitable for clients, fixtures, and agents.
 - Invalid orders yield structured soft errors and do not mutate state.
 - Generic TOML ship and scenario data can define new battles without source changes.
@@ -84,7 +84,7 @@ The shipped MVP includes generic escort and heavy-cruiser data, v2 power/momentu
 
 ## Success criteria
 
-- A player can complete the v2 duel through Love2D without editing files; expose defensive shield allocation before describing the client as feature-complete.
+- A player can complete the v2 duel through Love2D without editing files.
 - The acceptance replay covers allocation and at least two move/fire cycles through a deterministic outcome.
 - Over-allocation, illegal movement, illegal fire, and malformed external orders are rejected cleanly.
 - Core and Lua headless test suites pass.

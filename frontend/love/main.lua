@@ -5,6 +5,7 @@ local harness = require("harness")
 local paths = require("paths")
 local phases = require("phases")
 local orders = require("orders")
+local allocation = require("allocation")
 local end_condition = require("end_condition")
 local ui_status = require("ui_status")
 local draw_board = require("draw_board")
@@ -294,22 +295,22 @@ local function handle_ui_hit(hit)
   end
   if id == "alloc_weapon_up" then
     local a = alloc_for(p.id)
-    a.weapons[p.weapon] = math.min(3, (a.weapons[p.weapon] or 0) + 1)
+    a.weapons[p.weapon] = allocation.increment(a.weapons[p.weapon], p.max)
     return true
   end
   if id == "alloc_weapon_dn" then
     local a = alloc_for(p.id)
-    a.weapons[p.weapon] = math.max(0, (a.weapons[p.weapon] or 0) - 1)
+    a.weapons[p.weapon] = allocation.decrement(a.weapons[p.weapon])
     return true
   end
   if id == "alloc_shield_up" then
     local a = alloc_for(p.id)
-    a.shields[p.face + 1] = (a.shields[p.face + 1] or 0) + 1
+    a.shields[p.face + 1] = allocation.increment(a.shields[p.face + 1], p.max)
     return true
   end
   if id == "alloc_shield_dn" then
     local a = alloc_for(p.id)
-    a.shields[p.face + 1] = math.max(0, (a.shields[p.face + 1] or 0) - 1)
+    a.shields[p.face + 1] = allocation.decrement(a.shields[p.face + 1])
     return true
   end
   if id == "alloc_confirm" then

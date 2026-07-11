@@ -28,7 +28,7 @@ Environment overrides:
 
 ## Turn flow
 
-1. Allocate ship power among movement and weapon charges, then confirm each player ship. The Rust order contract supports six shield facings, but the current Love panel does not expose those controls yet.
+1. Allocate ship power among movement, weapon charges, and six shield facings, then confirm each player ship.
 2. Move or pass for the active ship during each movement phase.
 3. Select charged weapons, a target, and a legal shield facing; commit fire and mark each ship ready.
 4. After simultaneous resolution, continue the next movement/firing cycle or end the turn.

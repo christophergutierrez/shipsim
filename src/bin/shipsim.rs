@@ -6,6 +6,8 @@ use std::process::ExitCode;
 use shipsim_core::campaign::Campaign;
 use shipsim_core::game_state::{GameState, ScenarioStatus};
 use shipsim_core::movement::{apply_order, Order};
+use shipsim_core::protocol::PROTOCOL_VERSION;
+use shipsim_core::save::SaveDocument;
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
 
@@ -17,11 +19,13 @@ enum OrderSource {
 enum Mode {
     Scenario(PathBuf),
     Campaign(PathBuf),
+    Resume(PathBuf),
 }
 
 struct Args {
     mode: Mode,
     orders: OrderSource,
+    save: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -42,9 +46,17 @@ fn run() -> Result<(), String> {
             let mut game = load_scenario(&path).map_err(|e| e.to_string())?;
             // Post-load snapshot so a thin client can paint before any order (D8).
             emit_snapshot(&game)?;
-            apply_orders(&mut game, &args.orders)?;
+            let orders = apply_orders(&mut game, &args.orders)?;
+            if let Some(save_path) = args.save {
+                SaveDocument::capture(path, orders, &game)
+                    .write(&save_path)
+                    .map_err(|error| error.to_string())?;
+            }
         }
         Mode::Campaign(path) => {
+            if args.save.is_some() {
+                return Err("--save is not supported with --campaign".to_string());
+            }
             let mut campaign = Campaign::load(&path).map_err(|e| e.to_string())?;
             loop {
                 let mut game = campaign.load_current().map_err(|e| e.to_string())?;
@@ -61,6 +73,19 @@ fn run() -> Result<(), String> {
                     break;
                 }
             }
+        }
+        Mode::Resume(path) => {
+            let mut document = SaveDocument::read(&path).map_err(|error| error.to_string())?;
+            let mut game = document.replay().map_err(|error| error.to_string())?;
+            emit_snapshot(&game)?;
+            document
+                .orders
+                .extend(apply_orders(&mut game, &args.orders)?);
+            document.prng_state = game.prng_state();
+            let save_path = args.save.unwrap_or(path);
+            document
+                .write(&save_path)
+                .map_err(|error| error.to_string())?;
         }
     }
 
@@ -85,6 +110,7 @@ fn emit_error(
 ) -> Result<(), String> {
     let mut body = serde_json::json!({
         "type": "error",
+        "protocol_version": PROTOCOL_VERSION,
         "ok": false,
         "code": code,
         "message": message,
@@ -100,28 +126,34 @@ fn emit_error(
     Ok(())
 }
 
-fn apply_orders(game: &mut GameState, orders: &OrderSource) -> Result<(), String> {
+fn apply_orders(game: &mut GameState, orders: &OrderSource) -> Result<Vec<Order>, String> {
+    let mut accepted = Vec::new();
     match orders {
         OrderSource::File(path) => {
             let text = std::fs::read_to_string(path)
                 .map_err(|error| format!("cannot read orders {path:?}: {error}"))?;
             for line in text.lines() {
-                apply_order_line(game, line)?;
+                if let Some(order) = apply_order_line(game, line)? {
+                    accepted.push(order);
+                }
             }
         }
         OrderSource::Stdin => {
             for line in io::stdin().lock().lines() {
                 let line = line.map_err(|error| format!("cannot read stdin: {error}"))?;
-                apply_order_line(game, &line)?;
+                if let Some(order) = apply_order_line(game, &line)? {
+                    accepted.push(order);
+                }
             }
         }
     }
-    Ok(())
+    Ok(accepted)
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut mode = None;
     let mut orders = None;
+    let mut save = None;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -140,6 +172,24 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                     .ok_or_else(|| "--campaign requires a path".to_string())?;
                 if mode.replace(Mode::Campaign(PathBuf::from(value))).is_some() {
                     return Err("choose exactly one of --scenario or --campaign".to_string());
+                }
+            }
+            "--resume" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| "--resume requires a path".to_string())?;
+                if mode.replace(Mode::Resume(PathBuf::from(value))).is_some() {
+                    return Err(
+                        "choose exactly one of --scenario, --campaign, or --resume".to_string()
+                    );
+                }
+            }
+            "--save" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| "--save requires a path".to_string())?;
+                if save.replace(PathBuf::from(value)).is_some() {
+                    return Err("--save may only be provided once".to_string());
                 }
             }
             "--orders" => {
@@ -163,35 +213,71 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     }
 
     Ok(Args {
-        mode: mode.ok_or_else(|| "--scenario or --campaign is required".to_string())?,
+        mode: mode.ok_or_else(|| "--scenario, --campaign, or --resume is required".to_string())?,
         orders: orders.ok_or_else(|| "choose exactly one of --orders or --stdin".to_string())?,
+        save,
     })
 }
 
-fn apply_order_line(game: &mut GameState, line: &str) -> Result<(), String> {
+fn apply_order_line(game: &mut GameState, line: &str) -> Result<Option<Order>, String> {
     if line.trim().is_empty() {
-        return Ok(());
+        return Ok(None);
     }
 
+    let order_val: serde_json::Value = match serde_json::from_str(line) {
+        Ok(value) => value,
+        Err(error) => {
+            emit_error(
+                "parse_error",
+                &format!("cannot parse order: {error}"),
+                None,
+                "harness",
+            )?;
+            return Ok(None);
+        }
+    };
+    let version = order_val
+        .get("protocol_version")
+        .and_then(serde_json::Value::as_u64);
+    if version != Some(u64::from(PROTOCOL_VERSION)) {
+        emit_error(
+            "unsupported_protocol",
+            &format!(
+                "order protocol_version must be {PROTOCOL_VERSION}, got {}",
+                version.map_or_else(|| "missing".to_string(), |value| value.to_string())
+            ),
+            Some(order_val),
+            "harness",
+        )?;
+        return Ok(None);
+    }
     let parsed: Result<Order, _> = serde_json::from_str(line);
     let order = match parsed {
         Ok(order) => order,
         Err(error) => {
-            let order_val = serde_json::from_str(line).ok();
-            return emit_error(
+            emit_error(
                 "parse_error",
                 &format!("cannot parse order: {error}"),
-                order_val,
+                Some(order_val),
                 "harness",
-            );
+            )?;
+            return Ok(None);
         }
     };
 
-    match apply_order(game, order) {
-        Ok(()) => emit_snapshot(game),
+    match apply_order(game, order.clone()) {
+        Ok(()) => {
+            emit_snapshot(game)?;
+            Ok(Some(order))
+        }
         Err(error) => {
-            let order_val = serde_json::from_str(line).ok();
-            emit_error("order_illegal", &error.to_string(), order_val, "harness")
+            emit_error(
+                "order_illegal",
+                &error.to_string(),
+                Some(order_val),
+                "harness",
+            )?;
+            Ok(None)
         }
     }
 }

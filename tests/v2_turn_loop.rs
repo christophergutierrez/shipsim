@@ -190,6 +190,18 @@ fn test_g5_destruction_win() {
     );
 }
 
+#[test]
+fn test_player_fleet_destruction_is_lost() {
+    let mut game = load_combat();
+    game.set_ship_structure(1, 0).unwrap();
+    game.refresh_status();
+
+    assert_eq!(
+        StateSnapshot::from_game_state(&game).status,
+        ScenarioStatus::Lost
+    );
+}
+
 /// G6: a fresh turn clears allocations, resets keel to stopped, zeroes shields and
 /// weapon charges, and clears weapon fired flags.
 #[test]

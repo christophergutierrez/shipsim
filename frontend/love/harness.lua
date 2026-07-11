@@ -4,6 +4,7 @@ local json = require("json")
 local paths = require("paths")
 
 local harness = {}
+local PROTOCOL_VERSION = 1
 
 local function shell_quote(s)
   return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
@@ -31,7 +32,15 @@ function harness.parse_stream(text)
     if line:match("%S") then
       local ok, obj = pcall(json.decode, line)
       if ok and type(obj) == "table" then
-        if obj.type == "error" then
+        if obj.protocol_version ~= PROTOCOL_VERSION then
+          errors[#errors + 1] = {
+            type = "error",
+            ok = false,
+            code = "unsupported_protocol",
+            message = "expected protocol version " .. PROTOCOL_VERSION,
+            source = "client",
+          }
+        elseif obj.type == "error" then
           errors[#errors + 1] = obj
         elseif obj.ships ~= nil or obj.turn ~= nil then
           snapshots[#snapshots + 1] = obj

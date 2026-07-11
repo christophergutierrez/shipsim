@@ -4,9 +4,8 @@
 
 Each **turn** has four phases, in order:
 
-1. **Allocate** — spend each ship's power pool on movement points and weapon
-   charges, then confirm the allocation. Shield allocation exists in the core and
-   NDJSON order but is not yet exposed by the Love2D allocation panel.
+1. **Allocate** — spend each ship's power pool on movement points, weapon
+   charges, and six shield facings, then confirm the allocation.
 2. **Movement** — ships move in id order. The **active ship** is shown
    in the header. Move it (Forward / Turn port / Turn starboard) or
    Pass, then the next ship moves.

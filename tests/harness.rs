@@ -65,7 +65,7 @@ fn test_soft_reject_illegal_fire() {
         // v2: fire before allocating — CommitFire is illegal in the Allocate phase.
         writeln!(
             stdin,
-            r#"{{"type":"commit_fire","ship":1,"weapon":"missing_weapon","target":2,"shield_facing":3}}"#
+            r#"{{"protocol_version":1,"type":"commit_fire","ship":1,"weapon":"missing_weapon","target":2,"shield_facing":3}}"#
         )
         .unwrap();
     }
@@ -77,6 +77,37 @@ fn test_soft_reject_illegal_fire() {
     );
     let lines = parse_stdout(&output.stdout);
     assert!(lines.iter().any(|v| v["type"] == "error"));
+}
+
+#[test]
+fn test_soft_reject_missing_protocol_version_without_mutation() {
+    let orders_path = std::env::temp_dir().join(format!(
+        "shipsim-unversioned-orders-{}.jsonl",
+        std::process::id()
+    ));
+    std::fs::write(
+        &orders_path,
+        r#"{"type":"allocate","ship":1,"movement":4,"weapons":{},"shields":[0,0,0,0,0,0]}"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_shipsim"))
+        .arg("--scenario")
+        .arg(manifest_path("scenarios/combat.toml"))
+        .arg("--orders")
+        .arg(&orders_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let lines: Vec<serde_json::Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[1]["code"], "unsupported_protocol");
+    assert_eq!(lines[1]["protocol_version"], 1);
+    assert_eq!(lines[0]["phase"], "allocate");
+    let _ = std::fs::remove_file(orders_path);
 }
 
 #[test]

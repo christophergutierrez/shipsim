@@ -1,7 +1,7 @@
 //! Orders for Combat v2 play (ADR-0019).
 //! Allocate → Move → Fire → Ready → EndTurn phase machine.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -9,7 +9,7 @@ use crate::game_state::{GameState, Phase};
 use crate::hex::Hex;
 use crate::momentum;
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MoveMode {
     Forward,
@@ -18,7 +18,7 @@ pub enum MoveMode {
     TurnStarboard,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Order {
     /// Combat v2: allocate movement, weapon charge, and shield power for one ship.

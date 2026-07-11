@@ -178,9 +178,34 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
         love.graphics.setColor(0.7, 0.75, 0.8)
         love.graphics.print(string.format("%s ch %d", w.id, ch), px + pad, y)
         ui.button("-", px + pad + 100, y - 2, 20, bh, "alloc_weapon_dn", { id = s.id, weapon = w.id }, false)
-        ui.button("+", px + pad + 124, y - 2, 20, bh, "alloc_weapon_up", { id = s.id, weapon = w.id }, false)
+        ui.button("+", px + pad + 124, y - 2, 20, bh, "alloc_weapon_up", {
+          id = s.id,
+          weapon = w.id,
+          max = w.max_charge or 0,
+        }, false)
         y = y + ui.line_h(13) + 1
       end
+      love.graphics.setColor(0.7, 0.75, 0.8)
+      love.graphics.print("shields", px + pad, y)
+      y = y + ui.line_h(13)
+      for face = 0, 5 do
+        local value = a.shields[face + 1] or 0
+        love.graphics.setColor(0.7, 0.75, 0.8)
+        love.graphics.print(string.format("%s %d", SHIELD_FACE[face + 1], value), px + pad, y)
+        ui.button("-", px + pad + 60, y - 2, 20, bh, "alloc_shield_dn", { id = s.id, face = face }, false)
+        ui.button("+", px + pad + 84, y - 2, 20, bh, "alloc_shield_up", {
+          id = s.id,
+          face = face,
+          max = s.max_shield_per_facing or 0,
+        }, false)
+        y = y + ui.line_h(13) + 1
+      end
+      local spent = a.movement
+      for _, charge in pairs(a.weapons) do spent = spent + charge end
+      for _, shield in ipairs(a.shields) do spent = spent + shield end
+      love.graphics.setColor(spent > (s.power or 0) and { 0.95, 0.4, 0.4 } or { 0.7, 0.75, 0.8 })
+      love.graphics.print(string.format("power %d / %d", spent, s.power or 0), px + pad, y)
+      y = y + ui.line_h(13) + 2
       ui.button("Allocate", px + pad, y, content_w, bh, "alloc_confirm", { id = s.id }, false)
       y = y + bh + 6
     end
