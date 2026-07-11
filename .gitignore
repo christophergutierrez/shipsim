@@ -13,6 +13,9 @@
 /tmp
 /.fastembed_cache
 
+# Frontend session scratch (also frontend/.gitignore and per-client .gitignore)
+/frontend/**/local/
+
 # Ephemeral session handoffs (local sticky notes; not product docs)
 HANDOFF.md
 **/HANDOFF.md

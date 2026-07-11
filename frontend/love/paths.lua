@@ -1,4 +1,5 @@
--- Repo root and shipsim binary discovery.
+-- Repo root, this client root, and shipsim binary discovery.
+-- Isolation: all Love scratch lives under frontend/love/local/ (see frontend/README.md).
 
 local paths = {}
 
@@ -11,6 +12,44 @@ local function file_exists(p)
   return false
 end
 
+local function shell_quote(s)
+  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+--- Absolute-ish path to this Love client tree (frontend/love).
+function paths.client_root()
+  if love and love.filesystem and love.filesystem.getSource then
+    local src = love.filesystem.getSource()
+    if src and src ~= "" then
+      return src
+    end
+  end
+  -- When required from luajit tests: directory containing this module.
+  local info = debug.getinfo(1, "S").source
+  if info and info:sub(1, 1) == "@" then
+    local dir = info:sub(2):match("(.+)[/\\]")
+    if dir and dir ~= "" then
+      return dir
+    end
+  end
+  return "."
+end
+
+--- Session scratch directory under this client only (created on demand).
+function paths.local_dir()
+  local dir = paths.client_root() .. "/local"
+  os.execute("mkdir -p " .. shell_quote(dir))
+  return dir
+end
+
+function paths.default_orders_path()
+  return paths.local_dir() .. "/orders.jsonl"
+end
+
+function paths.default_stderr_path()
+  return paths.local_dir() .. "/shipsim_stderr.txt"
+end
+
 --- Repo root: directory containing Cargo.toml and scenarios/.
 function paths.find_repo_root()
   local env = os.getenv("SHIPSIM_ROOT")
@@ -19,6 +58,8 @@ function paths.find_repo_root()
   end
   -- love.filesystem source may be frontend/love; walk up.
   local candidates = {
+    paths.client_root() .. "/../..",
+    paths.client_root() .. "/..",
     ".",
     "..",
     "../..",

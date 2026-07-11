@@ -59,7 +59,13 @@ With two player ships: finish **End/Pass on ship #1**, then ship #2 becomes Acti
 ## Running
 
 ```
-cargo run -- --scenario scenarios/combat.toml
-luajit frontend/love/tests/run_all.lua   # frontend tests
-love frontend/love                        # graphical client
+cargo build
+python3 frontend/repl/repl.py scenarios/ai.toml   # interactive dev client (recommended)
+python3 frontend/repl/client.py                   # non-interactive smoke
+luajit frontend/love/tests/run_all.lua            # Love unit tests
+love frontend/love                                # graphical client (secondary)
 ```
+
+All clients and their session logs live under `frontend/<name>/` (see
+`frontend/README.md`). Do not scatter frontend scratch at the repo root, in
+repo `/tmp`, or system `/tmp`.

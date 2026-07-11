@@ -1,0 +1,2 @@
+# Per-client session scratch (also listed in each client's .gitignore)
+**/local/

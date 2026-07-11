@@ -2,6 +2,17 @@
 
 Thin client for Combat Model v2 over the `shipsim` NDJSON harness. All movement and combat rules remain in Rust.
 
+**This directory is the entire Love client.** Code, tests, and session scratch live here only. See `frontend/README.md` for isolation rules. Deleting `frontend/love/` must not break the engine or other clients.
+
+```
+frontend/love/
+  *.lua            # client modules
+  tests/           # headless luajit gates
+  local/           # gitignored orders/stderr dumps
+  .gitignore
+  README.md
+```
+
 See `docs/ARCHITECTURE.md`, `docs/PRD.md`, and ADR-0017, ADR-0018, and ADR-0020 under `docs/adr/`.
 
 ## Requirements
@@ -19,7 +30,7 @@ cargo build -q
 love frontend/love
 ```
 
-The scenario picker loads current TOML scenarios. The client replays accepted orders through the Rust harness and displays its latest snapshot.
+The scenario picker loads current TOML scenarios. The client replays accepted orders through the Rust harness and displays its latest snapshot. Order/stderr files go to `frontend/love/local/`, not the repo root or system `/tmp`.
 
 Environment overrides:
 

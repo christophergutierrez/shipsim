@@ -1,0 +1,5 @@
+# Session scratch stays under this tree only (never repo root /tmp).
+/local/
+*.pyc
+__pycache__/
+*.log

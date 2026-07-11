@@ -21,7 +21,9 @@ function harness.new(opts)
     orders = {}, -- successful order tables
     snapshot = nil,
     last_error = nil,
-    orders_path = opts.orders_path or (repo .. "/tmp/love_orders.jsonl"),
+    -- Scratch stays under frontend/love/local/ (never repo /tmp or system /tmp).
+    orders_path = opts.orders_path or paths.default_orders_path(),
+    stderr_path = opts.stderr_path or paths.default_stderr_path(),
   }
 end
 
@@ -63,12 +65,15 @@ end
 function harness.run(session)
   assert(session.scenario, "scenario required")
   harness.write_orders(session)
+  local stderr_path = session.stderr_path or paths.default_stderr_path()
+  session.stderr_path = stderr_path
   local cmd = string.format(
-    "cd %s && %s --scenario %s --orders %s 2>/tmp/shipsim_love_stderr.txt",
+    "cd %s && %s --scenario %s --orders %s 2>%s",
     shell_quote(session.repo_root),
     shell_quote(session.bin),
     shell_quote(session.scenario),
-    shell_quote(session.orders_path)
+    shell_quote(session.orders_path),
+    shell_quote(stderr_path)
   )
   local p = io.popen(cmd, "r")
   if not p then
@@ -93,7 +98,7 @@ function harness.run(session)
     session.last_error = nil
   end
   if not ok_close and #snapshots == 0 then
-    local errf = io.open("/tmp/shipsim_love_stderr.txt", "r")
+    local errf = io.open(stderr_path, "r")
     local stderr = errf and errf:read("*a") or ""
     if errf then
       errf:close()

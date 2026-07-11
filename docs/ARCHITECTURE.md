@@ -24,9 +24,28 @@ The current product rules are Combat Model v2 as accepted in ADR-0020. Earlier i
 
 The `shipsim` binary loads a scenario, accepts newline-delimited JSON orders, and emits JSON snapshots or soft errors. This is the primary automation and integration boundary. Given the same scenario, order stream, and seed, its output must be deterministic.
 
-### Love2D client
+### Frontends
 
-`frontend/love/` is a thin client over the harness contract. It owns display, input, order construction, and presentation state. It does not calculate legal movement, hit chance, damage, or phase transitions.
+All clients live under `frontend/`. Policy is in `frontend/README.md`:
+
+- one directory tree per client (`frontend/<name>/`);
+- each client's code, tests, and untracked scratch stay under that tree
+  (`frontend/<name>/local/` is gitignored);
+- clients must not depend on each other or on engine internals beyond the public
+  NDJSON harness (`docs/PROTOCOL.md`);
+- the core and its `tests/` must not depend on anything under `frontend/`;
+- adding or deleting a client must not require engine changes beyond optional
+  docs pointers.
+
+Current clients:
+
+- `frontend/repl/` — interactive Python dev client (`--stdin` NDJSON).
+- `frontend/love/` — Love2D graphical thin client (display, input, order
+  construction only).
+
+Neither client reimplements rules or AI. After load and after each accepted
+order, the harness runs `GameState::resolve_v2_npc_actions` so
+`controller = "ai"` ships act without the client inventing NPC orders.
 
 ## Core model
 
@@ -49,7 +68,7 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 | Combat | `combat`, `combat_tables`, `ssd`, `prng` | Weapon data, hit/damage rules, damage application, determinism |
 | Content | `schema`, `scenario`, `ship`, `campaign` | TOML schemas, loading, ship instances, campaign setup |
 | Orchestration | `turn`, `ai` | Turn counter and NPC actions |
-| Adapters | `src/bin/shipsim.rs`, `frontend/love/` | NDJSON harness and graphical client |
+| Adapters | `src/bin/shipsim.rs`, `frontend/repl/`, `frontend/love/` | NDJSON harness, REPL dev client, Love client |
 
 ## Data and control flow
 

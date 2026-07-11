@@ -44,6 +44,9 @@ fn run() -> Result<(), String> {
     match args.mode {
         Mode::Scenario(path) => {
             let mut game = load_scenario(&path).map_err(|e| e.to_string())?;
+            // Let AI ships act before the first human order when the opening
+            // phase is entirely NPC-driven (e.g. AI-only allocate).
+            game.resolve_v2_npc_actions();
             // Post-load snapshot so a thin client can paint before any order (D8).
             emit_snapshot(&game)?;
             let orders = apply_orders(&mut game, &args.orders)?;
@@ -60,6 +63,7 @@ fn run() -> Result<(), String> {
             let mut campaign = Campaign::load(&path).map_err(|e| e.to_string())?;
             loop {
                 let mut game = campaign.load_current().map_err(|e| e.to_string())?;
+                game.resolve_v2_npc_actions();
                 emit_snapshot(&game)?;
                 apply_orders(&mut game, &args.orders)?;
                 if game.status() == ScenarioStatus::Won {
@@ -77,6 +81,7 @@ fn run() -> Result<(), String> {
         Mode::Resume(path) => {
             let mut document = SaveDocument::read(&path).map_err(|error| error.to_string())?;
             let mut game = document.replay().map_err(|error| error.to_string())?;
+            game.resolve_v2_npc_actions();
             emit_snapshot(&game)?;
             document
                 .orders
@@ -267,6 +272,9 @@ fn apply_order_line(game: &mut GameState, line: &str) -> Result<Option<Order>, S
 
     match apply_order(game, order.clone()) {
         Ok(()) => {
+            // Drive greedy AI until a human must act or the scenario ends.
+            // Clients (REPL, Love) never reimplement AI; they only send player orders.
+            game.resolve_v2_npc_actions();
             emit_snapshot(game)?;
             Ok(Some(order))
         }

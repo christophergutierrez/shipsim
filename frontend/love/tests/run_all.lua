@@ -112,7 +112,9 @@ local repo = resolve_repo()
 local session = harness.new({
   repo_root = repo,
   bin = paths.find_shipsim_bin(repo),
-  orders_path = repo .. "/tmp/love_test_orders.jsonl",
+  -- Scratch under frontend/love/local/ only (frontend isolation policy).
+  orders_path = paths.local_dir() .. "/test_orders.jsonl",
+  stderr_path = paths.local_dir() .. "/test_stderr.txt",
 })
 local snap = harness.load_scenario(session, "scenarios/combat.toml")
 assert(snap, "load")
