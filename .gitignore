@@ -11,7 +11,10 @@
 
 # Local scratch / caches (not part of the project)
 /tmp
-/.fastembed_cache
+.fastembed_cache/
+
+# LibreOffice lock files
+.~lock.*#
 
 # Frontend session scratch (also frontend/.gitignore and per-client .gitignore)
 /frontend/**/local/
