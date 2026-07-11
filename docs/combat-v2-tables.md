@@ -1,6 +1,6 @@
 # Combat Model v2 — Working Tables
 
-Authoritative for implementation (ADR-0020 / `implementation-plan-combat-v2.md`).  
+Authoritative for implementation (ADR-0020 / `docs/PRD.md`).
 Tune only with an explicit doc change.
 
 ## Max range

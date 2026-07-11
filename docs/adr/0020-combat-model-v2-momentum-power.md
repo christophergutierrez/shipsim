@@ -70,7 +70,7 @@ Love client (ADR-0001/0017), and soft-error harness (ADR-0018) remain.
 
 ## Related
 
-- `docs/CONTEXT.md` (grill log)
-- `docs/PRD-combat-model-v2.md` (product spec)
+- `docs/PRD.md` (current product spec)
+- `docs/ARCHITECTURE.md` (current system structure)
 - `tmp/game_mechinics.md` (seed notes)
 - Supersedes: ADR-0019 combat end-state (infrastructure decisions may still apply)

@@ -1,5 +1,5 @@
 //! M5 gates: turn loop, EndTurn + end_turn_warning, multi-cycle, destruction win,
-//! and per-turn reset. See `implementation-plan-combat-v2.md` milestone M5.
+//! and per-turn reset. See `docs/PRD.md`.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

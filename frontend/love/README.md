@@ -2,7 +2,9 @@
 
 Thin client over the `shipsim` JSON harness. **No game rules in Lua.**
 
-See `docs/ADR-0017`, `docs/ADR-0018`, `docs/D8-FRONTEND-BRIEF.md`, `docs/PRD-d8-love-frontend.md`.
+See `docs/adr/0017-love2d-json-thin-client.md`,
+`docs/adr/0018-d8-harness-soft-errors-and-controller.md`, `docs/ARCHITECTURE.md`, and
+`docs/PRD.md`.
 
 ## Requirements
 

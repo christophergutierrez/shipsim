@@ -30,3 +30,4 @@ Thumbs.db
 
 # Ephemeral agent runtime state
 .flocode/
+.killhouse/

@@ -1,5 +1,5 @@
 //! M6 gates: greedy v2 AI + multi-ship scenarios driven through the v2 phase
-//! machine. See `implementation-plan-combat-v2.md` milestone M6.
+//! machine. See `docs/PRD.md`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;

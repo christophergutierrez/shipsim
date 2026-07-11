@@ -36,7 +36,7 @@ rules. The harness proves the order/snapshot contract.
    required for a playable D8.
 5. **Verification primary path:** headless and agent-runnable — `cargo test`, harness golden
    fixtures, pure Lua unit tests (no `love.*`). Human visual check is last resort for pixels/feel
-   only. See `docs/D8-FRONTEND-BRIEF.md`.
+   only. See `docs/ARCHITECTURE.md`.
 
 ## Consequences
 

@@ -22,7 +22,7 @@ will not produce the preferred feel.
 2. **Supersede** ADR-0002's end-state requirement of 32-impulse IMC + simultaneous pre-plot as the
    product target. Impulse code may remain temporarily as dead/legacy until removed by plan
    milestones; it is not the long-term model.
-3. Product spec: `docs/PRD-fasa-stcs-pivot.md`. Execution: `implementation-plan-fasa-stcs.md`.
+3. The superseded product spec and execution plan are retained only in local project archives.
 3. **Keep** where possible: hex board, six shield facings, SSD/internals ideas, pure Rust core +
    JSON harness + thin Love client, headless tests, generic TOML ships.
 4. **Replace**: turn loop (`RunTurn` / IMC / IFF fire queue), order set (plot-then-run), energy

@@ -4,7 +4,7 @@
 //! — driven in-process via `apply_order`, plus a byte-lock harness test against
 //! the golden fixture `tests/fixtures/v2/duel.jsonl`.
 //!
-//! Spec: `implementation-plan-combat-v2.md` M9 (lines 467-475).
+//! Spec: `docs/PRD.md` and ADR-0020.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-07-04
-Amends: CONTEXT.md assumption A4 ("no RNG in slice 1")
+Amends: the historical Slice 1 assumption A4 ("no RNG in slice 1")
 
 ## Context
 

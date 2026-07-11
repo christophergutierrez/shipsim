@@ -1,6 +1,7 @@
-# shipsim — Roadmap & Deferred Backlog
+# shipsim - Roadmap and Deferred Backlog
 
-Legend: REALIZED · 🎯 later · ▶ residual polish
+The current product definition is `docs/PRD.md`; system structure is documented in
+`docs/ARCHITECTURE.md`. Earlier rulesets remain recorded in ADRs but are not active product modes.
 
 ---
 
@@ -20,14 +21,14 @@ Legend: REALIZED · 🎯 later · ▶ residual polish
 | D4 | Map edge policy | Hard vs floating recenter (ADR-0015) |
 | D10 | Fleets + campaigns | fleet.toml, campaigns/, CLI `--campaign` (ADR-0016) |
 | Hygiene | Multi-ship readiness | Fire ship id, Terminal, BTreeMap, load checks |
-| Arch | Encapsulation, turn module, pure combat | ARCHITECTURE-slice3 + state plan |
+| Arch | Encapsulation, turn module, pure combat | `docs/ARCHITECTURE.md` |
 
 ## Rules pivot (next major effort)
 
 ### Combat model v2  REALIZED MVP (ADR-0020)
 - Momentum moves; allocate move/weapons/shields; move-phase ↔ fire-phase loop; d20 range tables.
 - Supersedes Bocchino 3-round MVP (ADR-0019) and SFB impulse (ADR-0002) as product target.
-- PRD: `docs/PRD-combat-model-v2.md`. Plan: **`implementation-plan-combat-v2.md`** (M0–M9, COMPLETE).
+- PRD: `docs/PRD.md`.
 - Milestones M0–M9 complete: pure rules modules, data model + Allocate, movement + momentum, firing + simultaneous resolve, turn loop + win, AI + multi-ship, FASA/legacy deletion, Love client v2, acceptance package.
 - Acceptance: `tests/acceptance.rs` (two move cycles, deterministic seed 4242) + golden fixture `tests/fixtures/v2/duel.jsonl` (byte-lock).
 
@@ -39,11 +40,11 @@ Legend: REALIZED · 🎯 later · ▶ residual polish
 
 ## Stop line for prior effort
 
-### D8. Graphical frontend  REALIZED (ADR-0017, ADR-0018) — built on impulse core; will retarget in FASA M7
+### D8. Graphical frontend - REALIZED (ADR-0017, ADR-0018)
 - **Love2D** at `frontend/love/` over **JSON orders-file replay**; no rules in Lua.
 - Soft-error NDJSON + `controller` on snapshot. Scenario picker, phases, multi-ship, win/defeat.
 - Launch: `cargo build && love frontend/love`. Headless: `luajit frontend/love/tests/run_all.lua`.
-- Agent workflow: `docs/D8-FRONTEND-BRIEF.md`. Golden: `tests/fixtures/d8/`. FFI deferred.
+- Golden replay: `tests/fixtures/v2/duel.jsonl`. FFI deferred.
 
 ## Residual polish (not blocking core)
 
