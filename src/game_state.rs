@@ -114,8 +114,6 @@ pub struct GameState {
     combat_log: Vec<CombatLogEvent>,
     /// Non-player controller labels and AI behavior. BTreeMap keeps iteration deterministic.
     npcs: BTreeMap<u32, NpcController>,
-    /// Progress made in current movement+firing cycle (E2): true if a hex changed or damage dealt.
-    progress_made_this_cycle: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -163,7 +161,6 @@ impl GameState {
             fired_weapons_this_turn: HashSet::new(),
             combat_log: Vec::new(),
             npcs,
-            progress_made_this_cycle: false,
         };
         state.reset_all_power();
         state.refresh_status();
@@ -331,7 +328,6 @@ impl GameState {
         self.phase = Phase::Movement;
         self.movement_phase = 1;
         self.maneuver_commits.clear();
-        self.progress_made_this_cycle = false;
     }
 
     /// Commit one maneuver for `ship` during the current movement phase (ADR-0022 M4).
@@ -495,19 +491,16 @@ impl GameState {
             }
         }
         if !active.is_empty() {
-            self.progress_made_this_cycle = true;
             self.maybe_float_recenter();
         }
 
-        // Step 5: advance the phase counter. M4 has no fire integration: the turn ends
-        // directly after phase 4 instead of entering `Phase::Firing` (M5 interleaves fire
-        // between phases).
+        // Step 5: every resolved movement phase is followed by a fire window
+        // (ADR-0022 M5). `movement_phase` is left as the phase whose translation
+        // just resolved; it advances only after fire resolves (`resolve_fire_phase_v2`).
         self.maneuver_commits.clear();
-        if self.movement_phase < 4 {
-            self.movement_phase += 1;
-        } else {
-            self.phase = Phase::TurnEnd;
-        }
+        self.fire_commits.clear();
+        self.ready_fire.clear();
+        self.phase = Phase::Firing;
     }
 
     pub fn commit_fire_v2(
@@ -644,7 +637,6 @@ impl GameState {
         commits.sort_by(|a, b| a.ship.cmp(&b.ship).then_with(|| a.weapon.cmp(&b.weapon)));
         let snapshot = self.ships.clone();
         let mut results = Vec::new();
-        let combat_log_start = self.combat_log.len();
 
         for commit in &commits {
             self.validate_fire_commit_against_v2_snapshot(commit, &snapshot)?;
@@ -699,20 +691,19 @@ impl GameState {
             });
         }
 
-        if self.combat_log.len() > combat_log_start {
-            self.progress_made_this_cycle = true;
-        }
-
         self.fire_commits.clear();
         self.ready_fire.clear();
         self.refresh_status();
-        // Turn-loop decision (frozen state machine): once a batch resolves, return to a
-        // fresh movement phase if anyone can still move or fire legally AND progress was made;
-        // otherwise the turn ends. A finished scenario simply parks at TurnEnd.
-        if self.status == ScenarioStatus::Won {
+        // Turn-loop decision (ADR-0022 M5, frozen four-phase schedule): a finished scenario
+        // parks at TurnEnd immediately; otherwise fire always returns to the next movement
+        // phase, or ends the turn after phase 4. There is no re-entry heuristic — the phase
+        // counter is the only termination condition.
+        if self.status != ScenarioStatus::InProgress {
             self.phase = Phase::TurnEnd;
-        } else if self.progress_made_this_cycle && self.can_any_legal_fire() {
-            self.begin_v2_movement_phase();
+        } else if self.movement_phase < 4 {
+            self.movement_phase += 1;
+            self.phase = Phase::Movement;
+            self.maneuver_commits.clear();
         } else {
             self.phase = Phase::TurnEnd;
         }
@@ -922,22 +913,16 @@ impl GameState {
     }
 
     fn apply_v2_damage(&mut self, target: u32, shield_facing: u8, damage: u32) {
-        let (had_damage, _had_overflow) = {
-            let Some(ship) = self.ship_mut(target) else {
-                return;
-            };
-            let facing = (shield_facing % 6) as usize;
-            let absorbed = ship.shields_remaining[facing].min(damage);
-            ship.shields_remaining[facing] -= absorbed;
-            let overflow = damage - absorbed;
-            if overflow > 0 {
-                ship.ssd.apply_internal(overflow);
-                ship.destroyed = ship.ssd.is_destroyed();
-            }
-            (damage > 0, overflow > 0)
+        let Some(ship) = self.ship_mut(target) else {
+            return;
         };
-        if had_damage {
-            self.progress_made_this_cycle = true;
+        let facing = (shield_facing % 6) as usize;
+        let absorbed = ship.shields_remaining[facing].min(damage);
+        ship.shields_remaining[facing] -= absorbed;
+        let overflow = damage - absorbed;
+        if overflow > 0 {
+            ship.ssd.apply_internal(overflow);
+            ship.destroyed = ship.ssd.is_destroyed();
         }
     }
 
@@ -1135,9 +1120,6 @@ impl GameState {
     pub fn set_ship_pos(&mut self, id: u32, pos: Hex) -> Result<(), StateError> {
         let ship = self.ship_mut(id).ok_or(StateError::ShipNotFound(id))?;
         ship.pos = pos;
-        if self.phase == Phase::Movement {
-            self.progress_made_this_cycle = true;
-        }
         Ok(())
     }
 

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use shipsim_core::hex::Hex;
+use shipsim_core::motion::Maneuver;
 use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
@@ -129,12 +130,6 @@ fn e1_scripted_ships_wait_for_external_orders() {
 /// facing 3 (no tie), giving `relative_bearing` 0 (dead ahead, in the Forward
 /// mount's `[0]` arc) at range 4, where `beam_damage(4, 4) = Some(6)`.
 #[test]
-#[ignore = "blocked on M5 fire interleaving (ADR-0022): Phase::Firing is unreachable from \
-            Phase::Movement in M4. Un-ignoring after M5 is not enough on its own — this test also \
-            needs a four-phase coast loop added (see resolve_phase_with/coast_all in \
-            tests/inertial_movement.rs) before the allocate calls, since zero movement no longer \
-            auto-skips straight to firing; every living ship must still commit a maneuver each of \
-            the four phases first"]
 fn e3_ai_never_targets_own_side() {
     let mut game = load_fleet();
     game.set_ship_structure(2, 0).unwrap(); // remove ship 2 from play
@@ -145,12 +140,22 @@ fn e3_ai_never_targets_own_side() {
     game.set_ship_facing(4, 0).unwrap();
     // Ship 1 (player) stays at its scenario default (1, 3).
 
-    // Zero movement for everyone so the movement phase auto-skips straight to
-    // firing with no facing changes (isolating the firing-phase target
-    // selection, which is what's under test here).
     allocate(&mut game, 1, 0, &[], [0; 6]);
     allocate(&mut game, 3, 0, &[("beam_1", 4)], [0; 6]);
     allocate(&mut game, 4, 0, &[("beam_1", 4)], [0; 6]);
+    // Coast every living ship through the current movement phase (ADR-0022 M4:
+    // every living ship must commit exactly once) — Coast makes no facing/course
+    // change, isolating the firing-phase target selection under test here.
+    for id in [1u32, 3, 4] {
+        apply_order(
+            &mut game,
+            Order::CommitManeuver {
+                ship: id,
+                maneuver: Maneuver::Coast,
+            },
+        )
+        .expect("coast commits");
+    }
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
 
     game.resolve_v2_npc_actions();
@@ -215,19 +220,24 @@ fn e4_snapshot_exposes_power_available() {
 /// the firing phase, which is unreachable from Movement in M4 (ADR-0022) until
 /// M5 interleaves fire back in.
 #[test]
-#[ignore = "blocked on M5 fire interleaving (ADR-0022): Phase::Firing is unreachable from \
-            Phase::Movement in M4"]
 fn e4b_snapshot_power_available_drops_after_damage() {
     let mut game = load_combat();
     game.set_ship_facing(1, 3).unwrap();
     game.set_ship_pos(2, Hex::new(0, 0)).unwrap();
     game.set_ship_facing(2, 0).unwrap();
-    // Different movement allocations break the initiative tie so no PRNG roll
-    // is consumed before to-hit (same technique as G5 in
-    // tests/v2_turn_loop.rs): seed 4242's first d20 is 16, a hit vs beam r1 (18).
+    // Seed 4242's first d20 is 16, a hit vs a range-1 beam threshold of 18.
     allocate(&mut game, 1, 0, &[("beam_1", 3)], [0; 6]);
     allocate(&mut game, 2, 1, &[], [0; 6]); // zero shields: overflow = full damage
-    apply_order(&mut game, Order::PassMove { ship: 2 }).expect("ship2 passes its move");
+    for id in [1u32, 2] {
+        apply_order(
+            &mut game,
+            Order::CommitManeuver {
+                ship: id,
+                maneuver: Maneuver::Coast,
+            },
+        )
+        .expect("coast commits");
+    }
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
 
     commit(&mut game, 1, "beam_1", 2);

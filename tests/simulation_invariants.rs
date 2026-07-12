@@ -8,9 +8,12 @@ fn scenario() -> PathBuf {
 }
 
 #[test]
-#[ignore = "blocked on M5 fire interleaving (ADR-0022): Phase::Firing is unreachable from \
-            Phase::Movement in M4, so no simulated match can ever produce damage or a \
-            destruction/objective terminus yet"]
+#[ignore = "blocked on M7 (ADR-0022), not M5: Phase::Firing is reachable now, but simulation \
+            policies still coast every movement phase (the ai::v2_move_decision/CommitManeuver \
+            stub is M3-M6 scope, replaced by real maneuver selection in M7). scenarios/simulation_duel.toml \
+            places the two ships 15 hexes apart — farther than any weapon's max range — so with \
+            no policy ever closing that distance, no damage is ever dealt and the match never \
+            reaches a terminus within max_turns. Revisit once M7 lands real maneuver-selection logic"]
 fn baseline_match_terminates_without_illegal_orders() {
     let result = run_match(&MatchConfig {
         scenario: scenario(),

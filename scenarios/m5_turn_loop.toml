@@ -1,0 +1,25 @@
+width = 30
+height = 20
+seed = 4242
+
+# M5 fire-interleaving/turn-loop test scenario (ADR-0022). Two heavy_cruiser
+# hulls (max_velocity 4, 1:1 thrust conversion, forward-mounted beam/torp/
+# plasma) on a large hard-mode board with plenty of room to close range, and
+# no destruction terminal — so tests can destroy either ship without ending
+# the scenario.
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 1
+r = 0
+facing = 3
+controller = "player"
+
+[[ships]]
+id = 2
+class = "heavy_cruiser"
+q = 0
+r = 0
+facing = 0
+controller = "player"

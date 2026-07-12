@@ -35,7 +35,9 @@ fn allocate_all(game: &mut GameState, movement: u32) {
 }
 
 /// Commit `maneuver` for `ship` and `Maneuver::Coast` for every other ship,
-/// resolving the current phase.
+/// then ready every ship's (empty) fire commitment — resolving the current
+/// phase's maneuvers, translation, and fire window (ADR-0022 M5) into the
+/// next movement phase.
 fn resolve_phase_with(game: &mut GameState, ship: u32, maneuver: Maneuver) {
     for other in ALL_SHIPS {
         let m = if other == ship {
@@ -51,6 +53,9 @@ fn resolve_phase_with(game: &mut GameState, ship: u32, maneuver: Maneuver) {
             },
         )
         .expect("commit");
+    }
+    for ship in ALL_SHIPS {
+        apply_order(game, Order::ReadyFire { ship }).expect("ready fire");
     }
 }
 

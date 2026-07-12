@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use shipsim_core::game_state::ScenarioStatus;
+use shipsim_core::motion::Maneuver;
 use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
@@ -73,42 +74,51 @@ fn test_g1_ai_duel_runs_three_turns_without_panic() {
     );
 }
 
-/// G2: a 2v2 fleet. After every ship allocates, `move_order` holds all four ids
-/// and each of the four gets exactly one movement decision this phase.
+/// G2: a 2v2 fleet. After every ship allocates, the movement phase requires
+/// exactly one maneuver commitment from each of the four living ships before
+/// it resolves into the fire window (ADR-0022 M4/M5: there is no single
+/// active mover any more — every living ship commits once per phase).
 #[test]
-fn test_g2_fleet_move_order_and_decisions() {
+fn test_g2_fleet_all_four_ships_commit_once_before_firing() {
     let mut game = load_fleet();
 
-    // Everyone allocates some movement so all four are movers in one phase.
+    // Everyone allocates some movement so all four have thrust this phase.
     allocate(&mut game, 1, 2, &[], [0; 6]);
     allocate(&mut game, 2, 2, &[], [0; 6]);
     allocate(&mut game, 3, 2, &[], [0; 6]);
     allocate(&mut game, 4, 2, &[], [0; 6]);
+    assert_eq!(StateSnapshot::from_game_state(&game).phase, "movement");
 
-    let move_order = StateSnapshot::from_game_state(&game).move_order;
-    assert_eq!(move_order.len(), 4, "move_order = {move_order:?}");
-    for id in [1u32, 2, 3, 4] {
-        assert!(move_order.contains(&id), "move_order missing {id}");
-    }
-
-    // Drive the movement phase one active mover at a time; each of the four must
-    // get a decision (here a legitimate pass) before the phase closes.
+    // Drive the movement phase one commitment at a time; each of the four
+    // must get exactly one decision (here a legitimate coast) before the
+    // phase closes.
     let mut decided: BTreeSet<u32> = BTreeSet::new();
     let mut guard = 0;
     while StateSnapshot::from_game_state(&game).phase == "movement" {
         guard += 1;
         assert!(guard < 20, "movement phase did not converge");
-        let Some(active) = game.active_v2_mover() else {
+        let snapshot = StateSnapshot::from_game_state(&game);
+        let Some(ship) = [1u32, 2, 3, 4]
+            .into_iter()
+            .find(|id| !snapshot.ships_committed_this_phase.contains(id))
+        else {
             break;
         };
-        decided.insert(active);
-        apply_order(&mut game, Order::PassMove { ship: active }).expect("pass move");
+        decided.insert(ship);
+        apply_order(
+            &mut game,
+            Order::CommitManeuver {
+                ship,
+                maneuver: Maneuver::Coast,
+            },
+        )
+        .expect("commit maneuver");
     }
 
     assert_eq!(
         decided,
         BTreeSet::from([1, 2, 3, 4]),
-        "each of the four ships should get a move decision"
+        "each of the four ships should get a maneuver decision"
     );
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
 }

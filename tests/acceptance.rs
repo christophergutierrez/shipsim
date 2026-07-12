@@ -54,13 +54,8 @@ fn run_fire_cycle(
     )
     .unwrap();
 
-    // Movement phase: both ships are adjacent and blocked forward, so each
-    // passes its move decision. This still exercises the movement phase and
-    // the active-mover rotation.
-    //
-    // M3: move order is now by thrust_remaining descending. Ship 2 (escort,
-    // 2 power × 4 thrust/power = 8 thrust) moves before ship 1 (cruiser,
-    // 4 power × 1 = 4 thrust).
+    // Movement phase 1: both ships coast (PassMove == commit Maneuver::Coast,
+    // ADR-0022 M4) to resolve into this phase's fire window.
     apply_order(game, Order::PassMove { ship: 2 }).unwrap();
     apply_order(game, Order::PassMove { ship: 1 }).unwrap();
 
@@ -92,9 +87,6 @@ fn run_fire_cycle(
 /// driven in-process. The scenario seed (4242) fixes the PRNG so the combat
 /// log is deterministic: turn 1 hits for 2 damage, turn 2 misses.
 #[test]
-#[ignore = "blocked on M5 fire interleaving (ADR-0022): Phase::Firing is unreachable from \
-            Phase::Movement in M4, and a movement phase is no longer skippable by a single \
-            PassMove (four phases must resolve first)"]
 fn test_v2_acceptance_two_move_cycles() {
     let mut game = load_scenario(&manifest_path("scenarios/combat.toml")).expect("scenario");
     assert_eq!(game.seed(), 4242, "scenario seed is fixed");

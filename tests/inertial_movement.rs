@@ -51,8 +51,18 @@ fn commit(game: &mut GameState, ship: u32, maneuver: Maneuver) -> Result<(), Ord
     apply_order(game, Order::CommitManeuver { ship, maneuver })
 }
 
+/// Ready every ship's (empty) fire commitment, resolving the fire window that
+/// follows every movement phase (ADR-0022 M5) and advancing to the next
+/// movement phase or turn end.
+fn ready_all(game: &mut GameState) {
+    for ship in ALL_SHIPS {
+        apply_order(game, Order::ReadyFire { ship }).expect("ready fire");
+    }
+}
+
 /// Commit `maneuver` for `ship` and `Maneuver::Coast` for every other living ship
-/// in `ALL_SHIPS`, resolving the current phase.
+/// in `ALL_SHIPS`, resolving the current phase (maneuvers, translation, and the
+/// following empty fire window) into the next movement phase.
 fn resolve_phase_with(game: &mut GameState, ship: u32, maneuver: Maneuver) {
     for other in ALL_SHIPS {
         if other == ship {
@@ -61,12 +71,14 @@ fn resolve_phase_with(game: &mut GameState, ship: u32, maneuver: Maneuver) {
             commit(game, other, Maneuver::Coast).expect("coast commits");
         }
     }
+    ready_all(game);
 }
 
 fn coast_all(game: &mut GameState) {
     for ship in ALL_SHIPS {
         commit(game, ship, Maneuver::Coast).expect("coast commits");
     }
+    ready_all(game);
 }
 
 fn ship_q(game: &GameState, id: u32) -> i32 {

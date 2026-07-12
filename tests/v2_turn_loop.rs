@@ -1,11 +1,12 @@
 //! M5 gates: turn loop, EndTurn + end_turn_warning, multi-cycle, destruction win,
-//! and per-turn reset. See `docs/PRD.md`.
+//! and per-turn reset. See `docs/PRD.md` and ADR-0022 (four-phase maneuver/fire loop).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use shipsim_core::game_state::ScenarioStatus;
-use shipsim_core::movement::{apply_order, MoveMode, Order};
+use shipsim_core::motion::Maneuver;
+use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
 
@@ -47,7 +48,12 @@ fn allocate(
     .expect("allocate");
 }
 
-fn commit(game: &mut shipsim_core::game_state::GameState, ship: u32, weapon: &str, target: u32) {
+fn commit_fire(
+    game: &mut shipsim_core::game_state::GameState,
+    ship: u32,
+    weapon: &str,
+    target: u32,
+) {
     apply_order(
         game,
         Order::CommitFire {
@@ -60,10 +66,32 @@ fn commit(game: &mut shipsim_core::game_state::GameState, ship: u32, weapon: &st
     .expect("commit fire");
 }
 
-/// G1: resolving a firing batch while an attacker still has `move_remaining > 0`
-/// returns to a fresh movement phase with commits/ready/moved cleared.
+/// Commit `Maneuver::Coast` for every listed ship, resolving the current
+/// movement phase into the fire window.
+fn coast_all(game: &mut shipsim_core::game_state::GameState, ships: &[u32]) {
+    for &ship in ships {
+        apply_order(
+            game,
+            Order::CommitManeuver {
+                ship,
+                maneuver: Maneuver::Coast,
+            },
+        )
+        .expect("coast commits");
+    }
+}
+
+fn ready_all(game: &mut shipsim_core::game_state::GameState, ships: &[u32]) {
+    for &ship in ships {
+        apply_order(game, Order::ReadyFire { ship }).expect("ready fire");
+    }
+}
+
+/// G1: resolving a fire window always returns to the next movement phase (or
+/// ends the turn after phase 4) — the frozen four-phase schedule is the only
+/// termination condition, with no `move_remaining`-based re-entry heuristic.
 #[test]
-fn test_g1_loop_back_to_movement_when_move_remaining() {
+fn test_g1_fire_window_returns_to_next_movement_phase() {
     let mut game = load_combat();
     game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0))
         .unwrap();
@@ -72,27 +100,30 @@ fn test_g1_loop_back_to_movement_when_move_remaining() {
         .unwrap();
     game.set_ship_facing(2, 0).unwrap();
 
-    // ship1 keeps movement power (passes its move); ship2 has none (auto-pass).
     allocate(&mut game, 1, 2, &[("beam_1", 2)], [0; 6]);
     allocate(&mut game, 2, 0, &[], [0; 6]);
+    assert_eq!(StateSnapshot::from_game_state(&game).phase, "movement");
+    assert_eq!(StateSnapshot::from_game_state(&game).movement_phase, 1);
 
-    apply_order(&mut game, Order::PassMove { ship: 1 }).expect("pass keeps move power");
+    coast_all(&mut game, &[1, 2]);
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
 
-    commit(&mut game, 1, "beam_1", 2);
-    apply_order(&mut game, Order::ReadyFire { ship: 1 }).unwrap();
-    apply_order(&mut game, Order::ReadyFire { ship: 2 }).unwrap();
+    commit_fire(&mut game, 1, "beam_1", 2);
+    ready_all(&mut game, &[1, 2]);
 
     let snapshot = StateSnapshot::from_game_state(&game);
     assert_eq!(snapshot.phase, "movement");
+    assert_eq!(snapshot.movement_phase, 2);
     assert!(snapshot.fire_commits.is_empty());
     assert!(snapshot.ships_ready_fire.is_empty());
-    assert!(snapshot.ships_moved_this_phase.is_empty());
+    assert!(snapshot.ships_committed_this_phase.is_empty());
 }
 
-/// G2: resolving when no ship can move and no charged legal weapon remains ends the turn.
+/// G2: with no further actions available, the turn still runs its full four
+/// movement/fire windows and then ends — the schedule terminates the turn
+/// unconditionally, not because "no actions remain".
 #[test]
-fn test_g2_turn_end_when_no_actions_remain() {
+fn test_g2_turn_end_after_four_windows() {
     let mut game = load_combat();
     game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0))
         .unwrap();
@@ -104,14 +135,28 @@ fn test_g2_turn_end_when_no_actions_remain() {
     allocate(&mut game, 1, 0, &[("beam_1", 2)], [0; 6]);
     allocate(&mut game, 2, 0, &[], [3, 0, 0, 0, 0, 0]);
 
-    commit(&mut game, 1, "beam_1", 2);
-    apply_order(&mut game, Order::ReadyFire { ship: 1 }).unwrap();
-    apply_order(&mut game, Order::ReadyFire { ship: 2 }).unwrap();
+    // Phase 1: fire the only charged weapon, then ready with nothing left to commit.
+    coast_all(&mut game, &[1, 2]);
+    commit_fire(&mut game, 1, "beam_1", 2);
+    ready_all(&mut game, &[1, 2]);
+    assert_eq!(StateSnapshot::from_game_state(&game).movement_phase, 2);
+
+    // Phases 2-4: nothing left to fire; coast and ready through to turn end.
+    for expected_phase in [2u8, 3, 4] {
+        assert_eq!(
+            StateSnapshot::from_game_state(&game).movement_phase,
+            expected_phase
+        );
+        coast_all(&mut game, &[1, 2]);
+        ready_all(&mut game, &[1, 2]);
+    }
 
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "turn_end");
 }
 
-/// G3: mid-turn warning is true while usable move/fire remains; EndTurn advances the turn.
+/// G3: `end_turn_warning` tracks legal fire only (movement is no longer
+/// optional under inertia — every ship commits a maneuver regardless); EndTurn
+/// always advances the turn.
 #[test]
 fn test_g3_end_turn_warning_true_and_end_turn_advances() {
     let mut game = load_combat();
@@ -127,7 +172,7 @@ fn test_g3_end_turn_warning_true_and_end_turn_advances() {
 
     let before = StateSnapshot::from_game_state(&game);
     assert_eq!(before.phase, "movement");
-    assert!(before.end_turn_warning, "ship1 still has move power");
+    assert!(before.end_turn_warning, "ship1 has a legal charged shot");
     assert_eq!(before.turn, 1);
 
     apply_order(&mut game, Order::EndTurn).expect("end turn advances");
@@ -137,7 +182,7 @@ fn test_g3_end_turn_warning_true_and_end_turn_advances() {
     assert_eq!(after.phase, "allocate");
 }
 
-/// G4: warning is false once no legal actions remain (turn end reached).
+/// G4: warning is false once no legal fire remains (turn end reached).
 #[test]
 fn test_g4_end_turn_warning_false_when_no_actions() {
     let mut game = load_combat();
@@ -151,16 +196,21 @@ fn test_g4_end_turn_warning_false_when_no_actions() {
     allocate(&mut game, 1, 0, &[("beam_1", 2)], [0; 6]);
     allocate(&mut game, 2, 0, &[], [3, 0, 0, 0, 0, 0]);
 
-    commit(&mut game, 1, "beam_1", 2);
-    apply_order(&mut game, Order::ReadyFire { ship: 1 }).unwrap();
-    apply_order(&mut game, Order::ReadyFire { ship: 2 }).unwrap();
+    coast_all(&mut game, &[1, 2]);
+    commit_fire(&mut game, 1, "beam_1", 2);
+    ready_all(&mut game, &[1, 2]);
+    for _ in 0..3 {
+        coast_all(&mut game, &[1, 2]);
+        ready_all(&mut game, &[1, 2]);
+    }
 
     let snapshot = StateSnapshot::from_game_state(&game);
     assert_eq!(snapshot.phase, "turn_end");
     assert!(!snapshot.end_turn_warning);
 }
 
-/// G5: destroying the terminal target with v2 fire wins the scenario.
+/// G5: destroying the terminal target with v2 fire wins the scenario
+/// immediately, without waiting for the remaining movement phases.
 #[test]
 fn test_g5_destruction_win() {
     let mut game = load_combat();
@@ -172,21 +222,20 @@ fn test_g5_destruction_win() {
     game.set_ship_facing(2, 0).unwrap();
     game.set_ship_structure(2, 1).unwrap();
 
-    // Different movement allocations break the initiative tie so no PRNG roll is
-    // consumed before to-hit: seed 4242's first d20 is 16, a hit vs beam r1 (18).
     allocate(&mut game, 1, 0, &[("beam_1", 4)], [0; 6]);
     allocate(&mut game, 2, 1, &[], [0; 6]);
 
-    apply_order(&mut game, Order::PassMove { ship: 2 }).expect("ship2 passes its move");
+    coast_all(&mut game, &[1, 2]);
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
 
-    commit(&mut game, 1, "beam_1", 2);
-    apply_order(&mut game, Order::ReadyFire { ship: 1 }).unwrap();
-    apply_order(&mut game, Order::ReadyFire { ship: 2 }).unwrap();
+    commit_fire(&mut game, 1, "beam_1", 2);
+    ready_all(&mut game, &[1, 2]);
 
+    let snapshot = StateSnapshot::from_game_state(&game);
+    assert_eq!(snapshot.status, ScenarioStatus::Won);
     assert_eq!(
-        StateSnapshot::from_game_state(&game).status,
-        ScenarioStatus::Won
+        snapshot.phase, "turn_end",
+        "a decided scenario parks at turn_end regardless of movement_phase"
     );
 }
 
@@ -202,8 +251,8 @@ fn test_player_fleet_destruction_is_lost() {
     );
 }
 
-/// G6: a fresh turn clears allocations, resets keel to stopped, zeroes shields and
-/// weapon charges, and clears weapon fired flags.
+/// G6: EndTurn (legal in any phase after allocation) clears allocation,
+/// thrust, shields, and weapon charges/fired flags for a fresh turn.
 #[test]
 fn test_g6_new_turn_resets_allocation() {
     let mut game = load_fleet();
@@ -212,17 +261,7 @@ fn test_g6_new_turn_resets_allocation() {
     allocate(&mut game, 2, 0, &[], [0; 6]);
     allocate(&mut game, 3, 0, &[], [0; 6]);
     allocate(&mut game, 4, 0, &[], [0; 6]);
-
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "movement");
-    // ship1 moves forward -> keel becomes forward, spends move power.
-    apply_order(
-        &mut game,
-        Order::Move {
-            ship: 1,
-            mode: MoveMode::Forward,
-        },
-    )
-    .expect("ship1 forward");
 
     apply_order(&mut game, Order::EndTurn).expect("end turn resets");
 
@@ -231,8 +270,7 @@ fn test_g6_new_turn_resets_allocation() {
     assert_eq!(snapshot.phase, "allocate");
     for ship in &snapshot.ships {
         assert_eq!(ship.movement_allocated, 0, "ship {}", ship.id);
-        assert_eq!(ship.move_remaining, 0, "ship {}", ship.id);
-        assert_eq!(ship.keel, "stopped", "ship {}", ship.id);
+        assert_eq!(ship.thrust_remaining, 0, "ship {}", ship.id);
         assert_eq!(ship.shields_powered, [0; 6], "ship {}", ship.id);
         assert_eq!(ship.shields_remaining, [0; 6], "ship {}", ship.id);
         for weapon in &ship.weapons {
@@ -240,30 +278,4 @@ fn test_g6_new_turn_resets_allocation() {
             assert!(!weapon.fired, "ship {} weapon {}", ship.id, weapon.id);
         }
     }
-}
-
-/// Turn loop must not stay open when only turn-in-place remains (no hex change possible).
-#[test]
-fn test_can_any_move_requires_hex_changing_step() {
-    use shipsim_core::hex::Hex;
-    let mut game = load_combat();
-    // Tiny hard map: pin both ships so forward/reverse hexes are blocked or off-map.
-    game.set_ship_pos(1, Hex::new(0, 0)).unwrap();
-    game.set_ship_facing(1, 3).unwrap(); // reverse would be facing 0 -> +q; forward -q off map
-    game.set_ship_pos(2, Hex::new(1, 0)).unwrap(); // blocks forward for ship1 if facing 0
-
-    allocate(&mut game, 1, 3, &[], [0; 6]);
-    allocate(&mut game, 2, 0, &[], [0; 6]);
-
-    // Facing 0 at (0,0): forward to (1,0) occupied; reverse to off-map for hard map?
-    // At (0,0) face 0 forward = (1,0) occupied by 2. reverse face 3 = (-1,0) off map.
-    game.set_ship_facing(1, 0).unwrap();
-    assert!(
-        !game.can_any_move(),
-        "no hex-changing move should be available; turn-only must not count"
-    );
-    assert!(
-        !game.end_turn_warning() || game.can_any_legal_fire(),
-        "without fire options, warning should be false when no hex move"
-    );
 }
