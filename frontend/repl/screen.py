@@ -82,10 +82,41 @@ class TerminalUI:
             self._file.flush()
 
     def log(self, text: str = "", *, important: bool = False) -> None:
-        """Record a message; in play mode it appears in the recent strip after redraw."""
+        """Record a message; in play mode it appears in the recent strip after redraw.
+
+        Consecutive duplicate lines are coalesced with a repeat marker (×N) and
+        updated in-place rather than appended separately.
+        """
         if text is None:
             text = ""
         for line in str(text).splitlines() or [""]:
+            # Check if the last history entry is the same line
+            if self.history and not line.startswith("×"):
+                last = self.history[-1]
+                # Extract the base text if it's already a repeat marker
+                if "×" in last:
+                    # Parse "text ×N" format
+                    parts = last.rsplit("×", 1)
+                    if len(parts) == 2 and parts[1].strip().isdigit():
+                        base_text = parts[0].rstrip()
+                        if base_text == line:
+                            # Same as base text, increment the count
+                            count = int(parts[1].strip()) + 1
+                            self.history[-1] = f"{line} ×{count}"
+                            self._write_file(line)
+                            if self.scroll or self._dialog:
+                                self._real_print(line)
+                            continue
+                # Not a repeat marker or different text
+                if last == line:
+                    # First repeat: convert to "text ×2"
+                    self.history[-1] = f"{line} ×2"
+                    self._write_file(line)
+                    if self.scroll or self._dialog:
+                        self._real_print(line)
+                    continue
+
+            # New distinct line
             self.history.append(line)
             self._write_file(line)
             if self.scroll or self._dialog:
@@ -143,18 +174,18 @@ class TerminalUI:
         )
         recent = list(self.history)[-self.recent :]
         if recent:
-            lines.append(panel("RECENT", "\n".join(recent), width=56))
+            lines.append(panel("RECENT", "\n".join(recent), width=72))
         if self.show_history:
             hist = list(self.history)[-40:]
             lines.append(
                 panel(
                     f"LOG (last {len(hist)}; type log to hide)",
                     "\n".join(hist) if hist else "(empty)",
-                    width=56,
+                    width=72,
                 )
             )
         if draft_text:
-            lines.append(panel("ALLOCATE DRAFT (local until commit)", draft_text, width=56))
+            lines.append(panel("ALLOCATE DRAFT (local until commit)", draft_text, width=72))
         if hint:
             lines.append(muted(hint))
         if footer:

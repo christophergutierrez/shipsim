@@ -15,6 +15,7 @@ from hexutil import (
     bar,
     distance,
     legal_shield_facings,
+    ship_callsign,
     turn_toward,
     weapon_in_arc,
 )
@@ -177,16 +178,22 @@ class ReplContext:
         ship = ship_by_id(snap, ship_id)
         if ship is None:
             return f"  no ship #{ship_id}"
+        # Re-selecting the already-focused ship is a clean no-op (UX_ANALYSIS.md
+        # §3b): no warning, no draft re-open, just confirm current focus.
+        if self.selected == ship_id and self.draft is None:
+            return f"  focus already on {ship_callsign(ship)}"
         # While drafting, bare ids must not clobber the draft — use ship/a explicitly.
         if self.draft is not None and self.draft.used() > 0:
             self.selected = ship_id
             return (
-                f"  focus noted #{ship_id}, but draft for #{self.draft.ship_id} "
-                f"is still open (used={self.draft.used()}). "
+                f"  focus noted {ship_callsign(ship)}, but draft for "
+                f"{self.draft.ship_id} is still open (used={self.draft.used()}). "
                 f"commit/cancel/reset that draft first."
             )
         self.selected = ship_id
-        msg = f"  focus → #{ship_id} {ship.get('class')} ({ship.get('controller')})"
+        msg = f"  focus → {ship_callsign(ship)} {ship.get('class')} ({ship.get('controller')})"
+        if ship.get("controller") != "player":
+            msg += "  (observer: cannot order)"
         if (
             snap.get("phase") == "allocate"
             and ship.get("controller") == "player"
@@ -237,13 +244,34 @@ def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
         )
     if phase == "firing":
         ready = snap.get("ships_ready_fire") or []
+        # Detect whether the focused ship has any charged weapons, so the hint
+        # can steer the player toward `r` when there's nothing to fire
+        # (UX_ANALYSIS.md §3d/§2a — avoid a dead-end `f` prompt).
+        me = ship_by_id(snap, focus) if focus is not None else None
+        has_charge = False
+        if me:
+            has_charge = any(
+                int(w.get("charge") or 0) > 0 and not w.get("fired")
+                for w in (me.get("weapons") or [])
+            )
+        if not has_charge:
+            return (
+                f"firing:{foc}  no charged weapons — r to ready (skip fire) | "
+                f"ready={ready}  (e = whole turn)"
+            )
         return (
             f"firing:{foc}  weapon menu opens if you have charge; "
             f"f again for more shots | r/nofire when done | ready={ready}  "
             f"(e = whole turn)"
         )
     if phase == "turn_end":
-        return f"turn_end:{foc}  end to advance turn"
+        # turn_end is a brief bookkeeping phase: the engine regenerates shields
+        # and clears weapon charge for the next turn. The delta line above shows
+        # what changed; here we just prompt to advance (UX_ANALYSIS.md §7d).
+        return (
+            f"turn_end:{foc}  fire resolved — shields/charge reset for next turn. "
+            f"end to advance"
+        )
     return f"phase={phase}{foc}"
 
 
@@ -258,6 +286,7 @@ class AllocDraft:
     movement: int = 0
     weapons: dict[str, int] = field(default_factory=dict)
     shields: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0, 0])
+    dead_weapons: set[str] = field(default_factory=set)
 
     @classmethod
     def from_ship(cls, ship: dict[str, Any]) -> "AllocDraft":
@@ -275,14 +304,33 @@ class AllocDraft:
             for w in (ship.get("weapons") or [])
             if w.get("operational", True)
         ]
+        dead_weapons = {
+            str(w.get("id"))
+            for w in (ship.get("weapons") or [])
+            if not w.get("operational", True)
+        }
+        aliases = build_weapon_aliases(meta)
+        # Add aliases for dead weapons so we can resolve them and report "destroyed"
+        for wid in dead_weapons:
+            kind = next(
+                (w.get("kind", "") for w in (ship.get("weapons") or []) if str(w.get("id")) == wid),
+                ""
+            )
+            aliases[wid.lower()] = wid
+            aliases[wid.replace("_", "").lower()] = wid
+            short = weapon_short_alias(wid, kind)
+            aliases[short.lower()] = wid
+        pa = ship.get("power_available")
+        pool = int(pa if pa is not None else (ship.get("power") or 0))
         return cls(
             ship_id=int(ship["id"]),
             ship_class=str(ship.get("class") or "?"),
-            power=int(ship.get("power") or 0),
+            power=pool,
             max_shield=int(ship.get("max_shield_per_facing") or 0),
             weapon_meta=meta,
-            aliases=build_weapon_aliases(meta),
+            aliases=aliases,
             weapons=weapons,
+            dead_weapons=dead_weapons,
         )
 
     def resolve_weapon(self, token: str) -> Optional[str]:
@@ -375,9 +423,16 @@ class AllocDraft:
             print(f"  unknown weapon {token!r}")
             print(self.weapon_menu())
             return False
+        # Check if it's a destroyed/non-operational weapon
+        if wid in self.dead_weapons:
+            print(f"  weapon {token!r} is destroyed or not operational")
+            return False
         meta = next((m for m in self.weapon_meta if m["id"] == wid), None)
         max_c = int(meta["max_charge"]) if meta else n
-        self.weapons[wid] = max(0, min(int(n), max_c))
+        clamped = max(0, min(int(n), max_c))
+        if clamped != int(n):
+            print(f"  clamp: {token} charge {n} → max {max_c}")
+        self.weapons[wid] = clamped
         return True
 
     def set_shield(self, face_tok: str, n: int) -> bool:
@@ -385,7 +440,10 @@ class AllocDraft:
         if face is None:
             print("  bad face; use 0-5 or F/FR/RR/R/RL/FL")
             return False
-        self.shields[face] = max(0, min(int(n), self.max_shield))
+        clamped = max(0, min(int(n), self.max_shield))
+        if clamped != int(n):
+            print(f"  clamp: shield {face} power {n} → max {self.max_shield}")
+        self.shields[face] = clamped
         return True
 
 
@@ -423,11 +481,25 @@ def default_allocate(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
         print(f"  ship #{ship_id} not found")
         return None
     draft = AllocDraft.from_ship(ship)
+    pool = draft.power
+
+    # Charge the first beam to its max
     for m in draft.weapon_meta:
         if str(m.get("kind", "")).lower() == "beam" and int(m.get("max_charge") or 0) >= 1:
-            draft.weapons[m["id"]] = 1
+            max_c = int(m.get("max_charge") or 0)
+            draft.weapons[m["id"]] = max_c
+            pool -= max_c
             break
-    draft.movement = max(0, draft.free())
+
+    # Allocate meaningful forward shield (face 0)
+    max_shield = draft.max_shield
+    forward_shield = min(2, max_shield, pool)
+    draft.shields[0] = forward_shield
+    pool -= forward_shield
+
+    # Rest goes to movement (graceful degradation on small pools)
+    draft.movement = max(0, pool)
+
     print(draft.summary())
     return draft.to_order()
 
@@ -552,8 +624,6 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
         if order is None:
             return Action(side="empty")
         print("  committing to engine:\n" + d.summary())
-        ctx.draft = None
-        ctx.draft_group = None
         return Action(orders=[order])
 
     if cmd in ("help",):
@@ -561,7 +631,8 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
             "  draft: mov N | w [alias N] | sh [face N] | show | reset | commit | cancel\n"
             "  in weapons group: b1 2 / t1 1  (no leading w) | done\n"
             "  in shields group: 0 3 / F 2 | done\n"
-            "  bare number at draft root = movement power (not ship select)"
+            "  bare number at draft root = movement power (not ship select)\n"
+            "  for global help (status, board, quit): type 'help' again or 'quit' to exit"
         )
         return Action(side="empty")
 
@@ -668,7 +739,10 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
         if not args or not args[0].lstrip("-").isdigit():
             print("  usage: mov N   (or: mov  →  then a number)")
             return Action(side="empty")
-        d.movement = max(0, int(args[0]))
+        val = int(args[0])
+        if val < 0:
+            print("  negative movement is not allowed (clamped to 0)")
+        d.movement = max(0, val)
         print(d.summary())
         return Action(side="empty")
 
@@ -762,7 +836,10 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
         else:
             print("  no charged weapons — use ready/nofire to leave fire phase")
         return None
-    enemies = [s for s in living_ships(snap) if s.get("id") != ship_id]
+    enemies = [
+        s for s in living_ships(snap)
+        if s.get("id") != ship_id and s.get("controller") != ship.get("controller")
+    ]
     if not enemies:
         print("  no targets")
         return None
@@ -775,15 +852,17 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
             f"    [{i}] {w.get('id')} {bar(ch, max(mx,1))} {ch}/{mx} "
             f"rng≤{w.get('max_range')} arc={mount}"
         )
-    wi = _prompt_int("  weapon index (-1 cancel)", 0)
+    wi = _prompt_int("  weapon index [-1 Done]", 0)
     if wi < 0 or wi >= len(charged):
-        print("  cancelled")
+        # Silent: "Done" just leaves the menu so the player can fire more
+        # weapons with `f` or finish with r/ready/done. No "cancelled" noise.
         return None
     weapon = str(charged[wi]["id"])
     chosen = charged[wi]
     max_range = int(chosen.get("max_range") or 0)
 
     print("  targets:")
+    legal_indices = set()
     for i, t in enumerate(enemies):
         rng = distance(
             int(ship["q"]), int(ship["r"]), int(t["q"]), int(t["r"])
@@ -811,17 +890,39 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
             flag = "OUT OF ARC"
         else:
             flag = "in arc"
+            legal_indices.add(i)
+        # Sensor-limited: show position + facing + which shields bear on you,
+        # but NOT the enemy's hull value or shield strength (internal state the
+        # player cannot observe — UX_ANALYSIS.md §2f, §2g).
         print(
-            f"    [{i}] #{t.get('id')} {t.get('class')} "
+            f"    [{i}] {ship_callsign(t)} {t.get('class')} "
             f"@({t.get('q')},{t.get('r')}) rng={rng} "
-            f"face={t.get('facing')} hull={t.get('structure')}  "
+            f"face={t.get('facing')}  "
             f"[{flag}]  shields facing you: {labs}"
         )
-    ti = _prompt_int("  target index (-1 cancel)", 0)
-    if ti < 0 or ti >= len(enemies):
-        print("  cancelled")
+    # Auto-skip the target prompt when there's exactly one legal enemy
+    # (UX_ANALYSIS.md §5b): no useful choice, so don't make them press enter.
+    if not legal_indices:
+        print("  no targets in range and arc for this weapon")
         return None
-    target = enemies[ti]
+    legal_enemies = [enemies[i] for i in legal_indices]
+    if len(legal_enemies) == 1:
+        target = legal_enemies[0]
+        rng = distance(
+            int(ship["q"]), int(ship["r"]), int(target["q"]), int(target["r"])
+        )
+        print(
+            f"  sole target: {ship_callsign(target)} {target.get('class')} "
+            f"@({target.get('q')},{target.get('r')}) rng={rng} — auto-selected"
+        )
+    else:
+        ti = _prompt_int("  target index [-1 Done]", 0)
+        if ti < 0 or ti >= len(enemies):
+            return None
+        if ti not in legal_indices:
+            print("  that target is not in range or arc")
+            return None
+        target = enemies[ti]
     legal = legal_shield_facings(
         int(ship["q"]),
         int(ship["r"]),
@@ -830,6 +931,18 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
         int(target.get("facing") or 0),
     )
     default_face = legal[0] if legal else 0
+    # Auto-skip the prompt when exactly one facing is legal (UX_ANALYSIS.md §3c):
+    # no useful choice for the player, so don't make them press enter.
+    if len(legal) == 1:
+        face = legal[0]
+        print(f"  shield facing {face}:{SHIELD_LABELS[face]} (only legal facing) — auto-selected")
+        return _order(
+            "commit_fire",
+            ship=ship_id,
+            weapon=weapon,
+            target=int(target["id"]),
+            shield_facing=face,
+        )
     print(
         "  shield faces (legal marked *): "
         + " ".join(
@@ -837,10 +950,10 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
             for i in range(6)
         )
     )
-    rem = target.get("shields_remaining") or [0] * 6
-    pwr = target.get("shields_powered") or [0] * 6
     for i in legal:
-        print(f"    legal {i}:{SHIELD_LABELS[i]} rem/pwr={rem[i]}/{pwr[i]}")
+        # Sensor-limited: show which facings bear on you (geometry) but NOT the
+        # enemy's shield remaining/powered values (internal state — §2g).
+        print(f"    legal {i}:{SHIELD_LABELS[i]} (strength unknown)")
     facing = _prompt_int("  shield_facing", default_face)
     return _order(
         "commit_fire",
@@ -1057,8 +1170,9 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
             print(f"  cannot fire ship #{sid}: not a living player ship")
             return Action(side="empty")
-        order = interactive_fire(snap, sid)
-        return Action(orders=[order]) if order else Action(side="empty")
+        # Defer to the REPL's looping fire offer so the player can fire
+        # multiple weapons in one go (each commit refreshes the snapshot).
+        return Action(side="fire_loop")
 
     if cmd in ("ready", "r", "ready_fire", "nofire", "no-fire", "skipfire", "skip", "done"):
         sid = ctx.ensure_selected(snap)

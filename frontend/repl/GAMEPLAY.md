@@ -96,8 +96,12 @@ ALLOCATE  (all living ships, once each)
 There is no separate “round counter.” Movement and firing **pair** until nobody
 can usefully act (or you force **End Turn**).
 
-AI ships are advanced by the harness after your orders; you only command
-**player** ships.
+AI ships (`controller = "ai"`) are advanced by the harness after your orders.
+**Scripted** ships (`controller = "scripted"`, e.g. the escort in
+`scenarios/combat.toml`) are **not** driven by the harness. The REPL auto-sends
+passive allocate / pass_move / ready_fire for them when the phase is blocked
+**only** on scripted ships — otherwise the game would wait forever. You still
+only type orders for **player** ships.
 
 ---
 

@@ -45,27 +45,32 @@ def _snap(ships, **kw):
 
 
 class ThreatPanelTests(unittest.TestCase):
-    """format_tactical shows a THREATS panel when enemies can bear on the focus ship."""
+    """format_tactical shows threat info inside CONTACTS when enemies can bear.
 
-    def test_threat_panel_appears_when_enemy_can_bear(self):
+    Threats are merged into the CONTACTS panel (UX_ANALYSIS.md §1g) rather than
+    shown as a separate THREATS panel, so the player sees each contact and its
+    threat status in one place.
+    """
+
+    def test_threat_info_appears_when_enemy_can_bear(self):
         snap = _snap([
             _ship(1, 0, 0, 0, "player"),
             _ship(2, 3, 0, 3, "ai", [_weapon("forward", id="L1")]),
         ])
         out = ANSI.sub("", format_tactical(snap, selected=1))
-        self.assertIn("THREATS", out)
+        self.assertIn("CONTACTS", out)
         self.assertIn("can bear", out)
         self.assertIn("L1", out)
 
-    def test_no_threat_panel_when_no_enemy_can_bear(self):
+    def test_no_threat_info_when_no_enemy_can_bear(self):
         snap = _snap([
             _ship(1, 0, 0, 0, "player"),
             _ship(2, 3, 0, 0, "ai", [_weapon("forward", id="L1")]),  # facing away
         ])
         out = ANSI.sub("", format_tactical(snap, selected=1))
-        self.assertNotIn("THREATS", out)
+        self.assertNotIn("can bear", out)
 
-    def test_threat_panel_shows_range(self):
+    def test_threat_info_shows_range(self):
         snap = _snap([
             _ship(1, 0, 0, 0, "player"),
             _ship(2, 3, 0, 3, "ai", [_weapon("forward", id="L1")]),

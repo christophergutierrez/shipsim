@@ -43,6 +43,7 @@ from commands import (
     phase_hint,
 )
 from screen import TerminalUI, default_session_path
+from hexutil import ship_callsign
 from view import (
     format_board,
     format_combat_events,
@@ -202,20 +203,45 @@ def _auto_fire_offer(
             ui.log("  no charged weapons on focus — r/nofire to leave fire phase")
         return None
     ui.log(
-        "  firing: optional shot menu once on phase entry. "
-        "Cancel with -1, then r/ready/done to finish. "
-        "Menu will not auto-reopen."
+        "  firing: pick weapons to fire, [-1] Done to stop. "
+        "You may fire multiple weapons this phase."
     )
-    with ui.dialog():
-        paint_frame(ui, session, ctx)
-        order = interactive_fire(snap, sid)
-    if order is None:
-        ui.log(
-            "  no shot committed — type f to shoot again, or r/ready/done "
-            "to finish fire phase"
-        )
-        return None
-    return send_orders(ui, session, ctx, [order], prev_log_len=log_len)
+    while True:
+        with ui.dialog():
+            paint_frame(ui, session, ctx)
+            order = interactive_fire(session.snapshot or {}, sid)
+        if order is None:
+            ui.log(
+                "  done firing — type f to add more, or r/ready/done "
+                "to finish fire phase"
+            )
+            return log_len
+        log_len = send_orders(ui, session, ctx, [order], prev_log_len=log_len)
+        # Refresh and check for remaining chargeable weapons on this ship.
+        snap = session.snapshot
+        if not snap:
+            return log_len
+        ship = next((s for s in snap.get("ships") or [] if s.get("id") == sid), None)
+        if ship is None:
+            return log_len
+        already = {
+            str(c.get("weapon"))
+            for c in (snap.get("fire_commits") or [])
+            if int(c.get("ship") or -1) == int(sid)
+        }
+        remaining = [
+            w
+            for w in (ship.get("weapons") or [])
+            if w.get("operational", True)
+            and not w.get("fired")
+            and int(w.get("charge") or 0) > 0
+            and str(w.get("id")) not in already
+        ]
+        if not remaining:
+            ui.log(
+                "  no more charged weapons — r/ready/done to finish fire phase"
+            )
+            return log_len
 
 
 def send_orders(
@@ -236,9 +262,17 @@ def send_orders(
         ui.log_order(order)
         msg = session.send_order(order)
         if msg.get("type") == "error":
-            ui.log(format_error(msg))
+            if hasattr(ui, "dialog"):
+                with ui.dialog():
+                    print(format_error(msg))
+            else:
+                ui.log(format_error(msg))
             if i > 0:
-                ui.log("  (stopped multi-step move after error)")
+                if hasattr(ui, "dialog"):
+                    with ui.dialog():
+                        print("  (stopped multi-step move after error)")
+                else:
+                    ui.log("  (stopped multi-step move after error)")
             break
         ctx.note_hull(msg)
         if order.get("type") == "allocate":
@@ -261,6 +295,8 @@ def send_orders(
                         "  note: zero move + zero weapons → movement skipped, "
                         "fire has nothing charged"
                     )
+                ctx.draft = None
+                ctx.draft_group = None
                 break
         new_log = msg.get("combat_log") or []
         if len(new_log) < log_len:
@@ -269,6 +305,18 @@ def send_orders(
             events = new_log[log_len:]
             ui.log(format_combat_events(events, msg, hull_max=ctx.hull_max))
             log_len = len(new_log)
+        if order.get("type") == "commit_fire":
+            # Fire is queued, not resolved yet — tell the player so they know
+            # the HIT/MISS line arrives after ready_fire ends the phase.
+            ship = next(
+                (s for s in (msg.get("ships") or []) if s.get("id") == order.get("ship")),
+                None,
+            )
+            cs = ship_callsign(ship) if ship else f"#{order.get('ship')}"
+            ui.log(
+                f"  {cs} shot queued — resolves at end of fire phase "
+                f"(r/ready/done to fire)"
+            )
         delta = snapshot_delta(before, msg)
         if delta:
             ui.log(delta)
@@ -329,8 +377,16 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
         last_phase: str | None = None
         terminal_announced = False
         log_len = len(session.snapshot.get("combat_log") or [])
+        # Unstick scripted-only blockers before first prompt (e.g. resume mid-phase).
+        log_len = pump_scripted(ui, session, ctx, log_len)
 
         while True:
+            snap = session.snapshot
+            if snap is None:
+                ui.log("no snapshot; exiting")
+                return 1
+            # Drive scripted ships when phase is blocked only on them (combat.toml).
+            log_len = pump_scripted(ui, session, ctx, log_len)
             snap = session.snapshot
             if snap is None:
                 ui.log("no snapshot; exiting")
@@ -365,6 +421,7 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                     auto = _auto_fire_offer(ui, session, ctx, log_len)
                     if auto is not None:
                         log_len = auto
+                        log_len = pump_scripted(ui, session, ctx, log_len)
                         # Keep last_phase = "firing" if still there; if phase
                         # advanced, reset last_phase so the next iteration runs
                         # the new phase's entry hooks once.
@@ -476,12 +533,25 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 ui.log("  unknown command; try help")
                 paint_frame(ui, session, ctx)
                 continue
+            if act.side == "fire_loop":
+                # Looping fire menu: fire multiple weapons, refresh each commit.
+                log_len = _auto_fire_offer(ui, session, ctx, log_len) or log_len
+                phase_after = str(
+                    (session.snapshot or {}).get("phase") or phase
+                )
+                if phase_after == phase:
+                    last_phase = phase_after
+                else:
+                    last_phase = phase
+                continue
             if not act.orders:
                 paint_frame(ui, session, ctx)
                 continue
 
             phase_before = phase
             log_len = send_orders(ui, session, ctx, act.orders, prev_log_len=log_len)
+            # After player acts, advance any scripted-only tail of the phase.
+            log_len = pump_scripted(ui, session, ctx, log_len)
             # If phase changed, leave last_phase as phase_before so the next
             # loop runs entry hooks once. If unchanged (e.g. ready while still
             # firing), keep last_phase == current so auto-fire does not re-open.
@@ -497,6 +567,137 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
         return 0
     finally:
         restore_print()
+
+
+def plan_scripted_orders(snap: dict | None) -> list[dict]:
+    """Build passive orders for scripted ships when the phase is blocked only on them.
+
+    Does not send. Callers apply via send_order / send_orders.
+    Never drives AI (harness) or pending player ships.
+    """
+    if snap is None:
+        return []
+    if snap.get("status") in ("Won", "Lost"):
+        return []
+
+    phase = str(snap.get("phase") or "")
+    ships = list(snap.get("ships") or [])
+    living = [s for s in ships if not s.get("destroyed")]
+
+    if phase == "allocate":
+        allocated = set(snap.get("ships_allocated_this_turn") or [])
+        pending_players = [
+            s
+            for s in living
+            if s.get("controller") == "player" and int(s["id"]) not in allocated
+        ]
+        if pending_players:
+            return []
+        orders = []
+        for ship in living:
+            if ship.get("controller") != "scripted":
+                continue
+            if int(ship["id"]) in allocated:
+                continue
+            orders.append(
+                {
+                    "protocol_version": 1,
+                    "type": "allocate",
+                    "ship": int(ship["id"]),
+                    "movement": 0,
+                    "weapons": {
+                        str(w["id"]): 0 for w in (ship.get("weapons") or [])
+                    },
+                    "shields": [0] * 6,
+                }
+            )
+        return orders
+
+    if phase == "movement":
+        active = snap.get("active_ship")
+        if active is None:
+            return []
+        active_ship = next(
+            (s for s in living if int(s["id"]) == int(active)), None
+        )
+        if active_ship is None or active_ship.get("controller") != "scripted":
+            return []
+        return [
+            {
+                "protocol_version": 1,
+                "type": "pass_move",
+                "ship": int(active_ship["id"]),
+            }
+        ]
+
+    if phase == "firing":
+        ready = set(snap.get("ships_ready_fire") or [])
+        pending_players = [
+            s
+            for s in living
+            if s.get("controller") == "player" and int(s["id"]) not in ready
+        ]
+        if pending_players:
+            return []
+        orders = []
+        for ship in living:
+            if ship.get("controller") != "scripted":
+                continue
+            if int(ship["id"]) in ready:
+                continue
+            orders.append(
+                {
+                    "protocol_version": 1,
+                    "type": "ready_fire",
+                    "ship": int(ship["id"]),
+                }
+            )
+        return orders
+
+    return []
+
+
+def auto_drive_scripted(
+    ui: TerminalUI,
+    session: ShipsimSession,
+    ctx: ReplContext,
+) -> None:
+    """Send passive orders for scripted ships when the phase is blocked only on them.
+
+    Used by unit tests and as a single-shot driver. Interactive loop uses
+    pump_scripted() which re-plans after each batch so multi-step progress works.
+    """
+    del ui, ctx  # API stable for tests; session is the order sink
+    for order in plan_scripted_orders(session.snapshot):
+        session.send_order(order)
+
+
+def pump_scripted(
+    ui: TerminalUI,
+    session: ShipsimSession,
+    ctx: ReplContext,
+    log_len: int,
+    *,
+    max_steps: int = 64,
+) -> int:
+    """Drive scripted ships until the phase needs a player (or no more work).
+
+    Re-plans after each batch so allocate → movement → firing can chain when
+    only scripted ships are pending. Returns updated combat-log cursor.
+    """
+    for _ in range(max_steps):
+        orders = plan_scripted_orders(session.snapshot)
+        if not orders:
+            break
+        for order in orders:
+            ui.log(
+                f"  (scripted auto) {order.get('type')} ship=#{order.get('ship')}"
+            )
+        log_len = send_orders(ui, session, ctx, orders, prev_log_len=log_len)
+        status = (session.snapshot or {}).get("status")
+        if status in ("Won", "Lost"):
+            break
+    return log_len
 
 
 def main(argv: list[str] | None = None) -> int:

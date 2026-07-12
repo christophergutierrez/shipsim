@@ -73,9 +73,9 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
     phase = snap.get("phase", "?")
     turn = snap.get("turn", "?")
     active = snap.get("active_ship")
-    warn_s = (
-        sty_warn("  ⚠ leftover useful actions") if snap.get("end_turn_warning") else ""
-    )
+    warn_s = ""
+    if snap.get("end_turn_warning") and phase in ("firing", "turn_end"):
+        warn_s = sty_warn("  ⚠ leftover useful actions")
     active_s = f" active=#{active}" if active is not None else ""
     sel_s = sty_focus(f"  focus=#{selected}") if selected is not None else ""
     phase_s = paint(str(phase), "bold", "bright_white")
@@ -84,9 +84,18 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
         status_s = sty_ok(status_s)
     elif status == "Lost":
         status_s = sty_err(status_s)
+    # Legend clarifying the *=active vs @=focus distinction (UX_ANALYSIS.md §2d):
+    # active = the ship the engine is currently processing; focus = the ship
+    # your view is centered on. They often differ during the enemy's turn.
+    legend = ""
+    if active is not None and selected is not None and active != selected:
+        legend = muted(
+            "  (* = engine's active ship, @ = your focused ship)"
+        )
     return (
         f"{rule('shipsim')}\n"
         f"turn {turn}  phase={phase_s}  status={status_s}{active_s}{sel_s}{warn_s}"
+        f"{legend}"
     )
 
 
@@ -123,7 +132,14 @@ def format_ship_line(
     active: bool = False,
     focused: bool = False,
     hull_max: Optional[int] = None,
+    redacted: bool = False,
 ) -> str:
+    """One-line ship status.
+
+    redacted=True hides power/movement for enemy contacts — a player cannot
+    read an enemy's reactor or drive allocation, so those fields are intel the
+    player should not have (see UX_ANALYSIS.md §2f).
+    """
     mark = "*" if active else ("@" if focused else " ")
     dead = sty_dead(" [DEAD]") if ship.get("destroyed") else ""
     face_i = int(ship.get("facing", 0))
@@ -141,13 +157,23 @@ def format_ship_line(
         name = sty_focus(name)
     if active:
         mark = sty_active(mark)
+    if redacted:
+        # Enemy contact: position + facing + hull only. Power/movement are
+        # internal state the player's sensors cannot read. No hull bar here —
+        # the card body carries the bar (UX_ANALYSIS.md §1a, §2f).
+        return (
+            f"{mark}{name} ({ctrl}) "
+            f"@({ship.get('q')},{ship.get('r')}) face={face} "
+            f"hull={hull}/{hmax}{dead}"
+        )
+    pa = ship.get("power_available")
+    pwr = pa if pa is not None else ship.get("power")
     return (
         f"{mark}{name} ({ctrl}) "
         f"@({ship.get('q')},{ship.get('r')}) face={face} "
-        f"(fwd={FACING_GLYPH.get(face_i, '?')}) "
-        f"pwr={ship.get('power')} mov={ship.get('move_remaining')}/"
+        f"pwr={pwr} mov={ship.get('move_remaining')}/"
         f"{ship.get('movement_allocated')} "
-        f"hull={hull}/{hmax} {bar(hull, hmax)}{dead}"
+        f"hull={hull}/{hmax}{dead}"
     )
 
 
@@ -201,13 +227,10 @@ def format_weapons(
                 f"rng≤{w.get('max_range')} {b} {tail}{ch_note}"
             )
         elif is_queued:
-            c = queued[wid]
-            tgt = c.get("target")
-            face = int(c.get("shield_facing") or 0)
-            lab = SHIELD_LABELS[face] if 0 <= face < 6 else str(face)
-            tail = sty_queued(
-                f"QUEUED →#{tgt} sh{face}:{lab}  (resolves when all ready)"
-            )
+            # Simplified tail: the PENDING FIRE panel carries the full target/
+            # facing detail, so the weapon line just flags the queued state
+            # (UX_ANALYSIS.md §1c — dedup with PENDING FIRE panel).
+            tail = sty_queued("QUEUED (see PENDING FIRE)")
             # Charge still present until resolve — do not call it available CHG.
             b = bar(ch, mx)
             lines.append(
@@ -283,21 +306,37 @@ def format_ship_card(
     focused: bool = False,
     active: bool = False,
     snap: Optional[dict[str, Any]] = None,
+    redacted: bool = False,
 ) -> str:
-    """Detailed status for own ship or a target."""
+    """Detailed status for own ship or a target.
+
+    redacted=True produces a sensor-limited contact card for enemy ships: it
+    hides internal state (power pool, system ratings, movement allocation, the
+    full shield matrix, and weapon charge/queue) that a player could not
+    actually observe. Only position, facing, class, hull damage, and which
+    shield facings bear on the player are shown (UX_ANALYSIS.md §2f, §2g).
+    """
     parts = []
     head = title or format_ship_line(
-        ship, active=active, focused=focused, hull_max=hull_max
+        ship, active=active, focused=focused, hull_max=hull_max,
+        redacted=redacted,
     )
     parts.append(head)
     if ship.get("destroyed"):
+        parts.append("    DESTROYED")
         return "\n".join(parts)
 
     hull = int(ship.get("structure") or 0)
     hmax = hull_max or hull
-    parts.append(f"    hull {bar(hull, hmax)} {hull}/{hmax}  "
-                 f"bridge={ship.get('bridge')} eng={ship.get('engine')} "
-                 f"pwr_sys={ship.get('power_sys')}  keel={ship.get('keel')}")
+
+    if redacted:
+        # Sensor-limited: hull bar only, no bridge/engine/power_sys/keel ratings.
+        parts.append(f"    hull {bar(hull, hmax)} {hull}/{hmax}")
+    else:
+        # Spelled-out labels (UX_ANALYSIS.md §4g): avoid opaque abbreviations.
+        parts.append(f"    hull {bar(hull, hmax)} {hull}/{hmax}  "
+                     f"bridge={ship.get('bridge')} engine={ship.get('engine')} "
+                     f"power_sys={ship.get('power_sys')}  keel={ship.get('keel')}")
 
     highlight = None
     if vs is not None and not vs.get("destroyed"):
@@ -325,10 +364,24 @@ def format_ship_card(
             f"(rel bearing from this ship: {rel})"
         )
 
-    parts.append("    shields (rem/powered; ← faces observer if vs set):")
-    parts.append(format_shields(ship, highlight=highlight))
-    parts.append("    weapons:")
-    parts.append(format_weapons(ship, snap=snap))
+    if redacted:
+        # No full shield matrix, no weapon charge/queue — that is internal state.
+        # Show only which of their shield facings bear on the player (geometry).
+        if highlight:
+            face_labels = ", ".join(
+                f"{i}:{SHIELD_LABELS[i]}" for i in highlight
+            )
+            parts.append(
+                f"    shields bearing on you: {face_labels}  "
+                f"(strength unknown)"
+            )
+        else:
+            parts.append("    shields: (no facing bears on you)")
+    else:
+        parts.append("    shields (0:F=forward=ship's facing arrow; rem/powered; ← faces observer if vs set):")
+        parts.append(format_shields(ship, highlight=highlight))
+        parts.append("    weapons:")
+        parts.append(format_weapons(ship, snap=snap))
     return "\n".join(parts)
 
 
@@ -345,7 +398,7 @@ def format_tactical(
         players = living_player_ships(snap)
         me = players[0] if players else None
     if me is None:
-        return format_snapshot(snap, selected=selected, hull_max=hull_max, verbose=True)
+        return format_snapshot(snap, selected=selected, hull_max=hull_max, verbose=False)
 
     parts = [format_header(snap, selected=selected)]
     if snap.get("move_order"):
@@ -376,13 +429,9 @@ def format_tactical(
 
     # Advisory threat assessment — pure geometry from snapshot fields.
     threats = threats_to_ship(snap, int(me["id"]))
-    if threats:
-        tlines = []
-        for t in threats:
-            cs = ship_callsign(t["ship"])
-            wid = t["weapon"].get("id", "?")
-            tlines.append(f"  {cs} {wid}  range={t['range']}  [can bear]")
-        parts.append(panel("THREATS", "\n".join(tlines)))
+    threat_by_ship: dict[int, dict] = {}
+    for t in threats:
+        threat_by_ship[int(t["ship"].get("id") or -1)] = t
 
     enemies = [
         s
@@ -392,15 +441,26 @@ def format_tactical(
     if enemies:
         contact_chunks = []
         for e in enemies:
-            contact_chunks.append(
-                format_ship_card(
-                    e,
-                    hull_max=hull_max.get(int(e["id"])),
-                    vs=me,
-                    active=snap.get("active_ship") == e.get("id"),
-                    snap=snap,
-                )
+            eid = int(e.get("id") or -1)
+            t = threat_by_ship.get(eid)
+            # Enemy contacts are sensor-limited: hide internal state (power,
+            # system ratings, full shield matrix, weapon charge/queue) the
+            # player could not actually observe (UX_ANALYSIS.md §2f, §2g).
+            chunk = format_ship_card(
+                e,
+                hull_max=hull_max.get(int(e["id"])),
+                vs=me,
+                active=snap.get("active_ship") == e.get("id"),
+                snap=snap,
+                redacted=True,
             )
+            if t:
+                wid = t["weapon"].get("id", "?")
+                chunk += (
+                    f"\n    ⚠ {wid} can bear  range={t['range']}  "
+                    f"(threat)"
+                )
+            contact_chunks.append(chunk)
         parts.append(panel("CONTACTS", "\n\n".join(contact_chunks)))
 
     board = format_board(
@@ -409,7 +469,7 @@ def format_tactical(
         active=snap.get("active_ship"),
     )
     if board:
-        parts.append(panel("MAP", board, width=48))
+        parts.append(panel("MAP", board, width=72))
     commits = format_commits(snap)
     if commits:
         parts.append(panel("PENDING FIRE", commits))
@@ -417,10 +477,10 @@ def format_tactical(
 
 
 def format_terminal_banner(status: str) -> str:
-    """Panel-weight, monochrome-readable terminal outcome announcement."""
+    """Plain-text terminal outcome announcement."""
     label = f"SCENARIO {status.upper()}"
     styled = sty_ok(label) if status == "Won" else sty_err(label)
-    return panel("GAME OVER", styled + "\nOrders disabled; use quit or log.", width=56)
+    return "*** GAME OVER ***\n" + styled + "\nOrders disabled; use quit or log."
 
 
 def _cell_glyph(
@@ -487,7 +547,7 @@ def format_board(
         return "positions:\n" + ("\n".join(rows) if rows else "  (none)")
 
     legend = muted(FACING_LEGEND)
-    sides = muted("callsign: A#=player  B#=ai  C#=scripted   cell=callsign+fwd arrow")
+    sides = muted("callsign: A#=player  B#=ai  C#=scripted   cell=callsign+fwd arrow  x=destroyed")
     # Column ruler (q) — 4 chars per cell
     q_labels = "".join(f"{q % 10}   " for q in range(width))
     lines = [legend, sides, "     " + q_labels]
@@ -505,12 +565,20 @@ def format_board(
 
 
 def format_commits(snap: dict[str, Any]) -> str:
-    commits = snap.get("fire_commits") or []
+    """Player's own queued fire orders (not yet resolved).
+
+    Only the player's own commits are shown — an enemy's queued shots are
+    internal state the player cannot observe until resolution (UX_ANALYSIS.md
+    §2g). The header no longer claims charge is "still listed on ship" since
+    enemy charge is now hidden in contacts.
+    """
+    commits = [
+        c for c in (snap.get("fire_commits") or [])
+        if _is_player_commit(snap, c)
+    ]
     if not commits:
         return ""
-    lines = [
-        "queued shots (NOT resolved yet — charge still listed on ship until ready):"
-    ]
+    lines = ["your queued shots (not yet resolved):"]
     for c in commits:
         face = int(c.get("shield_facing") or 0)
         lab = SHIELD_LABELS[face] if 0 <= face < 6 else "?"
@@ -521,6 +589,12 @@ def format_commits(snap: dict[str, Any]) -> str:
             f"shield={face}:{lab}"
         )
     return "\n".join(lines)
+
+
+def _is_player_commit(snap: dict[str, Any], c: dict[str, Any]) -> bool:
+    """True if a fire commit belongs to a player-controlled ship."""
+    atk = ship_by_id(snap, int(c.get("ship") or -1))
+    return bool(atk and atk.get("controller") == "player")
 
 
 def format_combat_events(
@@ -554,6 +628,10 @@ def format_combat_events(
             f"{atk_cs} {wpn} → {tgt_cs}  {tag}  on shield {face}:{lab}"
         )
         if tgt:
+            # Redact enemy targets: the player observed the shot outcome but
+            # still cannot read the enemy's reactor/systems/weapon charge
+            # (UX_ANALYSIS.md §2f).
+            tgt_redacted = tgt.get("controller") != "player"
             body_lines.append(
                 format_ship_card(
                     tgt,
@@ -561,9 +639,10 @@ def format_combat_events(
                     hull_max=hull_max.get(int(tgt["id"])),
                     vs=atk,
                     snap=snap,
+                    redacted=tgt_redacted,
                 )
             )
-    return panel("FIRE RESOLUTION", "\n".join(body_lines))
+    return "*** FIRE RESOLUTION ***\n" + "\n".join(body_lines)
 
 
 def format_combat_log(snap: dict[str, Any], *, last_n: int = 8) -> str:
@@ -576,8 +655,12 @@ def format_combat_log(snap: dict[str, Any], *, last_n: int = 8) -> str:
         face = int(e.get("shield") or 0)
         lab = SHIELD_LABELS[face] if 0 <= face < 6 else "?"
         wpn = e.get("weapon") or "?"
+        atk = ship_by_id(snap, int(e.get("attacker") or -1))
+        tgt = ship_by_id(snap, int(e.get("target") or -1))
+        atk_cs = ship_callsign(atk) if atk else f"#{e.get('attacker')}"
+        tgt_cs = ship_callsign(tgt) if tgt else f"#{e.get('target')}"
         lines.append(
-            f"  #{e.get('attacker')} {wpn} → #{e.get('target')} "
+            f"  {atk_cs} {wpn} → {tgt_cs} "
             f"{kind} dmg={e.get('damage')} shield={face}:{lab}"
         )
     return "\n".join(lines)
@@ -596,12 +679,15 @@ def format_snapshot(
     parts = [format_header(snap, selected=selected)]
     active = snap.get("active_ship")
     for ship in snap.get("ships") or []:
+        # Redact enemy ships in the compact view too (UX_ANALYSIS.md §2f).
+        redacted = ship.get("controller") != "player"
         parts.append(
             format_ship_line(
                 ship,
                 active=ship.get("id") == active,
                 focused=ship.get("id") == selected,
                 hull_max=hull_max.get(int(ship["id"])),
+                redacted=redacted,
             )
         )
     return "\n".join(parts)
@@ -664,7 +750,7 @@ def snapshot_delta(before: Optional[dict[str, Any]], after: dict[str, Any]) -> s
                     f"#{sid} {w['id']} chg {prev.get('charge')}→{w.get('charge')}"
                 )
     if not bits:
-        return muted("  (no ship field deltas)")
+        return ""
     return "  Δ " + " · ".join(bits)
 
 

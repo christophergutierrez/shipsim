@@ -29,6 +29,8 @@ pub struct ShipSnapshot {
     pub facing: u8,
     pub speed: u32,
     pub power: u32,
+    /// Effective power after power_sys damage.
+    pub power_available: u32,
     pub movement_allocated: u32,
     pub move_remaining: u32,
     pub keel: String,
@@ -131,6 +133,7 @@ impl StateSnapshot {
                     facing: ship.facing,
                     speed: ship.speed,
                     power: ship.power,
+                    power_available: ship.effective_power(),
                     movement_allocated: ship.movement_allocated,
                     move_remaining: ship.move_remaining,
                     keel: format!("{:?}", ship.keel).to_ascii_lowercase(),

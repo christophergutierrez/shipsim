@@ -3,13 +3,19 @@
 use crate::game_state::GameState;
 use crate::hex::Hex;
 
-/// Nearest living enemy (other id). Lowest id wins ties. Deterministic.
+/// Nearest living enemy on the opposing side (other id). Lowest id wins ties. Deterministic.
+/// Side rule: player-controlled ships vs. all NPC ships (GreedySeek/Scripted).
 pub fn seek_target(game: &GameState, ship_id: u32) -> Option<u32> {
     let origin = game.ship(ship_id)?.pos;
+    let attacker_is_npc = game.npc(ship_id).is_some();
     let mut best: Option<(u32, u32, u32)> = None; // (dist, id, id)
     for other in game.ships() {
         if other.id == ship_id || other.destroyed {
             continue;
+        }
+        let target_is_npc = game.npc(other.id).is_some();
+        if attacker_is_npc == target_is_npc {
+            continue; // same side
         }
         let d = origin.distance(other.pos);
         let key = (d, other.id);
@@ -183,11 +189,16 @@ mod tests {
 
     #[test]
     fn test_seek_nearest_lowest_id_tiebreak() {
-        let game = GameState::new(
+        let mut npcs = std::collections::BTreeMap::new();
+        npcs.insert(2, crate::game_state::NpcController::GreedySeek);
+        npcs.insert(3, crate::game_state::NpcController::GreedySeek);
+        let game = GameState::new_with_options(
             Board::new(10, 10),
             vec![ship(1, 0, 0), ship(2, 5, 0), ship(3, 3, 0)],
-            Hex::new(9, 9),
+            Some(crate::game_state::Terminal::ReachHex(Hex::new(9, 9))),
+            npcs,
+            1,
         );
-        assert_eq!(seek_target(&game, 1), Some(3));
+        assert_eq!(seek_target(&game, 2), Some(1));
     }
 }

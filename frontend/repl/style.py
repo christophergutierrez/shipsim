@@ -65,16 +65,53 @@ def paint(text: str, *styles: str) -> str:
     return "".join(codes) + text + _RESET
 
 
+_ANSI_RE = __import__("re").compile(r"\033\[[0-9;]*m")
+
+
+def _visible_len(text: str) -> int:
+    """Length of text with ANSI escape codes removed."""
+    return len(_ANSI_RE.sub("", text))
+
+
 def panel(title: str, body: str, *, width: int = 72) -> str:
-    """Box-drawing panel. Width is a soft guide for the top rule."""
+    """Box-drawing panel with a closed right border.
+
+    Body lines are wrapped to fit within the panel width. Long lines are split
+    at word boundaries when possible. ANSI escape codes are stripped for width
+    math so colored lines pad correctly.
+    """
     title = title.strip()
     inner_w = max(width - 2, len(title) + 4, 24)
     top = "┌─ " + title + " " + "─" * max(1, inner_w - len(title) - 3) + "┐"
     bot = "└" + "─" * (len(top) - 2) + "┘"
+    content_w = len(top) - 4  # space between "│ " and " │"
     lines = [top]
+
     for raw in (body or "").splitlines() or [""]:
-        # Don't pad colored lines to width (ANSI lengths lie); left-border only.
-        lines.append("│ " + raw)
+        # Wrap lines that exceed content width
+        visible = _visible_len(raw)
+        if visible <= content_w:
+            pad = content_w - visible
+            lines.append("│ " + raw + " " * max(0, pad) + " │")
+        else:
+            # Split long line by words to preserve them
+            words = raw.split(" ")
+            current_line = ""
+            for word in words:
+                test_line = (current_line + " " + word) if current_line else word
+                if _visible_len(test_line) <= content_w:
+                    current_line = test_line
+                else:
+                    # Current line is full, output it and start a new one
+                    if current_line:
+                        pad = content_w - _visible_len(current_line)
+                        lines.append("│ " + current_line + " " * max(0, pad) + " │")
+                    current_line = word
+            # Output any remaining content
+            if current_line:
+                pad = content_w - _visible_len(current_line)
+                lines.append("│ " + current_line + " " * max(0, pad) + " │")
+
     lines.append(bot)
     return "\n".join(lines)
 
