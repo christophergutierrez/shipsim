@@ -27,10 +27,6 @@ HANDOFF.md
 AGENT-LOCAL.md
 **/AGENT-LOCAL.md
 
-# Ephemeral UX/design scratch (local analysis; not product docs)
-UX_ANALYSIS.md
-**/UX_ANALYSIS.md
-
 # IDE and tool artifacts
 .claude/
 .idea/
