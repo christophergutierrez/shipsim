@@ -1,0 +1,5 @@
+id = "safety"
+description = "Policies must use only legal orders and simulations must remain bounded."
+max_rejected_orders = 0
+max_stalemate_rate = 1.0
+max_average_turns = 51.0

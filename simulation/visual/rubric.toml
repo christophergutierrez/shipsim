@@ -1,0 +1,6 @@
+id = "love_layout"
+description = "Advisory visual targets for future screenshot automation."
+maximum_overlaps = 0
+maximum_clipped_labels = 0
+require_nonblank_board = true
+require_all_primary_controls_visible = true

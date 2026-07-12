@@ -1,0 +1,25 @@
+name = "baseline policy balance"
+scenario = "scenarios/simulation_duel.toml"
+seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+max_turns = 50
+max_orders = 20000
+rubrics = [
+  "simulation/rubrics/safety.toml",
+  "simulation/rubrics/gameplay-smoke.toml",
+]
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "defensive"
+opponent = "aggressive"
+
+[[matchups]]
+player = "mobility"
+opponent = "greedy"
+
+[[matchups]]
+player = "greedy"
+opponent = "random"

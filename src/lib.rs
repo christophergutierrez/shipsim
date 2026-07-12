@@ -14,6 +14,7 @@ pub mod save;
 pub mod scenario;
 pub mod schema;
 pub mod ship;
+pub mod simulation;
 pub mod snapshot;
 pub mod ssd;
 pub mod turn;

@@ -193,6 +193,29 @@ class C5FireTargetingSanity(unittest.TestCase):
 
         self.assertIsNone(order, "weapon with no in-range/in-arc target was silently queued")
 
+    def test_c5_done_emits_ready_fire_not_none(self):
+        """Selecting "Done" (-1) at the weapon menu must finish the fire phase
+        directly by returning a ready_fire order, not drop the player back to
+        the main prompt with None."""
+        shooter = _ship(1, 0, 0, 0, "player", [_weapon("forward", max_range=5, id="L1")])
+        enemy = _ship(2, 3, 0, 3, "ai")
+        snap = _snap([shooter, enemy], phase="firing")
+
+        buf = io.StringIO()
+        import builtins
+        orig_input = builtins.input
+        answers = iter(["-1"])
+        builtins.input = lambda *_a, **_k: next(answers)
+        try:
+            with contextlib.redirect_stdout(buf):
+                order = interactive_fire(snap, 1)
+        finally:
+            builtins.input = orig_input
+
+        self.assertIsNotNone(order, "Done returned None instead of a ready_fire order")
+        self.assertEqual("ready_fire", order.get("type"))
+        self.assertEqual(1, order.get("ship"))
+
 
 class C6KillShotAnnouncesDestruction(unittest.TestCase):
     """format_combat_events must call out a kill instead of quietly showing

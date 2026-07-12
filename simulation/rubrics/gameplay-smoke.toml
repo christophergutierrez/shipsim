@@ -1,0 +1,7 @@
+id = "gameplay_smoke"
+description = "Baseline policies should produce combat and some completed matches in the smoke matrix."
+min_termination_rate = 0.25
+min_average_damage = 1.0
+max_stalemate_rate = 0.75
+min_win_rate = 0.25
+max_win_rate = 0.75

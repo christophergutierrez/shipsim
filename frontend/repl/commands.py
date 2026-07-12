@@ -458,9 +458,18 @@ def _face_index(token: str) -> Optional[int]:
         return None
 
 
-def _prompt_int(msg: str, default: int = 0) -> int:
+def _prompt_int(msg: str, default: int = 0, hint: str | None = None) -> int:
+    """Prompt for an integer.
+
+    Renders as ``{msg} {hint} [{default}]:`` when a hint is given, else
+    ``{msg} [{default}]:``. Pass ``msg`` as the full desired prefix (including
+    any indent); the hint replaces nothing — both hint and default are shown.
+    """
     while True:
-        raw = input(f"{msg} [{default}]: ").strip()
+        if hint:
+            raw = input(f"{msg} {hint} [{default}]: ").strip()
+        else:
+            raw = input(f"{msg} [{default}]: ").strip()
         if raw == "":
             return default
         try:
@@ -852,11 +861,13 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
             f"    [{i}] {w.get('id')} {bar(ch, max(mx,1))} {ch}/{mx} "
             f"rng≤{w.get('max_range')} arc={mount}"
         )
-    wi = _prompt_int("  weapon index [-1 Done]", 0)
+    wi = _prompt_int(" ", 0, hint="[-1] Done")
     if wi < 0 or wi >= len(charged):
-        # Silent: "Done" just leaves the menu so the player can fire more
-        # weapons with `f` or finish with r/ready/done. No "cancelled" noise.
-        return None
+        # "Done" finishes the fire phase for this ship directly: emit a
+        # ready_fire order so the caller sends it and the phase ends,
+        # instead of dropping the player back to the main prompt where they
+        # would have to separately type r/ready/done.
+        return _order("ready_fire", ship=ship_id)
     weapon = str(charged[wi]["id"])
     chosen = charged[wi]
     max_range = int(chosen.get("max_range") or 0)
@@ -916,9 +927,11 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
             f"@({target.get('q')},{target.get('r')}) rng={rng} — auto-selected"
         )
     else:
-        ti = _prompt_int("  target index [-1 Done]", 0)
+        ti = _prompt_int(" ", 0, hint="[-1] Done")
         if ti < 0 or ti >= len(enemies):
-            return None
+            # "Done" finishes the fire phase for this ship directly (same as
+            # the weapon-menu Done): emit ready_fire instead of dropping back.
+            return _order("ready_fire", ship=ship_id)
         if ti not in legal_indices:
             print("  that target is not in range or arc")
             return None

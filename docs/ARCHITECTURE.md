@@ -68,6 +68,7 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 | Combat | `combat`, `combat_tables`, `ssd`, `prng` | Weapon data, hit/damage rules, damage application, determinism |
 | Content | `schema`, `scenario`, `ship`, `campaign` | TOML schemas, loading, ship instances, campaign setup |
 | Orchestration | `turn`, `ai` | Turn counter and NPC actions |
+| Simulation | `simulation` | Policies, match runner, traces, metrics, and rubric evaluation |
 | Adapters | `src/bin/shipsim.rs`, `frontend/repl/`, `frontend/love/` | NDJSON harness, REPL dev client, Love client |
 
 ## Data and control flow
@@ -115,5 +116,7 @@ The external NDJSON contract is now versioned; see `docs/PROTOCOL.md`. Save file
 - `tests/fixtures/v2/duel.jsonl` is the golden end-to-end v2 replay.
 
 Architecture decisions and supersession history live in `docs/adr/`.
+
+Gameplay simulation uses validated production orders as defined by ADR-0021. See `docs/SIMULATION.md` and `docs/GAMEPLAY-RUBRICS.md`.
 
 Combat constants: `docs/combat-v2-tables.md`. Play guide: `docs/PLAY-V2.md`.

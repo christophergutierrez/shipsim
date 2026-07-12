@@ -270,7 +270,10 @@ fn e4_snapshot_exposes_power_available() {
     let damaged = StateSnapshot::from_game_state(&game);
     let ship2 = damaged.ships.iter().find(|s| s.id == 2).unwrap();
     assert!(!ship2.destroyed, "ship 2 should survive this hit");
-    assert_eq!(ship2.power, 14, "static power pool (escort) is unchanged by damage");
+    assert_eq!(
+        ship2.power, 14,
+        "static power pool (escort) is unchanged by damage"
+    );
 
     let damaged_json = serde_json::to_value(&damaged).expect("snapshot serializes to JSON");
     let ship2_json = damaged_json["ships"]

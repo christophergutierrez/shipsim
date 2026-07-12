@@ -16,10 +16,12 @@ The retired impulse, FASA, seeking-munition, and multi-bucket compatibility impl
 
 ## Recommended next work
 
-1. Build a simulation runner for automated gameplay evaluation and balance analysis.
-2. Use simulation results to drive a manual Love2D playthrough focused on high-value gameplay paths and UI behavior.
-3. Add campaign save/resume after campaign state and progression semantics are finalized.
-4. Improve combat-log presentation and replay navigation.
+1. Add mirrored/team-aware scenarios, confidence intervals, and parameter sweeps to the simulation runner.
+2. Add stochastic table-verification and tactical-diversity metrics.
+3. Use simulation results to drive manual Love2D playthroughs focused on high-value gameplay paths and UI behavior.
+4. Add screenshot capture and deterministic layout checks for the tracked visual rubric.
+5. Add campaign save/resume after campaign state and progression semantics are finalized.
+6. Improve combat-log presentation and replay navigation.
 
 ## Later features
 

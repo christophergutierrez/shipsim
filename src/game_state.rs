@@ -631,7 +631,9 @@ impl GameState {
         // otherwise the turn ends. A finished scenario simply parks at TurnEnd.
         if self.status == ScenarioStatus::Won {
             self.phase = Phase::TurnEnd;
-        } else if self.progress_made_this_cycle && (self.can_any_move() || self.can_any_legal_fire()) {
+        } else if self.progress_made_this_cycle
+            && (self.can_any_move() || self.can_any_legal_fire())
+        {
             self.begin_v2_movement_phase();
         } else {
             self.phase = Phase::TurnEnd;
@@ -1014,6 +1016,11 @@ impl GameState {
     /// PRNG stream position for mid-game resume hooks (TS3).
     pub fn prng_state(&self) -> u64 {
         self.prng.state()
+    }
+
+    pub(crate) fn reseed(&mut self, seed: u64) {
+        self.seed = seed;
+        self.prng = Prng::new(seed);
     }
 
     pub fn board(&self) -> &Board {

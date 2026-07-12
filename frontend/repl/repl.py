@@ -217,6 +217,10 @@ def _auto_fire_offer(
             )
             return log_len
         log_len = send_orders(ui, session, ctx, [order], prev_log_len=log_len)
+        # "Done" from the weapon menu returns a ready_fire order: the ship is
+        # now committed and the fire phase is ending for it, so stop looping.
+        if order.get("type") == "ready_fire":
+            return log_len
         # Refresh and check for remaining chargeable weapons on this ship.
         snap = session.snapshot
         if not snap:

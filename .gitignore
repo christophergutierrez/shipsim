@@ -12,6 +12,7 @@
 # Local scratch / caches (not part of the project)
 /tmp
 .fastembed_cache/
+ideas.txt
 
 # LibreOffice lock files
 .~lock.*#

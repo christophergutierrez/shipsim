@@ -5,20 +5,20 @@ use crate::combat::{Arc, Weapon};
 use crate::combat_tables;
 use crate::game_state::{FireCommit, GameState, ScenarioStatus};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MapSnapshot {
     pub width: u32,
     pub height: u32,
     pub mode: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HexSnapshot {
     pub q: i32,
     pub r: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ShipSnapshot {
     pub id: u32,
     pub class: String,
@@ -47,7 +47,7 @@ pub struct ShipSnapshot {
     pub weapons: Vec<WeaponSnapshot>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct WeaponSnapshot {
     pub id: String,
     pub kind: String,
@@ -60,7 +60,7 @@ pub struct WeaponSnapshot {
     pub operational: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct StateSnapshot {
     pub protocol_version: u32,
     pub turn: u32,

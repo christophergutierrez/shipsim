@@ -1,0 +1,16 @@
+name = "simulation smoke"
+scenario = "scenarios/simulation_duel.toml"
+seeds = [1, 2, 3, 4]
+max_turns = 50
+max_orders = 20000
+rubrics = [
+  "simulation/rubrics/safety.toml",
+]
+
+[[matchups]]
+player = "aggressive"
+opponent = "mobility"
+
+[[matchups]]
+player = "greedy"
+opponent = "defensive"
