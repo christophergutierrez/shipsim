@@ -39,10 +39,10 @@ def _ship(sid, controller, q=0, r=0, facing=0, destroyed=False, weapons=None):
 
 def _snap(ships, phase, **kw):
     snap = {
-        "protocol_version": 1, "phase": phase, "status": "Playing",
+        "protocol_version": 2, "phase": phase, "status": "Playing",
         "turn": 1, "active_ship": None, "ships": ships, "combat_log": [],
-        "ships_allocated_this_turn": [], "ships_moved_this_phase": [],
-        "ships_ready_fire": [], "move_order": [], "fire_commits": [],
+        "ships_allocated_this_turn": [], "ships_committed_this_phase": [],
+        "ships_ready_fire": [], "fire_commits": [],
     }
     snap.update(kw)
     return snap
@@ -76,21 +76,20 @@ class AllocatePhaseTests(unittest.TestCase):
 
 
 class MovementPhaseTests(unittest.TestCase):
-    """Active ship is the scripted one -> client sends pass_move for it."""
+    """Active ship is the scripted one -> client sends a v2 coast maneuver."""
 
-    def test_c8_movement_drives_scripted_ship_with_pass_move(self):
+    def test_c8_movement_drives_scripted_ship_with_coast(self):
         snap = _snap(
             [_ship(1, "player"), _ship(2, "scripted")],
             phase="movement",
-            active_ship=2,
-            move_order=[1, 2],
-            ships_moved_this_phase=[1],
+            ships_committed_this_phase=[1],
         )
         sent = _drive(FakeSession(snap))
         self.assertEqual(1, len(sent))
-        self.assertEqual({"type": "pass_move", "ship": 2}, {
+        self.assertEqual({"type": "commit_maneuver", "ship": 2}, {
             k: v for k, v in sent[0].items() if k in ("type", "ship")
         })
+        self.assertEqual({"type": "coast"}, sent[0]["maneuver"])
 
 
 class FiringPhaseTests(unittest.TestCase):

@@ -84,14 +84,19 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 
 - Rust is the sole rules authority; clients may project but not decide legality.
 - Power allocation cannot exceed ship power (and per-facing shield max) and is locked for the turn.
-- **Movement allocation is power units**, not hex count; reverse after forward costs 2 units.
-- Initiative is sorted **once per turn** by movement allocation (high first); ties broken once with PRNG; order frozen.
-- Movement phase is **sequential**: one ACTIVE mover at a time (`active_mover`); each ship at most one Move/Pass per phase.
-- Ships with `move_remaining == 0` are skipped; when every living ship has decided or has no move power, phase advances to firing.
+- **Movement allocation is power units**, converted to a turn-scoped thrust reserve;
+  thrust is spent on inertial maneuvers and does not directly buy distance.
+- There is no movement initiative queue; all living ships commit once per phase
+  and resolve simultaneously.
+- Movement phase is **simultaneous**: every living ship commits one maneuver per
+  phase, then maneuvers and translation resolve as a batch. Legacy Move/Pass
+  variants are deserialization-only compatibility cases and are rejected.
 - Firing phase: `CommitFire` then `ReadyFire` per ship; when **all living ships** are ready, resolve simultaneously. AI must ReadyFire (core `resolve_v2_npc_actions` does).
 - **Miss still consumes charge** and marks the weapon fired this turn.
-- Turn continues after fire only if `can_any_move()` (legal **hex-changing** forward/reverse) or `can_any_legal_fire()`; turn-in-place alone does not keep the turn open.
-- `end_turn_warning` is true when useful move/fire remains; EndTurn still always advances after allocation.
+- The turn always follows four movement/fire cycles; coasting ships can therefore
+  translate on their schedule without an open-ended heuristic.
+- `end_turn_warning` reflects remaining legal fire actions; EndTurn still always
+  advances after allocation.
 - Fire resolution uses pre-resolution ship snapshot; mutual destruction possible.
 - Random outcomes use seeded PRNG (`roll(20)` is 1..=20 for to-hit).
 - Content remains generic and does not copy protected game data.

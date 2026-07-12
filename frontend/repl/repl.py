@@ -51,6 +51,8 @@ from view import (
     format_ship_line,
     format_snapshot,
     format_terminal_banner,
+    movement_focus_id,
+    movement_pending_ids,
     snapshot_delta,
 )
 
@@ -324,16 +326,6 @@ def send_orders(
         delta = snapshot_delta(before, msg)
         if delta:
             ui.log(delta)
-        if order.get("type") == "move" and str(order.get("mode", "")).startswith("turn"):
-            ship = next(
-                (s for s in (msg.get("ships") or []) if s.get("id") == order.get("ship")),
-                None,
-            )
-            if ship:
-                ui.log(
-                    f"  …turned → face={ship.get('facing')} "
-                    f"@({ship.get('q')},{ship.get('r')})"
-                )
         # Always repaint frame from latest snapshot so bars update in place.
         if not ui.scroll:
             paint_frame(ui, session, ctx)
@@ -403,7 +395,7 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                     terminal_announced = True
             phase = str(snap.get("phase") or "?")
             turn = snap.get("turn", "?")
-            active = snap.get("active_ship")
+            active = movement_focus_id(snap) if phase == "movement" else None
 
             # Phase transition hooks — run once per entry into a phase.
             # Do NOT clear last_phase after every order (that re-opened auto-fire
@@ -490,11 +482,11 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 paint_frame(ui, session, ctx)
                 continue
             if act.side == "board":
-                ui.log(format_board(snap, selected=ctx.selected, active=snap.get("active_ship")))
+                ui.log(format_board(snap, selected=ctx.selected, active=movement_focus_id(snap)))
                 paint_frame(ui, session, ctx)
                 continue
             if act.side == "ships":
-                active_id = snap.get("active_ship")
+                active_id = movement_focus_id(snap)
                 for ship in snap.get("ships") or []:
                     ui.log(
                         format_ship_line(
@@ -516,9 +508,8 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                                 "turn",
                                 "phase",
                                 "status",
-                                "active_ship",
-                                "move_order",
-                                "ships_moved_this_phase",
+                                "movement_phase",
+                                "ships_committed_this_phase",
                                 "ships_ready_fire",
                                 "end_turn_warning",
                                 "prng_state",
@@ -605,7 +596,7 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
                 continue
             orders.append(
                 {
-                    "protocol_version": 1,
+                    "protocol_version": 2,
                     "type": "allocate",
                     "ship": int(ship["id"]),
                     "movement": 0,
@@ -618,20 +609,23 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
         return orders
 
     if phase == "movement":
-        active = snap.get("active_ship")
-        if active is None:
-            return []
-        active_ship = next(
-            (s for s in living if int(s["id"]) == int(active)), None
-        )
-        if active_ship is None or active_ship.get("controller") != "scripted":
+        committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
+        pending_players = [
+            s for s in living
+            if s.get("controller") == "player" and int(s["id"]) not in committed
+        ]
+        if pending_players:
             return []
         return [
             {
-                "protocol_version": 1,
-                "type": "pass_move",
-                "ship": int(active_ship["id"]),
+                "protocol_version": 2,
+                "type": "commit_maneuver",
+                "ship": int(ship["id"]),
+                "maneuver": {"type": "coast"},
             }
+            for ship in living
+            if ship.get("controller") == "scripted"
+            and int(ship["id"]) not in committed
         ]
 
     if phase == "firing":
@@ -651,7 +645,7 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
                 continue
             orders.append(
                 {
-                    "protocol_version": 1,
+                    "protocol_version": 2,
                     "type": "ready_fire",
                     "ship": int(ship["id"]),
                 }

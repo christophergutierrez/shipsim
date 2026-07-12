@@ -2,7 +2,7 @@
 -- JSON shape must match src/movement.rs::Order (serde snake_case tags).
 
 local orders = {}
-local PROTOCOL_VERSION = 1
+local PROTOCOL_VERSION = 2
 
 local function versioned(order)
   order.protocol_version = PROTOCOL_VERSION
@@ -22,14 +22,19 @@ function orders.allocate(ship, movement, weapons, shields)
   })
 end
 
---- Move the active ship one hex in the given mode.
-function orders.move(ship, mode)
-  return versioned({ type = "move", ship = ship, mode = mode or "forward" })
+--- Commit a maneuver for a ship during the current movement phase (ADR-0022 M6).
+--- maneuver: a table like { type = "coast" }, { type = "accelerate", course = N }, etc.
+function orders.commit_maneuver(ship, maneuver)
+  return versioned({
+    type = "commit_maneuver",
+    ship = ship,
+    maneuver = maneuver,
+  })
 end
 
---- Pass on the active ship's move (spends no move power).
-function orders.pass_move(ship)
-  return versioned({ type = "pass_move", ship = ship })
+--- Coast is the common case: commit Maneuver::Coast (no thrust spent).
+function orders.coast(ship)
+  return orders.commit_maneuver(ship, { type = "coast" })
 end
 
 --- Commit a charged weapon to fire at a target through a shield facing.

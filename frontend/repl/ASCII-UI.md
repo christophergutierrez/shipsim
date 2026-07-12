@@ -110,7 +110,7 @@ new color for decoration; a new entry here needs a new *meaning*.
 | Map cell `A1→` | Callsign (side letter + id) + facing arrow (= forward) |
 | Map cell `····` | Empty hex (muted; four printable columns) |
 | Map cell ` x  ` | Destroyed ship wreck (muted; living ship takes precedence) |
-| `@` / `*` in lists | Focus / ACTIVE mover |
+| `@` / `*` in lists | Focus / next pending maneuver |
 | `[####....]` | Quantity bar (power, charge, hull, shield rem) |
 | `CHG n/m (available)` | Still free to commit this fire phase |
 | `QUEUED →#t` | `commit_fire` done; charge still on ship until all ready |
@@ -121,7 +121,7 @@ new color for decoration; a new entry here needs a new *meaning*.
 | `rel bearing: N` | Direction to focus target relative to your nose (0 = F) |
 | `⚠ leftover useful actions` | `end_turn_warning` — useful move/fire still existed |
 | `status=Won` / `status=Lost` | Endgame; painted ok / err in the header |
-| `move_order=[…] moved=[…]` | Initiative queue + who already decided (muted) |
+| `committed=[…] pending=[…]` | Maneuver commitments for the current phase (muted) |
 | `ready_fire=[…]` | Ships already readied this fire phase (muted) |
 
 Prompt fragments (`*1`, `draft11/22`, `/ready`, …) have their canonical table
@@ -275,13 +275,11 @@ The ship card also prints `rel bearing` vs the focus contact. Future work:
 mark threatened faces directly in the shield **draft** bars so the player
 knows where to stack power without doing hex math in their head.
 
-### Initiative queue
+### Maneuver commitments
 
-`move_order` is fixed once per turn and decides who is ACTIVE — moving before
-or after an enemy is real tactical information. Today it prints as a muted raw
-list (`move_order=[…] moved=[…]`). Preferred presentation: a short callsign
-queue, e.g. `next: A1* → B2 → A2`, with already-moved ships muted. Same idea
-for `ready_fire=[…]` during firing: who is still holding up the resolve.
+Movement is simultaneous: each living ship commits once per phase. The display
+shows short callsigns in muted `committed=[…] pending=[…]` lists. The same idea
+applies to `ready_fire=[…]` during firing: who is still holding up the resolve.
 
 ### Endgame and turn_end
 

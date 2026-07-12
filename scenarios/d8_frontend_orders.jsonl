@@ -1,7 +1,7 @@
-{"protocol_version":1,"type":"allocate","ship":1,"movement":4,"weapons":{"beam_1":1},"shields":[0,0,0,0,0,0]}
-{"protocol_version":1,"type":"allocate","ship":2,"movement":2,"weapons":{"beam_1":1},"shields":[0,0,0,0,0,0]}
-{"protocol_version":1,"type":"pass_move","ship":1}
-{"protocol_version":1,"type":"pass_move","ship":2}
-{"protocol_version":1,"type":"commit_fire","ship":1,"weapon":"beam_1","target":2,"shield_facing":3}
-{"protocol_version":1,"type":"ready_fire","ship":1}
-{"protocol_version":1,"type":"end_turn"}
+{"protocol_version":2,"type":"allocate","ship":1,"movement":4,"weapons":{"beam_1":1},"shields":[0,0,0,0,0,0]}
+{"protocol_version":2,"type":"allocate","ship":2,"movement":2,"weapons":{"beam_1":1},"shields":[0,0,0,0,0,0]}
+{"protocol_version":2,"type":"commit_maneuver","ship":1,"maneuver":{"type":"coast"}}
+{"protocol_version":2,"type":"commit_maneuver","ship":2,"maneuver":{"type":"coast"}}
+{"protocol_version":2,"type":"commit_fire","ship":1,"weapon":"beam_1","target":2,"shield_facing":3}
+{"protocol_version":2,"type":"ready_fire","ship":1}
+{"protocol_version":2,"type":"end_turn"}

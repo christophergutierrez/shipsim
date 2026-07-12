@@ -1,10 +1,10 @@
-# Save and Resume Format v1
+# Save and Resume Format v2
 
 Save files are deterministic replay documents. They preserve scenario identity, every accepted order, and the PRNG checkpoint reached after replay. They do not serialize private `GameState` fields.
 
 ```json
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "scenario": "scenarios/combat.toml",
   "orders": [
     {
@@ -44,8 +44,8 @@ Resume loads the saved scenario, replays stored orders without emitting intermed
 
 ## Validation and limits
 
-- Unsupported document versions fail before scenario load.
+- Unsupported document versions (including v1) fail **before** order deserialization or scenario load — the version is probed first so an incompatible order shape yields `UnsupportedVersion`, not `Parse`.
 - Illegal saved orders and PRNG mismatches fail rather than loading ambiguous state.
 - Scenario and ship data must still be available and compatible with the recorded order stream.
-- Campaign save/resume is not supported in v1.
+- Campaign save/resume is not supported in v2.
 - Replay time grows with order history; checkpointed aggregate serialization can be added in a future version if profiling justifies it.

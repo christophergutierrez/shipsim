@@ -108,6 +108,7 @@ in M4 when the simultaneous maneuver/translation core replaces it.
   persists across the whole turn. Under four fire windows, a weapon fires at
   most once per turn. This semantics is preserved; per-window refire would
   require a separate design change.
-- **Love2D test bridge:** Love2D tests exercise legacy `Order::Move` building.
-  They stay green through M0–M7 (the bridge keeps `Order::Move` in the enum)
-  then flip at M8 when the UI switches to maneuver orders.
+- **Love2D M6 boundary:** production Love2D controls emit only coast maneuver
+  commitments. Directional maneuver controls are intentionally deferred to M8;
+  the Rust `Order::Move` variant remains deserialization-only and is rejected at
+  apply time for compatibility coverage.

@@ -54,6 +54,8 @@ __all__ = [
     "format_combat_events",
     "format_snapshot",
     "format_error",
+    "movement_pending_ids",
+    "movement_focus_id",
     "living_player_ships",
     "living_ships",
     "ship_by_id",
@@ -72,11 +74,11 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
     status = snap.get("status", "?")
     phase = snap.get("phase", "?")
     turn = snap.get("turn", "?")
-    active = snap.get("active_ship")
     warn_s = ""
     if snap.get("end_turn_warning") and phase in ("firing", "turn_end"):
         warn_s = sty_warn("  ⚠ leftover useful actions")
-    active_s = f" active=#{active}" if active is not None else ""
+    active = movement_focus_id(snap) if phase == "movement" else None
+    active_s = f" pending=#{active}" if active is not None else ""
     sel_s = sty_focus(f"  focus=#{selected}") if selected is not None else ""
     phase_s = paint(str(phase), "bold", "bright_white")
     status_s = str(status)
@@ -90,13 +92,33 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
     legend = ""
     if active is not None and selected is not None and active != selected:
         legend = muted(
-            "  (* = engine's active ship, @ = your focused ship)"
+            "  (* = next pending maneuver, @ = your focused ship)"
         )
     return (
         f"{rule('shipsim')}\n"
         f"turn {turn}  phase={phase_s}  status={status_s}{active_s}{sel_s}{warn_s}"
         f"{legend}"
     )
+
+
+def movement_pending_ids(snap: dict[str, Any]) -> list[int]:
+    """Living ships without a maneuver commitment in the current phase."""
+    committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
+    return [
+        int(ship["id"])
+        for ship in snap.get("ships") or []
+        if not ship.get("destroyed") and int(ship["id"]) not in committed
+    ]
+
+
+def movement_focus_id(snap: dict[str, Any]) -> Optional[int]:
+    """First pending player ship, or first pending ship when only NPCs remain."""
+    pending = movement_pending_ids(snap)
+    for sid in pending:
+        ship = ship_by_id(snap, sid)
+        if ship and ship.get("controller") == "player":
+            return sid
+    return pending[0] if pending else None
 
 
 def weapon_outcomes_for_ship(
@@ -401,13 +423,16 @@ def format_tactical(
         return format_snapshot(snap, selected=selected, hull_max=hull_max, verbose=False)
 
     parts = [format_header(snap, selected=selected)]
-    if snap.get("move_order"):
-        moved = set(snap.get("ships_moved_this_phase") or [])
-        queue = " → ".join(
-            (ship_callsign(ship_by_id(snap, int(sid)) or {"id": sid, "controller": "?"})
-             + (" done" if sid in moved else ""))
-            for sid in snap.get("move_order") or []
-        )
+    if snap.get("phase") == "movement":
+        committed = [
+            ship_callsign(ship_by_id(snap, int(sid)) or {"id": sid, "controller": "?"})
+            for sid in snap.get("ships_committed_this_phase") or []
+        ]
+        pending = [
+            ship_callsign(ship_by_id(snap, sid) or {"id": sid, "controller": "?"})
+            for sid in movement_pending_ids(snap)
+        ]
+        queue = f"committed={', '.join(committed) or '-'} pending={', '.join(pending) or '-'}"
         parts.append(
             muted(f"movement: {queue}")
         )
@@ -422,7 +447,7 @@ def format_tactical(
         me,
         hull_max=hull_max.get(int(me["id"])),
         focused=True,
-        active=snap.get("active_ship") == me.get("id"),
+        active=movement_focus_id(snap) == me.get("id"),
         snap=snap,
     )
     parts.append(panel("YOUR SHIP", you_body))
@@ -450,7 +475,7 @@ def format_tactical(
                 e,
                 hull_max=hull_max.get(int(e["id"])),
                 vs=me,
-                active=snap.get("active_ship") == e.get("id"),
+                active=movement_focus_id(snap) == e.get("id"),
                 snap=snap,
                 redacted=True,
             )
@@ -466,7 +491,7 @@ def format_tactical(
     board = format_board(
         snap,
         selected=selected,
-        active=snap.get("active_ship"),
+        active=movement_focus_id(snap) if snap.get("phase") == "movement" else None,
     )
     if board:
         parts.append(panel("MAP", board, width=72))
@@ -677,7 +702,7 @@ def format_snapshot(
     if verbose:
         return format_tactical(snap, selected=selected, hull_max=hull_max)
     parts = [format_header(snap, selected=selected)]
-    active = snap.get("active_ship")
+    active = movement_focus_id(snap) if snap.get("phase") == "movement" else None
     for ship in snap.get("ships") or []:
         # Redact enemy ships in the compact view too (UX_ANALYSIS.md §2f).
         redacted = ship.get("controller") != "player"

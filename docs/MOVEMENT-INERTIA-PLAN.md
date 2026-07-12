@@ -1,6 +1,6 @@
 # Phased Plan: Persistent Velocity and Inertial Movement
 
-Status: Accepted (ADR-0022). M0–M5 complete; M6 next.
+Status: Accepted (ADR-0022). M0–M6 complete; M7 next.
 
 Related design TODO: `docs/TODO.md`
 
@@ -393,6 +393,7 @@ cargo test --test acceptance
 
 - Only protocol v2 is emitted or accepted externally.
 - Golden fixtures are regenerated and byte-locked.
+- **Complete (M6):** protocol bumped to v2; `SaveDocument::read` probes version before deserializing orders; `Order::Move` and `Order::PassMove` are deserialization-only and rejected at apply time (`MoveOrderRetired` / `PassMoveOrderRetired`); snapshots expose velocity/course/facing/thrust/movement_phase/ships_committed_this_phase; Love and REPL clients emit and accept only v2; `tests/inertial_protocol.rs` covers the full external contract; `tests/save_resume.rs` splits at every movement/fire window; `docs/PROTOCOL.md` and `docs/SAVE-FORMAT.md` document v2.
 
 ## M7: Simulation Policies and Gameplay Rubrics
 

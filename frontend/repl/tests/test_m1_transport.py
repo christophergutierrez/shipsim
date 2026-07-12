@@ -70,13 +70,13 @@ def _session(inbound: str, **proc_args: object) -> ShipsimSession:
 
 class ProtocolCompatibilityTests(unittest.TestCase):
     def test_first_snapshot_accepts_supported_version(self) -> None:
-        session = _session('{"type":"snapshot","protocol_version":1}\n')
+        session = _session('{"type":"snapshot","protocol_version":2}\n')
         self.assertEqual(session._read_message()["protocol_version"], PROTOCOL_VERSION)
 
     def test_first_error_is_also_version_checked(self) -> None:
-        session = _session('{"type":"error","protocol_version":2}\n')
+        session = _session('{"type":"error","protocol_version":1}\n')
         with self.assertRaisesRegex(
-            ProtocolCompatibilityError, r"got 2.*supported 1"
+            ProtocolCompatibilityError, r"got 1.*supported 2"
         ):
             session._read_message()
 
@@ -91,11 +91,11 @@ class ProtocolCompatibilityTests(unittest.TestCase):
                 with self.assertRaises(ProtocolCompatibilityError) as caught:
                     _session(inbound)._read_message()
                 self.assertIn(f"got {got}", str(caught.exception))
-                self.assertIn("supported 1", str(caught.exception))
+                self.assertIn("supported 2", str(caught.exception))
 
     def test_version_is_checked_exactly_once(self) -> None:
         session = _session(
-            '{"type":"snapshot","protocol_version":1}\n'
+            '{"type":"snapshot","protocol_version":2}\n'
             '{"type":"snapshot","protocol_version":999}\n'
         )
         session._read_message()
@@ -135,7 +135,7 @@ class TransportFailureTests(unittest.TestCase):
                 session.send_order({"type": "pass", "ship": 4})
             self.assertEqual(
                 session._proc.stdin.getvalue(),
-                '{"type":"pass","ship":4,"protocol_version":1}\n',
+                '{"type":"pass","ship":4,"protocol_version":2}\n',
             )
 
     def test_write_failure_is_typed_and_names_diagnostic_log(self) -> None:

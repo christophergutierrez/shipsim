@@ -58,8 +58,8 @@ Board is **q right, r down**. Facing index and arrow **are** forward:
 | 4 | ↙ | |
 | 5 | ↓ | +r (down) |
 
-`m forward` / `m f` always moves the way the ship’s arrow points — not “up the
-screen” unless face is 2.
+Directional maneuver controls are deferred to M8. Facing remains visible for the
+future maneuver UI; in M6, use `p`/`pass` to commit coast.
 
 ### Shield faces (ship-relative)
 
@@ -89,8 +89,7 @@ ALLOCATE  (all living ships, once each)
 │      ↓
 │  FIRING    (optional commits, then Ready; resolve when all ready)
 │      ↓
-└── if useful hex-move or legal fire remains → MOVEMENT again
-    else → turn ends (or End Turn early)
+└── after four movement/fire cycles → turn end
 ```
 
 There is no separate “round counter.” Movement and firing **pair** until nobody
@@ -99,7 +98,7 @@ can usefully act (or you force **End Turn**).
 AI ships (`controller = "ai"`) are advanced by the harness after your orders.
 **Scripted** ships (`controller = "scripted"`, e.g. the escort in
 `scenarios/combat.toml`) are **not** driven by the harness. The REPL auto-sends
-passive allocate / pass_move / ready_fire for them when the phase is blocked
+passive allocate / coast / ready_fire for them when the phase is blocked
 **only** on scripted ships — otherwise the game would wait forever. You still
 only type orders for **player** ships.
 
@@ -179,35 +178,20 @@ If **every** living ship has **0** movement power after allocate, the engine goe
 
 ### Goal
 
-Each living ship with move power left that has not yet decided gets **exactly one**
-decision this phase: **Move** (forward / reverse / turn port / turn starboard) or
-**Pass**. Then the next ship in initiative order.
-
-Only the **ACTIVE** ship (shown in the header and as `*id` in the prompt) may act.
-
-When every ship has decided or has **0** move remaining, phase becomes **firing**.
+Each living ship gets exactly one maneuver commitment in each of four movement
+phases. In M6 the REPL exposes only **Coast**; directional maneuver controls arrive
+in M8. Commitments resolve simultaneously, then the firing window opens.
 
 ### Commands
 
 | Command | Effect |
 |---|---|
-| `m f` / `m forward` | Forward one hex (usually cost 1) |
-| `m r` / `m reverse` | Reverse one hex |
-| `m port` / `m stbd` | Turn only (cost 1) |
-| `m 0` … `m 5` | **One** order toward absolute map direction |
-| `p` / `pass` | Pass (skip this decision) |
+| `p` / `pass` | Commit a coast maneuver |
+| `m …` | Rejected locally; directional maneuver controls arrive in M8 |
 
-### Absolute `m N` (important)
-
-The engine allows **one Move/Pass per ship per movement phase**.
-
-`m N` does **not** “turn until facing N then step” in one go. It does **one** of:
-
-- if already facing N → **forward**,
-- if facing opposite N → **reverse**,
-- else → **one turn** toward N, and that **uses your decision**.
-
-To walk a path: turn when ACTIVE, then on a **later** movement phase (or next turn)
+Directional movement is intentionally not mapped to inertial maneuvers in M6 because
+the old step semantics are not equivalent. The engine rejects retired `move` and
+`pass_move` orders; the REPL rejects those commands before transmission.
 step when ACTIVE again.
 
 ### Momentum costs (engine)
@@ -296,8 +280,8 @@ Do **not** use `e` for that — `e` ends the **turn**.
 
 ## 6. End turn and the move/fire loop
 
-- After a fire resolution, if anyone can still make a **useful hex-changing** move
-  or a **legal fire**, you get another **movement** phase (then firing again).
+- After each firing window, the fixed schedule advances to the next movement phase;
+  after phase 4, the phase becomes turn end.
 - **End Turn** (`e`) advances to the next turn’s allocate (illegal during allocate).
   Soft leftover warning may show if you still had useful actions.
 - End turn **clears** turn-scoped allocation, charges, and combat log.
@@ -395,7 +379,7 @@ hint (e.g. wrong phase). Fix the phase or ship and retry.
 ## 10. Suggested first fight (`scenarios/ai.toml`)
 
 1. **Allocate** `A1`: some movement, charge `b1`, put power on forward shields, `commit`.
-2. **Movement**: if ACTIVE, `m f` or `p` once.
+2. **Movement**: use `p`/`pass` once for each living ship.
 3. **Firing**: optional `f`, then **`r`**.
 4. Watch RECENT for HIT/MISS and shield/hull bars on contacts.
 5. Repeat move/fire or `e` when the turn is done.

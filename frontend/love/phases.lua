@@ -23,7 +23,7 @@ end
 function phases.allows(p, action)
   if action == "allocate" then
     return p == phases.ALLOCATE
-  elseif action == "move" or action == "pass_move" then
+  elseif action == "commit_maneuver" then
     return p == phases.MOVEMENT
   elseif action == "commit_fire" or action == "ready_fire" then
     return p == phases.FIRING

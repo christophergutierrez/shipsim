@@ -4,7 +4,7 @@ local json = require("json")
 local paths = require("paths")
 
 local harness = {}
-local PROTOCOL_VERSION = 1
+local PROTOCOL_VERSION = 2
 
 local function shell_quote(s)
   return "'" .. tostring(s):gsub("'", "'\\''") .. "'"

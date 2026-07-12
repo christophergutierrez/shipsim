@@ -250,13 +250,7 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   love.graphics.setColor(0.7, 0.75, 0.8)
   love.graphics.print(string.format("thrust %d", ship.thrust_remaining or 0), px + pad, y)
   y = y + ui.line_h(13) + 4
-  ui.button("Forward (W)", px + pad, y, content_w, bh, "move_forward", nil, false)
-  y = y + bh + 3
-  ui.button("Turn Port", px + pad, y, content_w, bh, "move_port", nil, false)
-  y = y + bh + 3
-  ui.button("Turn Stbd", px + pad, y, content_w, bh, "move_starboard", nil, false)
-  y = y + bh + 3
-  ui.button("Pass (P)", px + pad, y, content_w, bh, "pass_move", nil, false)
+  ui.button("Coast (P)", px + pad, y, content_w, bh, "coast", nil, false)
   y = y + bh + 6
   return y
 end

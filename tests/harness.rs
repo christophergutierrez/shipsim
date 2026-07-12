@@ -65,7 +65,7 @@ fn test_soft_reject_illegal_fire() {
         // v2: fire before allocating — CommitFire is illegal in the Allocate phase.
         writeln!(
             stdin,
-            r#"{{"protocol_version":1,"type":"commit_fire","ship":1,"weapon":"missing_weapon","target":2,"shield_facing":3}}"#
+            r#"{{"protocol_version":2,"type":"commit_fire","ship":1,"weapon":"missing_weapon","target":2,"shield_facing":3}}"#
         )
         .unwrap();
     }
@@ -105,7 +105,7 @@ fn test_soft_reject_missing_protocol_version_without_mutation() {
         .collect();
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[1]["code"], "unsupported_protocol");
-    assert_eq!(lines[1]["protocol_version"], 1);
+    assert_eq!(lines[1]["protocol_version"], 2);
     assert_eq!(lines[0]["phase"], "allocate");
     let _ = std::fs::remove_file(orders_path);
 }

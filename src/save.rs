@@ -17,6 +17,16 @@ pub struct SaveDocument {
     pub prng_state: u64,
 }
 
+/// Minimal view used to check a save document's protocol version *before*
+/// deserializing the (potentially incompatible) order stream (ADR-0022 M6).
+///
+/// Unknown fields are ignored so a v1 save carrying a retired order shape still
+/// probes successfully and is rejected by version, not by a parse error.
+#[derive(Debug, Deserialize)]
+struct SaveVersionProbe {
+    protocol_version: u32,
+}
+
 #[derive(Debug, Error)]
 pub enum SaveError {
     #[error("cannot read save {path:?}: {source}")]
@@ -59,16 +69,25 @@ impl SaveDocument {
             path: path.to_path_buf(),
             source,
         })?;
+        // M6 (ADR-0022): reject unsupported document versions *before* deserializing
+        // the order stream. A v1 save may carry an order shape that is no longer
+        // parseable; checking the version first guarantees such a save fails with
+        // `UnsupportedVersion` rather than `Parse`.
+        let version_probe: SaveVersionProbe =
+            serde_json::from_str(&text).map_err(|source| SaveError::Parse {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        if version_probe.protocol_version != PROTOCOL_VERSION {
+            return Err(SaveError::UnsupportedVersion {
+                actual: version_probe.protocol_version,
+                expected: PROTOCOL_VERSION,
+            });
+        }
         let document = serde_json::from_str::<Self>(&text).map_err(|source| SaveError::Parse {
             path: path.to_path_buf(),
             source,
         })?;
-        if document.protocol_version != PROTOCOL_VERSION {
-            return Err(SaveError::UnsupportedVersion {
-                actual: document.protocol_version,
-                expected: PROTOCOL_VERSION,
-            });
-        }
         Ok(document)
     }
 

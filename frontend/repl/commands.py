@@ -1,4 +1,4 @@
-"""Interactive command parsing and order construction (protocol v1).
+"""Interactive command parsing and order construction (protocol v2).
 
 Ship-centric: select a focus ship once; allocate draft / fire / status use it.
 Facing is always 0..5 (same numbering as the core).
@@ -16,12 +16,11 @@ from hexutil import (
     distance,
     legal_shield_facings,
     ship_callsign,
-    turn_toward,
     weapon_in_arc,
 )
 from view import living_player_ships, living_ships, ship_by_id
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 HELP = """
 shipsim REPL — ship-centric Combat Model v2
@@ -49,7 +48,7 @@ Allocate (local draft until commit — pick ship first)
     show | reset | commit | cancel
     done | ..              leave weapons/shields group
 
-Movement: m <0-5> (one turn OR one step — one decision) | m f/r/port/stbd | p pass
+Movement: p/pass [ship] coast | directional m commands arrive in M8
 Firing:   f fire | r/nofire ready without shots | e end WHOLE turn
 """.strip()
 
@@ -237,10 +236,9 @@ def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
             f"allocate:{foc}  a = pick ship {pending} then mov/w/sh … commit"
         )
     if phase == "movement":
-        active = snap.get("active_ship")
         return (
-            f"movement: ACTIVE=#{active}{foc}  "
-            f"m <0-5> | m f/r/port/stbd | pass"
+            f"movement: phase {snap.get('movement_phase', '?')}/4{foc}  "
+            "p/pass to coast; directional maneuvers arrive in M8"
         )
     if phase == "firing":
         ready = snap.get("ships_ready_fire") or []
@@ -519,50 +517,13 @@ def plan_absolute_move(
     """
     Absolute map direction 0..5 — **one engine order only**.
 
-    Combat v2 allows a single Move/Pass decision per ship per movement phase.
-    Batching turn+turn+forward in one `m N` was a regression: the first turn
-    consumed the decision, AI finished the phase, and later steps failed or
-    left the player in firing with a confusing soft-error.
-
-    If not aligned: emit one turn toward the target dir and tell the player to
-    press `m N` again. If aligned: one forward or reverse step.
+    Directional movement is intentionally unavailable in M6. The inertial
+    maneuver UI and command semantics arrive in M8.
     """
-    ship = ship_by_id(snap, ship_id)
-    if ship is None:
-        return [], f"ship #{ship_id} not found"
-    facing = int(ship.get("facing") or 0) % 6
-    abs_dir %= 6
-    rev = (facing + 3) % 6
-
-    if abs_dir == facing:
-        return (
-            [_order("move", ship=ship_id, mode="forward")],
-            f"step absolute {abs_dir} via forward (face={facing})",
-        )
-    if abs_dir == rev:
-        return (
-            [_order("move", ship=ship_id, mode="reverse")],
-            f"step absolute {abs_dir} via reverse (face={facing})",
-        )
-
-    mode = turn_toward(facing, abs_dir)
-    if mode == "forward":
-        return [], f"could not plan turn from face {facing} toward {abs_dir}"
-    # Predict face after this single turn for the note.
-    if mode == "turn_starboard":
-        new_face = (facing + 1) % 6
-    else:
-        new_face = (facing + 5) % 6
-    return (
-        [_order("move", ship=ship_id, mode=mode)],
-        f"turn toward absolute {abs_dir} ({mode}); face {facing}→{new_face}. "
-        f"This uses your movement decision for this phase — next phase or "
-        f"next turn to step; or if you still have another movement phase, "
-        f"m {abs_dir} again when active.",
-    )
+    return [], f"directional movement ({abs_dir}) arrives in M8; use p/pass to coast"
 
 
-# Relative move aliases (single order).
+# Legacy directional aliases are recognized only to reject them locally.
 REL_MOVE = {
     "f": "forward",
     "fwd": "forward",
@@ -1096,11 +1057,13 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             print(f"  cannot move: phase is {phase!r} (need movement)")
             return Action(side="empty")
         if not rest:
-            print("  usage: m <0-5> | m f|r|port|stbd")
+            print("  usage: p/pass [ship] to coast; directional maneuvers arrive in M8")
             return Action(side="empty")
-        # Movement acts on ACTIVE ship (rules); focus is informational.
-        active = snap.get("active_ship")
-        ship_id = int(active) if active is not None else ctx.ensure_selected(snap)
+        committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
+        pending = [
+            s for s in living_player_ships(snap) if int(s["id"]) not in committed
+        ]
+        ship_id = int(pending[0]["id"]) if pending else ctx.ensure_selected(snap)
         if ship_id is None:
             print("  no active ship")
             return Action(side="empty")
@@ -1108,9 +1071,6 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
             print(f"  cannot move ship #{ship_id}: not a living player ship")
             return Action(side="empty")
-        if active is not None and ctx.selected not in (None, int(active)):
-            print(f"  note: moving ACTIVE #{active} (focus was #{ctx.selected})")
-
         token = rest[0].lower()
         if token.isdigit() and 0 <= int(token) <= 5:
             if phase != "movement":
@@ -1128,17 +1088,20 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
 
         mode = REL_MOVE.get(token)
         if mode is None:
-            print(f"  unknown move {token!r}; use 0-5 or f/r/port/stbd")
+            print(f"  directional maneuver {token!r} arrives in M8; use p/pass to coast")
             return Action(side="empty")
-        return Action(orders=[_order("move", ship=ship_id, mode=mode)])
+        print("  directional maneuvers arrive in M8; use p/pass to coast")
+        return Action(side="empty")
 
     if cmd in ("pass", "pass_move"):
         if phase != "movement":
             print(f"  pass only in movement phase (now {phase})")
             return Action(side="empty")
-        # bare "p" is pass; "p" alone
-        active = snap.get("active_ship")
-        ship_id = int(active) if active is not None else ctx.ensure_selected(snap)
+        committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
+        pending = [
+            s for s in living_player_ships(snap) if int(s["id"]) not in committed
+        ]
+        ship_id = int(pending[0]["id"]) if pending else ctx.ensure_selected(snap)
         if rest and rest[0].isdigit():
             ship_id = int(rest[0])
         if ship_id is None:
@@ -1148,15 +1111,17 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
             print(f"  cannot pass ship #{ship_id}: not a living player ship")
             return Action(side="empty")
-        return Action(orders=[_order("pass_move", ship=ship_id)])
+        return Action(orders=[_order("commit_maneuver", ship=ship_id, maneuver={"type": "coast"})])
 
     if cmd == "p" and (not rest or rest[0].isdigit()):
         if phase != "movement":
             print(f"  pass only in movement phase (now {phase})")
             return Action(side="empty")
-        # pass_move (not turn port — use m port for that)
-        active = snap.get("active_ship")
-        ship_id = int(active) if active is not None else ctx.ensure_selected(snap)
+        committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
+        pending = [
+            s for s in living_player_ships(snap) if int(s["id"]) not in committed
+        ]
+        ship_id = int(pending[0]["id"]) if pending else ctx.ensure_selected(snap)
         if rest and rest[0].isdigit():
             ship_id = int(rest[0])
         if ship_id is None:
@@ -1166,7 +1131,7 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
             print(f"  cannot pass ship #{ship_id}: not a living player ship")
             return Action(side="empty")
-        return Action(orders=[_order("pass_move", ship=ship_id)])
+        return Action(orders=[_order("commit_maneuver", ship=ship_id, maneuver={"type": "coast"})])
 
     if cmd in ("fire", "f", "commit_fire"):
         if phase != "firing":
@@ -1243,6 +1208,9 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             return Action(side="empty")
         if not isinstance(obj, dict):
             print("  need object")
+            return Action(side="empty")
+        if obj.get("type") in ("move", "pass_move"):
+            print("  move/pass_move are retired; directional maneuvers arrive in M8")
             return Action(side="empty")
         obj.setdefault("protocol_version", PROTOCOL_VERSION)
         return Action(orders=[obj])

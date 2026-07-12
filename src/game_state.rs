@@ -964,7 +964,6 @@ impl GameState {
     /// advance. Stops when a human ship must act, when the scenario is decided, or at a
     /// bounded step cap so it can never spin forever.
     pub fn resolve_v2_npc_actions(&mut self) {
-        use crate::movement::{self, Order};
         const STEP_CAP: usize = 8192;
 
         for _ in 0..STEP_CAP {
@@ -1007,7 +1006,7 @@ impl GameState {
                             if let Some(maneuver) = crate::ai::v2_move_decision(self, id) {
                                 let _ = self.commit_maneuver_v2(id, maneuver);
                             } else {
-                                let _ = movement::apply_order(self, Order::PassMove { ship: id });
+                                let _ = self.commit_maneuver_v2(id, crate::motion::Maneuver::Coast);
                             }
                         }
                         // A living non-AI ship still owes a maneuver commitment.

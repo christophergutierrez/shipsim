@@ -31,7 +31,9 @@ pub enum Order {
         ship: u32,
         maneuver: Maneuver,
     },
-    /// Sugar for `CommitManeuver { maneuver: Maneuver::Coast }` (ADR-0022 M4).
+    /// Retired in M6 (ADR-0022): the external contract now uses maneuver commitment
+    /// semantics (`CommitManeuver` with `Maneuver::Coast`). Kept in the enum only so old
+    /// protocol-v1 payloads still deserialize; always rejected by `apply_order`.
     PassMove {
         ship: u32,
     },
@@ -95,10 +97,12 @@ pub enum OrderError {
     AlreadyCommittedThisPhase(u32),
     #[error("ship {ship} cannot perform this maneuver: {reason}")]
     IllegalManeuver { ship: u32, reason: String },
-    #[error(
-        "the Move order was removed in M4 (ADR-0022); submit CommitManeuver or PassMove instead"
-    )]
+    #[error("the Move order was removed in M4 (ADR-0022); submit CommitManeuver instead")]
     MoveOrderRetired,
+    #[error(
+        "the PassMove order was retired in M6 (ADR-0022); submit CommitManeuver with maneuver \"coast\" instead"
+    )]
+    PassMoveOrderRetired,
     #[error("order requires phase {expected}, actual phase is {actual}")]
     WrongPhase {
         expected: &'static str,
@@ -136,7 +140,7 @@ pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError>
         } => game.allocate_v2(ship, movement, weapons, shields),
         Order::Move { .. } => Err(OrderError::MoveOrderRetired),
         Order::CommitManeuver { ship, maneuver } => game.commit_maneuver_v2(ship, maneuver),
-        Order::PassMove { ship } => game.commit_maneuver_v2(ship, Maneuver::Coast),
+        Order::PassMove { .. } => Err(OrderError::PassMoveOrderRetired),
         Order::CommitFire {
             ship,
             weapon,

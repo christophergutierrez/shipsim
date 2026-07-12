@@ -6,7 +6,7 @@ from repl import send_orders
 
 def snapshot(phase="movement", status="Playing"):
     return {
-        "protocol_version": 1,
+        "protocol_version": 2,
         "phase": phase,
         "status": status,
         "turn": 1,
@@ -33,15 +33,29 @@ class FakeSession:
 
 
 class PreservedBehavior(unittest.TestCase):
-    def test_absolute_move_remains_one_wire_order(self):
-        orders, _ = plan_absolute_move(snapshot(), 1, 1)
-        self.assertEqual(1, len(orders))
-        self.assertEqual({"protocol_version": 1, "type": "move", "ship": 1,
-                          "mode": "turn_starboard"}, orders[0])
+    def test_directional_move_is_rejected_until_m8(self):
+        orders, note = plan_absolute_move(snapshot(), 1, 1)
+        self.assertEqual([], orders)
+        self.assertIn("M8", note)
+
+    def test_interactive_pass_emits_v2_coast(self):
+        for command in ("pass", "pass_move", "p"):
+            with self.subTest(command=command):
+                action = build_action(command, snapshot(), ReplContext(selected=1))
+                self.assertEqual(
+                    [{"protocol_version": 2, "type": "commit_maneuver", "ship": 1,
+                      "maneuver": {"type": "coast"}}],
+                    action.orders,
+                )
 
     def test_raw_order_preserves_expert_payload(self):
         action = build_action('order {"type":"probe","x":7}', snapshot(), ReplContext())
-        self.assertEqual([{"type": "probe", "x": 7, "protocol_version": 1}], action.orders)
+        self.assertEqual([{"type": "probe", "x": 7, "protocol_version": 2}], action.orders)
+
+    def test_raw_retired_movement_is_rejected_before_transmission(self):
+        action = build_action('order {"type":"move","ship":1,"mode":"forward"}',
+                              snapshot(), ReplContext())
+        self.assertFalse(action.orders)
 
 
 class NamedBugReproductions(unittest.TestCase):

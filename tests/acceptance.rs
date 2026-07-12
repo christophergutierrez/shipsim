@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
+use shipsim_core::motion::Maneuver;
 use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
 
@@ -54,10 +55,24 @@ fn run_fire_cycle(
     )
     .unwrap();
 
-    // Movement phase 1: both ships coast (PassMove == commit Maneuver::Coast,
-    // ADR-0022 M4) to resolve into this phase's fire window.
-    apply_order(game, Order::PassMove { ship: 2 }).unwrap();
-    apply_order(game, Order::PassMove { ship: 1 }).unwrap();
+    // Movement phase 1: both ships coast (CommitManeuver with Maneuver::Coast,
+    // ADR-0022 M4/M6) to resolve into this phase's fire window.
+    apply_order(
+        game,
+        Order::CommitManeuver {
+            ship: 2,
+            maneuver: Maneuver::Coast,
+        },
+    )
+    .unwrap();
+    apply_order(
+        game,
+        Order::CommitManeuver {
+            ship: 1,
+            maneuver: Maneuver::Coast,
+        },
+    )
+    .unwrap();
 
     // Firing phase: ship 1 fires beam_1 at ship 2 (adjacent, forward arc).
     apply_order(

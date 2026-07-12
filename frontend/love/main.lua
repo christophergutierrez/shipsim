@@ -12,6 +12,8 @@ local draw_board = require("draw_board")
 local draw_hud = require("draw_hud")
 local hex = require("hex")
 local ui = require("ui")
+local command_mapping = require("command_mapping")
+local scripted_pump = require("scripted_pump")
 
 local app = {
   screen = "picker",
@@ -33,12 +35,9 @@ local app = {
   show_end_warning = false,
 }
 
--- ADR-0022 M4: there is no single active mover any more — every living ship
--- commits one maneuver per movement phase. This mirrors the old "active
--- ship" concept only loosely (first ship still owing a commitment this
--- phase), good enough until M8 replaces the movement UI with real maneuver
--- controls.
-local function first_uncommitted_ship(snap)
+-- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
+-- ships; pump_scripted() below advances those ships until a player owes input.
+local function first_uncommitted_ship(snap, controller)
   if not snap or snap.phase ~= "movement" then
     return nil
   end
@@ -47,7 +46,8 @@ local function first_uncommitted_ship(snap)
     committed[id] = true
   end
   for _, s in ipairs(snap.ships or {}) do
-    if not s.destroyed and not committed[s.id] then
+    if not s.destroyed and not committed[s.id]
+        and (not controller or s.controller == controller) then
       return s.id
     end
   end
@@ -133,6 +133,9 @@ local function submit(order, keep_status)
   end
   sync_phase()
   ensure_selection()
+  scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
+  sync_phase()
+  ensure_selection()
   check_end()
   return snap, err
 end
@@ -172,6 +175,7 @@ local function start_scenario(entry)
   app.shield_facing = 0
   app.alloc = {}
   app.show_end_warning = false
+  scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
   sync_phase()
   ensure_selection()
   center_camera()
@@ -211,29 +215,21 @@ local function do_allocate(ship_id)
   end
 end
 
-local function do_move(mode)
+local function do_movement(action)
   local snap = snap_now()
   local ship = snap and first_uncommitted_ship(snap)
   if not ship or not is_player_ship(ship) then
     ui_status.set(app.status, "warn", "Not your move — active is #" .. tostring(ship))
     return
   end
-  local _, err = submit(orders.move(ship, mode), true)
-  if not err then
-    ui_status.set(app.status, "info", string.format("Ship #%d moved (%s)", ship, mode))
-  end
-end
-
-local function do_pass_move()
-  local snap = snap_now()
-  local ship = snap and first_uncommitted_ship(snap)
-  if not ship or not is_player_ship(ship) then
-    ui_status.set(app.status, "warn", "Not your move — active is #" .. tostring(ship))
+  local order = command_mapping.movement_order(action, ship)
+  if not order then
+    ui_status.set(app.status, "warn", "Directional maneuver controls arrive in M8")
     return
   end
-  local _, err = submit(orders.pass_move(ship), true)
+  local _, err = submit(order, true)
   if not err then
-    ui_status.set(app.status, "info", string.format("Ship #%d passed", ship))
+    ui_status.set(app.status, "info", string.format("Ship #%d coasted", ship))
   end
 end
 
@@ -338,20 +334,8 @@ local function handle_ui_hit(hit)
     do_allocate(p.id)
     return true
   end
-  if id == "move_forward" then
-    do_move("forward")
-    return true
-  end
-  if id == "move_port" then
-    do_move("turn_port")
-    return true
-  end
-  if id == "move_starboard" then
-    do_move("turn_starboard")
-    return true
-  end
-  if id == "pass_move" then
-    do_pass_move()
+  if id == "coast" then
+    do_movement("coast")
     return true
   end
   if id == "pick_weapon" then
@@ -479,10 +463,8 @@ function love.keypressed(key)
     end
   elseif key == "e" then
     do_end_turn()
-  elseif key == "w" then
-    do_move("forward")
   elseif key == "p" then
-    do_pass_move()
+    do_movement("coast")
   elseif key == "r" then
     do_ready_fire()
   end

@@ -1,4 +1,4 @@
-"""Spawn and talk to the shipsim NDJSON harness (protocol v1).
+"""Spawn and talk to the shipsim NDJSON harness (protocol v2).
 
 All paths for logs and session orders resolve under frontend/repl/local/.
 """
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 HERE = Path(__file__).resolve().parent
 LOCAL = HERE / "local"

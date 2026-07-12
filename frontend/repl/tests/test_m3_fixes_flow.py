@@ -45,7 +45,7 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None, destroyed=Fals
 
 def _snap(ships, **kw):
     snap = {
-        "protocol_version": 1, "phase": "firing", "status": "Playing",
+        "protocol_version": 2, "phase": "firing", "status": "Playing",
         "turn": 1, "active_ship": ships[0]["id"] if ships else None,
         "ships": ships, "combat_log": [],
     }
