@@ -28,7 +28,7 @@ pub fn seek_target(game: &GameState, ship_id: u32) -> Option<u32> {
 }
 
 use crate::combat_tables::WeaponKind as V2Kind;
-use crate::movement::MoveMode;
+use crate::motion::Maneuver;
 use std::collections::BTreeMap;
 
 /// Greedy v2 allocation for one ship: spend design power to close the gap, then
@@ -87,12 +87,13 @@ pub fn v2_allocation(
     Some((movement, weapons, shields))
 }
 
-/// Greedy v2 move decision for the active mover.
+/// Greedy v2 maneuver decision for a ship committing this movement phase.
 ///
 /// During M3–M6 (ADR-0022) the AI coasts: it returns `None` so the driver issues
-/// a `PassMove` and the ship preserves its persistent velocity without spending
-/// thrust. M7 replaces this stub with real maneuver-selection logic.
-pub fn v2_move_decision(_game: &GameState, _ship_id: u32) -> Option<MoveMode> {
+/// a `PassMove` (commits `Maneuver::Coast`) and the ship preserves its persistent
+/// velocity without spending thrust. M7 replaces this stub with real
+/// maneuver-selection logic.
+pub fn v2_move_decision(_game: &GameState, _ship_id: u32) -> Option<Maneuver> {
     None
 }
 
@@ -124,7 +125,6 @@ mod tests {
     use crate::board::Board;
     use crate::game_state::GameState;
     use crate::hex::Hex;
-    use crate::momentum::Keel;
     use crate::ship::Ship;
     use crate::ssd::Ssd;
     use std::collections::BTreeMap;
@@ -142,8 +142,6 @@ mod tests {
             shields_remaining: [0; 6],
             max_shield_per_facing: 6,
             movement_allocated: 0,
-            move_remaining: 0,
-            keel: Keel::Stopped,
             weapon_charges: BTreeMap::new(),
             ssd: Ssd::new(10, 4, 2, 0),
             destroyed: false,

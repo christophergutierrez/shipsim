@@ -14,6 +14,13 @@ fn last_line(bytes: &[u8]) -> &[u8] {
 }
 
 #[test]
+#[ignore = "blocked on M5 fire interleaving (ADR-0022): the duel_orders.jsonl fixture's \
+            commit_fire/ready_fire orders now soft-reject (Phase::Firing is unreachable from \
+            Phase::Movement in M4), so fewer orders are accepted than the fixture assumes. \
+            Un-ignoring after M5 is not enough on its own — duel_orders.jsonl only issues one \
+            pass_move per ship per turn, which resolves movement_phase 1 of 4 and then gets stuck; \
+            the fixture needs a pass_move/commit_maneuver per remaining phase added before it can \
+            reach firing at all"]
 fn save_resume_matches_uninterrupted_replay() {
     let orders = std::fs::read_to_string(manifest_path("tests/fixtures/v2/duel_orders.jsonl"))
         .expect("duel orders");

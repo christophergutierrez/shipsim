@@ -32,8 +32,6 @@ pub struct ShipSnapshot {
     /// Effective power after power_sys damage.
     pub power_available: u32,
     pub movement_allocated: u32,
-    pub move_remaining: u32,
-    pub keel: String,
     pub shields_powered: [u32; 6],
     pub shields_remaining: [u32; 6],
     pub max_shield_per_facing: u32,
@@ -74,12 +72,12 @@ pub struct WeaponSnapshot {
 pub struct StateSnapshot {
     pub protocol_version: u32,
     pub turn: u32,
-    /// Ship that may move now (v2 active mover), or `None` outside the movement phase.
-    pub active_ship: Option<u32>,
     pub status: ScenarioStatus,
     pub phase: String,
-    pub move_order: Vec<u32>,
-    pub ships_moved_this_phase: Vec<u32>,
+    /// 1..=4 during the movement phase (ADR-0022 M4).
+    pub movement_phase: u8,
+    /// Living ships that have committed a maneuver for the current movement phase.
+    pub ships_committed_this_phase: Vec<u32>,
     pub ships_ready_fire: Vec<u32>,
     /// Living ships that have completed v2 power allocation this turn.
     pub ships_allocated_this_turn: Vec<u32>,
@@ -110,11 +108,10 @@ impl StateSnapshot {
         Self {
             protocol_version: crate::protocol::PROTOCOL_VERSION,
             turn: game.turn_number(),
-            active_ship: game.active_v2_mover(),
             status: game.status(),
             phase: game.phase_name().to_string(),
-            move_order: game.move_order().to_vec(),
-            ships_moved_this_phase: game.moved_this_phase(),
+            movement_phase: game.movement_phase(),
+            ships_committed_this_phase: game.ships_committed_this_phase(),
             ships_ready_fire: game.ready_fire(),
             ships_allocated_this_turn: game.allocated_this_turn(),
             seed: game.seed(),
@@ -145,8 +142,6 @@ impl StateSnapshot {
                     power: ship.power,
                     power_available: ship.effective_power(),
                     movement_allocated: ship.movement_allocated,
-                    move_remaining: ship.move_remaining,
-                    keel: format!("{:?}", ship.keel).to_ascii_lowercase(),
                     shields_powered: ship.shields_powered,
                     shields_remaining: ship.shields_remaining,
                     max_shield_per_facing: ship.max_shield_per_facing,

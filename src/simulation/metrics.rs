@@ -34,7 +34,7 @@ impl MatchMetrics {
                     weapons.values().copied().map(u64::from).sum::<u64>();
                 self.shield_power_allocated += shields.iter().copied().map(u64::from).sum::<u64>();
             }
-            Order::Move { .. } => self.movement_orders += 1,
+            Order::CommitManeuver { .. } | Order::PassMove { .. } => self.movement_orders += 1,
             Order::CommitFire { .. } => self.fire_commits += 1,
             _ => {}
         }

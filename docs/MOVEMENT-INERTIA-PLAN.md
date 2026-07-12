@@ -1,6 +1,6 @@
 # Phased Plan: Persistent Velocity and Inertial Movement
 
-Status: Accepted (ADR-0022). M0–M2 complete; M3 in progress.
+Status: Accepted (ADR-0022). M0–M4 complete; M5 next.
 
 Related design TODO: `docs/TODO.md`
 

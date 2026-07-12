@@ -33,6 +33,27 @@ local app = {
   show_end_warning = false,
 }
 
+-- ADR-0022 M4: there is no single active mover any more — every living ship
+-- commits one maneuver per movement phase. This mirrors the old "active
+-- ship" concept only loosely (first ship still owing a commitment this
+-- phase), good enough until M8 replaces the movement UI with real maneuver
+-- controls.
+local function first_uncommitted_ship(snap)
+  if not snap or snap.phase ~= "movement" then
+    return nil
+  end
+  local committed = {}
+  for _, id in ipairs(snap.ships_committed_this_phase or {}) do
+    committed[id] = true
+  end
+  for _, s in ipairs(snap.ships or {}) do
+    if not s.destroyed and not committed[s.id] then
+      return s.id
+    end
+  end
+  return nil
+end
+
 local function player_ids(snap)
   local ids = {}
   if not snap then
@@ -65,7 +86,7 @@ local function ensure_selection()
     app.selected_id = nil
     return
   end
-  local active = snap and snap.active_ship
+  local active = snap and first_uncommitted_ship(snap)
   if active then
     for _, id in ipairs(ids) do
       if id == active then
@@ -192,7 +213,7 @@ end
 
 local function do_move(mode)
   local snap = snap_now()
-  local ship = snap and snap.active_ship
+  local ship = snap and first_uncommitted_ship(snap)
   if not ship or not is_player_ship(ship) then
     ui_status.set(app.status, "warn", "Not your move — active is #" .. tostring(ship))
     return
@@ -205,7 +226,7 @@ end
 
 local function do_pass_move()
   local snap = snap_now()
-  local ship = snap and snap.active_ship
+  local ship = snap and first_uncommitted_ship(snap)
   if not ship or not is_player_ship(ship) then
     ui_status.set(app.status, "warn", "Not your move — active is #" .. tostring(ship))
     return

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use crate::combat::Weapon;
 use crate::hex::Hex;
-use crate::momentum::Keel;
 use crate::motion::Velocity;
 use crate::ssd::Ssd;
 use crate::thrust::ThrustConversion;
@@ -25,8 +24,6 @@ pub struct Ship {
     pub max_shield_per_facing: u32,
     /// Combat v2: movement budget bought this turn.
     pub movement_allocated: u32,
-    pub move_remaining: u32,
-    pub keel: Keel,
     /// Combat v2: weapon id -> charge bought this turn.
     pub weapon_charges: BTreeMap<String, u32>,
     /// Itemized internals (D6). `ssd.hull` replaces the old flat structure pool for internals.
@@ -66,8 +63,6 @@ impl Ship {
         self.shields_powered = [0; 6];
         self.shields_remaining = [0; 6];
         self.movement_allocated = 0;
-        self.move_remaining = 0;
-        self.keel = Keel::Stopped;
         self.weapon_charges.clear();
         // Inertial movement: velocity persists across turns; only the
         // per-turn thrust reserve is cleared (ADR-0022 §1).

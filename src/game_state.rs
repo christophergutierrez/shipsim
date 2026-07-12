@@ -1,6 +1,6 @@
 //! Game aggregate for Combat v2 (ADR-0020).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -99,9 +99,13 @@ pub struct GameState {
     turn: Turn,
     status: ScenarioStatus,
     phase: Phase,
-    move_order: Vec<u32>,
+    /// 1..=4: the current movement/translation phase within the turn (ADR-0022 M4).
+    movement_phase: u8,
     allocated_this_turn: HashSet<u32>,
-    moved_this_phase: HashSet<u32>,
+    /// Maneuvers committed by living ships for the current movement phase, keyed by ship id
+    /// for deterministic iteration. Resolution is deferred until every living ship has
+    /// committed, so the result is independent of commit order (ADR-0022 M4).
+    maneuver_commits: BTreeMap<u32, crate::motion::Maneuver>,
     fire_commits: Vec<FireCommit>,
     ready_fire: HashSet<u32>,
     /// Keys are (ship_id, weapon_id) for multi-firer safety (TS2).
@@ -151,9 +155,9 @@ impl GameState {
             turn: Turn::new(),
             status: ScenarioStatus::InProgress,
             phase: Phase::Allocate,
-            move_order: Vec::new(),
+            movement_phase: 0,
             allocated_this_turn: HashSet::new(),
-            moved_this_phase: HashSet::new(),
+            maneuver_commits: BTreeMap::new(),
             fire_commits: Vec::new(),
             ready_fire: HashSet::new(),
             fired_weapons_this_turn: HashSet::new(),
@@ -176,14 +180,14 @@ impl GameState {
         self.phase
     }
 
-    pub fn move_order(&self) -> &[u32] {
-        &self.move_order
+    /// 1..=4 during `Phase::Movement`; the current movement/translation phase (ADR-0022 M4).
+    pub fn movement_phase(&self) -> u8 {
+        self.movement_phase
     }
 
-    pub fn moved_this_phase(&self) -> Vec<u32> {
-        let mut ids: Vec<u32> = self.moved_this_phase.iter().copied().collect();
-        ids.sort_unstable();
-        ids
+    /// Ships that have committed a maneuver for the current movement phase (sorted).
+    pub fn ships_committed_this_phase(&self) -> Vec<u32> {
+        self.maneuver_commits.keys().copied().collect()
     }
 
     pub fn fire_commits(&self) -> &[FireCommit] {
@@ -220,9 +224,9 @@ impl GameState {
             }
         }
         self.phase = Phase::Allocate;
-        self.move_order.clear();
+        self.movement_phase = 0;
         self.allocated_this_turn.clear();
-        self.moved_this_phase.clear();
+        self.maneuver_commits.clear();
         self.fire_commits.clear();
         self.ready_fire.clear();
         self.fired_weapons_this_turn.clear();
@@ -295,21 +299,17 @@ impl GameState {
             .ship_mut(ship_id)
             .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
         ship.movement_allocated = movement;
-        // M3 (ADR-0022): engine power becomes a thrust reserve via the hull's
-        // rational conversion. `move_remaining` is kept as a derived mirror so
-        // the legacy `apply_v2_move` / `can_any_move` path still compiles until
-        // M4 removes it.
+        // Engine power becomes a thrust reserve via the hull's rational conversion
+        // (ADR-0022 M3). Velocity/course/facing persist across turns; only the
+        // per-turn thrust reserve is (re)established here.
         let (thrust, _remainder) = ship.thrust_conversion.convert(movement);
         ship.thrust_remaining = thrust;
-        ship.move_remaining = thrust;
         ship.weapon_charges = weapons;
         ship.shields_powered = shields;
         ship.shields_remaining = shields;
-        ship.keel = crate::momentum::Keel::Stopped;
         self.allocated_this_turn.insert(ship_id);
 
         if self.all_living_allocated() {
-            self.build_v2_move_order();
             self.begin_v2_movement_phase();
         }
         Ok(())
@@ -322,113 +322,191 @@ impl GameState {
             .all(|ship| self.allocated_this_turn.contains(&ship.id))
     }
 
-    fn build_v2_move_order(&mut self) {
-        let mut ids: Vec<u32> = self
-            .ships
-            .iter()
-            .filter(|s| !s.destroyed)
-            .map(|s| s.id)
-            .collect();
-        ids.sort_by(|a, b| {
-            let ma = self.ship(*a).map(|s| s.thrust_remaining).unwrap_or(0);
-            let mb = self.ship(*b).map(|s| s.thrust_remaining).unwrap_or(0);
-            mb.cmp(&ma).then_with(|| a.cmp(b))
-        });
-
-        let mut start = 0;
-        while start < ids.len() {
-            let movement = self
-                .ship(ids[start])
-                .map(|s| s.thrust_remaining)
-                .unwrap_or(0);
-            let mut end = start + 1;
-            while end < ids.len()
-                && self.ship(ids[end]).map(|s| s.thrust_remaining).unwrap_or(0) == movement
-            {
-                end += 1;
-            }
-            if end - start > 1 {
-                for i in (start + 1..end).rev() {
-                    let offset = self.prng.roll((i - start + 1) as u32) as usize - 1;
-                    ids.swap(i, start + offset);
-                }
-            }
-            start = end;
-        }
-        self.move_order = ids;
-    }
-
-    pub fn active_v2_mover(&self) -> Option<u32> {
-        self.move_order.iter().copied().find(|id| {
-            !self.moved_this_phase.contains(id)
-                && self
-                    .ship(*id)
-                    .is_some_and(|ship| !ship.destroyed && ship.thrust_remaining > 0)
-        })
-    }
-
-    pub fn has_moved_this_phase(&self, ship: u32) -> bool {
-        self.moved_this_phase.contains(&ship)
-    }
-
-    pub fn mark_v2_move_decision(&mut self, ship: u32) {
-        self.moved_this_phase.insert(ship);
-        if self.v2_movement_phase_complete() {
-            self.phase = Phase::Firing;
-            self.moved_this_phase.clear();
-            self.ready_fire.clear();
-            self.fire_commits.clear();
-        }
-    }
-
-    fn v2_movement_phase_complete(&self) -> bool {
-        self.move_order.iter().all(|id| {
-            self.ship(*id)
-                .is_none_or(|ship| ship.destroyed || ship.move_remaining == 0)
-                || self.moved_this_phase.contains(id)
-        })
-    }
-
-    pub fn spend_v2_move_power(
-        &mut self,
-        ship: u32,
-        cost: u32,
-    ) -> Result<(), crate::movement::OrderError> {
-        let s = self
-            .ship_mut(ship)
-            .ok_or(crate::movement::OrderError::ShipNotFound(ship))?;
-        if s.move_remaining < cost {
-            return Err(crate::movement::OrderError::InsufficientMovePower {
-                ship,
-                need: cost,
-                have: s.move_remaining,
-            });
-        }
-        s.move_remaining -= cost;
-        Ok(())
-    }
-
-    pub(crate) fn set_v2_keel(
-        &mut self,
-        ship: u32,
-        keel: crate::momentum::Keel,
-    ) -> Result<(), StateError> {
-        let s = self.ship_mut(ship).ok_or(StateError::ShipNotFound(ship))?;
-        s.keel = keel;
-        Ok(())
-    }
-
-    #[doc(hidden)]
-    pub fn start_next_movement_phase_for_tests(&mut self) {
-        self.begin_v2_movement_phase();
+    /// True iff `ship` has already committed a maneuver for the current movement phase.
+    pub fn has_committed_this_phase(&self, ship: u32) -> bool {
+        self.maneuver_commits.contains_key(&ship)
     }
 
     fn begin_v2_movement_phase(&mut self) {
         self.phase = Phase::Movement;
-        self.moved_this_phase.clear();
+        self.movement_phase = 1;
+        self.maneuver_commits.clear();
         self.progress_made_this_cycle = false;
-        if self.v2_movement_phase_complete() {
-            self.phase = Phase::Firing;
+    }
+
+    /// Commit one maneuver for `ship` during the current movement phase (ADR-0022 M4).
+    /// Validates legality and thrust affordability against the ship's *current* state
+    /// without mutating anything; the maneuver is only applied once every living ship
+    /// has committed (see `resolve_movement_phase`), so results never depend on commit
+    /// order.
+    pub fn commit_maneuver_v2(
+        &mut self,
+        ship_id: u32,
+        maneuver: crate::motion::Maneuver,
+    ) -> Result<(), crate::movement::OrderError> {
+        if self.phase != Phase::Movement {
+            return Err(crate::movement::OrderError::WrongPhase {
+                expected: "movement",
+                actual: self.phase_name(),
+            });
+        }
+        let ship = self
+            .ship(ship_id)
+            .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
+        if ship.destroyed {
+            return Err(crate::movement::OrderError::ShipNotFound(ship_id));
+        }
+        if self.maneuver_commits.contains_key(&ship_id) {
+            return Err(crate::movement::OrderError::AlreadyCommittedThisPhase(
+                ship_id,
+            ));
+        }
+        let result = crate::motion::resolve_maneuver(
+            ship.velocity,
+            ship.facing,
+            ship.max_velocity,
+            maneuver,
+        )
+        .map_err(|err| crate::movement::OrderError::IllegalManeuver {
+            ship: ship_id,
+            reason: err.to_string(),
+        })?;
+        if result.thrust_cost > ship.thrust_remaining {
+            return Err(crate::movement::OrderError::InsufficientThrust {
+                ship: ship_id,
+                need: result.thrust_cost,
+                have: ship.thrust_remaining,
+            });
+        }
+
+        self.maneuver_commits.insert(ship_id, maneuver);
+        if self.all_living_committed() {
+            self.resolve_movement_phase();
+        }
+        Ok(())
+    }
+
+    fn all_living_committed(&self) -> bool {
+        self.ships
+            .iter()
+            .filter(|ship| !ship.destroyed)
+            .all(|ship| self.maneuver_commits.contains_key(&ship.id))
+    }
+
+    /// Resolve every committed maneuver simultaneously, translate scheduled ships, and
+    /// advance to the next movement phase or (after phase 4) end the turn (ADR-0022 M4).
+    /// No firing phase is entered here: M4 has no fire integration yet.
+    fn resolve_movement_phase(&mut self) {
+        // Step 1: apply each ship's committed maneuver to its own velocity/facing/thrust.
+        // Independent per ship; no cross-ship interaction happens here.
+        let commits: Vec<(u32, crate::motion::Maneuver)> = self
+            .maneuver_commits
+            .iter()
+            .map(|(id, m)| (*id, *m))
+            .collect();
+        for (ship_id, maneuver) in &commits {
+            let Some(ship) = self.ship_mut(*ship_id) else {
+                continue;
+            };
+            if let Ok(result) = crate::motion::resolve_maneuver(
+                ship.velocity,
+                ship.facing,
+                ship.max_velocity,
+                *maneuver,
+            ) {
+                ship.thrust_remaining = ship.thrust_remaining.saturating_sub(result.thrust_cost);
+                ship.velocity = result.velocity;
+                ship.facing = result.facing;
+            }
+        }
+
+        // Step 2: determine this phase's scheduled movers from the *post-maneuver* velocity.
+        let hard_map = self.board.mode == crate::board::MapMode::Hard;
+        let mut destination: BTreeMap<u32, Hex> = BTreeMap::new();
+        let mut origin: BTreeMap<u32, Hex> = BTreeMap::new();
+        let mut active: HashSet<u32> = HashSet::new();
+        for ship in self.ships.iter().filter(|s| {
+            !s.destroyed
+                && crate::motion::translates_in_phase(s.velocity.speed, self.movement_phase)
+        }) {
+            let Some(delta) = Hex::direction(ship.velocity.course) else {
+                continue;
+            };
+            let dest = ship.pos + delta;
+            // Hard-map exits are illegal outcomes: the ship stays put and keeps velocity.
+            if hard_map && !self.board.contains(dest) {
+                continue;
+            }
+            origin.insert(ship.id, ship.pos);
+            destination.insert(ship.id, dest);
+            active.insert(ship.id);
+        }
+
+        // Step 3: fixed-point block resolution.
+        loop {
+            let mut changed = false;
+
+            // (a) Any destination claimed by more than one active mover blocks all of them.
+            let mut claims: HashMap<Hex, Vec<u32>> = HashMap::new();
+            for id in &active {
+                claims.entry(destination[id]).or_default().push(*id);
+            }
+            for claimants in claims.values() {
+                if claimants.len() > 1 {
+                    for id in claimants {
+                        if active.remove(id) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+
+            // (b) Any active mover whose destination is the current position of a ship
+            // that is not itself an active (still-unblocked) mover is blocked. This lets
+            // two active movers swap/cross (neither's origin is "occupied by a
+            // non-departing ship"), while entering a stationary or already-blocked ship's
+            // hex fails.
+            let stationary_positions: HashSet<Hex> = self
+                .ships
+                .iter()
+                .filter(|s| !s.destroyed && !active.contains(&s.id))
+                .map(|s| s.pos)
+                .collect();
+            let blocked_now: Vec<u32> = active
+                .iter()
+                .filter(|id| stationary_positions.contains(&destination[id]))
+                .copied()
+                .collect();
+            for id in blocked_now {
+                if active.remove(&id) {
+                    changed = true;
+                }
+            }
+
+            if !changed {
+                break;
+            }
+        }
+
+        // Step 4: apply final positions for the unblocked movers in one batch.
+        for id in &active {
+            if let Some(ship) = self.ship_mut(*id) {
+                ship.pos = destination[id];
+            }
+        }
+        if !active.is_empty() {
+            self.progress_made_this_cycle = true;
+            self.maybe_float_recenter();
+        }
+
+        // Step 5: advance the phase counter. M4 has no fire integration: the turn ends
+        // directly after phase 4 instead of entering `Phase::Firing` (M5 interleaves fire
+        // between phases).
+        self.maneuver_commits.clear();
+        if self.movement_phase < 4 {
+            self.movement_phase += 1;
+        } else {
+            self.phase = Phase::TurnEnd;
         }
     }
 
@@ -633,54 +711,12 @@ impl GameState {
         // otherwise the turn ends. A finished scenario simply parks at TurnEnd.
         if self.status == ScenarioStatus::Won {
             self.phase = Phase::TurnEnd;
-        } else if self.progress_made_this_cycle
-            && (self.can_any_move() || self.can_any_legal_fire())
-        {
+        } else if self.progress_made_this_cycle && self.can_any_legal_fire() {
             self.begin_v2_movement_phase();
         } else {
             self.phase = Phase::TurnEnd;
         }
         Ok(())
-    }
-
-    /// True if some living ship can still make a **useful** move: a hex-changing step
-    /// (forward or reverse) that is legal and affordable. Turn-in-place alone does not
-    /// keep the turn open (avoids infinite turn-only loops when move power remains).
-    ///
-    /// `move_remaining` is **movement power units**, not hex count: reverse after forward
-    /// costs 2 units from this pool (see `momentum::move_cost`).
-    pub fn can_any_move(&self) -> bool {
-        self.ships
-            .iter()
-            .any(|ship| !ship.destroyed && self.ship_has_useful_hex_move(ship))
-    }
-
-    /// Forward or reverse into a free on-board hex, with enough move power for the momentum cost.
-    fn ship_has_useful_hex_move(&self, ship: &Ship) -> bool {
-        use crate::momentum::{self, MoveMode};
-        for mode in [MoveMode::Forward, MoveMode::Reverse] {
-            let (cost, _) = momentum::move_cost(ship.keel, mode);
-            if cost > ship.move_remaining {
-                continue;
-            }
-            let direction = match mode {
-                MoveMode::Forward => ship.facing,
-                MoveMode::Reverse => (ship.facing + 3) % 6,
-                MoveMode::TurnPort | MoveMode::TurnStarboard => continue,
-            };
-            let Some(delta) = Hex::direction(direction) else {
-                continue;
-            };
-            let next = ship.pos + delta;
-            if self.board.mode == crate::board::MapMode::Hard && !self.board.contains(next) {
-                continue;
-            }
-            if self.is_occupied_by_other(ship.id, next) {
-                continue;
-            }
-            return true;
-        }
-        false
     }
 
     /// Any living ship has a charged, unfired v2 weapon with at least one currently-legal shot.
@@ -748,22 +784,24 @@ impl GameState {
             .next()
     }
 
-    /// Advisory for the UI: true iff some living ship could still move or fire legally.
+    /// Advisory for the UI: true iff some living ship could still fire legally. Movement
+    /// is no longer optional under inertia (every living ship commits a maneuver each
+    /// phase regardless), so this only tracks fire.
     /// Never blocks EndTurn — the client owns any confirm dialog.
     pub fn end_turn_warning(&self) -> bool {
-        self.can_any_move() || self.can_any_legal_fire()
+        self.can_any_legal_fire()
     }
 
     /// Combat v2 EndTurn: always advances to the next turn's allocation. Legal in any phase
-    /// after allocation. Pending commits/ready/move decisions are discarded (consistent with
-    /// the turn reset).
+    /// after allocation. Pending commits/ready/maneuver decisions are discarded (consistent
+    /// with the turn reset).
     pub fn end_turn_v2(&mut self) -> Result<(), crate::movement::OrderError> {
         if self.phase == Phase::Allocate {
             return Err(crate::movement::OrderError::EndTurnDuringAllocation);
         }
         self.fire_commits.clear();
         self.ready_fire.clear();
-        self.moved_this_phase.clear();
+        self.maneuver_commits.clear();
         self.advance_turn_counter();
         self.reset_all_power();
         self.refresh_status();
@@ -958,17 +996,28 @@ impl GameState {
                         None => break,
                     }
                 }
-                Phase::Movement => match self.active_v2_mover() {
-                    Some(id) if self.is_v2_ai(id) => {
-                        if let Some(mode) = crate::ai::v2_move_decision(self, id) {
-                            let _ = movement::apply_order(self, Order::Move { ship: id, mode });
-                        } else {
-                            let _ = movement::apply_order(self, Order::PassMove { ship: id });
+                Phase::Movement => {
+                    let next = self
+                        .ships
+                        .iter()
+                        .find(|ship| {
+                            !ship.destroyed
+                                && self.is_v2_ai(ship.id)
+                                && !self.has_committed_this_phase(ship.id)
+                        })
+                        .map(|ship| ship.id);
+                    match next {
+                        Some(id) => {
+                            if let Some(maneuver) = crate::ai::v2_move_decision(self, id) {
+                                let _ = self.commit_maneuver_v2(id, maneuver);
+                            } else {
+                                let _ = movement::apply_order(self, Order::PassMove { ship: id });
+                            }
                         }
+                        // A living non-AI ship still owes a maneuver commitment.
+                        None => break,
                     }
-                    // Human mover (or, defensively, nothing to move) => hand back control.
-                    _ => break,
-                },
+                }
                 Phase::Firing => {
                     let next = self
                         .ships

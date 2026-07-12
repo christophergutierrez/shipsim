@@ -1,0 +1,88 @@
+width = 10
+height = 8
+seed = 1
+
+# M4 simultaneous translation test scenario (ADR-0022). All ships are
+# heavy_cruiser hulls (max_velocity 4) at velocity 4 so they translate every
+# movement phase, isolating the destination-conflict/blocking rules from the
+# translation schedule. Rows are kept independent so each group's outcome can
+# be checked without interference from the others.
+
+# Group A: same-destination conflict. Ship 1 heads east into (5,5); ship 2
+# heads southwest into the same hex (5,5). Both must be blocked.
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 4
+r = 5
+facing = 0
+controller = "player"
+velocity = 4
+course = 0
+
+[[ships]]
+id = 2
+class = "heavy_cruiser"
+q = 6
+r = 4
+facing = 0
+controller = "player"
+velocity = 4
+course = 4
+
+# Group B: hex swap. Ship 3 heads east into ship 4's hex; ship 4 heads west
+# into ship 3's hex. Both must succeed (crossing is legal).
+[[ships]]
+id = 3
+class = "heavy_cruiser"
+q = 1
+r = 1
+facing = 0
+controller = "player"
+velocity = 4
+course = 0
+
+[[ships]]
+id = 4
+class = "heavy_cruiser"
+q = 2
+r = 1
+facing = 0
+controller = "player"
+velocity = 4
+course = 3
+
+# Group C: entry into a non-departing occupied hex. Ship 5 heads east into
+# ship 6's hex; ship 6 is stationary (velocity 0), so ship 5 is blocked.
+[[ships]]
+id = 5
+class = "heavy_cruiser"
+q = 1
+r = 3
+facing = 0
+controller = "player"
+velocity = 4
+course = 0
+
+[[ships]]
+id = 6
+class = "heavy_cruiser"
+q = 2
+r = 3
+facing = 0
+controller = "player"
+velocity = 0
+course = 0
+
+# Group D: hard-map exit. Ship 7 sits at the east edge (q=9 on a 10-wide
+# board) heading further east, off the map. Must be blocked without changing
+# velocity.
+[[ships]]
+id = 7
+class = "heavy_cruiser"
+q = 9
+r = 7
+facing = 0
+controller = "player"
+velocity = 4
+course = 0

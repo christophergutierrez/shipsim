@@ -92,6 +92,9 @@ fn run_fire_cycle(
 /// driven in-process. The scenario seed (4242) fixes the PRNG so the combat
 /// log is deterministic: turn 1 hits for 2 damage, turn 2 misses.
 #[test]
+#[ignore = "blocked on M5 fire interleaving (ADR-0022): Phase::Firing is unreachable from \
+            Phase::Movement in M4, and a movement phase is no longer skippable by a single \
+            PassMove (four phases must resolve first)"]
 fn test_v2_acceptance_two_move_cycles() {
     let mut game = load_scenario(&manifest_path("scenarios/combat.toml")).expect("scenario");
     assert_eq!(game.seed(), 4242, "scenario seed is fixed");

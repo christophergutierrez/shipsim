@@ -6,7 +6,6 @@ pub mod combat;
 pub mod combat_tables;
 pub mod game_state;
 pub mod hex;
-pub mod momentum;
 pub mod motion;
 pub mod movement;
 pub mod prng;

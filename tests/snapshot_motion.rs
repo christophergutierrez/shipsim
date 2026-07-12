@@ -59,8 +59,6 @@ fn turn_reset_preserves_velocity_but_clears_thrust_remaining() {
         shields_remaining: [0; 6],
         max_shield_per_facing: 6,
         movement_allocated: 0,
-        move_remaining: 0,
-        keel: shipsim_core::momentum::Keel::Stopped,
         weapon_charges: std::collections::BTreeMap::new(),
         ssd: shipsim_core::ssd::Ssd::new(10, 4, 2, 0),
         destroyed: false,
@@ -77,8 +75,6 @@ fn turn_reset_preserves_velocity_but_clears_thrust_remaining() {
     assert_eq!(ship.velocity.course, 2);
     // Thrust reserve is cleared.
     assert_eq!(ship.thrust_remaining, 0);
-    // Legacy fields are also cleared (bridge compatibility).
-    assert_eq!(ship.move_remaining, 0);
     assert_eq!(ship.movement_allocated, 0);
 }
 

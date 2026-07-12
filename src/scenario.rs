@@ -222,8 +222,6 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             shields_remaining: [0; 6],
             max_shield_per_facing: ship_def.max_shield_per_facing,
             movement_allocated: 0,
-            move_remaining: 0,
-            keel: crate::momentum::Keel::Stopped,
             weapon_charges: BTreeMap::new(),
             ssd,
             destroyed: false,

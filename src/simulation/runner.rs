@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::game_state::{GameState, Phase, ScenarioStatus};
-use crate::movement::{apply_order, MoveMode, Order, OrderError};
+use crate::motion::Maneuver;
+use crate::movement::{apply_order, Order, OrderError};
 use crate::scenario::{load_scenario, LoadError};
 use crate::snapshot::StateSnapshot;
 
@@ -271,7 +272,11 @@ fn actor_for(
             .iter()
             .find(|ship| !ship.destroyed && !snapshot.ships_allocated_this_turn.contains(&ship.id))
             .map(|ship| ship.id),
-        Phase::Movement => snapshot.active_ship,
+        Phase::Movement => snapshot
+            .ships
+            .iter()
+            .find(|ship| !ship.destroyed && !snapshot.ships_committed_this_phase.contains(&ship.id))
+            .map(|ship| ship.id),
         Phase::Firing => snapshot
             .ships
             .iter()
@@ -290,25 +295,12 @@ fn actor_for(
 
 fn legal_orders(game: &GameState, ship: u32) -> Vec<Order> {
     let candidates = match game.phase() {
-        Phase::Movement => vec![
-            Order::Move {
-                ship,
-                mode: MoveMode::Forward,
-            },
-            Order::Move {
-                ship,
-                mode: MoveMode::Reverse,
-            },
-            Order::Move {
-                ship,
-                mode: MoveMode::TurnPort,
-            },
-            Order::Move {
-                ship,
-                mode: MoveMode::TurnStarboard,
-            },
-            Order::PassMove { ship },
-        ],
+        // Maneuver selection is M7 scope (ADR-0022); until then every policy just coasts,
+        // mirroring the AI bridge stub (`ai::v2_move_decision`).
+        Phase::Movement => vec![Order::CommitManeuver {
+            ship,
+            maneuver: Maneuver::Coast,
+        }],
         Phase::Firing => {
             let mut orders = Vec::new();
             if let Some(attacker) = game.ship(ship) {

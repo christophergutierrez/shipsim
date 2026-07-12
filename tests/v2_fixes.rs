@@ -101,55 +101,12 @@ fn e1_scripted_ships_wait_for_external_orders() {
     );
 }
 
-/// E2: after a fire batch resolves, the engine loops back to a fresh Movement
-/// phase whenever `can_any_move()` is true — but `can_any_move()` only checks
-/// that a hex-changing step is *theoretically* legal and affordable, not that
-/// anyone will ever actually take it. A ship that always passes its move (kept
-/// alive here by never spending its move power) with no charged weapons on
-/// either side therefore loops move-phase -> fire-phase -> move-phase forever
-/// instead of reaching TurnEnd (the live repro: 4000+ accepted ReadyFire
-/// orders in one turn).
-#[test]
-fn e2_no_progress_cycle_ends_turn() {
-    let mut game = load_combat();
-    // scenarios/combat.toml defaults: ship 1 at (1,0) facing 3, ship 2 at (0,0)
-    // facing 0 (adjacent). Ship 1's forward hex (0,0) is occupied by ship 2, but
-    // its reverse hex (2,0) is free and on-board, so `can_any_move()` stays true
-    // even though our loop below never actually issues that reverse move.
-    allocate(&mut game, 1, 3, &[], [0; 6]);
-    allocate(&mut game, 2, 0, &[], [0; 6]);
-
-    let mut cycles = 0;
-    loop {
-        assert_eq!(
-            StateSnapshot::from_game_state(&game).phase,
-            "movement",
-            "expected a fresh movement phase at the top of cycle {cycles}"
-        );
-        // No progress: pass instead of taking the available (but unused) reverse
-        // move. Passing does not spend move_remaining (see G1 in
-        // tests/v2_turn_loop.rs), so ship 1 remains a "mover" indefinitely.
-        apply_order(&mut game, Order::PassMove { ship: 1 }).expect("ship1 passes (no progress)");
-
-        assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
-        // No progress: neither ship has a charged weapon, so readying resolves
-        // an empty batch.
-        apply_order(&mut game, Order::ReadyFire { ship: 1 }).expect("ready 1");
-        apply_order(&mut game, Order::ReadyFire { ship: 2 }).expect("ready 2 resolves batch");
-
-        let phase = StateSnapshot::from_game_state(&game).phase;
-        if phase == "turn_end" {
-            break;
-        }
-        cycles += 1;
-        assert!(
-            cycles <= 3,
-            "move/fire cycle looped {cycles} times with no hex moved and no shots \
-             resolved, and never reached turn_end (this is the 4000+ ready_fire \
-             deadlock); phase={phase}"
-        );
-    }
-}
+// E2 ("no-progress move/fire cycle must reach TurnEnd") tested the
+// `can_any_move()` re-entry heuristic directly. That heuristic is deleted in
+// M4 (ADR-0022): the turn now terminates after a fixed four-phase schedule by
+// construction, with no re-entry condition to regress. The equivalent
+// guarantee is covered by `tests/inertial_movement.rs`'s coasting-ship
+// termination test.
 
 /// E3: `ai::seek_target` (src/ai.rs:7) picks the nearest *other* ship with no
 /// notion of side, so in a scenario with two AI ships closer to each other than
@@ -172,6 +129,12 @@ fn e2_no_progress_cycle_ends_turn() {
 /// facing 3 (no tie), giving `relative_bearing` 0 (dead ahead, in the Forward
 /// mount's `[0]` arc) at range 4, where `beam_damage(4, 4) = Some(6)`.
 #[test]
+#[ignore = "blocked on M5 fire interleaving (ADR-0022): Phase::Firing is unreachable from \
+            Phase::Movement in M4. Un-ignoring after M5 is not enough on its own — this test also \
+            needs a four-phase coast loop added (see resolve_phase_with/coast_all in \
+            tests/inertial_movement.rs) before the allocate calls, since zero movement no longer \
+            auto-skips straight to firing; every living ship must still commit a maneuver each of \
+            the four phases first"]
 fn e3_ai_never_targets_own_side() {
     let mut game = load_fleet();
     game.set_ship_structure(2, 0).unwrap(); // remove ship 2 from play
@@ -223,7 +186,7 @@ fn e3_ai_never_targets_own_side() {
 /// compile error.
 #[test]
 fn e4_snapshot_exposes_power_available() {
-    let mut game = load_combat();
+    let game = load_combat();
     // ship 1 = heavy_cruiser, design power = 22 (data/ships/heavy_cruiser.toml),
     // undamaged, so power_available should equal power exactly.
     let snapshot = StateSnapshot::from_game_state(&game);
@@ -244,9 +207,18 @@ fn e4_snapshot_exposes_power_available() {
         Some(22),
         "undamaged ship: power_available should equal the design power pool (22)"
     );
+}
 
-    // Now damage ship 2's power_sys through real combat overflow and check the
-    // snapshot reflects the reduced pool, not just the static one.
+/// E4 continued: after power_sys damage (via real combat overflow), the snapshot
+/// must reflect the reduced pool, not just the static one. Split out from
+/// `e4_snapshot_exposes_power_available` because reaching that damage requires
+/// the firing phase, which is unreachable from Movement in M4 (ADR-0022) until
+/// M5 interleaves fire back in.
+#[test]
+#[ignore = "blocked on M5 fire interleaving (ADR-0022): Phase::Firing is unreachable from \
+            Phase::Movement in M4"]
+fn e4b_snapshot_power_available_drops_after_damage() {
+    let mut game = load_combat();
     game.set_ship_facing(1, 3).unwrap();
     game.set_ship_pos(2, Hex::new(0, 0)).unwrap();
     game.set_ship_facing(2, 0).unwrap();

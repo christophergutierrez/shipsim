@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::movement::{MoveMode, Order};
+use crate::movement::Order;
 use crate::snapshot::ShipSnapshot;
 
 use super::policy::{DecisionContext, Policy};
@@ -122,19 +122,8 @@ impl BaselinePolicy {
             let index = (self.next_random() as usize) % context.legal_orders.len();
             return context.legal_orders.get(index).cloned();
         }
-        let preferred_move = match self.style {
-            Style::Defensive | Style::Mobility | Style::Aggressive | Style::Greedy => {
-                Some(MoveMode::Forward)
-            }
-            Style::Random => None,
-        };
-        if let Some(mode) = preferred_move {
-            if let Some(order) = context.legal_orders.iter().find(
-                |order| matches!(order, Order::Move { mode: candidate, .. } if *candidate == mode),
-            ) {
-                return Some(order.clone());
-            }
-        }
+        // Movement-phase maneuver selection is M7 scope (ADR-0022); until then every
+        // policy just coasts, mirroring the AI bridge stub (`ai::v2_move_decision`).
         context.legal_orders.first().cloned()
     }
 }

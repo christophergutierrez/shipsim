@@ -2,6 +2,14 @@
 
 shipsim uses newline-delimited JSON between external clients and the Rust harness. Protocol version 1 is intentionally breaking from the unversioned development stream.
 
+> **Temporary drift (ADR-0022, M4):** the inertial-movement milestone plan (`docs/MOVEMENT-INERTIA-PLAN.md`)
+> deliberately defers the protocol v2 bump to M6, so this document is currently stale in one respect: as of
+> M4, `move` always soft-rejects (the single-active-mover model it describes is gone), and `pass_move` now
+> means "commit a coast maneuver for the current movement phase (one of four per turn)" rather than "pass
+> the current active mover's turn." This is a known, milestone-plan-sanctioned exception to the
+> compatibility policy below, not an accident — the full rewrite (new order/snapshot shapes, version bump)
+> lands at M6.
+
 ## Orders
 
 Every order is one JSON object on one line and must include:

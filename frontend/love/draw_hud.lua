@@ -52,6 +52,27 @@ local function find_ship(snap, id)
   return nil
 end
 
+-- ADR-0022 M4: there is no single active mover any more — every living ship
+-- commits one maneuver per movement phase. This mirrors the old "active
+-- ship" HUD display only loosely (first ship still owing a commitment this
+-- phase), good enough until M8 replaces the movement UI with real maneuver
+-- controls.
+local function first_uncommitted_ship(snap)
+  if not snap or snap.phase ~= "movement" then
+    return nil
+  end
+  local committed = {}
+  for _, id in ipairs(snap.ships_committed_this_phase or {}) do
+    committed[id] = true
+  end
+  for _, s in ipairs(snap.ships or {}) do
+    if not s.destroyed and not committed[s.id] then
+      return s.id
+    end
+  end
+  return nil
+end
+
 -- Projected beam damage for a charged weapon (duplicates the core
 -- combat_tables formula for UI preview; core is authoritative).
 local function projected_damage(ship, weapon_id)
@@ -89,7 +110,7 @@ function draw_hud.draw(app)
   love.graphics.setColor(1, 1, 1)
   local turn = (snap and snap.turn) or 1
   local phase = app.phase or (snap and snap.phase) or phases.ALLOCATE
-  local active = snap and snap.active_ship
+  local active = snap and first_uncommitted_ship(snap)
   love.graphics.print(
     string.format("Turn %d  %s  Active #%s", turn, phase, tostring(active)),
     pad, (draw_hud.top_h() - ui.font(14):getHeight()) / 2
@@ -215,7 +236,7 @@ end
 
 function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   local bh = math.floor(24 * ui.scale)
-  local active = snap.active_ship
+  local active = first_uncommitted_ship(snap)
   local ship = find_ship(snap, active)
   if not ship then
     love.graphics.setColor(0.7, 0.75, 0.8)
@@ -227,7 +248,7 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   love.graphics.print(string.format("Moving #%d (%s)", ship.id, ship.class or "?"), px + pad, y)
   y = y + ui.line_h(13) + 2
   love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print(string.format("move power %d", ship.move_remaining or 0), px + pad, y)
+  love.graphics.print(string.format("thrust %d", ship.thrust_remaining or 0), px + pad, y)
   y = y + ui.line_h(13) + 4
   ui.button("Forward (W)", px + pad, y, content_w, bh, "move_forward", nil, false)
   y = y + bh + 3

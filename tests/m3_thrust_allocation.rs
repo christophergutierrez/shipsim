@@ -1,11 +1,9 @@
 //! M3: Engine allocation becomes thrust (ADR-0022).
 //!
 //! Verifies that allocated engine power is converted into `thrust_remaining` via
-//! the hull's rational conversion, that the legacy `move_remaining` field mirrors
-//! it, that movement initiative and active-mover selection are based on thrust,
-//! that over-allocation is rejected without mutating ship state, that a ship
-//! cannot be allocated twice, and that a ship allocating zero engine power coasts
-//! (preserves its persistent velocity).
+//! the hull's rational conversion, that over-allocation is rejected without
+//! mutating ship state, that a ship cannot be allocated twice, and that a ship
+//! allocating zero engine power coasts (preserves its persistent velocity).
 
 use std::collections::BTreeMap;
 
@@ -49,10 +47,6 @@ fn m3_tiny_one_power_yields_four_thrust() {
     let ship = game.ship(1).expect("escort present");
     assert_eq!(ship.thrust_remaining, 4, "1 power → 4 thrust for tiny hull");
     assert_eq!(
-        ship.move_remaining, 4,
-        "move_remaining mirrors thrust_remaining"
-    );
-    assert_eq!(
         ship.movement_allocated, 1,
         "movement_allocated records raw power"
     );
@@ -69,10 +63,6 @@ fn m3_cruiser_one_power_yields_one_thrust() {
         ship.thrust_remaining, 1,
         "1 power → 1 thrust for cruiser hull"
     );
-    assert_eq!(
-        ship.move_remaining, 1,
-        "move_remaining mirrors thrust_remaining"
-    );
 }
 
 /// Huge hull: power_per_thrust = 4, so 4 power → 1 thrust.
@@ -83,10 +73,6 @@ fn m3_huge_four_power_yields_one_thrust() {
 
     let ship = game.ship(3).expect("huge present");
     assert_eq!(ship.thrust_remaining, 1, "4 power → 1 thrust for huge hull");
-    assert_eq!(
-        ship.move_remaining, 1,
-        "move_remaining mirrors thrust_remaining"
-    );
 }
 
 /// Huge hull: 3 power is not enough for 1 thrust (3 < 4), so thrust = 0.
@@ -101,7 +87,6 @@ fn m3_huge_three_power_yields_zero_thrust_fractional_remainder() {
         ship.thrust_remaining, 0,
         "3 power on a 4:1 hull yields 0 thrust (truncated remainder)"
     );
-    assert_eq!(ship.move_remaining, 0);
     assert_eq!(ship.movement_allocated, 3, "raw power is still recorded");
 }
 
@@ -139,10 +124,6 @@ fn m3_over_allocation_rejected_without_mutation() {
     assert_eq!(
         ship.thrust_remaining, 0,
         "thrust_remaining must not be set on rejection"
-    );
-    assert_eq!(
-        ship.move_remaining, 0,
-        "move_remaining must not be set on rejection"
     );
     assert_eq!(
         ship.movement_allocated, 0,
@@ -190,51 +171,8 @@ fn m3_zero_power_coasts_preserving_velocity() {
 
     let ship = game.ship(1).expect("escort present");
     assert_eq!(ship.thrust_remaining, 0, "zero power → zero thrust");
-    assert_eq!(ship.move_remaining, 0);
     assert_eq!(ship.movement_allocated, 0);
 
     // Velocity must persist — it is not cleared by allocation.
     assert_eq!(ship.velocity.speed, 2, "velocity persists when coasting");
-}
-
-/// Movement initiative (move_order) is sorted by thrust_remaining, descending.
-/// The tiny hull (1 power → 4 thrust) should move before the cruiser (1 → 1)
-/// and the huge (4 → 1).
-#[test]
-fn m3_move_order_sorted_by_thrust_descending() {
-    let mut game = load_scenario(&manifest_path("scenarios/m3_thrust.toml")).expect("m3 loads");
-
-    // Allocate so that tiny has the most thrust.
-    allocate(&mut game, 1, 1).expect("escort 1 power"); // → 4 thrust
-    allocate(&mut game, 2, 1).expect("cruiser 1 power"); // → 1 thrust
-    allocate(&mut game, 3, 4).expect("huge 4 power"); // → 1 thrust
-
-    // All ships allocated → game auto-advances to the movement phase.
-    let order = game.move_order();
-    assert!(!order.is_empty(), "move_order must be populated");
-    // The first mover should be the escort (id 1) with 4 thrust.
-    assert_eq!(
-        order[0], 1,
-        "highest-thrust ship (escort, 4 thrust) moves first"
-    );
-}
-
-/// Active-mover selection is based on thrust_remaining, not raw power allocation.
-/// A ship with 0 thrust (e.g. huge hull allocating 3 power) is not an active mover.
-#[test]
-fn m3_active_mover_requires_nonzero_thrust() {
-    let mut game = load_scenario(&manifest_path("scenarios/m3_thrust.toml")).expect("m3 loads");
-
-    // Huge allocates 3 power → 0 thrust (3 < 4).
-    allocate(&mut game, 3, 3).expect("huge 3 power → 0 thrust");
-    // Cruiser allocates 1 power → 1 thrust.
-    allocate(&mut game, 2, 1).expect("cruiser 1 power → 1 thrust");
-    // Escort allocates 0 power → 0 thrust.
-    allocate(&mut game, 1, 0).expect("escort 0 power → 0 thrust");
-
-    // All ships allocated → game auto-advances to the movement phase.
-
-    // The active mover should be the cruiser (id 2), the only ship with thrust.
-    let active = game.active_v2_mover();
-    assert_eq!(active, Some(2), "only the cruiser has nonzero thrust");
 }

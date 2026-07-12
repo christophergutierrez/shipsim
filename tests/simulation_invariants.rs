@@ -8,6 +8,9 @@ fn scenario() -> PathBuf {
 }
 
 #[test]
+#[ignore = "blocked on M5 fire interleaving (ADR-0022): Phase::Firing is unreachable from \
+            Phase::Movement in M4, so no simulated match can ever produce damage or a \
+            destruction/objective terminus yet"]
 fn baseline_match_terminates_without_illegal_orders() {
     let result = run_match(&MatchConfig {
         scenario: scenario(),
