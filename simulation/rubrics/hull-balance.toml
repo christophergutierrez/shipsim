@@ -1,0 +1,5 @@
+id = "hull_balance"
+description = "A tiny hull should not receive nonzero movement, weapon, and shield allocations in nearly every turn; this is a broad allocation signal, not an effectiveness claim."
+advisory = true
+hull_class = "Escort"
+max_hull_broad_resource_rate = 0.75

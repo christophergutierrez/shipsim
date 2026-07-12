@@ -1,0 +1,30 @@
+name = "inertial policy smoke"
+scenario = "scenarios/m7_hull_efficiency.toml"
+seeds = [1, 2, 3, 4]
+max_turns = 30
+max_orders = 20000
+rubrics = [
+  "simulation/rubrics/safety.toml",
+  "simulation/rubrics/hull-efficiency.toml",
+  "simulation/rubrics/hull-balance.toml",
+]
+
+[[matchups]]
+player = "random"
+opponent = "greedy"
+
+[[matchups]]
+player = "greedy"
+opponent = "aggressive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "defensive"
+opponent = "mobility"
+
+[[matchups]]
+player = "mobility"
+opponent = "random"

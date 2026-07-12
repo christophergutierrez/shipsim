@@ -1,9 +1,10 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::game_state::{GameState, Phase, ScenarioStatus};
+use crate::game_state::{GameState, Phase, ScenarioStatus, Terminal};
 use crate::motion::Maneuver;
 use crate::movement::{apply_order, Order, OrderError};
 use crate::scenario::{load_scenario, LoadError};
@@ -40,6 +41,23 @@ pub struct MatchResult {
     pub player_policy: String,
     pub opponent_policy: String,
     pub status: ScenarioStatus,
+    pub terminal_reason: Option<String>,
+    pub final_snapshot: StateSnapshot,
+    pub metrics: MatchMetrics,
+    pub trace: Vec<TraceEvent>,
+}
+
+/// Structured failure payload retained when a policy submits an illegal order.
+/// The runner still returns an error, but callers do not lose the rejected trace
+/// event or the metrics collected before failure.
+#[derive(Debug, Clone, Serialize)]
+pub struct FailedMatch {
+    pub scenario: PathBuf,
+    pub seed: u64,
+    pub player_policy: String,
+    pub opponent_policy: String,
+    pub status: ScenarioStatus,
+    pub terminal_reason: String,
     pub final_snapshot: StateSnapshot,
     pub metrics: MatchMetrics,
     pub trace: Vec<TraceEvent>,
@@ -85,7 +103,11 @@ pub enum SimulationError {
     #[error("no actor is available in phase {0:?}")]
     NoActor(Phase),
     #[error("policy {policy:?} produced illegal order: {source}")]
-    IllegalPolicyOrder { policy: String, source: OrderError },
+    IllegalPolicyOrder {
+        policy: String,
+        source: OrderError,
+        failure: Box<FailedMatch>,
+    },
     #[error("no legal orders for ship {ship} in phase {phase:?}")]
     NoLegalOrders { ship: u32, phase: Phase },
     #[error("cannot read rubric {path:?}: {source}")]
@@ -100,15 +122,33 @@ pub enum SimulationError {
     },
 }
 
+impl SimulationError {
+    pub fn failed_match(&self) -> Option<&FailedMatch> {
+        match self {
+            Self::IllegalPolicyOrder { failure, .. } => Some(failure),
+            _ => None,
+        }
+    }
+}
+
 pub fn run_match(config: &MatchConfig) -> Result<MatchResult, SimulationError> {
+    let player = build_policy(&config.player_policy, config.seed ^ 0xA5A5_A5A5)
+        .ok_or_else(|| SimulationError::UnknownPolicy(config.player_policy.clone()))?;
+    let opponent = build_policy(&config.opponent_policy, config.seed ^ 0x5A5A_5A5A)
+        .ok_or_else(|| SimulationError::UnknownPolicy(config.opponent_policy.clone()))?;
+    run_match_with_policies(config, player, opponent)
+}
+
+fn run_match_with_policies(
+    config: &MatchConfig,
+    mut player: Box<dyn Policy>,
+    mut opponent: Box<dyn Policy>,
+) -> Result<MatchResult, SimulationError> {
     let mut game = load_scenario(&config.scenario)?;
     game.reseed(config.seed);
-    let mut player = build_policy(&config.player_policy, config.seed ^ 0xA5A5_A5A5)
-        .ok_or_else(|| SimulationError::UnknownPolicy(config.player_policy.clone()))?;
-    let mut opponent = build_policy(&config.opponent_policy, config.seed ^ 0x5A5A_5A5A)
-        .ok_or_else(|| SimulationError::UnknownPolicy(config.opponent_policy.clone()))?;
     let mut trace = Vec::new();
     let mut metrics = MatchMetrics::default();
+    let mut pending_maneuvers = BTreeMap::new();
 
     while game.status() == ScenarioStatus::InProgress
         && game.turn_number() <= config.max_turns
@@ -150,6 +190,7 @@ pub fn run_match(config: &MatchConfig) -> Result<MatchResult, SimulationError> {
                 legal_orders: &legal_orders,
             })
         };
+        let before = snapshot.clone();
         let turn = game.turn_number();
         let phase = game.phase_name().to_string();
         let policy_name = if game.phase() == Phase::TurnEnd {
@@ -158,7 +199,7 @@ pub fn run_match(config: &MatchConfig) -> Result<MatchResult, SimulationError> {
             policy.name().to_string()
         };
         let prior_log_len = game.combat_log().len();
-        metrics.record_order(&order);
+        metrics.record_attempted_order();
         if let Err(source) = apply_order(&mut game, order.clone()) {
             metrics.rejected_orders += 1;
             trace.push(TraceEvent {
@@ -177,7 +218,34 @@ pub fn run_match(config: &MatchConfig) -> Result<MatchResult, SimulationError> {
             return Err(SimulationError::IllegalPolicyOrder {
                 policy: policy_name,
                 source,
+                failure: Box::new(FailedMatch {
+                    scenario: config.scenario.clone(),
+                    seed: config.seed,
+                    player_policy: config.player_policy.clone(),
+                    opponent_policy: config.opponent_policy.clone(),
+                    status: game.status(),
+                    terminal_reason: "policy_order_rejected".into(),
+                    final_snapshot: StateSnapshot::from_game_state(&game),
+                    metrics,
+                    trace,
+                }),
             });
+        }
+        metrics.record_accepted_order(&order);
+        if let Order::CommitManeuver { ship, maneuver } = &order {
+            let ship_snapshot = before
+                .ships
+                .iter()
+                .find(|candidate| candidate.id == *ship)
+                .expect("maneuver actor snapshot");
+            metrics.record_maneuver(ship_snapshot, *maneuver);
+            pending_maneuvers.insert(*ship, *maneuver);
+        }
+        if let Order::Allocate { ship, .. } = &order {
+            if let Some(ship_snapshot) = before.ships.iter().find(|candidate| candidate.id == *ship)
+            {
+                metrics.record_allocation(ship_snapshot, &order);
+            }
         }
         for event in game.combat_log().iter().skip(prior_log_len) {
             if event.kind == "hit" {
@@ -186,6 +254,18 @@ pub fn run_match(config: &MatchConfig) -> Result<MatchResult, SimulationError> {
                 metrics.misses += 1;
             }
             metrics.damage += u64::from(event.damage);
+        }
+        let after = StateSnapshot::from_game_state(&game);
+        if before.phase == "movement"
+            && (after.phase != "movement" || after.movement_phase != before.movement_phase)
+        {
+            metrics.record_movement_resolution(
+                &before,
+                &after,
+                &pending_maneuvers,
+                game.last_translation_outcomes(),
+            );
+            pending_maneuvers.clear();
         }
         trace.push(TraceEvent {
             sequence: trace.len(),
@@ -208,6 +288,21 @@ pub fn run_match(config: &MatchConfig) -> Result<MatchResult, SimulationError> {
         player_policy: config.player_policy.clone(),
         opponent_policy: config.opponent_policy.clone(),
         status: game.status(),
+        terminal_reason: match (game.status(), game.terminal()) {
+            (ScenarioStatus::Won, Some(Terminal::DestroyShip(_))) => {
+                Some("destruction_target_reached".into())
+            }
+            (ScenarioStatus::Won, Some(Terminal::ReachHex(_))) => Some("objective_reached".into()),
+            (ScenarioStatus::Won, None) => Some("objective_reached".into()),
+            (ScenarioStatus::Lost, _) => Some("player_fleet_destroyed".into()),
+            (ScenarioStatus::InProgress, _) if trace.len() >= config.max_orders => {
+                Some("max_orders_reached".into())
+            }
+            (ScenarioStatus::InProgress, _) if game.turn_number() > config.max_turns => {
+                Some("max_turns_reached".into())
+            }
+            (ScenarioStatus::InProgress, _) => Some("in_progress".into()),
+        },
         final_snapshot: StateSnapshot::from_game_state(&game),
         metrics,
         trace,
@@ -295,12 +390,28 @@ fn actor_for(
 
 fn legal_orders(game: &GameState, ship: u32) -> Vec<Order> {
     let candidates = match game.phase() {
-        // Maneuver selection is M7 scope (ADR-0022); until then every policy just coasts,
-        // mirroring the AI bridge stub (`ai::v2_move_decision`).
-        Phase::Movement => vec![Order::CommitManeuver {
-            ship,
-            maneuver: Maneuver::Coast,
-        }],
+        Phase::Movement => [
+            Maneuver::Coast,
+            Maneuver::Accelerate { course: None },
+            Maneuver::Accelerate { course: Some(0) },
+            Maneuver::Accelerate { course: Some(1) },
+            Maneuver::Accelerate { course: Some(2) },
+            Maneuver::Accelerate { course: Some(3) },
+            Maneuver::Accelerate { course: Some(4) },
+            Maneuver::Accelerate { course: Some(5) },
+            Maneuver::Decelerate,
+            Maneuver::TurnCoursePort,
+            Maneuver::TurnCourseStarboard,
+            Maneuver::RotatePort,
+            Maneuver::RotateStarboard,
+        ]
+        .into_iter()
+        .map(|maneuver| Order::CommitManeuver { ship, maneuver })
+        .filter(|order| {
+            let mut candidate = game.clone();
+            apply_order(&mut candidate, order.clone()).is_ok()
+        })
+        .collect(),
         Phase::Firing => {
             let mut orders = Vec::new();
             if let Some(attacker) = game.ship(ship) {
@@ -333,4 +444,84 @@ fn legal_orders(game: &GameState, ship: u32) -> Vec<Order> {
             apply_order(&mut candidate, order.clone()).is_ok()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    struct RejectingPolicy;
+
+    impl Policy for RejectingPolicy {
+        fn name(&self) -> &str {
+            "test_rejecting_policy"
+        }
+
+        fn allocate(&mut self, ship: &crate::snapshot::ShipSnapshot) -> Order {
+            Order::Allocate {
+                ship: ship.id,
+                movement: 0,
+                weapons: BTreeMap::new(),
+                shields: [0; 6],
+            }
+        }
+
+        fn choose_order(&mut self, context: &DecisionContext<'_>) -> Order {
+            Order::Move {
+                ship: context.ship.id,
+                mode: "test-invalid".into(),
+            }
+        }
+    }
+
+    #[test]
+    fn failed_match_retains_rejected_trace_metrics_snapshot_and_serialized_report() {
+        let config = MatchConfig {
+            scenario: PathBuf::from("scenarios/simulation_duel.toml"),
+            seed: 41,
+            player_policy: "test_rejecting_policy".into(),
+            opponent_policy: "test_rejecting_policy".into(),
+            max_turns: 10,
+            max_orders: 100,
+        };
+        let error = run_match_with_policies(
+            &config,
+            Box::new(RejectingPolicy),
+            Box::new(RejectingPolicy),
+        )
+        .expect_err("the deliberate legacy order must fail");
+        let failure = error.failed_match().expect("structured failed match");
+
+        assert_eq!(failure.metrics.rejected_orders, 1);
+        assert_eq!(failure.metrics.attempted_orders, 3);
+        assert_eq!(failure.metrics.orders, 2);
+        assert_eq!(failure.metrics.movement_orders, 0);
+        assert_eq!(failure.metrics.thrust_spent, 0);
+        assert_eq!(failure.metrics.engine_power_allocated, 0);
+        assert_eq!(failure.trace.len(), 3);
+        assert!(matches!(
+            failure.trace.last().map(|event| &event.outcome),
+            Some(TraceOutcome::Rejected { .. })
+        ));
+        assert_eq!(
+            failure.trace.last().map(|event| event.prng_state_after),
+            Some(failure.final_snapshot.prng_state)
+        );
+        assert_eq!(failure.final_snapshot.phase, "movement");
+
+        let encoded = serde_json::to_vec_pretty(failure).expect("failed match JSON");
+        let report_path = tempfile::NamedTempFile::new().expect("temporary report");
+        std::fs::write(report_path.path(), &encoded).expect("write failed report");
+        let decoded: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(report_path.path()).expect("read failed report"))
+                .expect("decode failed report");
+        assert_eq!(
+            decoded["trace"][2]["outcome"]["rejected"]["error"],
+            "the Move order was removed in M4 (ADR-0022); submit CommitManeuver instead"
+        );
+        assert_eq!(decoded["metrics"]["rejected_orders"], 1);
+        assert!(decoded["final_snapshot"]["prng_state"].is_number());
+    }
 }

@@ -1,0 +1,23 @@
+width = 24
+height = 20
+seed = 17
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "escort"
+q = 4
+r = 10
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 2
+class = "huge"
+q = 19
+r = 10
+facing = 3
+controller = "scripted"

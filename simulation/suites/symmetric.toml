@@ -57,3 +57,11 @@ opponent = "greedy"
 [[matchups]]
 player = "greedy"
 opponent = "mobility"
+
+[[matchups]]
+player = "random"
+opponent = "greedy"
+
+[[matchups]]
+player = "greedy"
+opponent = "random"

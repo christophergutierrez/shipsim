@@ -22,24 +22,31 @@ The product needs one coherent loop that is playable, deterministic under test, 
 
 ## Player experience
 
-At the start of a turn, each ship allocates its fixed power budget. Movement allocation also establishes initiative. During each movement phase, eligible ships act once in stable order, spending power according to their momentum choice. A firing phase follows, where ships commit one or more charged weapons against geometry-legal targets and shield facings. Fire resolves simultaneously, then the move/fire cycle repeats until ships exhaust useful actions or end the turn.
+At the start of a turn, each ship converts its fixed power budget into a
+turn-scoped thrust reserve, weapon charges, and shields. During each of four
+movement phases, every living ship commits one inertial maneuver and maneuvers
+and translations resolve simultaneously. A firing window follows each movement
+phase, then the fixed schedule advances to the next window.
 
-Players can inspect hull, shields, weapon readiness, movement power, phase, initiative, and recent combat results. Illegal input is rejected without losing the session. A battle ends when its destruction objective is met.
+Players can inspect hull, shields, weapon readiness, thrust, velocity, phase, and
+recent combat results. Illegal input is rejected without losing the session. A
+battle ends when its destruction objective is met.
 
 ## Functional requirements
 
-### Power and initiative
+### Power and inertial movement
 
 - A ship allocates no more than its available power among movement, individual weapons, and six shield facings.
 - Allocation is locked until the next turn.
-- Higher movement allocation acts earlier; seeded random tie-breaking is resolved once and remains stable for the turn.
+- Engine power converts to thrust according to hull efficiency; simultaneous
+  commitment means raw engine-power allocation does not establish initiative.
 
 ### Movement
 
-- Each eligible ship takes at most one movement decision per movement phase.
+- Each living ship takes exactly one maneuver decision per movement phase.
 - Continuing with momentum is cheaper than reversing it.
 - Turning and occupancy obey hex-grid geometry and board policy.
-- Passing is a valid decision and cannot strand the phase.
+- Coasting is a valid zero-thrust decision and cannot strand the phase.
 
 ### Combat
 

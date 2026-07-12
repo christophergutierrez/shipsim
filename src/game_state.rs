@@ -114,6 +114,10 @@ pub struct GameState {
     combat_log: Vec<CombatLogEvent>,
     /// Non-player controller labels and AI behavior. BTreeMap keeps iteration deterministic.
     npcs: BTreeMap<u32, NpcController>,
+    /// Per-resolution outcome for eligible scheduled translations. The value is
+    /// true only when the ship actually moved; this survives floating-map
+    /// recentering without relying on absolute snapshot coordinates.
+    last_translation_outcomes: BTreeMap<u32, bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +165,7 @@ impl GameState {
             fired_weapons_this_turn: HashSet::new(),
             combat_log: Vec::new(),
             npcs,
+            last_translation_outcomes: BTreeMap::new(),
         };
         state.reset_all_power();
         state.refresh_status();
@@ -390,9 +395,9 @@ impl GameState {
     }
 
     /// Resolve every committed maneuver simultaneously, translate scheduled ships, and
-    /// advance to the next movement phase or (after phase 4) end the turn (ADR-0022 M4).
-    /// No firing phase is entered here: M4 has no fire integration yet.
+    /// advance to the next firing window or (after phase 4) end the turn (ADR-0022 M5).
     fn resolve_movement_phase(&mut self) {
+        self.last_translation_outcomes.clear();
         // Step 1: apply each ship's committed maneuver to its own velocity/facing/thrust.
         // Independent per ship; no cross-ship interaction happens here.
         let commits: Vec<(u32, crate::motion::Maneuver)> = self
@@ -429,8 +434,9 @@ impl GameState {
                 continue;
             };
             let dest = ship.pos + delta;
-            // Hard-map exits are illegal outcomes: the ship stays put and keeps velocity.
+            // Hard-map exits are blocked outcomes: the ship stays put and keeps velocity.
             if hard_map && !self.board.contains(dest) {
+                self.last_translation_outcomes.insert(ship.id, false);
                 continue;
             }
             origin.insert(ship.id, ship.pos);
@@ -485,6 +491,10 @@ impl GameState {
         }
 
         // Step 4: apply final positions for the unblocked movers in one batch.
+        for id in destination.keys() {
+            self.last_translation_outcomes
+                .insert(*id, active.contains(id));
+        }
         for id in &active {
             if let Some(ship) = self.ship_mut(*id) {
                 ship.pos = destination[id];
@@ -512,6 +522,12 @@ impl GameState {
         // M5). `movement_phase` is left as the phase whose translation just
         // resolved; it advances only after fire resolves (`resolve_fire_phase_v2`).
         self.phase = Phase::Firing;
+    }
+
+    /// Translation outcomes from the most recently resolved movement phase.
+    /// Entries exist only for ships that were scheduled to attempt translation.
+    pub fn last_translation_outcomes(&self) -> &BTreeMap<u32, bool> {
+        &self.last_translation_outcomes
     }
 
     pub fn commit_fire_v2(

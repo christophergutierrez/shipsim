@@ -1,0 +1,6 @@
+id = "hull_efficiency"
+description = "Track large-hull zero translation and tiny-hull resource concentration as advisory balance signals."
+advisory = true
+hull_class = "Huge"
+max_hull_zero_translation_rate = 0.75
+max_hull_zero_velocity_rate = 0.50

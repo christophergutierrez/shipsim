@@ -1,6 +1,6 @@
 # Phased Plan: Persistent Velocity and Inertial Movement
 
-Status: Accepted (ADR-0022). M0–M6 complete; M7 next.
+Status: Accepted (ADR-0022). M0–M7 complete; M8 next.
 
 Related design TODO: `docs/TODO.md`
 
@@ -429,6 +429,16 @@ cargo run --release --bin shipsim-sim -- \
 
 - Blocking simulation safety rubrics pass.
 - Balance results are recorded even when advisory rubrics remain red.
+- All five baseline policies complete legal inertial turns and the baseline
+  simulation terminates without rejected orders.
+- Deterministic inertial traces and auditable motion metrics are covered by
+  focused tests and the generated inertial smoke report.
+
+**Complete (M7):** production AI selects validated inertial maneuvers; all five
+baseline simulation policies allocate through hull efficiency and choose legal
+maneuvers; motion and hull-efficiency metrics are reported; blocking safety
+rubrics pass; advisory balance failures remain visible; mirrored dominance and
+side-bias calculations retain their distinct meanings.
 
 ## M8: Love2D Maneuver UI
 
@@ -521,4 +531,4 @@ cargo run --release --bin shipsim-sim -- \
 ## Open Questions
 
 - **Weapon refire across fire windows:** `fired_weapons_this_turn` currently persists across the whole turn. Under four fire windows, can a weapon fire in phase 1 and again in phase 3? The current model says no (one fire per weapon per turn). This plan preserves that semantics; if per-window refire is desired, it requires a separate design change.
-- **Love2D test bridge:** Love2D tests exercise legacy `Order::Move` building. They will stay green through M0–M7 (the bridge keeps `Order::Move` in the enum) then flip at M8 when the UI switches to maneuver orders. M8 must update Love2D test builders in the same milestone.
+- **Love2D M6 boundary:** production Love2D controls emit coast maneuver commitments; directional maneuver controls remain deferred to M8. Legacy `Order::Move` remains deserialization-only and rejected at apply time.

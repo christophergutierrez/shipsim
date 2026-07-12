@@ -35,7 +35,13 @@ The report contains aggregate metrics plus each match's final snapshot and compl
 
 The built-in policy names are `random`, `greedy`, `aggressive`, `defensive`, and `mobility` (the alias `mobility_first` is also accepted). They are deliberately simple experimental controls, not claims of strong play.
 
-Every policy receives a read-only snapshot, the acting ship, and orders already validated against a cloned production `GameState`. Allocation orders are also applied through the normal validator. A rejected policy order fails the simulation and appears in metrics rather than being silently replaced.
+Every policy receives a read-only snapshot, the acting ship, and orders already validated against a cloned production `GameState`. Allocation and inertial maneuver orders are applied through the normal validator. A rejected policy order fails the simulation; the rejected trace event and `rejected_orders` metric are retained by the match runner rather than silently replacing it with Coast.
+
+The five baseline identities are stable: `random` selects deterministically from
+legal alternatives using its seeded stream; `greedy` closes and fires; `aggressive`
+prioritizes closing and weapon opportunity; `defensive` favors defensive geometry;
+and `mobility`/`mobility_first` prioritizes velocity and course control. None of
+these policies mutates `GameState` directly.
 
 ## Suite format
 
@@ -76,10 +82,27 @@ cargo run --release --bin shipsim-sim -- \
 
 - The core has controller labels but no explicit teams. `simulation_duel.toml` therefore uses one `player` ship and one externally controlled `scripted` opponent so `Won`/`Lost` remain meaningful.
 - Policies operate one ship at a time and share no fleet memory.
-- Metrics currently cover termination, win/loss/stalemate, turns, damage, hits/misses, movement/fire counts, and allocation buckets.
+- Motion metrics are sampled after movement-phase resolution. `velocity_distribution`
+  counts living-ship velocity observations at that boundary; `thrust_spent` is the
+  sum of accepted maneuver costs; `coasting_distance` counts translated hexes for
+  Coast commitments only; `course_changes` and `facing_rotations` count their
+  distinct maneuver variants; `scheduled_translations` counts eligible schedule
+  entries; `blocked_translations` consumes the core's authoritative eligible
+  translation outcome, so floating-map recentering cannot create a false block;
+  and `reversals` counts a legal decelerate-to-zero then opposite-course
+  accelerate transition. Raw numerators and denominators are retained.
+- Hull-efficiency metrics separately track allocation resources and zero-velocity /
+  zero-translation observations by serialized hull class. The broad-resource
+  counter records nonzero engine, weapon, and shield buckets; it is explicitly a
+  breadth signal rather than a normalized effectiveness claim. Missing configured
+  hull classes fail their checks rather than becoming zero-valued passes. Advisory rubric failures
+  remain visible in reports and do not become green silently.
+- Movement power is reported only as engine allocation. There is no initiative
+  metric or initiative ordering in M7; simultaneous commitment removes that
+  obsolete correlation.
 - Reports retain full traces and can become large.
 - Statistical confidence intervals, paired mirrored scenarios, parameter sweeps, and visual screenshot evaluation are next-layer capabilities.
 
 ## Interpretation
 
-A green rubric means its explicit numeric bounds held for the configured scenario, policies, and seeds. It does not prove that the game is fun. Red results are design evidence to investigate, not automatically software defects.
+A green rubric means its explicit numeric bounds held for the configured scenario, policies, and seeds. Advisory red results are recorded without failing the CLI exit status; blocking red results fail it. It does not prove that the game is fun. Red results are design evidence to investigate, not automatically software defects.

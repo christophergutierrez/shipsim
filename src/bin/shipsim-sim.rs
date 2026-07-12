@@ -27,7 +27,28 @@ fn run() -> Result<bool, String> {
     let mut spec: SuiteSpec =
         toml::from_str(&text).map_err(|error| format!("cannot parse suite: {error}"))?;
     resolve_paths(&args.suite, &mut spec);
-    let report = run_suite(&spec).map_err(|error| error.to_string())?;
+    let report = match run_suite(&spec) {
+        Ok(report) => report,
+        Err(error) => {
+            if let Some(failure) = error.failed_match() {
+                let json = serde_json::to_vec_pretty(failure)
+                    .map_err(|serialize_error| serialize_error.to_string())?;
+                if let Some(path) = args.output.as_ref() {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent).map_err(|io_error| {
+                            format!("cannot create output directory {parent:?}: {io_error}")
+                        })?;
+                    }
+                    std::fs::write(path, json)
+                        .map_err(|io_error| format!("cannot write report {path:?}: {io_error}"))?;
+                    eprintln!("failed match report: {}", path.display());
+                } else {
+                    eprintln!("{}", String::from_utf8(json).expect("JSON is UTF-8"));
+                }
+            }
+            return Err(error.to_string());
+        }
+    };
     let json = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     if let Some(path) = args.output {
         if let Some(parent) = path.parent() {
@@ -54,7 +75,10 @@ fn run() -> Result<bool, String> {
             if rubric.passed { "PASS" } else { "FAIL" }
         );
     }
-    Ok(report.rubrics.iter().all(|rubric| rubric.passed))
+    Ok(report
+        .rubrics
+        .iter()
+        .all(|rubric| rubric.passed || !rubric.blocking))
 }
 
 fn resolve_paths(suite_path: &std::path::Path, spec: &mut SuiteSpec) {

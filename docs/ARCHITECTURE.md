@@ -14,7 +14,7 @@ The current product rules are Combat Model v2 as accepted in ADR-0020. Earlier i
 
 - scenario and ship-data loading from TOML;
 - board, hex, facing, arc, and movement validation;
-- turn phases, power allocation, momentum, and initiative;
+- turn phases, power allocation, inertial movement, and maneuver resolution;
 - weapon legality, deterministic hit resolution, shields, and hull damage;
 - AI decisions, victory state, campaigns, and snapshots.
 
@@ -51,10 +51,10 @@ order, the harness runs `GameState::resolve_v2_npc_actions` so
 
 The v2 turn progresses through:
 
-1. `Allocation`: each ship assigns its fixed power budget to movement, weapons, and six shield facings.
-2. `Movement`: ships act in stable initiative order and spend movement power one decision at a time.
+1. `Allocation`: each ship converts fixed power into thrust, weapon charges, and six shield facings.
+2. `Movement`: every living ship commits one maneuver; maneuvers and scheduled translations resolve simultaneously.
 3. `Firing`: ships commit legal weapon shots or declare readiness; committed fire resolves simultaneously.
-4. Movement and firing repeat while useful actions remain.
+4. Exactly four movement/firing windows occur per turn.
 5. `EndTurn` resets turn-scoped resources and begins the next allocation phase.
 
 Movement cost depends on momentum. Weapon charge and firing are limited per turn. Powered shields absorb damage by legal facing before overflow reaches hull. Destroyed ships remain eligible to deal already-committed simultaneous damage.

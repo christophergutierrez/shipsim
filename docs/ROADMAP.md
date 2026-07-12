@@ -5,7 +5,7 @@ The current product definition is `docs/PRD.md`; system structure is documented 
 ## Shipped MVP
 
 - Turn-start allocation across movement, individual weapons, and six shield facings.
-- Momentum-aware movement with stable per-turn initiative.
+- Persistent velocity, inertial movement, and simultaneous maneuver resolution.
 - Alternating movement and simultaneous firing phases.
 - Beam, plasma, and torpedo range/damage profiles with deterministic d20 resolution.
 - Powered shields, SSD hull/internals, destruction victory, multi-ship scenarios, and greedy AI.
@@ -16,8 +16,8 @@ The retired impulse, FASA, seeking-munition, and multi-bucket compatibility impl
 
 ## Recommended next work
 
-1. Inertial movement system (ADR-0022): M0–M6 complete; M7 (simulation policies and gameplay rubrics) next. See `docs/MOVEMENT-INERTIA-PLAN.md`.
-2. Add mirrored/team-aware scenarios, confidence intervals, and parameter sweeps to the simulation runner.
+1. Inertial movement system (ADR-0022): M0–M7 complete; M8 maneuver UI next. See `docs/MOVEMENT-INERTIA-PLAN.md`.
+2. Add confidence intervals and parameter sweeps to the simulation runner.
 3. Add stochastic table-verification and tactical-diversity metrics.
 4. Use simulation results to drive manual Love2D playthroughs focused on high-value gameplay paths and UI behavior.
 5. Add screenshot capture and deterministic layout checks for the tracked visual rubric.

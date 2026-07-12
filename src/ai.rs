@@ -44,12 +44,21 @@ pub fn v2_allocation(
     }
     let mut remaining = ship.effective_power();
 
-    // Movement: close toward the nearest enemy, capped by design speed.
+    // Movement: buy enough engine power for the intended thrust, respecting hull
+    // efficiency instead of treating reactor power as distance.
     let dist = seek_target(game, ship_id)
         .and_then(|tid| game.ship(tid))
         .map(|target| ship.pos.distance(target.pos))
         .unwrap_or(0);
-    let movement = ship.effective_max_speed().min(dist).min(remaining);
+    let desired_thrust = if ship.effective_max_speed() == 0 {
+        0
+    } else {
+        ship.effective_max_speed().min(dist).max(1)
+    };
+    let movement = desired_thrust
+        .saturating_mul(ship.thrust_conversion.power_per_thrust)
+        .div_ceil(ship.thrust_conversion.thrust_per_power)
+        .min(remaining);
     remaining -= movement;
 
     // Arm each operational v2 weapon in id order: beams to full charge, single-shot
@@ -93,8 +102,49 @@ pub fn v2_allocation(
 /// a `PassMove` (commits `Maneuver::Coast`) and the ship preserves its persistent
 /// velocity without spending thrust. M7 replaces this stub with real
 /// maneuver-selection logic.
-pub fn v2_move_decision(_game: &GameState, _ship_id: u32) -> Option<Maneuver> {
-    None
+pub fn preferred_course(game: &GameState, ship_id: u32, target_id: u32) -> Option<u8> {
+    let ship = game.ship(ship_id)?;
+    let target = game.ship(target_id)?;
+    (0..6).min_by_key(|course| {
+        let next = ship.pos + crate::hex::Hex::direction(*course).unwrap();
+        (next.distance(target.pos), *course)
+    })
+}
+
+/// Deterministic inertial maneuver selection for the production NPC driver.
+/// Every returned maneuver is checked against the current ship state and thrust.
+pub fn v2_move_decision(game: &GameState, ship_id: u32) -> Option<Maneuver> {
+    let ship = game.ship(ship_id)?;
+    if ship.destroyed {
+        return None;
+    }
+    let desired =
+        seek_target(game, ship_id).and_then(|target| preferred_course(game, ship_id, target));
+    let velocity = ship.velocity;
+    let mut choices = Vec::new();
+    if velocity.speed == 0 {
+        choices.push(Maneuver::Accelerate { course: desired });
+    } else if let Some(course) = desired {
+        let delta = (course as i8 - velocity.course as i8).rem_euclid(6);
+        if delta == 1 || delta == 2 || delta == 3 {
+            choices.push(Maneuver::TurnCourseStarboard);
+        } else if delta > 3 {
+            choices.push(Maneuver::TurnCoursePort);
+        } else if velocity.speed < ship.max_velocity {
+            choices.push(Maneuver::Accelerate { course: None });
+        }
+    } else if velocity.speed < ship.max_velocity {
+        choices.push(Maneuver::Accelerate { course: None });
+    }
+    choices.extend([
+        Maneuver::Coast,
+        Maneuver::RotateStarboard,
+        Maneuver::Decelerate,
+    ]);
+    choices.into_iter().find(|maneuver| {
+        crate::motion::resolve_maneuver(velocity, ship.facing, ship.max_velocity, *maneuver)
+            .is_ok_and(|result| result.thrust_cost <= ship.thrust_remaining)
+    })
 }
 
 /// Legal v2 fire commits for a ship: every operational, charged weapon that can

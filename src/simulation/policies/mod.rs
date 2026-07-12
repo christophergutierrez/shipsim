@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::motion::Maneuver;
 use crate::movement::Order;
 use crate::snapshot::ShipSnapshot;
 
@@ -48,16 +49,20 @@ impl BaselinePolicy {
 
     fn allocation(&mut self, ship: &ShipSnapshot) -> (u32, BTreeMap<String, u32>, [u32; 6]) {
         let power = ship.power_available;
-        let movement = match self.style {
-            Style::Aggressive => ship.speed.min(power / 3),
-            Style::Defensive => ship.speed.min(2).min(power),
-            Style::Mobility => ship.speed.min(power),
-            Style::Greedy => ship.speed.min((power / 3).max(1)),
-            Style::Random => ship
-                .speed
-                .min((self.next_random() % u64::from(ship.speed.saturating_add(1))) as u32)
-                .min(power),
+        let max_velocity = u32::from(ship.max_velocity);
+        let desired_thrust = match self.style {
+            Style::Aggressive => max_velocity.min(2),
+            Style::Defensive | Style::Greedy => u32::from(max_velocity > 0),
+            Style::Mobility => max_velocity,
+            Style::Random if max_velocity > 0 => {
+                1 + (self.next_random() % u64::from(max_velocity)) as u32
+            }
+            Style::Random => 0,
         };
+        let movement = desired_thrust
+            .saturating_mul(ship.power_per_thrust)
+            .div_ceil(ship.thrust_per_power)
+            .min(power);
         let mut remaining = power - movement;
         let mut weapons = BTreeMap::new();
         let defensive_reserve = if matches!(self.style, Style::Defensive) {
@@ -102,6 +107,84 @@ impl BaselinePolicy {
         (movement, weapons, shields)
     }
 
+    fn desired_course(context: &DecisionContext<'_>) -> Option<u8> {
+        let target = context
+            .snapshot
+            .ships
+            .iter()
+            .filter(|ship| {
+                !ship.destroyed
+                    && ship.id != context.ship.id
+                    && ship.controller != context.ship.controller
+            })
+            .min_by_key(|ship| {
+                let dq = ship.q - context.ship.q;
+                let dr = ship.r - context.ship.r;
+                (dq.abs().max(dr.abs()).max((dq + dr).abs()), ship.id)
+            })?;
+        (0..6).min_by_key(|course| {
+            let (dq, dr) = match course {
+                0 => (1, 0),
+                1 => (1, -1),
+                2 => (0, -1),
+                3 => (-1, 0),
+                4 => (-1, 1),
+                _ => (0, 1),
+            };
+            let nq = context.ship.q + dq;
+            let nr = context.ship.r + dr;
+            let tq = target.q - nq;
+            let tr = target.r - nr;
+            (tq.abs().max(tr.abs()).max((tq + tr).abs()), *course)
+        })
+    }
+
+    fn choose_maneuver(&mut self, context: &DecisionContext<'_>) -> Option<Order> {
+        let maneuvers: Vec<Order> = context
+            .legal_orders
+            .iter()
+            .filter(|order| matches!(order, Order::CommitManeuver { .. }))
+            .cloned()
+            .collect();
+        if maneuvers.is_empty() {
+            return None;
+        }
+        if matches!(self.style, Style::Random) {
+            return maneuvers
+                .get((self.next_random() as usize) % maneuvers.len())
+                .cloned();
+        }
+        let desired = Self::desired_course(context);
+        let current = context.ship.course;
+        maneuvers.into_iter().max_by_key(|order| {
+            let Order::CommitManeuver { maneuver, .. } = order else {
+                return i32::MIN;
+            };
+            let mut score = match (self.style, maneuver) {
+                (Style::Mobility, Maneuver::Accelerate { .. }) => 100,
+                (Style::Aggressive, Maneuver::Accelerate { .. }) => 90,
+                (Style::Greedy, Maneuver::Accelerate { .. }) => 80,
+                (_, Maneuver::Accelerate { .. }) => 70,
+                (Style::Defensive, Maneuver::RotatePort | Maneuver::RotateStarboard) => 75,
+                (_, Maneuver::Coast) => 20,
+                (_, Maneuver::Decelerate) => 10,
+                (_, Maneuver::TurnCoursePort | Maneuver::TurnCourseStarboard) => 60,
+                (_, Maneuver::RotatePort | Maneuver::RotateStarboard) => 30,
+            };
+            if let Some(wanted) = desired {
+                match maneuver {
+                    Maneuver::Accelerate {
+                        course: Some(course),
+                    } if *course == wanted => score += 50,
+                    Maneuver::TurnCourseStarboard if (current + 1) % 6 == wanted => score += 45,
+                    Maneuver::TurnCoursePort if (current + 5) % 6 == wanted => score += 45,
+                    _ => {}
+                }
+            }
+            score
+        })
+    }
+
     fn choose_preferred(&mut self, context: &DecisionContext<'_>) -> Option<Order> {
         let commits: Vec<_> = context
             .legal_orders
@@ -122,9 +205,8 @@ impl BaselinePolicy {
             let index = (self.next_random() as usize) % context.legal_orders.len();
             return context.legal_orders.get(index).cloned();
         }
-        // Movement-phase maneuver selection is M7 scope (ADR-0022); until then every
-        // policy just coasts, mirroring the AI bridge stub (`ai::v2_move_decision`).
-        context.legal_orders.first().cloned()
+        self.choose_maneuver(context)
+            .or_else(|| context.legal_orders.first().cloned())
     }
 }
 

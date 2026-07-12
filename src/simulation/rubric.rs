@@ -142,6 +142,23 @@ pub struct RubricSpec {
     /// outcome rather than policy quality.
     #[serde(default)]
     pub max_matchup_side_bias: Option<f64>,
+    /// Advisory rubrics are reported but do not fail the simulation CLI.
+    #[serde(default)]
+    pub advisory: bool,
+    #[serde(default)]
+    pub max_blocked_translation_rate: Option<f64>,
+    #[serde(default)]
+    pub max_zero_translation_rate: Option<f64>,
+    #[serde(default)]
+    pub min_coasting_distance: Option<f64>,
+    #[serde(default)]
+    pub hull_class: Option<String>,
+    #[serde(default)]
+    pub max_hull_zero_translation_rate: Option<f64>,
+    #[serde(default)]
+    pub max_hull_zero_velocity_rate: Option<f64>,
+    #[serde(default)]
+    pub max_hull_broad_resource_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,6 +174,7 @@ pub struct RubricResult {
     pub id: String,
     pub description: String,
     pub passed: bool,
+    pub blocking: bool,
     pub checks: Vec<RubricCheck>,
 }
 
@@ -234,11 +252,83 @@ pub fn evaluate_rubric(
             expected,
         ));
     }
+    if let Some(expected) = spec.max_blocked_translation_rate {
+        let actual = rate(metrics.blocked_translations, metrics.scheduled_translations);
+        checks.push(maximum("blocked_translation_rate", actual, expected));
+    }
+    if let Some(expected) = spec.max_zero_translation_rate {
+        let actual = rate(
+            metrics.zero_translation_observations,
+            metrics.scheduled_translations,
+        );
+        checks.push(maximum("zero_translation_rate", actual, expected));
+    }
+    if let Some(expected) = spec.min_coasting_distance {
+        checks.push(minimum(
+            "coasting_distance",
+            metrics.coasting_distance as f64,
+            expected,
+        ));
+    }
+    if let Some(class) = &spec.hull_class {
+        let values = metrics.hull_efficiency.get(class);
+        if values.is_none()
+            && (spec.max_hull_zero_translation_rate.is_some()
+                || spec.max_hull_broad_resource_rate.is_some()
+                || spec.max_hull_zero_velocity_rate.is_some())
+        {
+            checks.push(RubricCheck {
+                metric: format!("hull_class_present[{class}]"),
+                actual: 0.0,
+                expectation: "class has observations".into(),
+                passed: false,
+            });
+        }
+        if let Some(expected) = spec.max_hull_zero_translation_rate {
+            let actual = values
+                .map(|v| rate(v.zero_translation_observations, v.scheduled_translations))
+                .unwrap_or(0.0);
+            checks.push(maximum(
+                &format!("hull_zero_translation_rate[{class}]"),
+                actual,
+                expected,
+            ));
+        }
+        if let Some(expected) = spec.max_hull_broad_resource_rate {
+            let actual = values
+                .map(|v| rate(v.broad_resource_allocations, v.allocation_observations))
+                .unwrap_or(0.0);
+            checks.push(maximum(
+                &format!("hull_broad_resource_rate[{class}]"),
+                actual,
+                expected,
+            ));
+        }
+        if let Some(expected) = spec.max_hull_zero_velocity_rate {
+            let actual = values
+                .map(|v| rate(v.zero_velocity_observations, v.velocity_observations))
+                .unwrap_or(0.0);
+            checks.push(maximum(
+                &format!("hull_zero_velocity_rate[{class}]"),
+                actual,
+                expected,
+            ));
+        }
+    }
     RubricResult {
         id: spec.id.clone(),
         description: spec.description.clone(),
         passed: checks.iter().all(|check| check.passed),
+        blocking: !spec.advisory,
         checks,
+    }
+}
+
+fn rate(numerator: u64, denominator: u64) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 / denominator as f64
     }
 }
 
@@ -388,6 +478,64 @@ mod tests {
             .find(|c| c.metric == "win_rate[A/B]" && c.expectation.starts_with("<="))
             .expect("A/B max check present");
         assert!(!ab_max.passed);
+    }
+
+    #[test]
+    fn large_hull_zero_translation_negative_rubric_is_visible() {
+        let metrics = AggregateMetrics {
+            hull_efficiency: [(
+                "Huge".into(),
+                crate::simulation::metrics::HullEfficiencyMetrics {
+                    scheduled_translations: 10,
+                    zero_translation_observations: 8,
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        let result = evaluate_rubric(
+            &RubricSpec {
+                id: "large_motion".into(),
+                description: "large hull must translate".into(),
+                hull_class: Some("Huge".into()),
+                max_hull_zero_translation_rate: Some(0.5),
+                ..Default::default()
+            },
+            &metrics,
+            &MatchupBreakdown::default(),
+        );
+        assert!(!result.passed);
+        assert!(result.blocking);
+        assert_eq!(result.checks[0].actual, 0.8);
+    }
+
+    #[test]
+    fn tiny_broad_resource_negative_rubric_is_advisory_and_visible() {
+        let mut metrics = AggregateMetrics::default();
+        metrics.hull_efficiency.insert(
+            "Escort".into(),
+            crate::simulation::metrics::HullEfficiencyMetrics {
+                allocation_observations: 4,
+                broad_resource_allocations: 4,
+                ..Default::default()
+            },
+        );
+        let result = evaluate_rubric(
+            &RubricSpec {
+                id: "tiny_balance".into(),
+                description: "tiny hull resource concentration".into(),
+                advisory: true,
+                hull_class: Some("Escort".into()),
+                max_hull_broad_resource_rate: Some(0.5),
+                ..Default::default()
+            },
+            &metrics,
+            &MatchupBreakdown::default(),
+        );
+        assert!(!result.passed);
+        assert!(!result.blocking);
     }
 
     /// Side-bias threshold fails when player side always wins.

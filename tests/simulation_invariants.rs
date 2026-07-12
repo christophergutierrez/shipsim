@@ -8,12 +8,6 @@ fn scenario() -> PathBuf {
 }
 
 #[test]
-#[ignore = "blocked on M7 (ADR-0022), not M5: Phase::Firing is reachable now, but simulation \
-            policies still coast every movement phase (the ai::v2_move_decision/CommitManeuver \
-            stub is M3-M6 scope, replaced by real maneuver selection in M7). scenarios/simulation_duel.toml \
-            places the two ships 15 hexes apart — farther than any weapon's max range — so with \
-            no policy ever closing that distance, no damage is ever dealt and the match never \
-            reaches a terminus within max_turns. Revisit once M7 lands real maneuver-selection logic"]
 fn baseline_match_terminates_without_illegal_orders() {
     let result = run_match(&MatchConfig {
         scenario: scenario(),
@@ -30,4 +24,25 @@ fn baseline_match_terminates_without_illegal_orders() {
     assert_eq!(result.metrics.rejected_orders, 0);
     assert!(result.metrics.orders <= 20_000);
     assert!(result.metrics.damage > 0);
+}
+
+#[test]
+fn every_baseline_policy_completes_legal_inertial_turns() {
+    for policy in ["random", "greedy", "aggressive", "defensive", "mobility"] {
+        let result = run_match(&MatchConfig {
+            scenario: scenario(),
+            seed: 17,
+            player_policy: policy.into(),
+            opponent_policy: "greedy".into(),
+            max_turns: 20,
+            max_orders: 20_000,
+        })
+        .unwrap_or_else(|error| panic!("{policy} failed: {error}"));
+        assert_eq!(result.metrics.rejected_orders, 0, "{policy}");
+        assert!(result.metrics.movement_orders > 0, "{policy} moved");
+        assert!(
+            result.metrics.velocity_observations > 0,
+            "{policy} observed motion"
+        );
+    }
 }
