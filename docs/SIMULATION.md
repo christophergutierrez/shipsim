@@ -10,6 +10,8 @@ cargo run --release --bin shipsim-sim -- \
   --output tmp/simulation/reports/smoke.json
 ```
 
+`--output` is optional; without it the full JSON report is printed to stdout.
+
 Exit codes:
 
 - `0`: simulation completed and every rubric passed;
@@ -31,7 +33,7 @@ The report contains aggregate metrics plus each match's final snapshot and compl
 
 ## Baseline policies
 
-The built-in policy names are `random`, `greedy`, `aggressive`, `defensive`, and `mobility`. They are deliberately simple experimental controls, not claims of strong play.
+The built-in policy names are `random`, `greedy`, `aggressive`, `defensive`, and `mobility` (the alias `mobility_first` is also accepted). They are deliberately simple experimental controls, not claims of strong play.
 
 Every policy receives a read-only snapshot, the acting ship, and orders already validated against a cloned production `GameState`. Allocation orders are also applied through the normal validator. A rejected policy order fails the simulation and appears in metrics rather than being silently replaced.
 
