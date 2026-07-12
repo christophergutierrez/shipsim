@@ -125,3 +125,23 @@ def muted(text: str) -> str:
 
 def err(text: str) -> str:
     return paint(text, "bold", "bright_red")
+
+
+def fired(text: str) -> str:
+    """Resolved weapon state."""
+    return paint(text, "bold", "yellow")
+
+
+def queued(text: str) -> str:
+    """Weapon committed and waiting for the firing phase to resolve."""
+    return paint(text, "bold", "bright_yellow")
+
+
+def available(text: str) -> str:
+    """Charged weapon that remains available to commit."""
+    return paint(text, "bright_cyan")
+
+
+def dead(text: str) -> str:
+    """Destroyed ship or inoperable weapon box."""
+    return paint(text, "dim", "red")

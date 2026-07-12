@@ -26,7 +26,14 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from client import ShipsimSession, ensure_local, find_repo_root, find_shipsim_bin, list_scenarios
+from client import (
+    ShipsimSession,
+    TransportError,
+    ensure_local,
+    find_repo_root,
+    find_shipsim_bin,
+    list_scenarios,
+)
 from commands import (
     HELP,
     Action,
@@ -42,6 +49,7 @@ from view import (
     format_error,
     format_ship_line,
     format_snapshot,
+    format_terminal_banner,
     snapshot_delta,
 )
 
@@ -220,6 +228,10 @@ def send_orders(
 ) -> int:
     log_len = prev_log_len
     for i, order in enumerate(orders):
+        status = (session.snapshot or {}).get("status")
+        if status in ("Won", "Lost"):
+            ui.log(f"*** scenario {status} — orders are disabled; use quit or log ***")
+            break
         before = session.snapshot
         ui.log_order(order)
         msg = session.send_order(order)
@@ -315,6 +327,7 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
             paint_frame(ui, session, ctx)
 
         last_phase: str | None = None
+        terminal_announced = False
         log_len = len(session.snapshot.get("combat_log") or [])
 
         while True:
@@ -325,7 +338,9 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
             ctx.note_hull(snap)
             status = snap.get("status")
             if status in ("Won", "Lost"):
-                ui.log(f"*** scenario {status} ***")
+                if not terminal_announced:
+                    ui.log(format_terminal_banner(str(status)))
+                    terminal_announced = True
             phase = str(snap.get("phase") or "?")
             turn = snap.get("turn", "?")
             active = snap.get("active_ship")
@@ -547,8 +562,12 @@ def main(argv: list[str] | None = None) -> int:
             scenario, repo=repo, bin_path=bin_path, save_path=save_path
         )
         try:
-            session.start()
-            return run_repl(session, ui)
+            try:
+                session.start()
+                return run_repl(session, ui)
+            except TransportError as exc:
+                print(f"engine terminated: {exc}", file=sys.stderr)
+                return 1
         finally:
             session.close()
     finally:

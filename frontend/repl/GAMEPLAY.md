@@ -152,7 +152,7 @@ commit
 After a good commit you should see something like:
 
 ```
-engine accepted allocate #1: mov=6  weapons: beam_1=2, torp_1=1  shields=[3,0,0,0,0,3]
+  engine accepted allocate #1: mov=6  weapons: beam_1=2, torp_1=1  shields=[3, 0, 0, 0, 0, 3]
 phase → movement   (if someone has move power)
 ```
 
@@ -308,12 +308,13 @@ t1/allocate@1 draft11/22>
 t1/movement@1*1>
 t1/firing@1/r=done>
 t1/firing@1/ready>
+t1/turn_end@1>
 ```
 
 | Fragment | Meaning |
 |---|---|
 | `t1` | Turn 1 |
-| `allocate` / `movement` / `firing` | Engine phase |
+| `allocate` / `movement` / `firing` / `turn_end` | Engine phase |
 | `@1` | UI focus ship id |
 | `*1` | ACTIVE mover (movement only) |
 | `draft11/22` | Local allocate draft used/pool |
@@ -359,7 +360,7 @@ t1/firing@1/ready>
 ### After allocate
 
 ```
-engine accepted allocate #1: mov=… weapons: … shields=…
+  engine accepted allocate #1: mov=…  weapons: …  shields=…
 Δ phase allocate→movement …
 ```
 

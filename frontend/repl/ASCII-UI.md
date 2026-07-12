@@ -90,6 +90,10 @@ table in sync with `style.py` when adding a helper:
 | active | `active` | bold bright_white | ACTIVE mover; phase name |
 | hit | `hit` | bold bright_red | HIT banners, hull damage |
 | miss | `miss` | dim yellow | MISS results |
+| fired | `fired` | bold yellow | resolved weapon marker |
+| queued | `queued` | bold bright_yellow | committed weapon awaiting resolution |
+| available | `available` | bright_cyan | charged weapon available to commit |
+| dead | `dead` | dim red | destroyed ship / inoperable weapon box |
 | ok | `ok` | bright_green | accepted orders; `Won` |
 | warn | `warn` | bright_yellow | leftover-power ⚠, confirms |
 | err | `err` | bold bright_red | soft errors; `Lost` |
@@ -104,7 +108,8 @@ new color for decoration; a new entry here needs a new *meaning*.
 | Glyph / pattern | Meaning (keep stable) |
 |---|---|
 | Map cell `A1→` | Callsign (side letter + id) + facing arrow (= forward) |
-| Map cell ` ·` | Empty hex (muted) |
+| Map cell `····` | Empty hex (muted; four printable columns) |
+| Map cell ` x  ` | Destroyed ship wreck (muted; living ship takes precedence) |
 | `@` / `*` in lists | Focus / ACTIVE mover |
 | `[####....]` | Quantity bar (power, charge, hull, shield rem) |
 | `CHG n/m (available)` | Still free to commit this fire phase |

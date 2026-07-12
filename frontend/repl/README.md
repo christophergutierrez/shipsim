@@ -30,6 +30,8 @@ Rules of the game (engine): `docs/PLAY-V2.md`, `docs/PROTOCOL.md`, ADR-0020.
 ```bash
 cargo build -q
 python3 frontend/repl/repl.py scenarios/ai.toml
+python3 frontend/repl/repl.py scenarios/ai.toml --bin /path/to/shipsim
+python3 frontend/repl/repl.py scenarios/ai.toml --save local/battle.json
 python3 frontend/repl/repl.py scenarios/ai.toml --debug              # verbose file log
 python3 frontend/repl/repl.py scenarios/ai.toml --log-file /tmp/x.log
 python3 frontend/repl/repl.py scenarios/ai.toml --no-session-log
@@ -44,6 +46,9 @@ update in place. **RECENT** holds the last events; `log` toggles longer scrollba
 (gitignored). Shown in the footer and at quit. `--log-file PATH` overrides;
 `--no-session-log` disables. **`--debug`** keeps that file but adds timestamps and
 full `ORDER` JSON lines (does not change the play frame).
+
+`--bin PATH` selects a specific harness binary. `--save PATH` asks the harness
+to write its save under `frontend/repl/local/`.
 
 Arrow-up recalls prior command lines (`local/history`).
 

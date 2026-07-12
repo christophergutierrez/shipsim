@@ -22,12 +22,16 @@ from hexutil import (
 )
 from style import (
     active as sty_active,
+    available as sty_available,
+    dead as sty_dead,
     enemy as sty_enemy,
     err as sty_err,
+    fired as sty_fired,
     focus as sty_focus,
     hit as sty_hit,
     miss as sty_miss,
     muted,
+    queued as sty_queued,
     ok as sty_ok,
     paint,
     panel,
@@ -120,7 +124,7 @@ def format_ship_line(
     hull_max: Optional[int] = None,
 ) -> str:
     mark = "*" if active else ("@" if focused else " ")
-    dead = sty_err(" [DEAD]") if ship.get("destroyed") else ""
+    dead = sty_dead(" [DEAD]") if ship.get("destroyed") else ""
     face_i = int(ship.get("facing", 0))
     face = f"{face_i}{FACING_GLYPH.get(face_i, '?')}"
     ctrl = ship.get("controller", "?")
@@ -178,16 +182,16 @@ def format_weapons(
             dmg = int((log_e or {}).get("damage") or 0)
             if kind == "hit":
                 tail = (
-                    paint("FIRED", "bold", "yellow")
+                    sty_fired("FIRED")
                     + " "
                     + sty_hit(f"HIT{f' {dmg}' if dmg else ''}")
                 )
             elif kind == "miss":
-                tail = paint("FIRED", "bold", "yellow") + " " + sty_miss("MISS")
+                tail = sty_fired("FIRED") + " " + sty_miss("MISS")
             else:
-                tail = paint("FIRED", "bold", "yellow")
+                tail = sty_fired("FIRED")
             if not w.get("operational", True):
-                tail += paint(" (box)", "dim", "red")
+                tail += sty_dead(" (box)")
             # Never show leftover charge after a resolved shot.
             b = bar(0, mx)
             ch_note = muted(" chg=0")
@@ -200,10 +204,8 @@ def format_weapons(
             tgt = c.get("target")
             face = int(c.get("shield_facing") or 0)
             lab = SHIELD_LABELS[face] if 0 <= face < 6 else str(face)
-            tail = paint(
-                f"QUEUED →#{tgt} sh{face}:{lab}  (resolves when all ready)",
-                "bold",
-                "bright_yellow",
+            tail = sty_queued(
+                f"QUEUED →#{tgt} sh{face}:{lab}  (resolves when all ready)"
             )
             # Charge still present until resolve — do not call it available CHG.
             b = bar(ch, mx)
@@ -212,14 +214,14 @@ def format_weapons(
                 f"rng≤{w.get('max_range')} {b} {tail}"
             )
         elif not w.get("operational", True):
-            tail = paint("DEAD", "dim", "red")
+            tail = sty_dead("DEAD")
             b = bar(0, mx)
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
                 f"rng≤{w.get('max_range')} {b} {tail}"
             )
         elif ch > 0:
-            tail = paint(f"CHG {ch}/{max_c}  (available)", "bright_cyan")
+            tail = sty_available(f"CHG {ch}/{max_c}  (available)")
             b = bar(ch, mx)
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
@@ -346,14 +348,21 @@ def format_tactical(
 
     parts = [format_header(snap, selected=selected)]
     if snap.get("move_order"):
+        moved = set(snap.get("ships_moved_this_phase") or [])
+        queue = " → ".join(
+            (ship_callsign(ship_by_id(snap, int(sid)) or {"id": sid, "controller": "?"})
+             + (" done" if sid in moved else ""))
+            for sid in snap.get("move_order") or []
+        )
         parts.append(
-            muted(
-                f"move_order={snap.get('move_order')} "
-                f"moved={snap.get('ships_moved_this_phase')}"
-            )
+            muted(f"movement: {queue}")
         )
     if snap.get("ships_ready_fire"):
-        parts.append(muted(f"ready_fire={snap.get('ships_ready_fire')}"))
+        ready = ", ".join(
+            ship_callsign(ship_by_id(snap, int(sid)) or {"id": sid, "controller": "?"})
+            for sid in snap.get("ships_ready_fire") or []
+        )
+        parts.append(muted(f"fire ready: {ready}"))
 
     you_body = format_ship_card(
         me,
@@ -396,6 +405,13 @@ def format_tactical(
     return "\n".join(parts)
 
 
+def format_terminal_banner(status: str) -> str:
+    """Panel-weight, monochrome-readable terminal outcome announcement."""
+    label = f"SCENARIO {status.upper()}"
+    styled = sty_ok(label) if status == "Won" else sty_err(label)
+    return panel("GAME OVER", styled + "\nOrders disabled; use quit or log.", width=56)
+
+
 def _cell_glyph(
     ship: Optional[dict[str, Any]],
     *,
@@ -404,7 +420,7 @@ def _cell_glyph(
 ) -> str:
     """Map cell: callsign + facing arrow (e.g. A1→). Empty sea is muted dots."""
     if ship is None:
-        return muted("···")
+        return muted("····")
     face_i = int(ship.get("facing", 0)) % 6
     face = FACING_GLYPH.get(face_i, "?")
     sid = int(ship.get("id") or 0)
@@ -439,19 +455,21 @@ def format_board(
     m = snap.get("map") or {}
     width = int(m.get("width") or 0)
     height = int(m.get("height") or 0)
-    ships = {
-        (int(s["q"]), int(s["r"])): s
-        for s in (snap.get("ships") or [])
-        if not s.get("destroyed")
-    }
+    ships: dict[tuple[int, int], dict[str, Any]] = {}
+    # Keep one wreck as battlefield history, but never let it cover a living ship.
+    for ship in snap.get("ships") or []:
+        coord = (int(ship["q"]), int(ship["r"]))
+        previous = ships.get(coord)
+        if previous is None or (previous.get("destroyed") and not ship.get("destroyed")):
+            ships[coord] = ship
 
     if width <= 0 or height <= 0 or width * height > 600:
         rows = []
         for ship in snap.get("ships") or []:
-            if ship.get("destroyed"):
-                continue
             face_i = int(ship.get("facing", 0))
             face = f"{face_i}{FACING_GLYPH.get(face_i, '?')}"
+            if ship.get("destroyed"):
+                face = "wreck"
             rows.append(
                 f"  ship #{ship.get('id')} ({ship.get('q')},{ship.get('r')}) {face}"
             )

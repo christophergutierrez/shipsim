@@ -19,6 +19,14 @@ HERE = Path(__file__).resolve().parent
 LOCAL = HERE / "local"
 
 
+class TransportError(RuntimeError):
+    """The engine transport terminated or produced an unusable message."""
+
+
+class ProtocolCompatibilityError(TransportError):
+    """The engine's first message uses an unsupported protocol version."""
+
+
 def find_repo_root(start: Optional[Path] = None) -> Path:
     cur = (start or HERE).resolve()
     for candidate in [cur, *cur.parents]:
@@ -68,6 +76,7 @@ class ShipsimSession:
         self.last_error: Optional[dict[str, Any]] = None
         self.orders: list[dict[str, Any]] = []
         self._proc: Optional[subprocess.Popen[str]] = None
+        self._protocol_checked = False
         ensure_local()
         stamp = time.strftime("%Y%m%d-%H%M%S")
         self.orders_log = LOCAL / f"orders-{stamp}.jsonl"
@@ -85,26 +94,24 @@ class ShipsimSession:
         ]
         if self.save_path is not None:
             cmd.extend(["--save", str(self.save_path)])
-        stderr_f = open(self.stderr_log, "w", encoding="utf-8")
-        self._proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=stderr_f,
-            text=True,
-            bufsize=1,  # line-buffered text
-            cwd=str(self.repo),
-        )
+        with open(self.stderr_log, "w", encoding="utf-8") as stderr_f:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=stderr_f,
+                text=True,
+                bufsize=1,  # line-buffered text
+                cwd=str(self.repo),
+            )
         # Harness emits a post-load snapshot before reading any orders.
         msg = self._read_message()
         if msg is None:
             self.close()
-            raise RuntimeError(
-                f"shipsim produced no post-load snapshot; see {self.stderr_log}"
-            )
+            raise self._transport_error("shipsim produced no post-load snapshot")
         if msg.get("type") == "error":
             self.last_error = msg
-            raise RuntimeError(f"post-load error: {msg}")
+            raise self._transport_error(f"post-load error: {msg}")
         self.snapshot = msg
         return msg
 
@@ -116,14 +123,15 @@ class ShipsimSession:
         line = json.dumps(order, separators=(",", ":"))
         with open(self.orders_log, "a", encoding="utf-8") as log:
             log.write(line + "\n")
-        self._proc.stdin.write(line + "\n")
-        self._proc.stdin.flush()
+        try:
+            self._proc.stdin.write(line + "\n")
+            self._proc.stdin.flush()
+        except OSError as exc:
+            raise self._transport_error(f"could not write order: {exc}") from exc
         msg = self._read_message()
         if msg is None:
             code = self._proc.poll()
-            raise RuntimeError(
-                f"shipsim closed after order (exit={code}); see {self.stderr_log}"
-            )
+            raise self._transport_error(f"shipsim closed after order (exit={code})")
         if msg.get("type") == "error":
             self.last_error = msg
             return msg
@@ -135,16 +143,40 @@ class ShipsimSession:
     def _read_message(self) -> Optional[dict[str, Any]]:
         assert self._proc is not None and self._proc.stdout is not None
         while True:
-            line = self._proc.stdout.readline()
+            try:
+                line = self._proc.stdout.readline()
+            except OSError as exc:
+                raise self._transport_error(f"could not read engine output: {exc}") from exc
             if line == "":
                 return None
             line = line.strip()
             if not line:
                 continue
             try:
-                return json.loads(line)
+                msg = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise RuntimeError(f"non-JSON from shipsim: {line!r}") from exc
+                raise self._transport_error(f"non-JSON from shipsim: {line!r}") from exc
+            if not isinstance(msg, dict):
+                raise self._transport_error(
+                    f"non-object JSON from shipsim: {type(msg).__name__}"
+                )
+            if not self._protocol_checked:
+                self._validate_protocol_version(msg)
+                self._protocol_checked = True
+            return msg
+
+    def _validate_protocol_version(self, msg: dict[str, Any]) -> None:
+        version = msg.get("protocol_version")
+        if type(version) is int and version == PROTOCOL_VERSION:
+            return
+        got = "missing" if "protocol_version" not in msg else repr(version)
+        raise ProtocolCompatibilityError(
+            f"protocol version mismatch: got {got}, supported {PROTOCOL_VERSION}; "
+            f"see {self.stderr_log}"
+        )
+
+    def _transport_error(self, detail: str) -> TransportError:
+        return TransportError(f"{detail}; see {self.stderr_log}")
 
     def close(self) -> None:
         if self._proc is None:

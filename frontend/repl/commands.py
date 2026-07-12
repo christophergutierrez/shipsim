@@ -18,7 +18,7 @@ PROTOCOL_VERSION = 1
 HELP = """
 shipsim REPL — ship-centric Combat Model v2
 
-  Facing 0..5:  0↑ 1↗ 2↘ 3↓ 4↙ 5↖
+  Facing 0..5:  0→ 1↗ 2↑ 3← 4↙ 5↓
   Shields:      0=F 1=FR 2=RR 3=R 4=RL 5=FL
 
   status | s     refresh play frame (live snapshot)
@@ -206,6 +206,8 @@ class ReplContext:
 
 
 def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
+    if snap.get("status") in ("Won", "Lost"):
+        return f"scenario {snap.get('status')}: quit exits; log shows session history"
     phase = str(snap.get("phase") or "")
     focus = ctx.selected
     foc = f" focus=#{focus}" if focus is not None else ""
@@ -908,6 +910,12 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         return Action(side="empty")
 
     if cmd in ("alloc-default", "ad", "allocd"):
+        if phase != "allocate":
+            print(f"  allocate only in allocate phase (now {phase})")
+            return Action(side="empty")
+        if ctx.draft is not None and ctx.draft.used() > 0:
+            print(f"  finish or cancel draft for #{ctx.draft.ship_id} first")
+            return Action(side="empty")
         pending = ships_still_to_allocate(snap)
         sid = int(pending[0]["id"]) if len(pending) == 1 else ctx.ensure_selected(snap)
         if rest and rest[0].isdigit():
@@ -916,10 +924,17 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if sid is None:
             print("  no ship")
             return Action(side="empty")
+        ship = ship_by_id(snap, sid)
+        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
+            print(f"  cannot allocate ship #{sid}: not a living player ship")
+            return Action(side="empty")
         order = default_allocate(snap, sid)
         return Action(orders=[order]) if order else Action(side="empty")
 
     if cmd in ("move", "m"):
+        if phase != "movement":
+            print(f"  cannot move: phase is {phase!r} (need movement)")
+            return Action(side="empty")
         if not rest:
             print("  usage: m <0-5> | m f|r|port|stbd")
             return Action(side="empty")
@@ -928,6 +943,10 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         ship_id = int(active) if active is not None else ctx.ensure_selected(snap)
         if ship_id is None:
             print("  no active ship")
+            return Action(side="empty")
+        ship = ship_by_id(snap, ship_id)
+        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
+            print(f"  cannot move ship #{ship_id}: not a living player ship")
             return Action(side="empty")
         if active is not None and ctx.selected not in (None, int(active)):
             print(f"  note: moving ACTIVE #{active} (focus was #{ctx.selected})")
@@ -954,6 +973,9 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         return Action(orders=[_order("move", ship=ship_id, mode=mode)])
 
     if cmd in ("pass", "pass_move"):
+        if phase != "movement":
+            print(f"  pass only in movement phase (now {phase})")
+            return Action(side="empty")
         # bare "p" is pass; "p" alone
         active = snap.get("active_ship")
         ship_id = int(active) if active is not None else ctx.ensure_selected(snap)
@@ -962,9 +984,16 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if ship_id is None:
             print("  no ship")
             return Action(side="empty")
+        ship = ship_by_id(snap, ship_id)
+        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
+            print(f"  cannot pass ship #{ship_id}: not a living player ship")
+            return Action(side="empty")
         return Action(orders=[_order("pass_move", ship=ship_id)])
 
     if cmd == "p" and (not rest or rest[0].isdigit()):
+        if phase != "movement":
+            print(f"  pass only in movement phase (now {phase})")
+            return Action(side="empty")
         # pass_move (not turn port — use m port for that)
         active = snap.get("active_ship")
         ship_id = int(active) if active is not None else ctx.ensure_selected(snap)
@@ -973,15 +1002,26 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if ship_id is None:
             print("  no ship")
             return Action(side="empty")
+        ship = ship_by_id(snap, ship_id)
+        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
+            print(f"  cannot pass ship #{ship_id}: not a living player ship")
+            return Action(side="empty")
         return Action(orders=[_order("pass_move", ship=ship_id)])
 
     if cmd in ("fire", "f", "commit_fire"):
+        if phase != "firing":
+            print(f"  fire only in firing phase (now {phase})")
+            return Action(side="empty")
         sid = ctx.ensure_selected(snap)
         if rest and rest[0].isdigit():
             sid = int(rest[0])
             ctx.selected = sid
         if sid is None:
             print("  select ship first")
+            return Action(side="empty")
+        ship = ship_by_id(snap, sid)
+        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
+            print(f"  cannot fire ship #{sid}: not a living player ship")
             return Action(side="empty")
         order = interactive_fire(snap, sid)
         return Action(orders=[order]) if order else Action(side="empty")
@@ -992,6 +1032,10 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             sid = int(rest[0])
         if sid is None:
             print("  select ship first")
+            return Action(side="empty")
+        ship = ship_by_id(snap, sid)
+        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
+            print(f"  cannot ready ship #{sid}: not a living player ship")
             return Action(side="empty")
         if phase != "firing":
             print(
@@ -1013,6 +1057,9 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         return Action(orders=[_order("ready_fire", ship=sid)])
 
     if cmd in ("end", "e", "end_turn"):
+        if phase not in ("firing", "turn_end"):
+            print(f"  end_turn only in firing or turn_end phase (now {phase})")
+            return Action(side="empty")
         if phase == "firing":
             print(
                 "  end_turn ends the WHOLE turn, not the fire phase.\n"

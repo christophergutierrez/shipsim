@@ -105,8 +105,8 @@ def steps_to_face(current: int, target: int) -> int:
 
 def bar(filled: int, total: int, width: Optional[int] = None) -> str:
     """Text bar like [####....]. filled/total; width defaults to total (capped)."""
-    filled = max(0, int(filled))
     total = max(0, int(total))
+    filled = min(total, max(0, int(filled)))
     if total <= 0:
         return "[—]"
     w = width if width is not None else min(total, 16)
