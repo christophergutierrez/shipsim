@@ -35,12 +35,12 @@ from client import (
     list_scenarios,
 )
 from commands import (
-    HELP,
     Action,
     ReplContext,
     build_action,
     interactive_fire,
     phase_hint,
+    render_help,
 )
 from screen import TerminalUI, default_session_path
 from hexutil import ship_callsign
@@ -112,7 +112,11 @@ def pick_scenario(repo: Path, preferred: str | None, ui: TerminalUI) -> str:
             if s.endswith("ai.toml"):
                 default_idx = i
                 break
-        raw = input(f"pick [{default_idx}]: ").strip()
+        try:
+            raw = input(f"pick [{default_idx}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            raise SystemExit("no scenario selected")
     if raw == "":
         idx = default_idx
     else:
@@ -211,7 +215,11 @@ def _auto_fire_offer(
     while True:
         with ui.dialog():
             paint_frame(ui, session, ctx)
-            order = interactive_fire(session.snapshot or {}, sid)
+            try:
+                order = interactive_fire(session.snapshot or {}, sid)
+            except (EOFError, KeyboardInterrupt):
+                ui.log("  fire input ended; leaving the fire phase safely with no shot")
+                return log_len
         if order is None:
             ui.log(
                 "  done firing — type f to add more, or r/ready/done "
@@ -293,13 +301,14 @@ def send_orders(
                 ) or "(none charged)"
                 ui.log(
                     f"  engine accepted allocate #{sid}: "
-                    f"mov={sh.get('movement_allocated')}  weapons: {weps}  "
+                    f"engine={sh.get('movement_allocated')} power → "
+                    f"thrust={sh.get('thrust_remaining')}  weapons: {weps}  "
                     f"shields={sh.get('shields_powered')}"
                 )
                 if int(sh.get("movement_allocated") or 0) == 0 and weps == "(none charged)":
                     ui.log(
-                        "  note: zero move + zero weapons → movement skipped, "
-                        "fire has nothing charged"
+                        "  note: zero engine power does not stop existing velocity; "
+                        "the ship can still coast, but fire has nothing charged"
                     )
                 ctx.draft = None
                 ctx.draft_group = None
@@ -320,8 +329,8 @@ def send_orders(
             )
             cs = ship_callsign(ship) if ship else f"#{order.get('ship')}"
             ui.log(
-                f"  {cs} shot queued — resolves at end of fire phase "
-                f"(r/ready/done to fire)"
+                f"  {cs} shot queued — resolves once every ship readies "
+                f"(r/ready/done to fire; end_turn instead will DISCARD it)"
             )
         delta = snapshot_delta(before, msg)
         if delta:
@@ -357,6 +366,7 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
         if ui.verbose:
             ui.log("verbose transcript (--debug): timestamps + ORDER lines")
         ui.log("play frame · log=history · cls=redraw · --scroll=long log")
+        ui.log("objective: destroy the opposing fleet. Type help to see commands; ? also works.")
         if ui.scroll:
             print(
                 format_snapshot(
@@ -444,6 +454,16 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 prompt += f" draft{ctx.draft.used()}/{ctx.draft.power}"
                 if ctx.draft_group:
                     prompt += f"/{ctx.draft_group}"
+            else:
+                ship = next((s for s in snap.get("ships") or [] if s.get("id") == focus), None)
+                if phase == "movement" and ship is not None:
+                    prompt += f" actions=thrust:{int(ship.get('thrust_remaining') or 0)}"
+                elif phase == "firing" and ship is not None:
+                    charged = sum(
+                        1 for w in (ship.get("weapons") or [])
+                        if int(w.get("charge") or 0) > 0 and not w.get("fired")
+                    )
+                    prompt += f" actions=charged:{charged}"
 
             try:
                 # Prompt always live (dialog-ish) so the user sees it under the frame.
@@ -469,9 +489,20 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 act: Action = build_action(line, snap, ctx)
 
             if act.side == "quit":
+                if snap.get("status") not in ("Won", "Lost"):
+                    with ui.dialog():
+                        try:
+                            confirm = input("  unfinished game — type yes to quit: ").strip().lower()
+                        except (EOFError, KeyboardInterrupt):
+                            print()
+                            confirm = "yes"
+                    if confirm not in ("y", "yes"):
+                        ui.log("  quit cancelled")
+                        paint_frame(ui, session, ctx)
+                        continue
                 break
             if act.side == "help":
-                ui.log(HELP)
+                ui.log(render_help(act.note))
                 paint_frame(ui, session, ctx)
                 continue
             if act.side == "hint":

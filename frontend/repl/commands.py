@@ -7,6 +7,7 @@ Facing is always 0..5 (same numbering as the core).
 from __future__ import annotations
 
 import shlex
+import difflib
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -22,35 +23,61 @@ from view import living_player_ships, living_ships, ship_by_id
 
 PROTOCOL_VERSION = 2
 
-HELP = """
-shipsim REPL — ship-centric Combat Model v2
+COMMAND_REGISTRY = {
+    "status": ("status | s", "show the current board, turn, phase, focus, and ship state"),
+    "board": ("board | b", "show the hex map and coordinate legend"),
+    "ships": ("ships", "list every ship and its callsign, position, facing, and hull"),
+    "help": ("help [command] | ?", "show commands, or detailed syntax and an example"),
+    "allocate": ("allocate [ship-id] | a [ship-id]", "spend a ship's power on movement, weapons, and shields"),
+    "move": ("move | m", "show movement commands for the active ship"),
+    "coast": ("coast | p [ship-id]", "commit a no-cost movement maneuver"),
+    "fire": ("fire | attack | f", "choose a charged weapon and target"),
+    "ready": ("ready | nofire | r", "finish firing without another shot"),
+    "end": ("end | e", "advance the whole turn; confirms when actions remain"),
+    "quit": ("quit | q", "leave the game; confirms during an unfinished game"),
+    "log": ("log", "toggle the session history panel"),
+    "hint": ("hint", "repeat the next-action hint for the current phase"),
+}
 
-  Facing 0..5:  0→ 1↗ 2↑ 3← 4↙ 5↓
-  Shields:      0=F 1=FR 2=RR 3=R 4=RL 5=FL
 
-  status | s     refresh play frame (live snapshot)
-  board | b      hex map
-  ships          ship list
-  log            toggle scrollback history panel
-  cls            redraw frame
-  hint           phase tip
-  quit
+def render_help(command: str | None = None) -> str:
+    """Generate help from the same registry used by the command surface."""
+    if command:
+        key = command.lower()
+        if key in ("?", "h", "attack", "atk", "f"):
+            key = "help"
+        if command.lower() in ("attack", "atk", "f"):
+            key = "fire"
+        if key not in COMMAND_REGISTRY:
+            suggestion = difflib.get_close_matches(
+                key, list(COMMAND_REGISTRY) + ["attack", "move", "quit", "status"], n=1, cutoff=0.45
+            )
+            suffix = f" Did you mean '{suggestion[0]}'?" if suggestion else ""
+            return f"  unknown help topic {command!r}.{suffix} Try: help"
+        syntax, description = COMMAND_REGISTRY[key]
+        examples = {
+            "allocate": "a 1, then mov 4, w b1 2, sh 0 3, commit",
+            "move": "m (then choose coast or accel 0..5)",
+            "fire": "attack (then choose a charged weapon and target)",
+            "ready": "r",
+            "end": "e",
+            "quit": "quit",
+        }
+        example = examples.get(key, syntax.split(" | ")[0])
+        return f"  {syntax}\n    {description}\n    example: {example}"
+    lines = [
+        "shipsim REPL — objective: destroy the opposing fleet.",
+        "The prompt shows turn, phase, focus, and remaining actions. Type help <command> for details.",
+        "Commands:",
+    ]
+    for syntax, description in COMMAND_REGISTRY.values():
+        lines.append(f"  {syntax:34} {description}")
+    lines.append("Allocate draft: mov N | w [weapon] N | sh [face] N | show | reset | commit | cancel")
+    lines.append("Coordinates/facing: map q/r cells; directions 0→ 1↗ 2↑ 3← 4↙ 5↓; shields 0:F 1:FR 2:RR 3:R 4:RL 5:FL")
+    return "\n".join(lines)
 
-Allocate (local draft until commit — pick ship first)
-  a              list unallocated player ships and open a draft
-  a <id>         draft that ship (if not yet allocated)
-  During draft:
-    mov N | m N            movement power
-    w                      enter weapons group (then b1 2, t1 1, …)
-    w t1 1 | w b1 2        set charge (shortcuts: b1=beam_1, t1=torp_1, p1=plasma_1)
-    sh                     enter shields group (then 0 3, F 2, …)
-    sh 0 3                 set one shield face
-    show | reset | commit | cancel
-    done | ..              leave weapons/shields group
 
-Movement: p/pass [ship] coast | directional m commands arrive in M8
-Firing:   f fire | r/nofire ready without shots | e end WHOLE turn
-""".strip()
+HELP = render_help()
 
 
 @dataclass
@@ -236,9 +263,23 @@ def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
             f"allocate:{foc}  a = pick ship {pending} then mov/w/sh … commit"
         )
     if phase == "movement":
+        ship = ship_by_id(snap, focus) if focus is not None else None
+        if ship:
+            speed = int(ship.get("velocity") or 0)
+            course = int(ship.get("course") or 0)
+            facing = int(ship.get("facing") or 0)
+            thrust = int(ship.get("thrust_remaining") or 0)
+            schedule = {0: "none", 1: "4", 2: "2,4", 3: "1,2,4", 4: "1,2,3,4"}.get(speed, "?")
+            return (
+                f"movement {snap.get('movement_phase', '?')}/4:{foc}  "
+                f"speed={speed} course={course} facing={facing} thrust={thrust} "
+                f"moves on phases [{schedule}]\n"
+                "  choose one: coast | accel [course] | decel | "
+                "course port/starboard | rotate port/starboard  (motion = details)"
+            )
         return (
-            f"movement: phase {snap.get('movement_phase', '?')}/4{foc}  "
-            "p/pass to coast; directional maneuvers arrive in M8"
+            f"movement {snap.get('movement_phase', '?')}/4: "
+            "select a pending player ship; motion shows maneuver help"
         )
     if phase == "firing":
         ready = snap.get("ships_ready_fire") or []
@@ -464,10 +505,14 @@ def _prompt_int(msg: str, default: int = 0, hint: str | None = None) -> int:
     any indent); the hint replaces nothing — both hint and default are shown.
     """
     while True:
-        if hint:
-            raw = input(f"{msg} {hint} [{default}]: ").strip()
-        else:
-            raw = input(f"{msg} [{default}]: ").strip()
+        try:
+            if hint:
+                raw = input(f"{msg} {hint} [{default}]: ").strip()
+            else:
+                raw = input(f"{msg} [{default}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return default
         if raw == "":
             return default
         try:
@@ -514,16 +559,22 @@ def default_allocate(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
 def plan_absolute_move(
     snap: dict[str, Any], ship_id: int, abs_dir: int
 ) -> tuple[list[dict[str, Any]], str]:
-    """
-    Absolute map direction 0..5 — **one engine order only**.
+    """Accelerate a stopped ship onto an absolute course."""
+    ship = ship_by_id(snap, ship_id)
+    if ship is None:
+        return [], f"ship #{ship_id} not found"
+    if int(ship.get("velocity") or 0) != 0:
+        return [], "a course may be selected during acceleration only while stopped"
+    return [
+        _order(
+            "commit_maneuver",
+            ship=ship_id,
+            maneuver={"type": "accelerate", "course": abs_dir},
+        )
+    ], f"accelerate from rest on course {abs_dir}"
 
-    Directional movement is intentionally unavailable in M6. The inertial
-    maneuver UI and command semantics arrive in M8.
-    """
-    return [], f"directional movement ({abs_dir}) arrives in M8; use p/pass to coast"
 
-
-# Legacy directional aliases are recognized only to reject them locally.
+# Legacy step-movement aliases are recognized to provide a useful inertial hint.
 REL_MOVE = {
     "f": "forward",
     "fwd": "forward",
@@ -544,6 +595,43 @@ REL_MOVE = {
     "sb": "turn_starboard",
     "right": "turn_starboard",
 }
+
+
+def _pending_movement_ship(
+    snap: dict[str, Any], ctx: ReplContext, requested: Optional[int] = None
+) -> Optional[dict[str, Any]]:
+    committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
+    ship_id = requested
+    if ship_id is None:
+        pending = [
+            s for s in living_player_ships(snap) if int(s["id"]) not in committed
+        ]
+        ship_id = int(pending[0]["id"]) if pending else ctx.ensure_selected(snap)
+    ship = ship_by_id(snap, ship_id) if ship_id is not None else None
+    if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
+        return None
+    if int(ship["id"]) in committed:
+        return None
+    ctx.selected = int(ship["id"])
+    return ship
+
+
+def movement_summary(ship: dict[str, Any], movement_phase: Any) -> str:
+    speed = int(ship.get("velocity") or 0)
+    course = int(ship.get("course") or 0)
+    facing = int(ship.get("facing") or 0)
+    thrust = int(ship.get("thrust_remaining") or 0)
+    schedule = {0: "none", 1: "4", 2: "2,4", 3: "1,2,4", 4: "1,2,3,4"}.get(speed, "?")
+    return (
+        f"  ship #{ship['id']} movement phase {movement_phase}/4\n"
+        f"  speed={speed} course={course} facing={facing} thrust={thrust}\n"
+        f"  current speed translates on phases: {schedule}\n"
+        "  Coast keeps speed/course (cost 0). Accel/decel cost 1.\n"
+        f"  Course turns change travel direction (cost {max(speed, 1)}); "
+        "rotate changes facing only (cost 1).\n"
+        "  Commands: coast | accel [0..5] | decel | "
+        "course port/starboard | rotate port/starboard"
+    )
 
 
 def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
@@ -585,7 +673,11 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
                 "weapons uncharged.\n"
                 "  Set mov / w / sh first, or type yes to commit zeros:"
             )
-            confirm = input("  commit empty allocate? [yes/N]: ").strip().lower()
+            try:
+                confirm = input("  commit empty allocate? [yes/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                confirm = ""
             if confirm not in ("y", "yes"):
                 print("  commit cancelled — draft still open")
                 print(d.summary())
@@ -601,7 +693,7 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
             "  draft: mov N | w [alias N] | sh [face N] | show | reset | commit | cancel\n"
             "  in weapons group: b1 2 / t1 1  (no leading w) | done\n"
             "  in shields group: 0 3 / F 2 | done\n"
-            "  bare number at draft root = movement power (not ship select)\n"
+            "  bare number at draft root = engine power (not ship select)\n"
             "  for global help (status, board, quit): type 'help' again or 'quit' to exit"
         )
         return Action(side="empty")
@@ -620,10 +712,10 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
         print("  enter movement as a number, or done")
         return Action(side="empty")
 
-    # Bare number at draft root = movement power (NOT ship select).
+    # Bare number at draft root = engine power (NOT ship select).
     if cmd.isdigit() and ctx.draft_group is None:
         d.movement = max(0, int(cmd))
-        print(f"  movement set to {d.movement}  (use ship N / a N to change focus)")
+        print(f"  engine power set to {d.movement}  (use ship N / a N to change focus)")
         print(d.summary())
         return Action(side="empty")
 
@@ -697,7 +789,7 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
     if cmd in ("mov", "movement") and not args:
         ctx.draft_group = "mov"
         print(
-            f"  movement power? type a number (currently {d.movement}, "
+            f"  engine power for thrust? type a number (currently {d.movement}, "
             f"free pool {d.free() + d.movement})"
         )
         return Action(side="empty")
@@ -941,6 +1033,7 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
 def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
     line = line.strip()
     if not line:
+        print("  no command entered. Type help (or ?) to see commands; try hint for the next action.")
         return Action(side="empty")
 
     try:
@@ -950,6 +1043,15 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         return Action(side="empty")
 
     phase = str(snap.get("phase") or "")
+
+    # Help is global, including while a draft or fire sub-dialog is active.
+    # Keeping this before draft dispatch prevents the old context trap where
+    # typing help twice could never reach the command index.
+    if tokens and tokens[0].lower() in ("help", "?", "h"):
+        topic = tokens[1] if len(tokens) > 1 else None
+        if ctx.draft is not None:
+            print("  global help: status, board, ships, log, hint, quit; use help <command> for syntax")
+        return Action(side="help", note=topic)
 
     # Draft commands first — bare numbers mean movement/shields, not ship pick.
     draft_act = _handle_draft_line(ctx, tokens)
@@ -995,8 +1097,6 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
     cmd = tokens[0].lower()
     rest = tokens[1:]
 
-    if cmd in ("help", "?", "h"):
-        return Action(side="help")
     if cmd in ("hint", "what"):
         return Action(side="hint")
     if cmd in ("status", "s", "tactical", "tac"):
@@ -1020,6 +1120,9 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         return Action(side="empty")
 
     # Allocate: pick ship, then draft — not a free-floating mode token
+    if cmd in ("allocate", "a", "alloc") and phase == "firing" and not rest:
+        cmd = "fire"
+
     if cmd in ("allocate", "a", "alloc"):
         if phase != "allocate":
             print(f"  allocate only in allocate phase (now {phase})")
@@ -1052,88 +1155,99 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         order = default_allocate(snap, sid)
         return Action(orders=[order]) if order else Action(side="empty")
 
+    if cmd in ("motion", "maneuvers"):
+        if phase != "movement":
+            print(f"  motion is available during movement (now {phase})")
+            return Action(side="empty")
+        ship = _pending_movement_ship(snap, ctx)
+        if ship is None:
+            print("  no pending player ship; this movement phase is waiting on another controller")
+            return Action(side="empty")
+        print(movement_summary(ship, snap.get("movement_phase", "?")))
+        return Action(side="empty")
+
     if cmd in ("move", "m"):
         if phase != "movement":
             print(f"  cannot move: phase is {phase!r} (need movement)")
             return Action(side="empty")
         if not rest:
-            print("  usage: p/pass [ship] to coast; directional maneuvers arrive in M8")
-            return Action(side="empty")
-        committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
-        pending = [
-            s for s in living_player_ships(snap) if int(s["id"]) not in committed
-        ]
-        ship_id = int(pending[0]["id"]) if pending else ctx.ensure_selected(snap)
-        if ship_id is None:
-            print("  no active ship")
-            return Action(side="empty")
-        ship = ship_by_id(snap, ship_id)
-        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
-            print(f"  cannot move ship #{ship_id}: not a living player ship")
+            ship = _pending_movement_ship(snap, ctx)
+            if ship:
+                print(movement_summary(ship, snap.get("movement_phase", "?")))
+            else:
+                print("  no pending player ship")
             return Action(side="empty")
         token = rest[0].lower()
+        # `m accel`, `m decel`, etc. share the direct command implementation below.
         if token.isdigit() and 0 <= int(token) <= 5:
-            if phase != "movement":
-                print(
-                    f"  cannot move: phase is {phase!r} (need movement). "
-                    f"Finish fire with ready/nofire, or end turn."
-                )
-                return Action(side="empty")
-            orders, note = plan_absolute_move(snap, ship_id, int(token))
-            print(f"  {note}")
-            if not orders:
-                return Action(side="empty")
-            # One decision only — never batch turn+step (engine marks moved after one).
-            return Action(orders=orders[:1], note=note)
-
-        mode = REL_MOVE.get(token)
-        if mode is None:
-            print(f"  directional maneuver {token!r} arrives in M8; use p/pass to coast")
+            cmd, rest = "accel", [token]
+        elif token in REL_MOVE:
+            print(
+                "  inertial movement has no one-hex forward/reverse order. "
+                "Use accel, decel, course port/starboard, rotate port/starboard, or coast."
+            )
             return Action(side="empty")
-        print("  directional maneuvers arrive in M8; use p/pass to coast")
-        return Action(side="empty")
+        else:
+            cmd, rest = token, rest[1:]
 
-    if cmd in ("pass", "pass_move"):
+    if cmd in ("coast", "pass", "pass_move", "p"):
         if phase != "movement":
-            print(f"  pass only in movement phase (now {phase})")
+            print(f"  coast only in movement phase (now {phase})")
             return Action(side="empty")
-        committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
-        pending = [
-            s for s in living_player_ships(snap) if int(s["id"]) not in committed
-        ]
-        ship_id = int(pending[0]["id"]) if pending else ctx.ensure_selected(snap)
-        if rest and rest[0].isdigit():
-            ship_id = int(rest[0])
-        if ship_id is None:
-            print("  no ship")
+        requested = int(rest[0]) if rest and rest[0].isdigit() else None
+        ship = _pending_movement_ship(snap, ctx, requested)
+        if ship is None:
+            print("  no pending living player ship")
             return Action(side="empty")
-        ship = ship_by_id(snap, ship_id)
-        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
-            print(f"  cannot pass ship #{ship_id}: not a living player ship")
-            return Action(side="empty")
-        return Action(orders=[_order("commit_maneuver", ship=ship_id, maneuver={"type": "coast"})])
+        return Action(orders=[_order(
+            "commit_maneuver", ship=int(ship["id"]), maneuver={"type": "coast"}
+        )], note="coast: velocity and course continue unchanged")
 
-    if cmd == "p" and (not rest or rest[0].isdigit()):
+    if cmd in ("accel", "accelerate", "decel", "decelerate", "course", "rotate"):
         if phase != "movement":
-            print(f"  pass only in movement phase (now {phase})")
+            print(f"  maneuver only in movement phase (now {phase})")
             return Action(side="empty")
-        committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
-        pending = [
-            s for s in living_player_ships(snap) if int(s["id"]) not in committed
-        ]
-        ship_id = int(pending[0]["id"]) if pending else ctx.ensure_selected(snap)
-        if rest and rest[0].isdigit():
-            ship_id = int(rest[0])
-        if ship_id is None:
-            print("  no ship")
+        ship = _pending_movement_ship(snap, ctx)
+        if ship is None:
+            print("  no pending living player ship")
             return Action(side="empty")
-        ship = ship_by_id(snap, ship_id)
-        if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
-            print(f"  cannot pass ship #{ship_id}: not a living player ship")
-            return Action(side="empty")
-        return Action(orders=[_order("commit_maneuver", ship=ship_id, maneuver={"type": "coast"})])
+        sid = int(ship["id"])
+        speed = int(ship.get("velocity") or 0)
+        if cmd in ("accel", "accelerate"):
+            course = None
+            if rest:
+                if not rest[0].isdigit() or not 0 <= int(rest[0]) <= 5:
+                    print("  usage: accel [course 0..5]")
+                    return Action(side="empty")
+                course = int(rest[0])
+            if speed > 0 and course is not None:
+                print("  while moving, acceleration keeps the current course; use `accel`")
+                return Action(side="empty")
+            maneuver: dict[str, Any] = {"type": "accelerate"}
+            if course is not None:
+                maneuver["course"] = course
+            note = "speed +1"
+        elif cmd in ("decel", "decelerate"):
+            maneuver = {"type": "decelerate"}
+            note = "speed -1"
+        else:
+            if not rest or rest[0].lower() not in ("port", "starboard", "left", "right"):
+                print(f"  usage: {cmd} port|starboard")
+                return Action(side="empty")
+            direction = rest[0].lower()
+            starboard = direction in ("starboard", "right")
+            if cmd == "course":
+                maneuver = {"type": "turn_course_starboard" if starboard else "turn_course_port"}
+                note = f"travel course turns {'starboard' if starboard else 'port'}"
+            else:
+                maneuver = {"type": "rotate_starboard" if starboard else "rotate_port"}
+                note = f"ship facing rotates {'starboard' if starboard else 'port'}; course unchanged"
+        return Action(
+            orders=[_order("commit_maneuver", ship=sid, maneuver=maneuver)],
+            note=note,
+        )
 
-    if cmd in ("fire", "f", "commit_fire"):
+    if cmd in ("fire", "attack", "atk", "a", "f", "commit_fire"):
         if phase != "firing":
             print(f"  fire only in firing phase (now {phase})")
             return Action(side="empty")
@@ -1187,11 +1301,25 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             print(f"  end_turn only in firing or turn_end phase (now {phase})")
             return Action(side="empty")
         if phase == "firing":
-            print(
+            pending_shots = snap.get("fire_commits") or []
+            warn = (
                 "  end_turn ends the WHOLE turn, not the fire phase.\n"
                 "  To leave firing without shots: ready / nofire"
             )
-            confirm = input("  type yes to end whole turn: ").strip().lower()
+            if pending_shots:
+                queued = ", ".join(
+                    f"{s.get('weapon')}→#{s.get('target')}" for s in pending_shots
+                )
+                warn += (
+                    f"\n  warning: queued shot(s) not yet resolved will be DISCARDED, "
+                    f"not fired: {queued}. Use ready/nofire to resolve them first."
+                )
+            print(warn)
+            try:
+                confirm = input("  type yes to end whole turn: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                confirm = ""
             if confirm not in ("y", "yes"):
                 print("  cancelled")
                 return Action(side="empty")
@@ -1210,9 +1338,16 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             print("  need object")
             return Action(side="empty")
         if obj.get("type") in ("move", "pass_move"):
-            print("  move/pass_move are retired; directional maneuvers arrive in M8")
+            print("  move/pass_move are retired; use commit_maneuver or the REPL maneuver commands")
             return Action(side="empty")
         obj.setdefault("protocol_version", PROTOCOL_VERSION)
         return Action(orders=[obj])
 
+    suggestion = difflib.get_close_matches(
+        cmd, list(COMMAND_REGISTRY) + ["attack", "move", "quit", "status"], n=1, cutoff=0.45
+    )
+    if suggestion:
+        print(f"  unknown command {cmd!r}. Did you mean '{suggestion[0]}'? Type help for commands.")
+    else:
+        print(f"  unknown command {cmd!r}. Type help for commands; try status, move, fire, or quit.")
     return Action(side="unknown")
