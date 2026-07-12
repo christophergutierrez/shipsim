@@ -87,7 +87,7 @@ table in sync with `style.py` when adding a helper:
 | player | `player` | cyan | player callsigns/ships |
 | enemy | `enemy` | yellow | AI / scripted callsigns |
 | focus | `focus` | bold bright_cyan | UI focus ship |
-| active | `active` | bold bright_white | ACTIVE mover; phase name |
+| active | `active` | bold bright_white | Next pending maneuver; phase name |
 | hit | `hit` | bold bright_red | HIT banners, hull damage |
 | miss | `miss` | dim yellow | MISS results |
 | fired | `fired` | bold yellow | resolved weapon marker |
@@ -226,7 +226,7 @@ while the client keeps sending moves into the fire phase (regression).
 ### Ship-centric flow
 
 - Select a **focus ship** once; subsequent allocate/fire defaults to it.
-- Movement still obeys **ACTIVE** mover (rules). If focus ≠ active, say so and
+- Movement commitments are simultaneous. If focus differs from the next pending ship, say so and
   move the active ship.
 - Allocate: **pick ship → local draft → commit**. Do not require retyping the
   ship id on every `mov` / `w` / `sh`.

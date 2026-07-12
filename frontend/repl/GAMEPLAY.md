@@ -23,7 +23,7 @@ Each step the client **clears and redraws** from the latest engine snapshot:
 
 | Region | Contents |
 |---|---|
-| Header | Turn, **phase**, status, focus ship, ACTIVE mover, leftover-power warning |
+| Header | Turn, **phase**, status, focus ship, next pending maneuver, fire warning |
 | YOUR SHIP | Callsign, position, facing, hull bar, shields, weapons |
 | THREATS | Advisory: enemy ships + weapons that can bear on your focus ship (range shown) |
 | CONTACTS | Enemies/allies with range and which of *their* shields face you |
@@ -110,7 +110,7 @@ only type orders for **player** ships.
 
 Split each player ship’s **power pool** into:
 
-- **movement** power (units for steps/turns this turn — not “hex count”),
+- **engine** power (converted to a turn-scoped thrust reserve by the hull),
 - **weapon charges**,
 - **six shield faces** (sum ≤ pool; per-face max applies).
 
@@ -122,7 +122,7 @@ Nothing hits the engine until **`commit`**.
 |---|---|
 | `a` | List ships still needing allocate; auto-open draft if only one |
 | `a 1` / `1` | Focus ship and open draft (if not yet allocated) |
-| `mov 6` / `m 6` | Set movement power in the draft |
+| `mov 6` / `m 6` | Set engine power in the draft |
 | `mov` then `6` | Same (two lines) |
 | bare number (e.g. `8`) | While drafting: **set movement**, not “re-pick ship” |
 | `w` | Enter weapons group; list shortcuts |
@@ -156,21 +156,21 @@ commit
 After a good commit you should see something like:
 
 ```
-  engine accepted allocate #1: mov=6  weapons: beam_1=2, torp_1=1  shields=[3, 0, 0, 0, 0, 3]
-phase → movement   (if someone has move power)
+  engine accepted allocate #1: engine=6 power → thrust=6  weapons: beam_1=2, torp_1=1  shields=[3, 0, 0, 0, 0, 3]
+phase → movement
 ```
 
 ### Traps
 
 | Mistake | Result |
 |---|---|
-| Commit with all zeros | Movement phase skipped; fire has nothing charged (client asks confirm) |
+| Commit with all zeros | No new thrust or weapon charge; existing velocity still coasts |
 | Think “I set points” but never `commit` | Engine still unallocated |
 | Expect multi-ship allocate without `a` each ship | Each player ship must allocate once |
 | Empty weapons map vs all zero charges | Both fine; uncharged guns cannot fire later |
 
-If **every** living ship has **0** movement power after allocate, the engine goes
-**straight to firing** (no movement phase). That is rules, not a bug.
+Every living ship still commits a maneuver in all four movement phases. A ship
+with zero thrust can always Coast and retains its existing velocity.
 
 ---
 
@@ -179,26 +179,42 @@ If **every** living ship has **0** movement power after allocate, the engine goe
 ### Goal
 
 Each living ship gets exactly one maneuver commitment in each of four movement
-phases. In M6 the REPL exposes only **Coast**; directional maneuver controls arrive
-in M8. Commitments resolve simultaneously, then the firing window opens.
+phases. Commitments resolve simultaneously, then the firing window opens.
+
+**Course** is the direction the ship travels. **Facing** is the direction the hull
+and weapons point. Rotating facing does not change course; turning course does not
+rotate the hull.
 
 ### Commands
 
 | Command | Effect |
 |---|---|
-| `p` / `pass` | Commit a coast maneuver |
-| `m …` | Rejected locally; directional maneuver controls arrive in M8 |
+| `motion` / `m` | Show current speed, course, facing, thrust, schedule, and choices |
+| `coast` / `p` / `pass` | Keep velocity and course; spend 0 thrust |
+| `accel [0..5]` | Increase speed by 1; choose a course only while stopped |
+| `decel` | Decrease speed by 1 |
+| `course port` / `course starboard` | Turn travel course 60 degrees; cost is current speed, minimum 1 |
+| `rotate port` / `rotate starboard` | Rotate hull facing 60 degrees without changing course; cost 1 |
+| `m accel`, `m decel`, etc. | Equivalent prefixed forms |
 
-Directional movement is intentionally not mapped to inertial maneuvers in M6 because
-the old step semantics are not equivalent. The engine rejects retired `move` and
-`pass_move` orders; the REPL rejects those commands before transmission.
-step when ACTIVE again.
+Ships translate automatically according to their **post-maneuver speed**:
 
-### Momentum costs (engine)
+| Speed | Translation phases |
+|---:|---|
+| 0 | none |
+| 1 | 4 |
+| 2 | 2, 4 |
+| 3 | 1, 2, 4 |
+| 4 | 1, 2, 3, 4 |
 
-- Forward / turn: usually **1** move power.
-- Reverse after going forward (keel flip): often **2**.
-- If you lack power, the order soft-fails; state unchanged.
+### Maneuver costs
+
+- Coast: **0** thrust.
+- Accelerate/decelerate: **1** thrust.
+- Turn course: thrust equal to current speed, minimum **1**.
+- Rotate facing: **1** thrust.
+- Reversal requires decelerating to speed 0, then accelerating on the opposite course.
+- If you lack thrust, the order soft-fails and state is unchanged.
 
 ### After you act
 
@@ -211,8 +227,8 @@ if nobody else has a move left.
 |---|---|
 | `f` (fire) during movement | Soft error: need firing phase |
 | Spam `m 2` expecting multi-hex path | Only one decision; rest fail or confuse phase |
-| Fire while still ACTIVE for move | Same — finish move/pass first |
-| Assume focus ship moves | **ACTIVE** moves; focus is only your UI default |
+| Fire while movement commitments are pending | Finish one maneuver per living ship first |
+| Assume focus chooses who acts | Commands default to the first pending player ship; use `ship N` to change focus |
 
 ---
 
@@ -305,7 +321,7 @@ t1/turn_end@1>
 | `t1` | Turn 1 |
 | `allocate` / `movement` / `firing` / `turn_end` | Engine phase |
 | `@1` | UI focus ship id |
-| `*1` | ACTIVE mover (movement only) |
+| `*1` | Next player ship still needing a maneuver (movement only) |
 | `draft11/22` | Local allocate draft used/pool |
 | `/r=done` | Fire phase; this ship not ready yet |
 | `/ready` | This ship already readied |
@@ -349,13 +365,13 @@ t1/turn_end@1>
 ### After allocate
 
 ```
-  engine accepted allocate #1: mov=…  weapons: …  shields=…
+  engine accepted allocate #1: engine=… power → thrust=…  weapons: …  shields=…
 Δ phase allocate→movement …
 ```
 
 ### After move
 
-Position/facing update on YOUR SHIP and MAP; `mov=` remaining drops.
+Velocity/course/facing update on YOUR SHIP and MAP; `thrust=` drops by the maneuver cost.
 
 ### After fire resolve
 

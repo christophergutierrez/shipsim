@@ -64,7 +64,7 @@ allocate (draft → commit) → movement (one decision / ship) → firing (queue
 | Phase | Typical commands |
 |---|---|
 | Allocate | `a` → `mov` / `w` / `sh` → `commit` |
-| Movement | `m f` / `m 0..5` / `p` (ACTIVE ship only; **one** order per ship) |
+| Movement | `motion`, then `accel`, `decel`, `course …`, `rotate …`, or `coast` (**one** per ship) |
 | Firing | `f` (optional) → `r` / `done` / `nofire` (not `e`) |
 | End turn | `e` (whole turn; confirm in firing) |
 
