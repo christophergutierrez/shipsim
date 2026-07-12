@@ -13,6 +13,8 @@ def snapshot(phase="movement", status="Playing"):
         "active_ship": 1,
         "ships": [{"id": 1, "class": "Scout", "controller": "player", "destroyed": False,
                    "q": 0, "r": 0, "facing": 0, "structure": 4, "power": 4,
+                   "velocity": 0, "course": 0, "thrust_remaining": 4,
+                   "max_velocity": 4,
                    "weapons": [], "max_shield_per_facing": 2}],
         "combat_log": [],
     }
@@ -33,10 +35,25 @@ class FakeSession:
 
 
 class PreservedBehavior(unittest.TestCase):
-    def test_directional_move_is_rejected_until_m8(self):
+    def test_absolute_course_accelerates_from_rest(self):
         orders, note = plan_absolute_move(snapshot(), 1, 1)
-        self.assertEqual([], orders)
-        self.assertIn("M8", note)
+        self.assertEqual("commit_maneuver", orders[0]["type"])
+        self.assertEqual({"type": "accelerate", "course": 1}, orders[0]["maneuver"])
+        self.assertIn("course 1", note)
+
+    def test_inertial_maneuver_commands_emit_v2_orders(self):
+        cases = {
+            "accel 2": {"type": "accelerate", "course": 2},
+            "decel": {"type": "decelerate"},
+            "course port": {"type": "turn_course_port"},
+            "course starboard": {"type": "turn_course_starboard"},
+            "rotate port": {"type": "rotate_port"},
+            "rotate starboard": {"type": "rotate_starboard"},
+        }
+        for command, maneuver in cases.items():
+            with self.subTest(command=command):
+                action = build_action(command, snapshot(), ReplContext(selected=1))
+                self.assertEqual(maneuver, action.orders[0]["maneuver"])
 
     def test_interactive_pass_emits_v2_coast(self):
         for command in ("pass", "pass_move", "p"):

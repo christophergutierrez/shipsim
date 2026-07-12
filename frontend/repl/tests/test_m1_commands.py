@@ -74,12 +74,12 @@ class CommandPolicyTests(unittest.TestCase):
                 with contextlib.redirect_stdout(io.StringIO()):
                     self.assertFalse(build_action(command, snap, ctx).orders)
 
-    def test_directional_movement_is_rejected_until_m8(self):
+    def test_legacy_forward_explains_inertial_commands(self):
         snap = snapshot(phase="movement")
         with contextlib.redirect_stdout(io.StringIO()) as output:
             action = build_action("m forward", snap, ReplContext(selected=1))
         self.assertFalse(action.orders)
-        self.assertIn("M8", output.getvalue())
+        self.assertIn("inertial movement", output.getvalue())
 
     def test_ad_does_not_replace_dirty_draft(self):
         snap = snapshot(phase="allocate")

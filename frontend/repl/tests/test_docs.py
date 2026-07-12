@@ -13,7 +13,7 @@ class DocumentationTests(unittest.TestCase):
 
     def test_gameplay_uses_literal_allocate_spacing_and_turn_end_prompt(self):
         text = (ROOT / "GAMEPLAY.md").read_text()
-        self.assertIn("  engine accepted allocate #1: mov=", text)
+        self.assertIn("  engine accepted allocate #1: engine=", text)
         self.assertIn("t1/turn_end@1>", text)
         self.assertIn("`turn_end`", text)
 
