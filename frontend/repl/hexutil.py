@@ -103,6 +103,90 @@ def steps_to_face(current: int, target: int) -> int:
     return min(delta, 6 - delta)
 
 
+# Weapon mount → relative facings it can bear (mirrors src/arc.rs Mount).
+# Snapshot weapons carry `mount` as the snake_case name below.
+MOUNT_FACINGS: dict[str, tuple[int, ...]] = {
+    "forward": (0,),
+    "forward_starboard": (0, 1),
+    "aft_starboard": (2, 3),
+    "aft": (3,),
+    "aft_port": (3, 4),
+    "forward_port": (5, 0),
+}
+
+
+def weapon_in_arc(
+    weapon: dict,
+    attacker_q: int,
+    attacker_r: int,
+    attacker_facing: int,
+    target_q: int,
+    target_r: int,
+) -> bool:
+    """True if the target lies in this weapon's firing arc (pure geometry).
+
+    Uses the snapshot `mount` field (snake_case) when present; falls back to
+    the broad `arc` name (Forward/Rear/Left/Right/All) for older snapshots.
+    """
+    if attacker_q == target_q and attacker_r == target_r:
+        return False
+    mount = str(weapon.get("mount") or "").lower()
+    facings = MOUNT_FACINGS.get(mount)
+    if facings is None:
+        arc = str(weapon.get("arc") or "").lower()
+        facings = _ARC_FACINGS.get(arc, tuple(range(6)))
+    rel = relative_bearing(attacker_facing, attacker_q, attacker_r, target_q, target_r)
+    return rel in facings
+
+
+# Broad arc name → relative facings (fallback when `mount` is absent).
+_ARC_FACINGS: dict[str, tuple[int, ...]] = {
+    "forward": (0, 5, 1),
+    "rear": (2, 3, 4),
+    "left": (4, 5),
+    "right": (1, 2),
+    "all": (0, 1, 2, 3, 4, 5),
+}
+
+
+def threats_to_ship(
+    snap: dict, ship_id: int
+) -> list[dict]:
+    """Enemy ships that can bear on `ship_id` with at least one charged weapon.
+
+    Advisory only — derived from snapshot fields + pure geometry. Does not
+    consult engine rules authority. Each entry: {ship, weapon, range, in_arc}.
+    """
+    target = None
+    for s in snap.get("ships") or []:
+        if int(s.get("id") or -1) == int(ship_id):
+            target = s
+            break
+    if target is None or target.get("destroyed"):
+        return []
+    tq, tr = int(target.get("q") or 0), int(target.get("r") or 0)
+    out: list[dict] = []
+    for s in snap.get("ships") or []:
+        if s is target or s.get("destroyed"):
+            continue
+        if s.get("controller") == target.get("controller"):
+            continue
+        sq, sr = int(s.get("q") or 0), int(s.get("r") or 0)
+        sf = int(s.get("facing") or 0)
+        rng = distance(sq, sr, tq, tr)
+        for w in s.get("weapons") or []:
+            if not w.get("operational", True) or w.get("fired"):
+                continue
+            if int(w.get("charge") or 0) <= 0:
+                continue
+            if int(w.get("max_range") or 0) < rng:
+                continue
+            if not weapon_in_arc(w, sq, sr, sf, tq, tr):
+                continue
+            out.append({"ship": s, "weapon": w, "range": rng, "in_arc": True})
+    return out
+
+
 def bar(filled: int, total: int, width: Optional[int] = None) -> str:
     """Text bar like [####....]. filled/total; width defaults to total (capped)."""
     total = max(0, int(total))

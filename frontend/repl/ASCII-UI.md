@@ -254,8 +254,9 @@ shot worth committing?" is *the* decision the UI must support. Carry as much
 of that as the §1 boundary allows:
 
 - Always show **range** next to targets and each weapon's `rng≤` cap in the
-  weapon menu (both exist today). Prefer marking out-of-range or out-of-arc
-  targets up front over letting the soft error be the only feedback.
+  weapon menu (both exist today). Out-of-range and out-of-arc targets are now
+  marked up front with `[OUT OF RANGE]` / `[OUT OF ARC]` / `[in arc]` flags, so
+  the soft error is no longer the only feedback.
 - Geometry-legal shield facings come from `hexutil.legal_shield_facings` — a
   display mirror; the engine still validates the commit.
 - To-hit odds and expected damage are **engine data**, not client math. Until
@@ -267,8 +268,10 @@ of that as the §1 boundary allows:
 
 Contacts show which of *their* shields face you — that serves offense. The
 defensive question during allocate is the inverse: **which of my faces do
-enemies currently bear on?** `hexutil.relative_bearing` already computes it
-(the ship card prints `rel bearing` vs the focus contact). Presentation goal:
+enemies currently bear on?** `hexutil.threats_to_ship` now answers this from
+snapshot fields + pure geometry: the tactical view shows a **THREATS** panel
+listing each enemy ship + weapon that can bear on the focus ship, with range.
+The ship card also prints `rel bearing` vs the focus contact. Future work:
 mark threatened faces directly in the shield **draft** bars so the player
 knows where to stack power without doing hex math in their head.
 

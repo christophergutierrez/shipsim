@@ -25,10 +25,11 @@ Each step the client **clears and redraws** from the latest engine snapshot:
 |---|---|
 | Header | Turn, **phase**, status, focus ship, ACTIVE mover, leftover-power warning |
 | YOUR SHIP | Callsign, position, facing, hull bar, shields, weapons |
+| THREATS | Advisory: enemy ships + weapons that can bear on your focus ship (range shown) |
 | CONTACTS | Enemies/allies with range and which of *their* shields face you |
 | MAP | Hex board, callsign + facing arrow per ship |
 | RECENT | Last few events (allocate echo, Δ lines, fire resolution) |
-| ALLOCATE DRAFT | Only while drafting power (local — not on engine yet) |
+| ALLOCATE DRAFT | Only while drafting power (local — not on engine yet) — warns on unspent power |
 | Hint + prompt | What to do next; `t{turn}/{phase}@focus…>` |
 
 Type `log` to toggle a longer history panel. `cls` / `status` redraws the frame.

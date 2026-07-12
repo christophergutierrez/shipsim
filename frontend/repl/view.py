@@ -19,6 +19,7 @@ from hexutil import (
     legal_shield_facings,
     relative_bearing,
     ship_callsign,
+    threats_to_ship,
 )
 from style import (
     active as sty_active,
@@ -372,6 +373,16 @@ def format_tactical(
         snap=snap,
     )
     parts.append(panel("YOUR SHIP", you_body))
+
+    # Advisory threat assessment — pure geometry from snapshot fields.
+    threats = threats_to_ship(snap, int(me["id"]))
+    if threats:
+        tlines = []
+        for t in threats:
+            cs = ship_callsign(t["ship"])
+            wid = t["weapon"].get("id", "?")
+            tlines.append(f"  {cs} {wid}  range={t['range']}  [can bear]")
+        parts.append(panel("THREATS", "\n".join(tlines)))
 
     enemies = [
         s

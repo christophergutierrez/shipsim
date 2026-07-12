@@ -10,7 +10,14 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from hexutil import SHIELD_LABELS, bar, legal_shield_facings, turn_toward
+from hexutil import (
+    SHIELD_LABELS,
+    bar,
+    distance,
+    legal_shield_facings,
+    turn_toward,
+    weapon_in_arc,
+)
 from view import living_player_ships, living_ships, ship_by_id
 
 PROTOCOL_VERSION = 1
@@ -342,6 +349,8 @@ class AllocDraft:
             v = self.shields[i]
             mx = max(self.max_shield, 1)
             lines.append(f"    {i}:{lab:2} {bar(v, mx)} {v}/{self.max_shield}")
+        if free > 0:
+            lines.append(f"  ⚠ {free} unspent power — ready a weapon, move, or shield")
         return "\n".join(lines)
 
     def to_order(self) -> Optional[dict[str, Any]]:
@@ -761,15 +770,32 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
     print("  weapons available to queue (not yet resolved):")
     for i, w in enumerate(charged):
         ch, mx = int(w.get("charge") or 0), int(w.get("max_charge") or 0)
-        print(f"    [{i}] {w.get('id')} {bar(ch, max(mx,1))} {ch}/{mx} rng≤{w.get('max_range')}")
+        mount = str(w.get("mount") or w.get("arc") or "?")
+        print(
+            f"    [{i}] {w.get('id')} {bar(ch, max(mx,1))} {ch}/{mx} "
+            f"rng≤{w.get('max_range')} arc={mount}"
+        )
     wi = _prompt_int("  weapon index (-1 cancel)", 0)
     if wi < 0 or wi >= len(charged):
         print("  cancelled")
         return None
     weapon = str(charged[wi]["id"])
+    chosen = charged[wi]
+    max_range = int(chosen.get("max_range") or 0)
 
     print("  targets:")
     for i, t in enumerate(enemies):
+        rng = distance(
+            int(ship["q"]), int(ship["r"]), int(t["q"]), int(t["r"])
+        )
+        in_arc = weapon_in_arc(
+            chosen,
+            int(ship["q"]),
+            int(ship["r"]),
+            int(ship.get("facing") or 0),
+            int(t["q"]),
+            int(t["r"]),
+        )
         legal = legal_shield_facings(
             int(ship["q"]),
             int(ship["r"]),
@@ -778,10 +804,18 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
             int(t.get("facing") or 0),
         )
         labs = ",".join(f"{x}:{SHIELD_LABELS[x]}" for x in legal)
+        # Advisory legality flag from snapshot + geometry only.
+        if rng > max_range:
+            flag = "OUT OF RANGE"
+        elif not in_arc:
+            flag = "OUT OF ARC"
+        else:
+            flag = "in arc"
         print(
             f"    [{i}] #{t.get('id')} {t.get('class')} "
-            f"@({t.get('q')},{t.get('r')}) face={t.get('facing')} "
-            f"hull={t.get('structure')}  shields facing you: {labs}"
+            f"@({t.get('q')},{t.get('r')}) rng={rng} "
+            f"face={t.get('facing')} hull={t.get('structure')}  "
+            f"[{flag}]  shields facing you: {labs}"
         )
     ti = _prompt_int("  target index (-1 cancel)", 0)
     if ti < 0 or ti >= len(enemies):
