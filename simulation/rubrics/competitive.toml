@@ -1,0 +1,9 @@
+id = "competitive"
+description = "Symmetric matches should be decisive, bounded, and roughly fair (neither side dominates)."
+min_termination_rate = 0.80
+max_stalemate_rate = 0.20
+min_win_rate = 0.30
+max_win_rate = 0.70
+min_average_turns = 3.0
+max_average_turns = 20.0
+min_average_damage = 3.0

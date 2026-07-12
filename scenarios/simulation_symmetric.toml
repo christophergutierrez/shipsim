@@ -1,0 +1,27 @@
+width = 24
+height = 20
+seed = 1
+
+# Symmetric duel: both ships are heavy cruisers so policy quality, not ship
+# strength, decides the outcome. Ship 1 is the player side; ship 2 is the
+# opponent. The terminal target is ship 2 (player wins on opponent destruction).
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 4
+r = 10
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 2
+class = "heavy_cruiser"
+q = 19
+r = 10
+facing = 3
+controller = "scripted"

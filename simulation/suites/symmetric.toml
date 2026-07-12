@@ -1,0 +1,59 @@
+name = "symmetric policy balance"
+scenario = "scenarios/simulation_symmetric.toml"
+seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+max_turns = 50
+max_orders = 20000
+rubrics = [
+  "simulation/rubrics/safety.toml",
+  "simulation/rubrics/competitive.toml",
+]
+
+# All six non-mirror matchups across the four baseline policies, both
+# directions, so side advantage is separated from policy advantage.
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "defensive"
+opponent = "aggressive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "mobility"
+
+[[matchups]]
+player = "mobility"
+opponent = "aggressive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "greedy"
+
+[[matchups]]
+player = "greedy"
+opponent = "aggressive"
+
+[[matchups]]
+player = "defensive"
+opponent = "mobility"
+
+[[matchups]]
+player = "mobility"
+opponent = "defensive"
+
+[[matchups]]
+player = "defensive"
+opponent = "greedy"
+
+[[matchups]]
+player = "greedy"
+opponent = "defensive"
+
+[[matchups]]
+player = "mobility"
+opponent = "greedy"
+
+[[matchups]]
+player = "greedy"
+opponent = "mobility"
