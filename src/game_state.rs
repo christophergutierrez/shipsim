@@ -494,12 +494,23 @@ impl GameState {
             self.maybe_float_recenter();
         }
 
-        // Step 5: every resolved movement phase is followed by a fire window
-        // (ADR-0022 M5). `movement_phase` is left as the phase whose translation
-        // just resolved; it advances only after fire resolves (`resolve_fire_phase_v2`).
+        // Step 5: a reach-hex objective can be won by translation alone, with no
+        // fire involved — refresh status right after the batch so that win is
+        // recognized immediately rather than waiting on a fire window nobody
+        // needs to open. A decided scenario parks at TurnEnd without entering
+        // Phase::Firing this phase.
+        self.refresh_status();
         self.maneuver_commits.clear();
         self.fire_commits.clear();
         self.ready_fire.clear();
+        if self.status != ScenarioStatus::InProgress {
+            self.phase = Phase::TurnEnd;
+            return;
+        }
+
+        // Every resolved movement phase is followed by a fire window (ADR-0022
+        // M5). `movement_phase` is left as the phase whose translation just
+        // resolved; it advances only after fire resolves (`resolve_fire_phase_v2`).
         self.phase = Phase::Firing;
     }
 

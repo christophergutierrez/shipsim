@@ -12,12 +12,16 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use shipsim_core::arc;
+use shipsim_core::board::Board;
 use shipsim_core::game_state::{GameState, ScenarioStatus};
 use shipsim_core::hex::Hex;
-use shipsim_core::motion::Maneuver;
+use shipsim_core::motion::{Maneuver, Velocity};
 use shipsim_core::movement::{apply_order, Order, OrderError};
 use shipsim_core::scenario::load_scenario;
+use shipsim_core::ship::Ship;
 use shipsim_core::snapshot::StateSnapshot;
+use shipsim_core::ssd::Ssd;
+use shipsim_core::thrust::ThrustConversion;
 
 fn manifest_path(relative: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
@@ -62,6 +66,30 @@ fn allocate(
 
 fn commit_maneuver(game: &mut GameState, ship: u32, maneuver: Maneuver) -> Result<(), OrderError> {
     apply_order(game, Order::CommitManeuver { ship, maneuver })
+}
+
+/// A minimal, allocation-free ship for reach-hex-objective testing.
+fn bare_ship(id: u32, q: i32, r: i32, velocity_speed: u8, course: u8) -> Ship {
+    Ship {
+        id,
+        class: "t".into(),
+        pos: Hex::new(q, r),
+        facing: 0,
+        speed: 4,
+        power: 8,
+        weapons: vec![],
+        shields_powered: [0; 6],
+        shields_remaining: [0; 6],
+        max_shield_per_facing: 6,
+        movement_allocated: 0,
+        weapon_charges: BTreeMap::new(),
+        ssd: Ssd::new(10, 4, 2, 0),
+        destroyed: false,
+        max_velocity: 4,
+        thrust_conversion: ThrustConversion::new(1, 1, 4).unwrap(),
+        velocity: Velocity::new(velocity_speed, course).unwrap(),
+        thrust_remaining: 0,
+    }
 }
 
 fn coast_all(game: &mut GameState, ships: &[u32]) {
@@ -343,6 +371,40 @@ fn losing_also_parks_the_turn_at_turn_end_immediately() {
         snapshot.phase, "turn_end",
         "Lost must park at turn_end immediately, the same as Won — not leave the \
          turn parked in Phase::Movement awaiting commits from a defeated side"
+    );
+}
+
+/// Reaching a `ReachHex` objective by translation alone wins the scenario
+/// and parks at `turn_end` immediately, without waiting for a fire window —
+/// status must be refreshed right after the movement batch, not only after
+/// fire resolves or on an explicit EndTurn.
+#[test]
+fn reaching_the_objective_by_translation_wins_immediately() {
+    let objective = Hex::new(1, 0);
+    let ships = vec![bare_ship(1, 0, 0, 4, 0)]; // velocity 4, course 0 (east): translates every phase.
+    let mut game = GameState::new(Board::new(10, 10), ships, objective);
+
+    apply_order(
+        &mut game,
+        Order::Allocate {
+            ship: 1,
+            movement: 0,
+            weapons: BTreeMap::new(),
+            shields: [0; 6],
+        },
+    )
+    .expect("allocate");
+    assert_eq!(StateSnapshot::from_game_state(&game).phase, "movement");
+
+    commit_maneuver(&mut game, 1, Maneuver::Coast).expect("coast onto the objective hex");
+
+    let snapshot = StateSnapshot::from_game_state(&game);
+    assert_eq!(game.ship(1).unwrap().pos, objective);
+    assert_eq!(snapshot.status, ScenarioStatus::Won);
+    assert_eq!(
+        snapshot.phase, "turn_end",
+        "reaching the objective must be recognized right after translation, not \
+         deferred until a fire window (which nobody needs to open) resolves"
     );
 }
 
