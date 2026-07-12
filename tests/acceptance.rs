@@ -57,8 +57,12 @@ fn run_fire_cycle(
     // Movement phase: both ships are adjacent and blocked forward, so each
     // passes its move decision. This still exercises the movement phase and
     // the active-mover rotation.
-    apply_order(game, Order::PassMove { ship: 1 }).unwrap();
+    //
+    // M3: move order is now by thrust_remaining descending. Ship 2 (escort,
+    // 2 power × 4 thrust/power = 8 thrust) moves before ship 1 (cruiser,
+    // 4 power × 1 = 4 thrust).
     apply_order(game, Order::PassMove { ship: 2 }).unwrap();
+    apply_order(game, Order::PassMove { ship: 1 }).unwrap();
 
     // Firing phase: ship 1 fires beam_1 at ship 2 (adjacent, forward arc).
     apply_order(

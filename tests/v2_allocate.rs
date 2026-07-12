@@ -72,7 +72,9 @@ fn test_allocate_all_living_ships_enters_movement_with_move_order() {
 
     let snapshot = StateSnapshot::from_game_state(&game);
     assert_eq!(snapshot.phase, "movement");
-    assert_eq!(snapshot.move_order, vec![1, 2]);
+    // M3: move_order is sorted by thrust_remaining descending. Ship 2 (escort,
+    // 3 power × 4 = 12 thrust) moves before ship 1 (cruiser, 6 power × 1 = 6).
+    assert_eq!(snapshot.move_order, vec![2, 1]);
     assert_eq!(snapshot.ships[0].movement_allocated, 6);
     assert_eq!(snapshot.ships[0].move_remaining, 6);
     assert_eq!(snapshot.ships[0].shields_powered, [1, 1, 1, 1, 1, 1]);

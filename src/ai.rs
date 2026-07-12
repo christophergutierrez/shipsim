@@ -1,7 +1,6 @@
 //! NPC tactics (D9). Greedy seek + opportunistic fire.
 
 use crate::game_state::GameState;
-use crate::hex::Hex;
 
 /// Nearest living enemy on the opposing side (other id). Lowest id wins ties. Deterministic.
 /// Side rule: player-controlled ships vs. all NPC ships (GreedySeek/Scripted).
@@ -29,7 +28,6 @@ pub fn seek_target(game: &GameState, ship_id: u32) -> Option<u32> {
 }
 
 use crate::combat_tables::WeaponKind as V2Kind;
-use crate::momentum;
 use crate::movement::MoveMode;
 use std::collections::BTreeMap;
 
@@ -89,49 +87,13 @@ pub fn v2_allocation(
     Some((movement, weapons, shields))
 }
 
-/// Greedy v2 move decision for the active mover: turn toward the nearest enemy,
-/// step forward when that is legal and affordable, else turn in place to stay
-/// engaged. Returns a move the movement phase will always accept, or `None` when
-/// the ship has no movement power left.
-pub fn v2_move_decision(game: &GameState, ship_id: u32) -> Option<MoveMode> {
-    let ship = game.ship(ship_id)?;
-    if ship.destroyed || ship.move_remaining == 0 {
-        return None;
-    }
-    // Turning in place always costs 1 and is always legal (no collision), so it is
-    // the safe fallback that still spends move power.
-    let fallback = MoveMode::TurnStarboard;
-
-    let Some(target) = seek_target(game, ship_id).and_then(|tid| game.ship(tid)) else {
-        return Some(fallback);
-    };
-    // `bearing_to` yields the nearest hex direction toward a possibly-distant target
-    // (unlike `facing_between`, which only resolves adjacent hexes).
-    let desired = crate::arc::bearing_to(ship.pos, target.pos);
-    if desired != ship.facing {
-        let clockwise = (desired + 6 - ship.facing) % 6;
-        return Some(if clockwise <= 3 {
-            MoveMode::TurnStarboard
-        } else {
-            MoveMode::TurnPort
-        });
-    }
-
-    // Facing the target: step forward if the hex is open and affordable.
-    let (cost, _) = momentum::move_cost(ship.keel, momentum::MoveMode::Forward);
-    if cost > ship.move_remaining {
-        return Some(fallback);
-    }
-    let Some(delta) = Hex::direction(ship.facing) else {
-        return Some(fallback);
-    };
-    let next = ship.pos + delta;
-    let on_board = game.board().mode != crate::board::MapMode::Hard || game.board().contains(next);
-    if on_board && !game.is_occupied_by_other(ship_id, next) {
-        Some(MoveMode::Forward)
-    } else {
-        Some(fallback)
-    }
+/// Greedy v2 move decision for the active mover.
+///
+/// During M3–M6 (ADR-0022) the AI coasts: it returns `None` so the driver issues
+/// a `PassMove` and the ship preserves its persistent velocity without spending
+/// thrust. M7 replaces this stub with real maneuver-selection logic.
+pub fn v2_move_decision(_game: &GameState, _ship_id: u32) -> Option<MoveMode> {
+    None
 }
 
 /// Legal v2 fire commits for a ship: every operational, charged weapon that can
@@ -161,6 +123,7 @@ mod tests {
     use super::*;
     use crate::board::Board;
     use crate::game_state::GameState;
+    use crate::hex::Hex;
     use crate::momentum::Keel;
     use crate::ship::Ship;
     use crate::ssd::Ssd;

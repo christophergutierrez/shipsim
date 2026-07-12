@@ -117,9 +117,12 @@ fn m0_initiative_derived_from_movement_allocated() {
     )
     .unwrap();
 
-    // Ship 1 should be the first active mover (higher movement_allocated).
+    // M3: initiative is now derived from thrust_remaining, not raw
+    // movement_allocated. Ship 1 (heavy_cruiser, 1:1) gets 3 thrust from 3
+    // power; ship 2 (escort, 4:1) gets 4 thrust from 1 power. Ship 2 moves
+    // first.
     let active = game.active_v2_mover();
-    assert_eq!(active, Some(ship1));
+    assert_eq!(active, Some(ship2));
 }
 
 #[test]

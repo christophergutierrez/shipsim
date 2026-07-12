@@ -1,0 +1,38 @@
+width = 24
+height = 20
+seed = 1
+
+# M3 thrust-allocation test scenario.
+# Ship 1: escort (tiny hull, thrust_per_power=4, 1 power → 4 thrust).
+#         Starts with velocity 2 for the zero-power coasting test.
+# Ship 2: heavy_cruiser (1:1 conversion, 1 power → 1 thrust).
+# Ship 3: huge (power_per_thrust=4, 4 power → 1 thrust).
+
+[terminal]
+type = "destruction"
+target = 3
+
+[[ships]]
+id = 1
+class = "escort"
+q = 4
+r = 10
+facing = 0
+controller = "scripted"
+velocity = 2
+
+[[ships]]
+id = 2
+class = "heavy_cruiser"
+q = 12
+r = 10
+facing = 0
+controller = "scripted"
+
+[[ships]]
+id = 3
+class = "huge"
+q = 19
+r = 10
+facing = 3
+controller = "scripted"

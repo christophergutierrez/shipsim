@@ -295,7 +295,13 @@ impl GameState {
             .ship_mut(ship_id)
             .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
         ship.movement_allocated = movement;
-        ship.move_remaining = movement;
+        // M3 (ADR-0022): engine power becomes a thrust reserve via the hull's
+        // rational conversion. `move_remaining` is kept as a derived mirror so
+        // the legacy `apply_v2_move` / `can_any_move` path still compiles until
+        // M4 removes it.
+        let (thrust, _remainder) = ship.thrust_conversion.convert(movement);
+        ship.thrust_remaining = thrust;
+        ship.move_remaining = thrust;
         ship.weapon_charges = weapons;
         ship.shields_powered = shields;
         ship.shields_remaining = shields;
@@ -324,8 +330,8 @@ impl GameState {
             .map(|s| s.id)
             .collect();
         ids.sort_by(|a, b| {
-            let ma = self.ship(*a).map(|s| s.movement_allocated).unwrap_or(0);
-            let mb = self.ship(*b).map(|s| s.movement_allocated).unwrap_or(0);
+            let ma = self.ship(*a).map(|s| s.thrust_remaining).unwrap_or(0);
+            let mb = self.ship(*b).map(|s| s.thrust_remaining).unwrap_or(0);
             mb.cmp(&ma).then_with(|| a.cmp(b))
         });
 
@@ -333,15 +339,11 @@ impl GameState {
         while start < ids.len() {
             let movement = self
                 .ship(ids[start])
-                .map(|s| s.movement_allocated)
+                .map(|s| s.thrust_remaining)
                 .unwrap_or(0);
             let mut end = start + 1;
             while end < ids.len()
-                && self
-                    .ship(ids[end])
-                    .map(|s| s.movement_allocated)
-                    .unwrap_or(0)
-                    == movement
+                && self.ship(ids[end]).map(|s| s.thrust_remaining).unwrap_or(0) == movement
             {
                 end += 1;
             }
@@ -361,7 +363,7 @@ impl GameState {
             !self.moved_this_phase.contains(id)
                 && self
                     .ship(*id)
-                    .is_some_and(|ship| !ship.destroyed && ship.move_remaining > 0)
+                    .is_some_and(|ship| !ship.destroyed && ship.thrust_remaining > 0)
         })
     }
 

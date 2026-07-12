@@ -1,0 +1,17 @@
+id = "huge"
+name = "Huge"
+speed = 2
+power = 16
+max_shield_per_facing = 8
+structure = 30
+max_velocity = 2
+thrust_per_power = 1
+power_per_thrust = 4
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4

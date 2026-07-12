@@ -16,7 +16,7 @@ The retired impulse, FASA, seeking-munition, and multi-bucket compatibility impl
 
 ## Recommended next work
 
-1. Design and accept the replacement movement system; use `docs/TODO.md` to preserve its interaction with hull size and capacity.
+1. Inertial movement system (ADR-0022): M0–M2 complete; M3 (engine allocation becomes thrust) in progress. See `docs/MOVEMENT-INERTIA-PLAN.md`.
 2. Add mirrored/team-aware scenarios, confidence intervals, and parameter sweeps to the simulation runner.
 3. Add stochastic table-verification and tactical-diversity metrics.
 4. Use simulation results to drive manual Love2D playthroughs focused on high-value gameplay paths and UI behavior.
