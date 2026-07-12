@@ -16,12 +16,13 @@ The retired impulse, FASA, seeking-munition, and multi-bucket compatibility impl
 
 ## Recommended next work
 
-1. Add mirrored/team-aware scenarios, confidence intervals, and parameter sweeps to the simulation runner.
-2. Add stochastic table-verification and tactical-diversity metrics.
-3. Use simulation results to drive manual Love2D playthroughs focused on high-value gameplay paths and UI behavior.
-4. Add screenshot capture and deterministic layout checks for the tracked visual rubric.
-5. Add campaign save/resume after campaign state and progression semantics are finalized.
-6. Improve combat-log presentation and replay navigation.
+1. Design and accept the replacement movement system; use `docs/TODO.md` to preserve its interaction with hull size and capacity.
+2. Add mirrored/team-aware scenarios, confidence intervals, and parameter sweeps to the simulation runner.
+3. Add stochastic table-verification and tactical-diversity metrics.
+4. Use simulation results to drive manual Love2D playthroughs focused on high-value gameplay paths and UI behavior.
+5. Add screenshot capture and deterministic layout checks for the tracked visual rubric.
+6. Add campaign save/resume after campaign state and progression semantics are finalized.
+7. Improve combat-log presentation and replay navigation.
 
 ## Later features
 

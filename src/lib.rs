@@ -7,6 +7,7 @@ pub mod combat_tables;
 pub mod game_state;
 pub mod hex;
 pub mod momentum;
+pub mod motion;
 pub mod movement;
 pub mod prng;
 pub mod protocol;
@@ -17,6 +18,7 @@ pub mod ship;
 pub mod simulation;
 pub mod snapshot;
 pub mod ssd;
+pub mod thrust;
 pub mod turn;
 
 // Convenience re-export so harness/tests keep a short order-application path.

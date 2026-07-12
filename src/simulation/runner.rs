@@ -11,7 +11,7 @@ use crate::snapshot::StateSnapshot;
 use super::metrics::{AggregateMetrics, MatchMetrics};
 use super::policies::build_policy;
 use super::policy::{DecisionContext, Policy};
-use super::rubric::{evaluate_rubric, RubricResult, RubricSpec};
+use super::rubric::{evaluate_rubric, MatchupBreakdown, RubricResult, RubricSpec};
 use super::trace::{TraceEvent, TraceOutcome};
 
 fn default_max_turns() -> u32 {
@@ -70,6 +70,7 @@ pub struct SuiteSpec {
 pub struct SuiteReport {
     pub name: String,
     pub aggregate: AggregateMetrics,
+    pub matchup_breakdown: MatchupBreakdown,
     pub rubrics: Vec<RubricResult>,
     pub matches: Vec<MatchResult>,
 }
@@ -231,6 +232,13 @@ pub fn run_suite(spec: &SuiteSpec) -> Result<SuiteReport, SimulationError> {
             .iter()
             .map(|result| (&result.status, &result.metrics)),
     );
+    let matchup_breakdown = MatchupBreakdown::from_results(matches.iter().map(|result| {
+        (
+            result.player_policy.clone(),
+            result.opponent_policy.clone(),
+            result.status,
+        )
+    }));
     let mut rubrics = Vec::new();
     for path in &spec.rubrics {
         let text = std::fs::read_to_string(path).map_err(|source| SimulationError::RubricRead {
@@ -242,11 +250,12 @@ pub fn run_suite(spec: &SuiteSpec) -> Result<SuiteReport, SimulationError> {
                 path: path.clone(),
                 source,
             })?;
-        rubrics.push(evaluate_rubric(&rubric, &aggregate));
+        rubrics.push(evaluate_rubric(&rubric, &aggregate, &matchup_breakdown));
     }
     Ok(SuiteReport {
         name: spec.name.clone(),
         aggregate,
+        matchup_breakdown,
         rubrics,
         matches,
     })

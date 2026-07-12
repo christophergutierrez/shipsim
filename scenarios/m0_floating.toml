@@ -1,0 +1,29 @@
+width = 12
+height = 10
+seed = 1
+map_mode = "floating"
+
+# Small floating-map scenario for M0 characterization: two ships start
+# off-center so a single move triggers a visible recenter of the whole
+# formation. Both ships are player-controlled so the test drives allocation.
+# Ship 2 is placed at a different r so the two ships never block each other.
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 1
+r = 4
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 2
+class = "escort"
+q = 2
+r = 6
+facing = 3
+controller = "player"

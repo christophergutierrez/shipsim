@@ -4,6 +4,17 @@ min_termination_rate = 0.80
 max_stalemate_rate = 0.20
 min_win_rate = 0.30
 max_win_rate = 0.70
+# Per-matchup bounds: no single reversed matchup may skew outside this band.
+# Without these, opposite-direction matchups can average into the aggregate
+# 30-70% range even when one policy consistently dominates the other.
+min_win_rate_per_matchup = 0.25
+max_win_rate_per_matchup = 0.75
+# Maximum allowed win-rate gap between the two directions of a paired matchup.
+# A large gap means one policy consistently dominates the other.
+max_matchup_dominance = 0.50
+# Maximum allowed side-bias gap: player/opponent side assignment should not
+# determine the outcome. A large gap means the player side always wins.
+max_matchup_side_bias = 0.50
 min_average_turns = 3.0
 max_average_turns = 20.0
 min_average_damage = 3.0
