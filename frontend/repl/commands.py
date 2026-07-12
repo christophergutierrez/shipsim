@@ -28,7 +28,7 @@ COMMAND_REGISTRY = {
     "board": ("board | b", "show the hex map and coordinate legend"),
     "ships": ("ships", "list every ship and its callsign, position, facing, and hull"),
     "help": ("help [command] | ?", "show commands, or detailed syntax and an example"),
-    "allocate": ("allocate [ship-id] | a [ship-id]", "spend a ship's power on movement, weapons, and shields"),
+    "allocate": ("allocate [ship-id] | a [ship-id]", "spend a ship's power on engine (thrust for movement), weapons, and shields"),
     "move": ("move | m", "show movement commands for the active ship"),
     "coast": ("coast | p [ship-id]", "commit a no-cost movement maneuver"),
     "fire": ("fire | attack | f", "choose a charged weapon and target"),
@@ -56,7 +56,7 @@ def render_help(command: str | None = None) -> str:
             return f"  unknown help topic {command!r}.{suffix} Try: help"
         syntax, description = COMMAND_REGISTRY[key]
         examples = {
-            "allocate": "a 1, then mov 4, w b1 2, sh 0 3, commit",
+            "allocate": "a 1, then engine 4, w b1 2, sh 0 3, commit",
             "move": "m (then choose coast or accel 0..5)",
             "fire": "attack (then choose a charged weapon and target)",
             "ready": "r",
@@ -72,7 +72,7 @@ def render_help(command: str | None = None) -> str:
     ]
     for syntax, description in COMMAND_REGISTRY.values():
         lines.append(f"  {syntax:34} {description}")
-    lines.append("Allocate draft: mov N | w [weapon] N | sh [face] N | show | reset | commit | cancel")
+    lines.append("Allocate draft: engine N | w [weapon] N | sh [face] N | show | reset | commit | cancel")
     lines.append("Coordinates/facing: map q/r cells; directions 0→ 1↗ 2↑ 3← 4↙ 5↓; shields 0:F 1:FR 2:RR 3:R 4:RL 5:FL")
     return "\n".join(lines)
 
@@ -196,7 +196,7 @@ class ReplContext:
             f"  allocate ship #{ship_id} {ship.get('class')} "
             f"(local draft — commit to apply)\n"
             + self.draft.summary()
-            + "\n  tip: mov 6 | w then b1 2 | sh then 0 3 | commit\n"
+            + "\n  tip: engine 6 (power -> thrust) | w then b1 2 | sh then 0 3 | commit\n"
             + "  (a lone number sets movement; it does NOT re-pick the ship)"
         )
 
@@ -257,10 +257,10 @@ def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
             g = f" group={ctx.draft_group}" if ctx.draft_group else ""
             return (
                 f"allocate draft #{ctx.draft.ship_id}{g}: "
-                f"mov/w/sh … commit  (pending ships={pending})"
+                f"engine/w/sh … commit  (pending ships={pending})"
             )
         return (
-            f"allocate:{foc}  a = pick ship {pending} then mov/w/sh … commit"
+            f"allocate:{foc}  a = pick ship {pending} then engine/w/sh … commit"
         )
     if phase == "movement":
         ship = ship_by_id(snap, focus) if focus is not None else None
@@ -420,7 +420,7 @@ class AllocDraft:
             f"  draft #{self.ship_id} {self.ship_class}  "
             f"pool={self.power} used={used} free={free}{over}",
             f"  total {bar(used, self.power)}",
-            f"  mov    {bar(self.movement, max(self.power, 1))} {self.movement}",
+            f"  engine {bar(self.movement, max(self.power, 1))} {self.movement}  (→ thrust for movement phase)",
             "  weapons:",
         ]
         for m in self.weapon_meta:
@@ -437,7 +437,7 @@ class AllocDraft:
             mx = max(self.max_shield, 1)
             lines.append(f"    {i}:{lab:2} {bar(v, mx)} {v}/{self.max_shield}")
         if free > 0:
-            lines.append(f"  ⚠ {free} unspent power — ready a weapon, move, or shield")
+            lines.append(f"  ⚠ {free} unspent power — put it toward engine, a weapon, or a shield")
         return "\n".join(lines)
 
     def to_order(self) -> Optional[dict[str, Any]]:
@@ -671,7 +671,7 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
             print(
                 "  draft is empty (all zeros). That skips movement and leaves "
                 "weapons uncharged.\n"
-                "  Set mov / w / sh first, or type yes to commit zeros:"
+                "  Set engine / w / sh first, or type yes to commit zeros:"
             )
             try:
                 confirm = input("  commit empty allocate? [yes/N]: ").strip().lower()
@@ -690,7 +690,7 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
 
     if cmd in ("help",):
         print(
-            "  draft: mov N | w [alias N] | sh [face N] | show | reset | commit | cancel\n"
+            "  draft: engine N | w [alias N] | sh [face N] | show | reset | commit | cancel\n"
             "  in weapons group: b1 2 / t1 1  (no leading w) | done\n"
             "  in shields group: 0 3 / F 2 | done\n"
             "  bare number at draft root = engine power (not ship select)\n"
@@ -785,21 +785,21 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
         print(d.shield_menu())
         return Action(side="empty")
 
-    # mov alone → await bare number on next line; mov N / m N immediate
-    if cmd in ("mov", "movement") and not args:
+    # engine alone → await bare number on next line; engine N / mov N immediate
+    if cmd in ("engine", "mov", "movement") and not args:
         ctx.draft_group = "mov"
         print(
-            f"  engine power for thrust? type a number (currently {d.movement}, "
-            f"free pool {d.free() + d.movement})"
+            f"  engine power → becomes this ship's thrust for the movement phase. "
+            f"Type a number (currently {d.movement}, free pool {d.free() + d.movement})"
         )
         return Action(side="empty")
 
-    # mov N / m N (integer only — not map move)
-    if cmd in ("mov", "movement") or (
+    # engine N / mov N (integer only — not map move)
+    if cmd in ("engine", "mov", "movement") or (
         cmd in ("m", "move") and args and args[0].lstrip("-").isdigit()
     ):
         if not args or not args[0].lstrip("-").isdigit():
-            print("  usage: mov N   (or: mov  →  then a number)")
+            print("  usage: engine N   (or: engine  →  then a number; sets thrust for the movement phase)")
             return Action(side="empty")
         val = int(args[0])
         if val < 0:
@@ -1091,7 +1091,7 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
                     return draft_act
             elif pending:
                 print(ctx.begin_allocate_picker(snap))
-                print("  (open a ship draft first, then mov/w/sh)")
+                print("  (open a ship draft first, then engine/w/sh)")
                 return Action(side="empty")
 
     cmd = tokens[0].lower()
@@ -1342,6 +1342,16 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             return Action(side="empty")
         obj.setdefault("protocol_version", PROTOCOL_VERSION)
         return Action(orders=[obj])
+
+    if phase == "movement" and cmd in ("thrust", "speed", "power", "engine"):
+        print(
+            f"  'thrust' isn't a command you type an amount into — it's the fuel "
+            f"shown on your status line, spent automatically by a maneuver command.\n"
+            "  Commands that spend it: coast (free) | accel [course] | decel | "
+            "course port/starboard | rotate port/starboard.\n"
+            "  Type motion to see this ship's current speed/course/thrust."
+        )
+        return Action(side="empty")
 
     suggestion = difflib.get_close_matches(
         cmd, list(COMMAND_REGISTRY) + ["attack", "move", "quit", "status"], n=1, cutoff=0.45
