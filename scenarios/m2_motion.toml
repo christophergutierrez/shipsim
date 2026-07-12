@@ -1,0 +1,25 @@
+width = 12
+height = 10
+seed = 1
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "escort"
+q = 2
+r = 5
+facing = 0
+controller = "player"
+velocity = 2
+course = 0
+
+[[ships]]
+id = 2
+class = "starbase"
+q = 9
+r = 5
+facing = 0
+controller = "player"

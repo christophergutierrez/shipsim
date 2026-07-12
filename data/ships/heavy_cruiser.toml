@@ -4,6 +4,9 @@ speed = 4
 power = 22
 max_shield_per_facing = 6
 structure = 12
+max_velocity = 4
+thrust_per_power = 1
+power_per_thrust = 1
 
 [[weapons]]
 id = "beam_1"

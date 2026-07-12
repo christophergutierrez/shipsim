@@ -184,6 +184,10 @@ mod tests {
             weapon_charges: BTreeMap::new(),
             ssd: Ssd::new(10, 4, 2, 0),
             destroyed: false,
+            max_velocity: 4,
+            thrust_conversion: crate::thrust::ThrustConversion::new(1, 1, 4).unwrap(),
+            velocity: crate::motion::Velocity::stopped(0).unwrap(),
+            thrust_remaining: 0,
         }
     }
 

@@ -1,0 +1,25 @@
+id = "starbase"
+name = "Generic Starbase"
+speed = 0
+power = 20
+max_shield_per_facing = 8
+structure = 20
+max_velocity = 0
+thrust_per_power = 0
+power_per_thrust = 1
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "all"
+mount = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "beam_2"
+kind = "beam"
+arc = "all"
+mount = "aft"
+max_range = 10
+max_charge = 4

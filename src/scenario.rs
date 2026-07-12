@@ -40,6 +40,19 @@ pub enum LoadError {
     UnknownWeaponKind { kind: String, weapon_id: String },
     #[error("unknown weapon arc {arc:?} on weapon {weapon_id}")]
     UnknownWeaponArc { arc: String, weapon_id: String },
+    #[error("ship class {class:?} has invalid thrust conversion: {source}")]
+    InvalidThrustConversion {
+        class: String,
+        source: crate::thrust::ConversionError,
+    },
+    #[error("ship {ship_id} initial velocity {velocity} exceeds max_velocity {max_velocity}")]
+    InitialVelocityExceedsMax {
+        ship_id: u32,
+        velocity: u8,
+        max_velocity: u8,
+    },
+    #[error("ship {ship_id} initial course {course} is not a valid hex direction (0..=5)")]
+    InvalidInitialCourse { ship_id: u32, course: u8 },
 }
 
 pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
@@ -112,6 +125,43 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             .map(parse_weapon)
             .collect::<Result<Vec<_>, LoadError>>()?;
         let ssd = crate::ssd::Ssd::new(ship_def.structure, ship_def.speed.max(1), 2, weapons.len());
+
+        // Inertial movement: build and validate the thrust conversion for this
+        // hull (ADR-0022 §5). Mobile hulls must produce at least one thrust per
+        // power; immobile hulls (max_velocity 0) must produce no thrust.
+        let thrust_conversion = crate::thrust::ThrustConversion::new(
+            ship_def.thrust_per_power,
+            ship_def.power_per_thrust,
+            ship_def.max_velocity,
+        )
+        .map_err(|source| LoadError::InvalidThrustConversion {
+            class: placement.class.clone(),
+            source,
+        })?;
+
+        // Resolve initial velocity and course from the placement, defaulting to
+        // stopped with course == facing.
+        let init_speed = placement.velocity.unwrap_or(0);
+        if init_speed > ship_def.max_velocity {
+            return Err(LoadError::InitialVelocityExceedsMax {
+                ship_id: placement.id,
+                velocity: init_speed,
+                max_velocity: ship_def.max_velocity,
+            });
+        }
+        let init_course = placement.course.unwrap_or(placement.facing);
+        if init_course > 5 {
+            return Err(LoadError::InvalidInitialCourse {
+                ship_id: placement.id,
+                course: init_course,
+            });
+        }
+        let velocity = crate::motion::Velocity::new(init_speed, init_course)
+            .map_err(|_| LoadError::InvalidInitialCourse {
+                ship_id: placement.id,
+                course: init_course,
+            })?;
+
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name,
@@ -129,6 +179,10 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             weapon_charges: BTreeMap::new(),
             ssd,
             destroyed: false,
+            max_velocity: ship_def.max_velocity,
+            thrust_conversion,
+            velocity,
+            thrust_remaining: 0,
         });
         if is_ai {
             npcs.insert(placement.id, NpcController::GreedySeek);

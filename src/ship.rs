@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use crate::combat::Weapon;
 use crate::hex::Hex;
 use crate::momentum::Keel;
+use crate::motion::Velocity;
 use crate::ssd::Ssd;
+use crate::thrust::ThrustConversion;
 
 #[derive(Debug, Clone)]
 pub struct Ship {
@@ -30,6 +32,15 @@ pub struct Ship {
     /// Itemized internals (D6). `ssd.hull` replaces the old flat structure pool for internals.
     pub ssd: Ssd,
     pub destroyed: bool,
+    // --- Inertial movement (ADR-0022, M2) ---
+    /// Design maximum velocity in hexes per turn.
+    pub max_velocity: u8,
+    /// Rational engine-power-to-thrust conversion for this hull.
+    pub thrust_conversion: ThrustConversion,
+    /// Persistent velocity carried across turns (speed + course).
+    pub velocity: Velocity,
+    /// Thrust reserve bought this turn via engine allocation (M3 writes this).
+    pub thrust_remaining: u32,
 }
 
 impl Ship {
@@ -58,6 +69,9 @@ impl Ship {
         self.move_remaining = 0;
         self.keel = Keel::Stopped;
         self.weapon_charges.clear();
+        // Inertial movement: velocity persists across turns; only the
+        // per-turn thrust reserve is cleared (ADR-0022 §1).
+        self.thrust_remaining = 0;
     }
 
     pub fn weapon(&self, weapon_id: &str) -> Option<&Weapon> {

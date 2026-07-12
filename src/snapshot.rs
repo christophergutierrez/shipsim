@@ -45,6 +45,16 @@ pub struct ShipSnapshot {
     pub weapon_boxes: Vec<u32>,
     pub destroyed: bool,
     pub weapons: Vec<WeaponSnapshot>,
+    // --- Inertial movement (ADR-0022, M2) ---
+    pub max_velocity: u8,
+    pub thrust_per_power: u32,
+    pub power_per_thrust: u32,
+    /// Current velocity speed (hexes per turn).
+    pub velocity: u8,
+    /// Current course (hex direction 0..=5).
+    pub course: u8,
+    /// Thrust reserve bought this turn.
+    pub thrust_remaining: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -146,6 +156,12 @@ impl StateSnapshot {
                     bridge: ship.ssd.bridge,
                     weapon_boxes: ship.ssd.weapon_boxes.clone(),
                     destroyed: ship.destroyed,
+                    max_velocity: ship.max_velocity,
+                    thrust_per_power: ship.thrust_conversion.thrust_per_power,
+                    power_per_thrust: ship.thrust_conversion.power_per_thrust,
+                    velocity: ship.velocity.speed,
+                    course: ship.velocity.course,
+                    thrust_remaining: ship.thrust_remaining,
                     weapons: ship
                         .weapons
                         .iter()
