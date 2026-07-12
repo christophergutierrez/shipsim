@@ -45,6 +45,21 @@ pub enum LoadError {
         class: String,
         source: crate::thrust::ConversionError,
     },
+    #[error(
+        "ship class {class:?} max_velocity {max_velocity} exceeds global maximum {global_max}"
+    )]
+    MaxVelocityExceedsGlobal {
+        class: String,
+        max_velocity: u8,
+        global_max: u8,
+    },
+    #[error("ship class {class:?} cannot buy one thrust with its design power {power} (conversion {thrust_per_power}:{power_per_thrust})")]
+    MobileHullCannotBuyThrust {
+        class: String,
+        power: u32,
+        thrust_per_power: u32,
+        power_per_thrust: u32,
+    },
     #[error("ship {ship_id} initial velocity {velocity} exceeds max_velocity {max_velocity}")]
     InitialVelocityExceedsMax {
         ship_id: u32,
@@ -126,27 +141,59 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             .collect::<Result<Vec<_>, LoadError>>()?;
         let ssd = crate::ssd::Ssd::new(ship_def.structure, ship_def.speed.max(1), 2, weapons.len());
 
-        // Inertial movement: build and validate the thrust conversion for this
-        // hull (ADR-0022 §5). Mobile hulls must produce at least one thrust per
-        // power; immobile hulls (max_velocity 0) must produce no thrust.
+        // Inertial movement: resolve the hull's design maximum velocity
+        // (ADR-0022 §1). An explicit `max_velocity` overrides the legacy `speed`
+        // derivation; when omitted, `max_velocity` is derived from `speed` so a
+        // legacy speed-1 hull becomes max velocity 1, etc. The resolved value is
+        // then bounded by the global MAX_VELOCITY (currently 4).
+        let max_velocity = ship_def
+            .max_velocity
+            .unwrap_or_else(|| ship_def.speed.try_into().unwrap_or(u8::MAX));
+        if max_velocity > crate::motion::MAX_VELOCITY {
+            return Err(LoadError::MaxVelocityExceedsGlobal {
+                class: placement.class.clone(),
+                max_velocity,
+                global_max: crate::motion::MAX_VELOCITY,
+            });
+        }
+
+        // Build and validate the thrust conversion for this hull (ADR-0022 §5).
+        // A mobile hull must have a nonzero conversion numerator and must produce
+        // at least one thrust with its design power; an immobile hull
+        // (max_velocity 0) must produce no thrust.
         let thrust_conversion = crate::thrust::ThrustConversion::new(
             ship_def.thrust_per_power,
             ship_def.power_per_thrust,
-            ship_def.max_velocity,
+            max_velocity,
         )
         .map_err(|source| LoadError::InvalidThrustConversion {
             class: placement.class.clone(),
             source,
         })?;
 
+        // A mobile hull must be able to buy at least one thrust when allocating
+        // its full design power (ADR-0022 §5). This rejects e.g. a 1:15
+        // conversion on a hull with only 14 power, which can never move.
+        if max_velocity > 0 {
+            let (thrust_at_full_power, _remainder) = thrust_conversion.convert(power);
+            if thrust_at_full_power < 1 {
+                return Err(LoadError::MobileHullCannotBuyThrust {
+                    class: placement.class.clone(),
+                    power,
+                    thrust_per_power: ship_def.thrust_per_power,
+                    power_per_thrust: ship_def.power_per_thrust,
+                });
+            }
+        }
+
         // Resolve initial velocity and course from the placement, defaulting to
         // stopped with course == facing.
         let init_speed = placement.velocity.unwrap_or(0);
-        if init_speed > ship_def.max_velocity {
+        if init_speed > max_velocity {
             return Err(LoadError::InitialVelocityExceedsMax {
                 ship_id: placement.id,
                 velocity: init_speed,
-                max_velocity: ship_def.max_velocity,
+                max_velocity,
             });
         }
         let init_course = placement.course.unwrap_or(placement.facing);
@@ -156,11 +203,12 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
                 course: init_course,
             });
         }
-        let velocity = crate::motion::Velocity::new(init_speed, init_course)
-            .map_err(|_| LoadError::InvalidInitialCourse {
+        let velocity = crate::motion::Velocity::new(init_speed, init_course).map_err(|_| {
+            LoadError::InvalidInitialCourse {
                 ship_id: placement.id,
                 course: init_course,
-            })?;
+            }
+        })?;
 
         ships.push(Ship {
             id: placement.id,
@@ -179,7 +227,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             weapon_charges: BTreeMap::new(),
             ssd,
             destroyed: false,
-            max_velocity: ship_def.max_velocity,
+            max_velocity,
             thrust_conversion,
             velocity,
             thrust_remaining: 0,

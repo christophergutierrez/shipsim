@@ -21,10 +21,12 @@ pub struct ShipDef {
     pub structure: u32,
     #[serde(default)]
     pub weapons: Vec<WeaponDef>,
-    /// Design maximum velocity in hexes per turn (ADR-0022 §1). Defaults to
-    /// `speed` for mobile hulls; an immobile hull sets this to 0.
-    #[serde(default = "default_max_velocity")]
-    pub max_velocity: u8,
+    /// Design maximum velocity in hexes per turn (ADR-0022 §1). When omitted,
+    /// the loader derives it from the legacy `speed` field (so a legacy speed-1
+    /// hull becomes max velocity 1, etc.); an immobile hull sets this to 0.
+    /// Explicit values override the legacy `speed` derivation.
+    #[serde(default)]
+    pub max_velocity: Option<u8>,
     /// Thrust produced per unit of engine power (ADR-0022 §5). Defaults to 1
     /// (1:1 cruiser-class conversion). Immobile hulls set this to 0.
     #[serde(default = "default_thrust_per_power")]
@@ -32,10 +34,6 @@ pub struct ShipDef {
     /// Engine power required per unit of thrust (ADR-0022 §5). Defaults to 1.
     #[serde(default = "default_power_per_thrust")]
     pub power_per_thrust: u32,
-}
-
-fn default_max_velocity() -> u8 {
-    4
 }
 
 fn default_thrust_per_power() -> u32 {

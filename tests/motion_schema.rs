@@ -13,8 +13,7 @@ fn manifest_path(relative: &str) -> std::path::PathBuf {
 
 #[test]
 fn escort_loads_with_tiny_hull_conversion() {
-    let game =
-        load_scenario(&manifest_path("scenarios/v2_duel.toml")).expect("v2_duel loads");
+    let game = load_scenario(&manifest_path("scenarios/v2_duel.toml")).expect("v2_duel loads");
     let escort = game
         .ships()
         .iter()
@@ -22,13 +21,15 @@ fn escort_loads_with_tiny_hull_conversion() {
         .expect("escort present");
     assert_eq!(escort.max_velocity, 4);
     // Tiny hull: 4 thrust per power.
-    assert_eq!(escort.thrust_conversion, ThrustConversion::new(4, 1, 4).unwrap());
+    assert_eq!(
+        escort.thrust_conversion,
+        ThrustConversion::new(4, 1, 4).unwrap()
+    );
 }
 
 #[test]
 fn heavy_cruiser_loads_with_cruiser_conversion() {
-    let game =
-        load_scenario(&manifest_path("scenarios/v2_duel.toml")).expect("v2_duel loads");
+    let game = load_scenario(&manifest_path("scenarios/v2_duel.toml")).expect("v2_duel loads");
     let cruiser = game
         .ships()
         .iter()
@@ -36,7 +37,10 @@ fn heavy_cruiser_loads_with_cruiser_conversion() {
         .expect("cruiser present");
     assert_eq!(cruiser.max_velocity, 4);
     // Cruiser hull: 1:1 conversion.
-    assert_eq!(cruiser.thrust_conversion, ThrustConversion::new(1, 1, 4).unwrap());
+    assert_eq!(
+        cruiser.thrust_conversion,
+        ThrustConversion::new(1, 1, 4).unwrap()
+    );
 }
 
 #[test]

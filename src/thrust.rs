@@ -22,7 +22,7 @@ pub struct ThrustConversion {
 pub enum ConversionError {
     #[error("thrust_per_power and power_per_thrust are both zero")]
     ZeroRatio,
-    #[error("mobile hull (max_velocity {0} > 0) must produce at least one thrust per power")]
+    #[error("mobile hull (max_velocity {0} > 0) must have a nonzero thrust_per_power")]
     ImmobileRatioForMobile(u8),
     #[error("immobile hull (max_velocity 0) must not produce thrust (thrust_per_power {0} > 0)")]
     MobileRatioForImmobile(u32),
@@ -47,8 +47,9 @@ impl ThrustConversion {
     /// - `power_per_thrust` must be nonzero (a zero denominator is not a valid
     ///   ratio; `ThrustConversion::new(1, 0, 4)` is rejected).
     /// - At most one component may exceed one.
-    /// - A mobile hull (`max_velocity > 0`) must be able to buy at least one
-    ///   thrust with one power (`thrust_per_power >= 1`).
+    /// - A mobile hull (`max_velocity > 0`) must have a nonzero conversion
+    ///   numerator (`thrust_per_power >= 1`) and must produce at least one
+    ///   thrust when allocated its design power (enforced at scenario load).
     /// - An immobile hull (`max_velocity == 0`) must produce no thrust
     ///   (`thrust_per_power == 0`).
     pub fn new(

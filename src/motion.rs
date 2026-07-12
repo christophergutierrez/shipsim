@@ -122,6 +122,8 @@ pub enum ManeuverError {
     InvalidCourse(u8),
     #[error("course selection is only allowed when stopped")]
     CourseChangeWhileMoving,
+    #[error("max_speed {0} exceeds global maximum velocity {1}")]
+    MaxSpeedExceedsGlobal(u8, u8),
 }
 
 /// Wrap a hex direction index into `0..=5`.
@@ -167,6 +169,15 @@ pub fn resolve_maneuver(
     max_speed: u8,
     maneuver: Maneuver,
 ) -> Result<ManeuverResult, ManeuverError> {
+    // Defensive: the hull maximum must never exceed the global cap. A caller
+    // that trusts an unvalidated `max_speed` (e.g. a hull with max_velocity 5)
+    // could otherwise construct a velocity above MAX_VELOCITY.
+    if max_speed > MAX_VELOCITY {
+        return Err(ManeuverError::MaxSpeedExceedsGlobal(
+            max_speed,
+            MAX_VELOCITY,
+        ));
+    }
     match maneuver {
         Maneuver::Coast => Ok(ManeuverResult {
             velocity,
@@ -299,10 +310,7 @@ mod tests {
         // the invalid speed as both values.
         let err = Velocity::new(5, 0).unwrap_err();
         assert_eq!(err, VelocityError::SpeedTooHigh(5, 4));
-        assert_eq!(
-            err.to_string(),
-            "speed 5 exceeds maximum velocity 4"
-        );
+        assert_eq!(err.to_string(), "speed 5 exceeds maximum velocity 4");
     }
 
     #[test]
@@ -461,5 +469,21 @@ mod tests {
         assert_eq!(r.thrust_cost, 0);
         assert_eq!(r.velocity, v);
         assert_eq!(r.facing, 4);
+    }
+
+    #[test]
+    fn resolve_maneuver_rejects_max_speed_above_global_cap() {
+        // Defensive: a caller passing an unvalidated max_speed (e.g. a hull with
+        // max_velocity 5) must not be able to construct a velocity above
+        // MAX_VELOCITY. Even a Coast maneuver is rejected so the API cannot be
+        // used to launder an over-cap speed.
+        let v = Velocity::new(0, 0).unwrap();
+        let err = resolve_maneuver(v, 0, 5, Maneuver::Coast).unwrap_err();
+        assert_eq!(err, ManeuverError::MaxSpeedExceedsGlobal(5, MAX_VELOCITY));
+        // Accelerating toward the over-cap max must also reject before moving.
+        assert!(matches!(
+            resolve_maneuver(v, 0, 5, Maneuver::Accelerate { course: None }),
+            Err(ManeuverError::MaxSpeedExceedsGlobal(5, 4))
+        ));
     }
 }

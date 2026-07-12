@@ -16,8 +16,7 @@ fn manifest_path(relative: &str) -> std::path::PathBuf {
 
 #[test]
 fn snapshot_exposes_motion_fields() {
-    let game =
-        load_scenario(&manifest_path("scenarios/m2_motion.toml")).expect("m2_motion loads");
+    let game = load_scenario(&manifest_path("scenarios/m2_motion.toml")).expect("m2_motion loads");
     let snap = StateSnapshot::from_game_state(&game);
 
     let escort = snap
@@ -85,16 +84,24 @@ fn turn_reset_preserves_velocity_but_clears_thrust_remaining() {
 
 #[test]
 fn snapshot_motion_fields_serialize_as_json() {
-    let game =
-        load_scenario(&manifest_path("scenarios/m2_motion.toml")).expect("m2_motion loads");
+    let game = load_scenario(&manifest_path("scenarios/m2_motion.toml")).expect("m2_motion loads");
     let snap = StateSnapshot::from_game_state(&game);
     let json = serde_json::to_string(&snap).expect("snapshot serializes");
 
     // Verify the new fields appear in the JSON output.
     assert!(json.contains("max_velocity"), "max_velocity in JSON");
-    assert!(json.contains("thrust_per_power"), "thrust_per_power in JSON");
-    assert!(json.contains("power_per_thrust"), "power_per_thrust in JSON");
+    assert!(
+        json.contains("thrust_per_power"),
+        "thrust_per_power in JSON"
+    );
+    assert!(
+        json.contains("power_per_thrust"),
+        "power_per_thrust in JSON"
+    );
     assert!(json.contains("\"velocity\""), "velocity in JSON");
     assert!(json.contains("\"course\""), "course in JSON");
-    assert!(json.contains("thrust_remaining"), "thrust_remaining in JSON");
+    assert!(
+        json.contains("thrust_remaining"),
+        "thrust_remaining in JSON"
+    );
 }
