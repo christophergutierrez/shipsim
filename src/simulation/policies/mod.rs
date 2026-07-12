@@ -123,8 +123,9 @@ impl BaselinePolicy {
             return context.legal_orders.get(index).cloned();
         }
         let preferred_move = match self.style {
-            Style::Defensive => Some(MoveMode::TurnPort),
-            Style::Mobility | Style::Aggressive | Style::Greedy => Some(MoveMode::Forward),
+            Style::Defensive | Style::Mobility | Style::Aggressive | Style::Greedy => {
+                Some(MoveMode::Forward)
+            }
             Style::Random => None,
         };
         if let Some(mode) = preferred_move {
