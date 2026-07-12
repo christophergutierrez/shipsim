@@ -80,6 +80,19 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
     active = movement_focus_id(snap) if phase == "movement" else None
     active_s = f" pending=#{active}" if active is not None else ""
     sel_s = sty_focus(f"  focus=#{selected}") if selected is not None else ""
+    actions_s = ""
+    selected_ship = ship_by_id(snap, selected) if selected is not None else None
+    if selected_ship is not None:
+        if phase == "allocate":
+            actions_s = f"  actions=power:{int(selected_ship.get('power_available') or selected_ship.get('power') or 0)}"
+        elif phase == "movement":
+            actions_s = f"  actions=thrust:{int(selected_ship.get('thrust_remaining') or 0)}"
+        elif phase == "firing":
+            charged = sum(
+                1 for w in (selected_ship.get("weapons") or [])
+                if int(w.get("charge") or 0) > 0 and not w.get("fired")
+            )
+            actions_s = f"  actions=charged:{charged}"
     phase_s = paint(str(phase), "bold", "bright_white")
     status_s = str(status)
     if status == "Won":
@@ -96,7 +109,7 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
         )
     return (
         f"{rule('shipsim')}\n"
-        f"turn {turn}  phase={phase_s}  status={status_s}{active_s}{sel_s}{warn_s}"
+        f"turn {turn}  phase={phase_s}  status={status_s}{active_s}{sel_s}{actions_s}{warn_s}"
         f"{legend}"
     )
 
@@ -193,8 +206,9 @@ def format_ship_line(
     return (
         f"{mark}{name} ({ctrl}) "
         f"@({ship.get('q')},{ship.get('r')}) face={face} "
-        f"pwr={pwr} mov={ship.get('move_remaining')}/"
-        f"{ship.get('movement_allocated')} "
+        f"pwr={pwr} engine={ship.get('movement_allocated')} "
+        f"thrust={ship.get('thrust_remaining')} "
+        f"v={ship.get('velocity')} course={ship.get('course')} "
         f"hull={hull}/{hmax}{dead}"
     )
 
@@ -725,16 +739,16 @@ def format_error(err: dict[str, Any]) -> str:
     low = str(msg).lower()
     if "phase firing" in low and "movement" in low:
         hint = (
-            "\n  → You are still in movement: pass or move the ACTIVE ship first, "
-            "then fire when phase is firing."
+            "\n  → You are still in movement: commit one maneuver for each pending ship. "
+            "Type motion to see choices."
         )
     elif "phase movement" in low and "firing" in low:
         hint = (
-            "\n  → You are in firing: use f/ready (not m). "
-            "A single move already used this ship's movement decision."
+            "\n  → You are in firing: use f to queue shots or r/ready to finish. "
+            "The next maneuver comes after every ship readies."
         )
-    elif "already moved" in low:
-        hint = "\n  → This ship already moved/passed this movement phase."
+    elif "already committed" in low:
+        hint = "\n  → This ship already chose its maneuver for this movement phase."
     return sty_err(f"! {code}: {msg}") + hint
 
 
