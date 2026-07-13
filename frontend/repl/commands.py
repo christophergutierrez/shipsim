@@ -373,7 +373,7 @@ def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
             when = next_translation_note(speed, int(mp) if str(mp).isdigit() else 0)
             lines = [
                 f"movement/fire cycle {mp}/4:{foc}  {sticky}",
-                f"  now: {when}",
+                f"  position @({ship.get('q')},{ship.get('r')}): {when}",
                 "  after this maneuver: fire window → next cycle (or end turn after 4/4)",
                 "  choose one: coast | accel [course if stopped] | decel | "
                 "course port/starboard | rotate port/starboard  (motion = full help)",
@@ -759,7 +759,8 @@ def movement_summary(ship: dict[str, Any], movement_phase: Any) -> str:
     lines = [
         f"  ship #{ship['id']} movement phase {mp}/4",
         f"  {motion_status_bits(ship)}",
-        f"  now: {next_translation_note(speed, mp_int)}",
+        f"  position @({ship.get('q')},{ship.get('r')}): "
+        f"{next_translation_note(speed, mp_int)}",
         f"  current speed translates on phases: {translation_schedule_label(speed)}",
         "  Coast keeps speed/course (cost 0). Accel/decel cost 1 thrust each.",
         f"  Course turns change travel direction (cost {max(speed, 1)} thrust); "

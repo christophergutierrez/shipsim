@@ -30,6 +30,7 @@ Each step the client **clears and redraws** from the latest engine snapshot:
 | Header | Turn, **phase**, status, focus ship, next pending maneuver, fire warning |
 | YOUR SHIP | Callsign, position, facing, hull bar, shields, weapons |
 | THREATS | Advisory: enemy ships + weapons that can bear on your focus ship (range shown) |
+| ENGAGEMENT | Exact range, relative bearing, target shield face exposed to you, and each of your weapons' current range/arc status |
 | CONTACTS | Enemies/allies with range and which of *their* shields face you |
 | MAP | Hex board, callsign + facing arrow per ship |
 | RECENT | Last few events (allocate echo, Δ lines, fire resolution) |
@@ -208,8 +209,11 @@ rest sets course `0→`; at speed 1 it first translates in movement phase 4/4.
 
 The movement **hint** and **YOUR SHIP** line always show a sticky status:
 `v=… course=… face=… thrust=… slides=[…]`, and warn when sliding direction
-differs from the nose. After `accel` from a stop at speed 1, the note says you
-do **not** change hex until phase 4/4.
+differs from the nose. The hint spells out `POSITION HOLDS` when the current
+cycle has no translation. At speed 1, your ship moves one hex only after your
+movement cycle 4/4 maneuver resolves; quitting before that maneuver means it
+does not move. When translation resolves, RECENT reports the old and new
+coordinates as `MOVED (q,r)→(q,r)`.
 
 Ships translate automatically according to their **post-maneuver speed**:
 
@@ -414,6 +418,16 @@ hint (e.g. wrong phase). Fix the phase or ship and retry.
 4. Watch RECENT for HIT/MISS and shield/hull bars on contacts.
 5. Repeat move/fire or `e` when the turn is done.
 6. Session text log: path in footer / on quit under `local/session-*.log`.
+
+### Guided rear attack
+
+Run `python3 frontend/repl/repl.py --tutorial rear-attack` for a strict,
+narrated version of this fight. It teaches allocation, inertial movement,
+course-versus-facing, firing arcs, exposed shield facings, and queued-shot
+resolution by reproducing a verified range-1 rear-shield victory. The TUTORIAL
+panel gives the required command and its reason at every step. Other gameplay
+choices are rejected without changing the game, while read-only commands such
+as `status`, `board`, `ships`, `help`, and `log` remain available.
 
 ---
 

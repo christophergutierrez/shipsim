@@ -44,8 +44,15 @@ python3 frontend/repl/repl.py scenarios/ai.toml --debug              # verbose f
 python3 frontend/repl/repl.py scenarios/ai.toml --log-file /tmp/x.log
 python3 frontend/repl/repl.py scenarios/ai.toml --no-session-log
 python3 frontend/repl/repl.py scenarios/ai.toml --scroll             # old long scrolling UI
+python3 frontend/repl/repl.py --tutorial rear-attack                 # strict narrated victory
 python3 frontend/repl/client.py                                      # non-interactive smoke
 ```
+
+**Rear-attack tutorial:** `--tutorial rear-attack` replays a verified victory
+through the live engine. The TUTORIAL panel explains each tactical choice and
+shows the one required command. Incorrect gameplay commands are blocked before
+they can change the draft or game; `help`, `status`, `board`, `ships`, and `log`
+remain available for inspection without advancing the lesson.
 
 **Play frame (default):** redraws map + ships each step so shield/hull/weapon bars
 update in place. **RECENT** holds the last events; `log` toggles longer scrollback.

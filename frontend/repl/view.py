@@ -24,6 +24,7 @@ from hexutil import (
     relative_bearing,
     ship_callsign,
     threats_to_ship,
+    weapon_in_arc,
 )
 from style import (
     active as sty_active,
@@ -64,6 +65,7 @@ __all__ = [
     "living_ships",
     "ship_by_id",
     "format_tactical",
+    "format_engagement",
 ]
 
 
@@ -436,6 +438,52 @@ def format_ship_card(
     return "\n".join(parts)
 
 
+def format_engagement(me: dict[str, Any], contacts: list[dict[str, Any]]) -> str:
+    """Current firing geometry from the focused ship to each enemy contact.
+
+    This is a display-only aid: range, bearings, shield faces, and weapon arcs
+    are derived from the current snapshot. The engine remains authoritative for
+    any fire order.
+    """
+    mq, mr = int(me.get("q") or 0), int(me.get("r") or 0)
+    mf = int(me.get("facing") or 0)
+    lines = [
+        muted("current geometry; range/arc are advisory until the engine accepts the order")
+    ]
+    for contact in contacts:
+        cq, cr = int(contact.get("q") or 0), int(contact.get("r") or 0)
+        rng = distance(mq, mr, cq, cr)
+        bearing = relative_bearing(mf, mq, mr, cq, cr)
+        exposed = legal_shield_facings(mq, mr, cq, cr, int(contact.get("facing") or 0))
+        exposed_text = ", ".join(
+            f"{face}:{SHIELD_LABELS[face]}" for face in exposed
+        ) or "?"
+        lines.append(
+            f"  {ship_callsign(contact)}  range={rng}  bearing={bearing}:{SHIELD_LABELS[bearing]} "
+            f"(from your nose)  shield exposed={exposed_text}"
+        )
+        for weapon in me.get("weapons") or []:
+            if not weapon.get("operational", True):
+                continue
+            max_range = int(weapon.get("max_range") or 0)
+            mount = str(weapon.get("mount") or weapon.get("arc") or "?")
+            if rng > max_range:
+                status = sty_warn("OUT OF RANGE")
+            elif weapon_in_arc(weapon, mq, mr, mf, cq, cr):
+                status = sty_available(
+                    "FIRE READY" if int(weapon.get("charge") or 0) > 0 else "IN ARC"
+                )
+            else:
+                status = sty_warn("OUT OF ARC")
+            charge = int(weapon.get("charge") or 0)
+            charge_note = "charged" if charge > 0 else "uncharged"
+            lines.append(
+                f"    {weapon.get('id')} {mount}: range {rng}/{max_range}, "
+                f"bearing {bearing}:{SHIELD_LABELS[bearing]}  {status} ({charge_note})"
+            )
+    return "\n".join(lines)
+
+
 def format_tactical(
     snap: dict[str, Any],
     *,
@@ -493,6 +541,7 @@ def format_tactical(
         if s.get("id") != me.get("id")
     ]
     if enemies:
+        parts.append(panel("ENGAGEMENT", format_engagement(me, enemies)))
         contact_chunks = []
         for e in enemies:
             eid = int(e.get("id") or -1)
@@ -807,6 +856,15 @@ def snapshot_delta(before: Optional[dict[str, Any]], after: dict[str, Any]) -> s
         old = bships.get(sid)
         if not old:
             continue
+        old_pos = (int(old.get("q") or 0), int(old.get("r") or 0))
+        new_pos = (int(s.get("q") or 0), int(s.get("r") or 0))
+        if new_pos != old_pos:
+            bits.append(
+                sty_available(
+                    f"#{sid} MOVED ({old_pos[0]},{old_pos[1]})"
+                    f"→({new_pos[0]},{new_pos[1]})"
+                )
+            )
         oh, nh = int(old.get("structure") or 0), int(s.get("structure") or 0)
         if nh != oh:
             bits.append(sty_hit(f"#{sid} hull {oh}→{nh}"))

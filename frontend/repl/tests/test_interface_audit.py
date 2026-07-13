@@ -145,10 +145,10 @@ class InterfaceGoldenTests(unittest.TestCase):
         action = build_action("accel 0", snap, ReplContext(selected=1))
         self.assertEqual({"type": "accelerate", "course": 0}, action.orders[0]["maneuver"])
         self.assertIn("speed 0→1", action.note)
-        self.assertIn("phase 4/4", action.note)
+        self.assertIn("movement cycle 4/4", action.note)
         self.assertTrue(
             "next translation is movement phase 4/4" in action.note
-            or "next hex slide is movement phase 4/4" in action.note,
+            or "movement cycle 4/4" in action.note,
             action.note,
         )
         self.assertIn("not in a new hex yet", action.note)

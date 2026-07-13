@@ -43,6 +43,7 @@ from commands import (
     render_help,
 )
 from screen import TerminalUI, default_session_path
+from tutorial import Tutorial, load_tutorial
 from hexutil import ship_callsign
 from view import (
     format_board,
@@ -366,7 +367,11 @@ def send_orders(
     return log_len
 
 
-def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
+def run_repl(
+    session: ShipsimSession,
+    ui: TerminalUI,
+    tutorial: Tutorial | None = None,
+) -> int:
     assert session.snapshot is not None
     ctx = ReplContext()
     ctx.note_hull(session.snapshot)
@@ -383,6 +388,11 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
             ui.log("verbose transcript (--debug): timestamps + ORDER lines")
         ui.log("play frame · log=history · cls=redraw · --scroll=long log")
         ui.log("objective: destroy the opposing fleet. Type help to see commands; ? also works.")
+        if tutorial is not None:
+            ui.log(f"tutorial={tutorial.name} (strict choices; incorrect commands are blocked)")
+            ui.tutorial_text = tutorial.panel_text(session.snapshot)
+            if ui.scroll:
+                ui.log(ui.tutorial_text)
         if ui.scroll:
             print(
                 format_snapshot(
@@ -423,6 +433,12 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
             phase = str(snap.get("phase") or "?")
             turn = snap.get("turn", "?")
             active = movement_focus_id(snap) if phase == "movement" else None
+            if tutorial is not None:
+                drift = tutorial.state_error(snap)
+                if drift:
+                    ui.log(drift)
+                    return 1
+                ui.tutorial_text = tutorial.panel_text(snap)
 
             # Phase transition hooks — run once per entry into a phase.
             # Do NOT clear last_phase after every order (that re-opened auto-fire
@@ -440,7 +456,7 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 if not ui.scroll:
                     paint_frame(ui, session, ctx)
                 # Auto weapon menu only when *entering* firing from another phase.
-                if phase == "firing" and prev_phase != "firing":
+                if tutorial is None and phase == "firing" and prev_phase != "firing":
                     auto = _auto_fire_offer(ui, session, ctx, log_len)
                     if auto is not None:
                         log_len = auto
@@ -492,6 +508,13 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
 
             # Local UI commands (not engine orders)
             low = line.strip().lower()
+            tutorial_advances = False
+            if tutorial is not None:
+                if not tutorial.accepts(line):
+                    ui.log(tutorial.reject_text(line))
+                    paint_frame(ui, session, ctx)
+                    continue
+                tutorial_advances = tutorial.advances_for(line)
             if low in ("log", "hist", "history"):
                 ui.show_history = not ui.show_history
                 ui.log(f"  history panel {'ON' if ui.show_history else 'OFF'}")
@@ -570,6 +593,11 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 continue
             if act.side == "empty":
                 # Draft edits etc. — refresh frame so bars stay under the map.
+                if tutorial_advances:
+                    tutorial.advance()
+                    ui.tutorial_text = tutorial.panel_text(session.snapshot or snap)
+                    if ui.scroll:
+                        ui.log(ui.tutorial_text)
                 paint_frame(ui, session, ctx)
                 continue
             if act.side == "unknown":
@@ -595,6 +623,12 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
             if act.note:
                 ui.log(f"  {act.note}")
             log_len = send_orders(ui, session, ctx, act.orders, prev_log_len=log_len)
+            if tutorial_advances:
+                tutorial.advance()
+                ui.tutorial_text = tutorial.panel_text(session.snapshot or snap)
+                if ui.scroll:
+                    ui.log(ui.tutorial_text)
+                paint_frame(ui, session, ctx)
             # After player acts, advance any scripted-only tail of the phase.
             log_len = pump_scripted(ui, session, ctx, log_len)
             # If phase changed, leave last_phase as phase_before so the next
@@ -607,8 +641,6 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 last_phase = phase_before
 
         ui.log(f"session orders: {session.orders_log}")
-        if ui.session_path:
-            ui.log(f"session log saved: {ui.session_path}")
         return 0
     finally:
         restore_print()
@@ -752,6 +784,11 @@ def main(argv: list[str] | None = None) -> int:
     setup_readline()
     parser = argparse.ArgumentParser(description="shipsim interactive REPL (frontend/repl)")
     parser.add_argument("scenario", nargs="?", help="scenario path relative to repo")
+    parser.add_argument(
+        "--tutorial",
+        metavar="NAME",
+        help="strict narrated tutorial (available: rear-attack)",
+    )
     parser.add_argument("--bin", dest="bin_path", help="shipsim binary path")
     parser.add_argument("--save", dest="save_path", help="optional save path under local/")
     parser.add_argument(
@@ -800,7 +837,18 @@ def main(argv: list[str] | None = None) -> int:
             print(exc, file=sys.stderr)
             return 1
 
-        scenario = pick_scenario(repo, args.scenario, ui)
+        tutorial = None
+        if args.tutorial:
+            try:
+                tutorial = load_tutorial(args.tutorial)
+            except ValueError as exc:
+                parser.error(str(exc))
+        preferred_scenario = args.scenario or (tutorial.scenario if tutorial else None)
+        scenario = pick_scenario(repo, preferred_scenario, ui)
+        if tutorial is not None and scenario != tutorial.scenario:
+            parser.error(
+                f"tutorial {tutorial.name} requires {tutorial.scenario}, got {scenario}"
+            )
         save_path = None
         if args.save_path:
             save_path = Path(args.save_path)
@@ -813,7 +861,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             try:
                 session.start()
-                return run_repl(session, ui)
+                return run_repl(session, ui, tutorial=tutorial)
             except TransportError as exc:
                 print(f"engine terminated: {exc}", file=sys.stderr)
                 return 1

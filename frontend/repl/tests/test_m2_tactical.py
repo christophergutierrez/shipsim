@@ -9,7 +9,7 @@ import re
 import unittest
 
 from hexutil import threats_to_ship
-from view import format_tactical, format_ship_card, ship_callsign
+from view import format_engagement, format_tactical, format_ship_card, ship_callsign
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -77,6 +77,32 @@ class ThreatPanelTests(unittest.TestCase):
         ])
         out = ANSI.sub("", format_tactical(snap, selected=1))
         self.assertIn("range=3", out)
+
+
+class EngagementPanelTests(unittest.TestCase):
+    def test_shows_range_bearing_exposed_shield_and_weapon_solution(self):
+        me = _ship(1, 0, 0, 0, "player", [_weapon("forward", max_range=5, id="L1")])
+        enemy = _ship(2, -3, 0, 0, "ai")
+        out = ANSI.sub("", format_engagement(me, [enemy]))
+        self.assertIn("range=3", out)
+        self.assertIn("bearing=3:R", out)
+        self.assertIn("shield exposed=0:F", out)
+        self.assertIn("L1 forward: range 3/5", out)
+        self.assertIn("OUT OF ARC", out)
+
+    def test_weapon_solution_marks_current_in_arc_target(self):
+        me = _ship(1, 0, 0, 0, "player", [_weapon("forward", max_range=5, id="L1")])
+        enemy = _ship(2, 3, 0, 3, "ai")
+        out = ANSI.sub("", format_engagement(me, [enemy]))
+        self.assertIn("FIRE READY", out)
+
+    def test_tactical_frame_includes_engagement_panel(self):
+        snap = _snap([
+            _ship(1, 0, 0, 0, "player", [_weapon("forward", id="L1")]),
+            _ship(2, 3, 0, 3, "ai"),
+        ])
+        out = ANSI.sub("", format_tactical(snap, selected=1))
+        self.assertIn("ENGAGEMENT", out)
 
 
 class UnspentPowerTests(unittest.TestCase):

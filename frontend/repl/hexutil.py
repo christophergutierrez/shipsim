@@ -70,19 +70,22 @@ def next_translation_note(speed: int, movement_phase: int) -> str:
     """Human note: when the ship will next slide after this speed is set."""
     schedule = translation_phases(speed)
     if not schedule:
-        return "no hex translation while stopped (speed 0)"
+        return "POSITION HOLDS: stopped at speed 0; accelerate to begin moving"
     phase_now = int(movement_phase or 0)
     if phase_now in schedule:
-        return "translates this movement phase"
+        return "MOVE OCCURS after this maneuver resolves: 1 hex on the current course"
     next_phase = next((p for p in schedule if p > phase_now), None)
     if next_phase is not None:
         if speed == 1 and next_phase == 4:
             return (
-                f"next hex slide is movement phase {next_phase}/4 "
-                f"(at speed 1 you only move late in the turn)"
+                f"POSITION HOLDS this cycle; the next 1-hex move occurs after "
+                f"your movement cycle {next_phase}/4 maneuver (speed 1 moves once per turn)"
             )
-        return f"next hex slide is movement phase {next_phase}/4"
-    return "next hex slide is next turn (no remaining translate phases this turn)"
+        return (
+            f"POSITION HOLDS this cycle; the next 1-hex move occurs after "
+            f"your movement cycle {next_phase}/4 maneuver"
+        )
+    return "POSITION HOLDS for the rest of this turn; the next move is next turn"
 
 # Presentation-only preview of the engine's documented d20 threshold tables.
 # The engine remains authoritative; this lets the picker explain a result

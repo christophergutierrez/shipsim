@@ -2,6 +2,7 @@ import contextlib
 import io
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from commands import AllocDraft, ReplContext, build_action, phase_hint
@@ -13,6 +14,14 @@ from tests.test_characterization import FakeSession, FakeUI, snapshot
 
 
 class CommandPolicyTests(unittest.TestCase):
+    def test_close_prints_absolute_game_log_path(self):
+        output = io.StringIO()
+        with TemporaryDirectory() as tmp, contextlib.redirect_stdout(output):
+            path = Path(tmp) / "session.log"
+            ui = TerminalUI(session_path=path, scroll=True)
+            ui.close()
+        self.assertIn(f"game log saved: {path.resolve()}", output.getvalue())
+
     def test_terminal_guard_is_authoritative(self):
         workflows = ("allocate", "move", "pass_move", "commit_fire", "ready_fire",
                      "end_turn", "expert_raw")

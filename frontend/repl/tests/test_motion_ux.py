@@ -16,7 +16,7 @@ from hexutil import (
     next_translation_note,
     translation_schedule_label,
 )
-from view import format_ship_line
+from view import format_ship_line, snapshot_delta
 
 
 def _ship(**kw):
@@ -71,8 +71,14 @@ class HexutilMotionHelpers(unittest.TestCase):
 
     def test_speed1_teaches_late_slide(self):
         note = next_translation_note(1, 1)
-        self.assertIn("phase 4/4", note)
+        self.assertIn("cycle 4/4", note)
         self.assertIn("speed 1", note)
+        self.assertIn("POSITION HOLDS", note)
+
+    def test_scheduled_phase_says_move_occurs_after_maneuver(self):
+        note = next_translation_note(1, 4)
+        self.assertIn("MOVE OCCURS", note)
+        self.assertIn("after this maneuver", note)
 
     def test_diverge_flag_in_status(self):
         bits = motion_status_bits(_ship(velocity=2, course=1, facing=0))
@@ -91,7 +97,9 @@ class PhaseHintSticky(unittest.TestCase):
         hint = phase_hint(snap, ReplContext(selected=1))
         self.assertIn("v=1", hint)
         self.assertIn("slides=[4]", hint)
-        self.assertIn("phase 4/4", hint)
+        self.assertIn("cycle 4/4", hint)
+        self.assertIn("POSITION HOLDS", hint)
+        self.assertIn("position @(0,0)", hint)
         self.assertIn("choose one", hint)
 
     def test_diverge_in_hint(self):
@@ -120,14 +128,14 @@ class ManeuverNotes(unittest.TestCase):
             action = build_action("accel", snap, ReplContext(selected=1))
         self.assertTrue(action.orders)
         self.assertIn("not in a new hex yet", action.note or "")
-        self.assertIn("phase 4/4", action.note or "")
+        self.assertIn("cycle 4/4", action.note or "")
 
     def test_accel_while_moving_notes_translate_this_phase(self):
         # speed 1 → 2 during phase 2: schedule for 2 includes phase 2
         snap = _snap(_ship(velocity=1, course=0), movement_phase=2)
         with contextlib.redirect_stdout(io.StringIO()):
             action = build_action("accel", snap, ReplContext(selected=1))
-        self.assertIn("translates this movement phase", action.note or "")
+        self.assertIn("MOVE OCCURS", action.note or "")
 
     def test_course_port_note_shows_new_course_and_nose(self):
         snap = _snap(_ship(velocity=2, course=0, facing=0), movement_phase=1)
@@ -165,6 +173,14 @@ class ShipLineSticky(unittest.TestCase):
     def test_player_line_flags_diverge(self):
         line = format_ship_line(_ship(velocity=2, course=1, facing=0))
         self.assertIn("sliding", line)
+
+
+class MovementDelta(unittest.TestCase):
+    def test_coordinate_change_is_called_out(self):
+        before = _snap(_ship(q=0, r=0))
+        after = _snap(_ship(q=1, r=0), phase="firing")
+        delta = snapshot_delta(before, after)
+        self.assertIn("MOVED (0,0)→(1,0)", delta)
 
 
 if __name__ == "__main__":

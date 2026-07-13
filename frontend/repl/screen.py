@@ -44,6 +44,7 @@ class TerminalUI:
         self.recent = max(1, recent)
         self.history: deque[str] = deque(maxlen=history_cap)
         self.show_history = False  # toggled by `log`
+        self.tutorial_text = ""
         self._dialog = False  # interactive sub-prompts print live
         self._file: Optional[TextIO] = None
         self.session_path = session_path
@@ -70,6 +71,12 @@ class TerminalUI:
             self._file.write(f"===== end {datetime.now().isoformat()} =====\n")
             self._file.close()
             self._file = None
+        if self.session_path is not None:
+            # Print after restoring the main screen so this remains visible at
+            # the shell prompt instead of disappearing with the play frame.
+            self._real_print(
+                f"game log saved: {self.session_path.resolve()}", flush=True
+            )
 
     def enter_alt_screen(self) -> None:
         """Use the terminal alternate screen so paints do not stack in scrollback."""
@@ -187,6 +194,8 @@ class TerminalUI:
         lines: list[str] = []
         if banner:
             lines.append(banner)
+        if self.tutorial_text:
+            lines.append(panel("TUTORIAL", self.tutorial_text, width=72))
         lines.append(
             format_snapshot(
                 snap, selected=selected, hull_max=hull_max, verbose=True
