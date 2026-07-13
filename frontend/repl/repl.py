@@ -318,6 +318,17 @@ def send_orders(
             log_len = 0
         if len(new_log) > log_len:
             events = new_log[log_len:]
+            # The engine exposes its PRNG checkpoint, not the private roll.
+            # Replaying the documented SplitMix64 step from the pre-resolution
+            # checkpoint lets the view report the exact roll without changing
+            # rules or the persisted protocol shape.
+            state = int((before or {}).get("prng_state") or 0)
+            for event in events:
+                state = (state + 0x9E3779B97F4A7C15) & ((1 << 64) - 1)
+                value = state
+                value = ((value ^ (value >> 30)) * 0xBF58476D1CE4E5B9) & ((1 << 64) - 1)
+                value = ((value ^ (value >> 27)) * 0x94D049BB133111EB) & ((1 << 64) - 1)
+                event["roll"] = ((value ^ (value >> 31)) % 20) + 1
             ui.log(format_combat_events(events, msg, hull_max=ctx.hull_max))
             log_len = len(new_log)
         if order.get("type") == "commit_fire":
@@ -335,6 +346,11 @@ def send_orders(
         delta = snapshot_delta(before, msg)
         if delta:
             ui.log(delta)
+        if before and before.get("phase") != msg.get("phase"):
+            if before.get("turn") != msg.get("turn"):
+                ui.log(f"=== END OF TURN {before.get('turn')} — START TURN {msg.get('turn')} ===")
+            else:
+                ui.log(f"phase complete: {before.get('phase')} → {msg.get('phase')}")
         # Always repaint frame from latest snapshot so bars update in place.
         if not ui.scroll:
             paint_frame(ui, session, ctx)
@@ -556,7 +572,7 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 paint_frame(ui, session, ctx)
                 continue
             if act.side == "unknown":
-                ui.log("  unknown command; try help")
+                ui.log(f"  invalid command for phase={phase}; use hint or help for valid commands")
                 paint_frame(ui, session, ctx)
                 continue
             if act.side == "fire_loop":
@@ -575,6 +591,8 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 continue
 
             phase_before = phase
+            if act.note:
+                ui.log(f"  {act.note}")
             log_len = send_orders(ui, session, ctx, act.orders, prev_log_len=log_len)
             # After player acts, advance any scripted-only tail of the phase.
             log_len = pump_scripted(ui, session, ctx, log_len)

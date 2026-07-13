@@ -50,10 +50,10 @@ class WeaponInArcTests(unittest.TestCase):
         w = _weapon("forward")
         self.assertFalse(weapon_in_arc(w, 0, 0, 0, 3, -3))
 
-    def test_forward_starboard_covers_zero_and_one(self):
+    def test_forward_starboard_covers_zero_and_five(self):
         w = _weapon("forward_starboard")
         self.assertTrue(weapon_in_arc(w, 0, 0, 0, 3, 0))    # rel 0
-        self.assertTrue(weapon_in_arc(w, 0, 0, 0, 3, -3))   # rel 1
+        self.assertTrue(weapon_in_arc(w, 0, 0, 0, 0, 3))    # rel 5
         self.assertFalse(weapon_in_arc(w, 0, 0, 0, -3, 0))  # rel 3
 
     def test_aft_mount_bears_on_relative_facing_three(self):

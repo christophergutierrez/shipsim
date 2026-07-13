@@ -10,16 +10,50 @@ from typing import Optional
 DIRS = (
     (1, 0),  # 0 →
     (1, -1),  # 1 ↗
-    (0, -1),  # 2 ↑
+    (0, -1),  # 2 ↖
     (-1, 0),  # 3 ←
     (-1, 1),  # 4 ↙
-    (0, 1),  # 5 ↓
+    (0, 1),  # 5 ↘
 )
 
-FACING_GLYPH = {0: "→", 1: "↗", 2: "↑", 3: "←", 4: "↙", 5: "↓"}
-FACING_LEGEND = "0→ 1↗ 2↑ 3← 4↙ 5↓  (screen: q right, r down; arrow = forward)"
+FACING_GLYPH = {0: "→", 1: "↗", 2: "↖", 3: "←", 4: "↙", 5: "↘"}
+FACING_LEGEND = "0→ 1↗ 2↖ 3← 4↙ 5↘  (q right, r down; port=↗, starboard=↘)"
 # Relative shield labels (0 = ship's own forward face).
 SHIELD_LABELS = ["F", "FR", "RR", "R", "RL", "FL"]
+
+# Presentation-only preview of the engine's documented d20 threshold tables.
+# The engine remains authoritative; this lets the picker explain a result
+# before the irreversible fire commit.
+_TO_HIT = {
+    "beam": (18, 17, 15, 13, 11, 10, 8, 7, 5, 4),
+    "plasma": (16, 14, 12, 10, 8, 6, 5, 4, 3, 2, 2, 2, 1, 1),
+    "torp": (14, 13, 12, 11, 10, 9, 7, 6, 5, 4, 3, 3),
+}
+
+
+def hit_preview(kind: str, range_: int) -> tuple[int, int] | None:
+    """Return (d20 threshold, percent) for the engine's range table."""
+    values = _TO_HIT.get(str(kind).lower())
+    if not values or range_ < 1 or range_ > len(values):
+        return None
+    threshold = values[range_ - 1]
+    return threshold, threshold * 5
+
+
+def damage_preview(kind: str, charge: int, range_: int) -> int | None:
+    """Return the engine-table damage preview for a charged shot."""
+    k = str(kind).lower()
+    if k == "beam":
+        factors = (2.0, 1.9, 1.7, 1.6, 1.4, 1.3, 1.2, 1.1, 1.0, 1.0)
+        if 1 <= range_ <= len(factors) and charge > 0:
+            return int(charge * factors[range_ - 1] + 0.5)
+    if k == "torp" and 1 <= range_ <= 12:
+        return 4
+    if k == "plasma":
+        values = (8, 6, 5, 4, 3, 3, 2, 2, 1, 1, 1, 1, 1, 1)
+        if 1 <= range_ <= len(values):
+            return values[range_ - 1]
+    return None
 
 # Side letter for callsigns until scenarios carry real fleet/side ids.
 # Same letter = same side; player fleet is always controllable "A".
@@ -107,11 +141,11 @@ def steps_to_face(current: int, target: int) -> int:
 # Snapshot weapons carry `mount` as the snake_case name below.
 MOUNT_FACINGS: dict[str, tuple[int, ...]] = {
     "forward": (0,),
-    "forward_starboard": (0, 1),
-    "aft_starboard": (2, 3),
+    "forward_starboard": (5, 0),
+    "aft_starboard": (3, 4),
     "aft": (3,),
-    "aft_port": (3, 4),
-    "forward_port": (5, 0),
+    "aft_port": (2, 3),
+    "forward_port": (0, 1),
 }
 
 

@@ -207,7 +207,7 @@ fn rotating_own_facing_changes_weapon_arc() {
         Hex::new(0, 0),
         Hex::new(3, -3)
     ));
-    // Rotating to facing 1 brings it to relative bearing 0 (in arc).
+    // A port rotation to facing 1 brings it to relative bearing 0 (in arc).
     assert!(arc::in_arc(
         arc::Mount::Forward,
         1,
@@ -219,7 +219,7 @@ fn rotating_own_facing_changes_weapon_arc() {
     allocate(&mut game, 1, 1, &[("beam_1", 2)], [0; 6]);
     allocate(&mut game, 2, 0, &[], [0; 6]);
     coast_all(&mut game, &[2]);
-    commit_maneuver(&mut game, 1, Maneuver::RotateStarboard).unwrap();
+    commit_maneuver(&mut game, 1, Maneuver::RotatePort).unwrap();
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
 
     let err = apply_order(
@@ -247,21 +247,21 @@ fn rotating_target_facing_changes_legal_shield_facings() {
     game.set_ship_pos(2, Hex::new(0, 0)).unwrap();
     game.set_ship_facing(2, 0).unwrap();
     // From src/arc.rs's `legal_shields_are_relative_to_target_facing` fact:
-    // facing 0 -> legal shield [0]; facing 1 -> legal shield [5].
+    // facing 0 -> legal shield [0]; facing 5 -> legal shield [1].
     assert_eq!(
         arc::legal_shield_facings(Hex::new(3, 0), Hex::new(0, 0), 0),
         vec![0]
     );
     assert_eq!(
-        arc::legal_shield_facings(Hex::new(3, 0), Hex::new(0, 0), 1),
-        vec![5]
+        arc::legal_shield_facings(Hex::new(3, 0), Hex::new(0, 0), 5),
+        vec![1]
     );
 
     allocate(&mut game, 1, 0, &[("beam_1", 2)], [0; 6]);
     allocate(&mut game, 2, 1, &[], [0; 6]);
     coast_all(&mut game, &[1]);
-    commit_maneuver(&mut game, 2, Maneuver::RotateStarboard).unwrap(); // facing 0 -> 1
-    assert_eq!(game.ship(2).unwrap().facing, 1);
+    commit_maneuver(&mut game, 2, Maneuver::RotateStarboard).unwrap(); // facing 0 -> 5
+    assert_eq!(game.ship(2).unwrap().facing, 5);
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
 
     let err = apply_order(
@@ -281,10 +281,10 @@ fn rotating_target_facing_changes_legal_shield_facings() {
             ship: 1,
             weapon: "beam_1".into(),
             target: 2,
-            shield_facing: 5,
+            shield_facing: 1,
         },
     )
-    .expect("shield facing 5 is legal now that the target has rotated to facing 1");
+    .expect("shield facing 1 is legal now that the target has rotated to facing 5");
 }
 
 /// Both ships' committed shots resolve from the pre-fire snapshot: a ship

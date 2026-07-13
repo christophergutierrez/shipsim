@@ -23,8 +23,8 @@ class LegacyOutputTests(unittest.TestCase):
         self.assertIn("movement: committed=- pending=A1, B2", text)
         self.assertNotIn("move_order=", text)
     def test_help_uses_canonical_screen_facing_legend(self):
-        self.assertIn("0→ 1↗ 2↑ 3← 4↙ 5↓", HELP)
-        self.assertNotIn("0↑ 1↗ 2↘ 3↓ 4↙ 5↖", HELP)
+        self.assertIn("0→ 1↗ 2↖ 3← 4↙ 5↘", HELP)
+        self.assertNotIn("0→ 1↗ 2↑ 3← 4↙ 5↓", HELP)
 
     def test_board_no_longer_emits_three_column_empty_cells(self):
         out = ANSI.sub("", format_board({"map": {"width": 2, "height": 1}, "ships": []}))

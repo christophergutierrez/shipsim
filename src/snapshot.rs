@@ -100,6 +100,8 @@ pub struct CombatLogEntry {
     pub weapon: String,
     pub shield: usize,
     pub damage: u32,
+    pub shield_absorbed: u32,
+    pub hull_damage: u32,
     pub kind: String,
 }
 
@@ -185,6 +187,8 @@ impl StateSnapshot {
                     weapon: e.weapon.clone(),
                     shield: e.shield,
                     damage: e.damage,
+                    shield_absorbed: e.shield_absorbed,
+                    hull_damage: e.hull_damage,
                     kind: e.kind.clone(),
                 })
                 .collect(),

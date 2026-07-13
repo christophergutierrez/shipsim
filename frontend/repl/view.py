@@ -15,7 +15,9 @@ from hexutil import (
     FACING_LEGEND,
     SHIELD_LABELS,
     bar,
+    damage_preview,
     distance,
+    hit_preview,
     legal_shield_facings,
     relative_bearing,
     ship_callsign,
@@ -76,7 +78,7 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
     turn = snap.get("turn", "?")
     warn_s = ""
     if snap.get("end_turn_warning") and phase in ("firing", "turn_end"):
-        warn_s = sty_warn("  ⚠ leftover useful actions")
+        warn_s = sty_warn("  ⚠ end skips unresolved actions")
     active = movement_focus_id(snap) if phase == "movement" else None
     active_s = f" pending=#{active}" if active is not None else ""
     sel_s = sty_focus(f"  focus=#{selected}") if selected is not None else ""
@@ -208,7 +210,7 @@ def format_ship_line(
         f"@({ship.get('q')},{ship.get('r')}) face={face} "
         f"pwr={pwr} engine={ship.get('movement_allocated')} "
         f"thrust={ship.get('thrust_remaining')} "
-        f"v={ship.get('velocity')} course={ship.get('course')} "
+        f"v={ship.get('velocity')} course={ship.get('course')}{FACING_GLYPH.get(int(ship.get('course') or 0) % 6, '?')} "
         f"hull={hull}/{hmax}{dead}"
     )
 
@@ -222,7 +224,7 @@ def format_weapons(
     """Weapon lines from live snapshot.
 
     Timing (easy to misread):
-    - CHG = still available to commit this fire phase
+    - CHARGED = power allocated and available to commit this fire phase
     - QUEUED = commit_fire done; charge still on the ship until the phase resolves
     - FIRED HIT/MISS = phase resolved; charge spent (always empty bar)
     """
@@ -247,17 +249,20 @@ def format_weapons(
                 tail = (
                     sty_fired("FIRED")
                     + " "
-                    + sty_hit(f"HIT{f' {dmg}' if dmg else ''}")
+                    + sty_hit(f"HIT{f' raw={dmg}' if dmg else ''}")
                 )
             elif kind == "miss":
-                tail = sty_fired("FIRED") + " " + sty_miss("MISS")
+                roll = (f" rolled {log_e.get('roll')}" if log_e and log_e.get("roll") is not None else "")
+                tail = sty_fired("FIRED") + roll + " " + sty_miss("MISS")
             else:
                 tail = sty_fired("FIRED")
+            if kind == "hit" and log_e and log_e.get("roll") is not None:
+                tail += f" rolled {log_e.get('roll')}"
             if not w.get("operational", True):
                 tail += sty_dead(" (box)")
             # Never show leftover charge after a resolved shot.
             b = bar(0, mx)
-            ch_note = muted(" chg=0")
+            ch_note = muted(" charge spent")
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
                 f"rng≤{w.get('max_range')} {b} {tail}{ch_note}"
@@ -274,14 +279,14 @@ def format_weapons(
                 f"rng≤{w.get('max_range')} {b} {tail}"
             )
         elif not w.get("operational", True):
-            tail = sty_dead("DEAD")
+            tail = sty_dead("DESTROYED (cannot recharge)")
             b = bar(0, mx)
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
                 f"rng≤{w.get('max_range')} {b} {tail}"
             )
         elif ch > 0:
-            tail = sty_available(f"CHG {ch}/{max_c}  (available)")
+            tail = sty_available(f"CHARGED {ch}/{max_c}  (ready to fire)")
             b = bar(ch, mx)
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
@@ -304,7 +309,8 @@ def format_weapons(
             lines.append(
                 indent
                 + f"  {wid} → #{e.get('target')} {tag} "
-                f"dmg={e.get('damage')} sh={e.get('shield')}"
+                f"raw={e.get('damage')} shield={e.get('shield')} "
+                f"absorbed={e.get('shield_absorbed', '?')} hull={e.get('hull_damage', '?')}"
             )
     return "\n".join(lines) if lines else f"{indent}(no weapons)"
 
@@ -328,7 +334,7 @@ def format_shields(
         # rem against max_face so hits visibly shrink the bar
         lines.append(
             f"{indent}{mark}{i}:{lab:2} {bar(rem, max_face)} "
-            f"rem={rem} pwr={pwr}"
+            f"remaining={rem} / powered={pwr}"
         )
     return "\n".join(lines)
 
@@ -370,9 +376,13 @@ def format_ship_card(
         parts.append(f"    hull {bar(hull, hmax)} {hull}/{hmax}")
     else:
         # Spelled-out labels (UX_ANALYSIS.md §4g): avoid opaque abbreviations.
-        parts.append(f"    hull {bar(hull, hmax)} {hull}/{hmax}  "
-                     f"bridge={ship.get('bridge')} engine={ship.get('engine')} "
-                     f"power_sys={ship.get('power_sys')}  keel={ship.get('keel')}")
+        systems = (
+            f"bridge={ship.get('bridge')} engine={ship.get('engine')} "
+            f"power system={ship.get('power_sys')}"
+        )
+        if ship.get("keel") is not None:
+            systems += f" frame={ship.get('keel')}"
+        parts.append(f"    hull {bar(hull, hmax)} {hull}/{hmax}  {systems}")
 
     highlight = None
     if vs is not None and not vs.get("destroyed"):
@@ -395,7 +405,7 @@ def format_ship_card(
             f"{i}:{SHIELD_LABELS[i]}" for i in highlight
         ) or "?"
         parts.append(
-            f"    vs {ship_callsign(vs)}: range={dist}  "
+            f"    facing {ship_callsign(vs)}: range={dist}  "
             f"shields facing them: {face_labels}  "
             f"(rel bearing from this ship: {rel})"
         )
@@ -414,7 +424,7 @@ def format_ship_card(
         else:
             parts.append("    shields: (no facing bears on you)")
     else:
-        parts.append("    shields (0:F=forward=ship's facing arrow; rem/powered; ← faces observer if vs set):")
+        parts.append("    shields (face number: direction; 0:F=Forward/ship's facing; remaining/powered; ← faces the focused ship):")
         parts.append(format_shields(ship, highlight=highlight))
         parts.append("    weapons:")
         parts.append(format_weapons(ship, snap=snap))
@@ -623,9 +633,21 @@ def format_commits(snap: dict[str, Any]) -> str:
         lab = SHIELD_LABELS[face] if 0 <= face < 6 else "?"
         atk = ship_by_id(snap, int(c.get("ship") or -1))
         cs = ship_callsign(atk) if atk else f"#{c.get('ship')}"
+        target = ship_by_id(snap, int(c.get("target") or -1))
+        weapon = next(
+            (w for w in (atk or {}).get("weapons", []) if w.get("id") == c.get("weapon")),
+            None,
+        )
+        preview = ""
+        if atk and target and weapon:
+            rng = distance(int(atk.get("q") or 0), int(atk.get("r") or 0), int(target.get("q") or 0), int(target.get("r") or 0))
+            to_hit = hit_preview(str(weapon.get("kind") or ""), rng)
+            damage = damage_preview(str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng)
+            if to_hit:
+                preview = f" range={rng} to-hit≤{to_hit[0]} ({to_hit[1]}%), damage≈{damage}"
         lines.append(
             f"  {cs} {c.get('weapon')} → #{c.get('target')} "
-            f"shield={face}:{lab}"
+            f"shield={face}:{lab}{preview}"
         )
     return "\n".join(lines)
 
@@ -652,19 +674,30 @@ def format_combat_events(
         dmg = int(e.get("damage") or 0)
         face = int(e.get("shield") or 0)
         lab = SHIELD_LABELS[face] if 0 <= face < 6 else str(face)
+        absorbed = int(e.get("shield_absorbed") or 0)
+        hull_damage = int(e.get("hull_damage") or 0)
         if kind == "hit" and dmg > 0:
             tag = sty_hit(f"HIT for {dmg}")
         elif kind == "hit":
             tag = sty_hit("HIT (0 dmg)")
         else:
             tag = sty_miss("MISS")
+        roll = e.get("roll")
+        roll_text = f"  rolled {roll} →" if roll is not None else ""
         atk = ship_by_id(snap, int(e.get("attacker") or -1))
         tgt = ship_by_id(snap, int(e.get("target") or -1))
         atk_cs = ship_callsign(atk) if atk else f"#{e.get('attacker')}"
         tgt_cs = ship_callsign(tgt) if tgt else f"#{e.get('target')}"
         wpn = e.get("weapon") or "?"
+        effect = ""
+        if kind == "hit":
+            # Older saved snapshots do not have the additive fields. Their
+            # current shield state remains visible below, but avoid inventing
+            # an absorption split for those logs.
+            if "shield_absorbed" in e or "hull_damage" in e:
+                effect = f"; shield absorbed {absorbed}, hull took {hull_damage}"
         body_lines.append(
-            f"{atk_cs} {wpn} → {tgt_cs}  {tag}  on shield {face}:{lab}"
+            f"{atk_cs} {wpn} → {tgt_cs} {roll_text} {tag}  on shield {face}:{lab}{effect}"
         )
         if tgt:
             # Redact enemy targets: the player observed the shot outcome but
@@ -698,9 +731,11 @@ def format_combat_log(snap: dict[str, Any], *, last_n: int = 8) -> str:
         tgt = ship_by_id(snap, int(e.get("target") or -1))
         atk_cs = ship_callsign(atk) if atk else f"#{e.get('attacker')}"
         tgt_cs = ship_callsign(tgt) if tgt else f"#{e.get('target')}"
+        roll = f" roll={e['roll']}" if e.get("roll") is not None else ""
         lines.append(
             f"  {atk_cs} {wpn} → {tgt_cs} "
-            f"{kind} dmg={e.get('damage')} shield={face}:{lab}"
+            f"{kind}{roll} raw={e.get('damage')} shield={face}:{lab} "
+            f"absorbed={e.get('shield_absorbed', '?')} hull={e.get('hull_damage', '?')}"
         )
     return "\n".join(lines)
 
@@ -770,6 +805,15 @@ def snapshot_delta(before: Optional[dict[str, Any]], after: dict[str, Any]) -> s
         oh, nh = int(old.get("structure") or 0), int(s.get("structure") or 0)
         if nh != oh:
             bits.append(sty_hit(f"#{sid} hull {oh}→{nh}"))
+        for system in ("engine", "power_sys", "bridge"):
+            old_rating = old.get(system)
+            new_rating = s.get(system)
+            if old_rating is not None and new_rating is not None and old_rating != new_rating:
+                bits.append(sty_warn(f"#{sid} {system} damaged {old_rating}→{new_rating}"))
+        old_pool = old.get("power_available", old.get("power"))
+        new_pool = s.get("power_available", s.get("power"))
+        if old_pool is not None and new_pool is not None and old_pool != new_pool:
+            bits.append(sty_warn(f"#{sid} usable power {old_pool}→{new_pool}"))
         orem = old.get("shields_remaining") or []
         nrem = s.get("shields_remaining") or []
         for i in range(min(len(orem), len(nrem))):

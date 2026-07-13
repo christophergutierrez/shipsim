@@ -22,11 +22,11 @@ impl Mount {
     pub fn relative_facings(self) -> &'static [u8] {
         match self {
             Mount::Forward => &[0],
-            Mount::ForwardStarboard => &[0, 1],
-            Mount::AftStarboard => &[2, 3],
+            Mount::ForwardStarboard => &[5, 0],
+            Mount::AftStarboard => &[3, 4],
             Mount::Aft => &[3],
-            Mount::AftPort => &[3, 4],
-            Mount::ForwardPort => &[5, 0],
+            Mount::AftPort => &[2, 3],
+            Mount::ForwardPort => &[0, 1],
         }
     }
 }
@@ -83,11 +83,11 @@ mod tests {
     #[test]
     fn mount_faces_match_v2_arc_contract() {
         assert_eq!(Mount::Forward.relative_facings(), &[0]);
-        assert_eq!(Mount::ForwardStarboard.relative_facings(), &[0, 1]);
-        assert_eq!(Mount::AftStarboard.relative_facings(), &[2, 3]);
+        assert_eq!(Mount::ForwardStarboard.relative_facings(), &[5, 0]);
+        assert_eq!(Mount::AftStarboard.relative_facings(), &[3, 4]);
         assert_eq!(Mount::Aft.relative_facings(), &[3]);
-        assert_eq!(Mount::AftPort.relative_facings(), &[3, 4]);
-        assert_eq!(Mount::ForwardPort.relative_facings(), &[5, 0]);
+        assert_eq!(Mount::AftPort.relative_facings(), &[2, 3]);
+        assert_eq!(Mount::ForwardPort.relative_facings(), &[0, 1]);
     }
 
     #[test]
@@ -95,8 +95,8 @@ mod tests {
         let from = Hex::new(0, 0);
         assert!(in_arc(Mount::Forward, 0, from, Hex::new(3, 0)));
         assert!(!in_arc(Mount::Forward, 0, from, Hex::new(3, -3)));
-        assert!(in_arc(Mount::ForwardStarboard, 0, from, Hex::new(3, -3)));
-        assert!(in_arc(Mount::ForwardPort, 0, from, Hex::new(0, 3)));
+        assert!(in_arc(Mount::ForwardPort, 0, from, Hex::new(3, -3)));
+        assert!(in_arc(Mount::ForwardStarboard, 0, from, Hex::new(0, 3)));
         assert!(in_arc(Mount::Aft, 0, from, Hex::new(-3, 0)));
     }
 

@@ -176,8 +176,8 @@ impl BaselinePolicy {
                     Maneuver::Accelerate {
                         course: Some(course),
                     } if *course == wanted => score += 50,
-                    Maneuver::TurnCourseStarboard if (current + 1) % 6 == wanted => score += 45,
-                    Maneuver::TurnCoursePort if (current + 5) % 6 == wanted => score += 45,
+                    Maneuver::TurnCourseStarboard if (current + 5) % 6 == wanted => score += 45,
+                    Maneuver::TurnCoursePort if (current + 1) % 6 == wanted => score += 45,
                     _ => {}
                 }
             }

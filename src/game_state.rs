@@ -127,6 +127,10 @@ pub struct CombatLogEvent {
     pub weapon: String,
     pub shield: usize,
     pub damage: u32,
+    /// Damage removed from the selected shield facing before it reached the ship.
+    pub shield_absorbed: u32,
+    /// Damage that overflowed shields and was applied to the SSD.
+    pub hull_damage: u32,
     pub kind: String,
 }
 
@@ -705,15 +709,19 @@ impl GameState {
                 attacker.weapon_charges.insert(commit.weapon.clone(), 0);
             }
             self.mark_weapon_fired(commit.ship, &commit.weapon);
-            if hit && damage > 0 {
-                self.apply_v2_damage(commit.target, commit.shield_facing, damage);
-            }
+            let (shield_absorbed, hull_damage) = if hit && damage > 0 {
+                self.apply_v2_damage(commit.target, commit.shield_facing, damage)
+            } else {
+                (0, 0)
+            };
             self.combat_log.push(CombatLogEvent {
                 attacker: commit.ship,
                 target: commit.target,
                 weapon: commit.weapon.clone(),
                 shield: commit.shield_facing as usize,
                 damage,
+                shield_absorbed,
+                hull_damage,
                 kind: if hit { "hit".into() } else { "miss".into() },
             });
         }
@@ -939,9 +947,9 @@ impl GameState {
         }
     }
 
-    fn apply_v2_damage(&mut self, target: u32, shield_facing: u8, damage: u32) {
+    fn apply_v2_damage(&mut self, target: u32, shield_facing: u8, damage: u32) -> (u32, u32) {
         let Some(ship) = self.ship_mut(target) else {
-            return;
+            return (0, 0);
         };
         let facing = (shield_facing % 6) as usize;
         let absorbed = ship.shields_remaining[facing].min(damage);
@@ -951,6 +959,7 @@ impl GameState {
             ship.ssd.apply_internal(overflow);
             ship.destroyed = ship.ssd.is_destroyed();
         }
+        (absorbed, overflow)
     }
 
     pub fn phase_name(&self) -> &'static str {

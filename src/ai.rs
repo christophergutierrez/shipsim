@@ -126,9 +126,9 @@ pub fn v2_move_decision(game: &GameState, ship_id: u32) -> Option<Maneuver> {
         choices.push(Maneuver::Accelerate { course: desired });
     } else if let Some(course) = desired {
         let delta = (course as i8 - velocity.course as i8).rem_euclid(6);
-        if delta == 1 || delta == 2 || delta == 3 {
+        if delta == 3 || delta == 4 || delta == 5 {
             choices.push(Maneuver::TurnCourseStarboard);
-        } else if delta > 3 {
+        } else if delta > 0 {
             choices.push(Maneuver::TurnCoursePort);
         } else if velocity.speed < ship.max_velocity {
             choices.push(Maneuver::Accelerate { course: None });

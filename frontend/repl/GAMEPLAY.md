@@ -185,6 +185,10 @@ phases. Commitments resolve simultaneously, then the firing window opens.
 and weapons point. Rotating facing does not change course; turning course does not
 rotate the hull.
 
+The movement ring follows the map: `0→ 1↗ 2↖ 3← 4↙ 5↘`. Thus from `0→`,
+`port` turns toward `1↗` and `starboard` turns toward `5↘`. An `accel 0` from
+rest sets course `0→`; at speed 1 it first translates in movement phase 4/4.
+
 ### Commands
 
 | Command | Effect |

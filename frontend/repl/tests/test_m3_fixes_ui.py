@@ -85,7 +85,7 @@ class C8LeftoverWarningPhaseGated(unittest.TestCase):
         snap = {"status": "Playing", "phase": "firing", "turn": 1,
                 "active_ship": 1, "end_turn_warning": True}
         out = ANSI.sub("", format_header(snap))
-        self.assertIn("⚠ leftover", out)
+        self.assertIn("⚠ end skips unresolved actions", out)
 
 
 class C9PanelGeometry(unittest.TestCase):

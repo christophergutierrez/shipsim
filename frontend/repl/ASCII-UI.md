@@ -193,7 +193,8 @@ in cube coords.
 
 Map legend must match **screen axes** (q right, r down). Facing 0 is **+q (→)**,
 not “up”. Wrong arrows train the player that forward is north — never reintroduce
-that. Legend: **0→ 1↗ 2↑ 3← 4↙ 5↓**.
+that. Legend: **0→ 1↗ 2↖ 3← 4↙ 5↘**. On this map, port turns toward ↗ and
+starboard turns toward ↘.
 
 ### Callsigns / sides
 

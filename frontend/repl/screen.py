@@ -36,7 +36,7 @@ class TerminalUI:
         session_path: Optional[Path] = None,
         verbose: bool = False,
         scroll: bool = False,
-        recent: int = 10,
+        recent: int = 6,
         history_cap: int = 500,
     ) -> None:
         self.scroll = scroll  # old long-log behavior if True

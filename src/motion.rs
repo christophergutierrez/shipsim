@@ -135,14 +135,16 @@ fn wrap_direction(direction: i8) -> u8 {
     d as u8
 }
 
-/// Rotate a direction one step to port (counterclockwise): 0 -> 5 -> 4 -> ...
+/// Rotate a direction one step to port (counterclockwise on the displayed map):
+/// 0 (east) -> 1 (north-east) -> 2 -> ...
 fn rotate_port(direction: u8) -> u8 {
-    wrap_direction(direction as i8 - 1)
+    wrap_direction(direction as i8 + 1)
 }
 
-/// Rotate a direction one step to starboard (clockwise): 0 -> 1 -> 2 -> ...
+/// Rotate a direction one step to starboard (clockwise on the displayed map):
+/// 0 (east) -> 5 (south-east) -> 4 -> ...
 fn rotate_starboard(direction: u8) -> u8 {
-    wrap_direction(direction as i8 + 1)
+    wrap_direction(direction as i8 - 1)
 }
 
 /// Course-change thrust cost: equals current speed, minimum 1 (ADR-0022 §5).
@@ -351,14 +353,14 @@ mod tests {
 
     #[test]
     fn course_wraps_between_zero_and_five() {
-        // Port from 0 wraps to 5.
+        // Port from 0 turns toward north-east (1).
         let v = Velocity::new(2, 0).unwrap();
         let r = resolve_maneuver(v, 0, 4, Maneuver::TurnCoursePort).unwrap();
-        assert_eq!(r.velocity.course, 5);
-        // Starboard from 5 wraps to 0.
-        let v = Velocity::new(2, 5).unwrap();
+        assert_eq!(r.velocity.course, 1);
+        // Starboard from 0 wraps to 5.
+        let v = Velocity::new(2, 0).unwrap();
         let r = resolve_maneuver(v, 0, 4, Maneuver::TurnCourseStarboard).unwrap();
-        assert_eq!(r.velocity.course, 0);
+        assert_eq!(r.velocity.course, 5);
     }
 
     #[test]
@@ -375,7 +377,7 @@ mod tests {
         let v = Velocity::new(3, 1).unwrap();
         let r = resolve_maneuver(v, 1, 4, Maneuver::TurnCourseStarboard).unwrap();
         assert_eq!(r.thrust_cost, 3);
-        assert_eq!(r.velocity.course, 2);
+        assert_eq!(r.velocity.course, 0);
     }
 
     #[test]
@@ -383,13 +385,13 @@ mod tests {
         let v = Velocity::new(2, 1).unwrap();
         let r = resolve_maneuver(v, 3, 4, Maneuver::RotatePort).unwrap();
         assert_eq!(r.thrust_cost, 1);
-        assert_eq!(r.facing, 2);
+        assert_eq!(r.facing, 4);
         assert_eq!(r.velocity.course, 1);
         assert_eq!(r.velocity.speed, 2);
 
         let r = resolve_maneuver(v, 3, 4, Maneuver::RotateStarboard).unwrap();
         assert_eq!(r.thrust_cost, 1);
-        assert_eq!(r.facing, 4);
+        assert_eq!(r.facing, 2);
         assert_eq!(r.velocity.course, 1);
     }
 
@@ -397,9 +399,9 @@ mod tests {
     fn facing_rotation_wraps() {
         let v = Velocity::new(0, 0).unwrap();
         let r = resolve_maneuver(v, 0, 4, Maneuver::RotatePort).unwrap();
+        assert_eq!(r.facing, 1);
+        let r = resolve_maneuver(v, 0, 4, Maneuver::RotateStarboard).unwrap();
         assert_eq!(r.facing, 5);
-        let r = resolve_maneuver(v, 5, 4, Maneuver::RotateStarboard).unwrap();
-        assert_eq!(r.facing, 0);
     }
 
     #[test]
@@ -458,7 +460,7 @@ mod tests {
         // one step (60 degrees), never a 180-degree reversal.
         let v = Velocity::new(4, 0).unwrap();
         let r = resolve_maneuver(v, 0, 4, Maneuver::TurnCourseStarboard).unwrap();
-        assert_eq!(r.velocity.course, 1);
+        assert_eq!(r.velocity.course, 5);
         assert_ne!(r.velocity.course, 3);
     }
 

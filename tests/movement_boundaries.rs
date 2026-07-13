@@ -75,7 +75,7 @@ fn course_changes_by_at_most_one_step_per_phase() {
     let after_one_phase = game.ship(4).unwrap().velocity.course;
     assert_eq!(
         (after_one_phase + 6 - before) % 6,
-        1,
+        5,
         "one commit changes course by exactly one step (60 degrees)"
     );
 
@@ -83,7 +83,7 @@ fn course_changes_by_at_most_one_step_per_phase() {
     let after_two_phases = game.ship(4).unwrap().velocity.course;
     assert_eq!(
         (after_two_phases + 6 - after_one_phase) % 6,
-        1,
+        5,
         "the next phase's commit is a separate one-step change, not a bigger jump"
     );
 }
