@@ -10,7 +10,8 @@ orders and render snapshots.
 | **Clients** (`frontend/*`) | Display and human/agent input; never reimplement combat |
 
 Rules narrative: `docs/PLAY-V2.md`, ADR-0020 / ADR-0022.
-How agents should *play*: `docs/AGENT-PLAY.md`.
+Play types (**UI play** / **API play** / **sim play**): `docs/AGENT-PLAY.md`.
+This file is the **API play** wire contract.
 
 Protocol version is `2` (`src/protocol.rs::PROTOCOL_VERSION`). Missing or
 unsupported versions produce an `unsupported_protocol` soft error.

@@ -5,7 +5,7 @@ over stdin/stdout NDJSON (`protocol_version: 2`).
 
 **This directory is the entire REPL client.** See `frontend/README.md`.
 
-Agents: for *how* to play (automated tests vs live UI), read
+Agents: play types (**UI play** / **API play** / **sim play**) are in
 **`docs/AGENT-PLAY.md`** and root **`AGENTS.md`**. API wire format:
 **`docs/PROTOCOL.md`**.
 
@@ -16,7 +16,7 @@ frontend/repl/
   README.md       # this file — run, flags, map of docs
   GAMEPLAY.md     # how to play (phases, commands, traps)  ← start here for UI play
   ASCII-UI.md     # terminal presentation practices (for UI work)
-  tests/          # automated Mode 1 suite (unittest)
+  tests/          # API play suite (unittest; not live UI)
   .gitignore
   local/          # gitignored: session logs, orders, readline history
 ```
@@ -25,10 +25,10 @@ frontend/repl/
 
 | File | Audience |
 |---|---|
-| **[`GAMEPLAY.md`](GAMEPLAY.md)** | Players / agents learning the **live** play loop in this client |
+| **[`GAMEPLAY.md`](GAMEPLAY.md)** | Players / agents learning the **live** play loop (UI play) |
 | **[`ASCII-UI.md`](ASCII-UI.md)** | Anyone changing layout, colors, map glyphs, draft UX |
 | `README.md` | Run commands, logging, isolation |
-| `../../docs/AGENT-PLAY.md` | Mode 1 (tests/API) vs Mode 2 (UI as user) |
+| `../../docs/AGENT-PLAY.md` | UI play · API play · sim play |
 | `../../docs/PROTOCOL.md` | Engine API |
 
 Rules of the game (engine): `docs/PLAY-V2.md`, `docs/PROTOCOL.md`, ADR-0020.
@@ -60,7 +60,7 @@ to write its save under `frontend/repl/local/`.
 
 Arrow-up recalls prior command lines (`local/history`).
 
-**Automated tests (Mode 1 — agent regression / basic bugs):**
+**Automated tests (API play — regression / basic bugs, not live UI):**
 
 ```bash
 cd frontend/repl
@@ -68,7 +68,7 @@ python3 -m unittest discover -s tests -v
 python3 -m unittest tests.test_bar_honesty -v
 ```
 
-See `docs/AGENT-PLAY.md` § Mode 1.
+See `docs/AGENT-PLAY.md` § API play.
 
 **Screen audit (grid invariants, not self-play):**
 

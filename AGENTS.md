@@ -5,38 +5,46 @@ the game.
 
 ## Architecture (one paragraph)
 
-The **engine** (`shipsim_core` + `shipsim` harness) owns all rules and is driven
-only through the **NDJSON API**. **UIs** under `frontend/<name>/` are thin
-clients of that API. Many UIs are allowed; none may reimplement combat logic;
-dropping one client must not break the engine or other clients.
+The **engine** (`shipsim_core`) owns all rules. External clients drive it via
+the **NDJSON API** (`shipsim` harness, `docs/PROTOCOL.md`). **UIs** under
+`frontend/<name>/` are thin API clients. Many UIs are allowed; none reimplement
+combat; dropping one client must not break the engine or other clients.
+**Simulation** (`shipsim-sim`) runs policies in-process for volume measurement.
+
+## Three play types
+
+| Name | Drive | Use when |
+|---|---|---|
+| **UI play** | Live frontend (REPL first) | “Play the game / play itself”, UX |
+| **API play** | NDJSON harness + tests | Smoke, protocol, regressions |
+| **Sim play** | `shipsim-sim` in-process | Hundreds–thousands of matches, balance |
+
+Full procedures and decision table: **[`docs/AGENT-PLAY.md`](docs/AGENT-PLAY.md)**  
+← **start here for any “play” request.**
+
+```bash
+cargo build -q
+python3 frontend/repl/repl.py scenarios/ai.toml              # UI play
+python3 frontend/repl/client.py                              # API play smoke
+(cd frontend/repl && python3 -m unittest discover -s tests)  # API play suite
+cargo run --release --bin shipsim-sim -- \
+  --suite simulation/suites/smoke.toml                       # sim play
+```
+
+Default for “play itself” / “play the game”: **UI play** (REPL), unless the
+user asks for tests (**API play**) or mass matches (**sim play**).
 
 ## Where to look
 
 | Need | Doc |
 |---|---|
-| **Play the game / choose how to drive it** | [`docs/AGENT-PLAY.md`](docs/AGENT-PLAY.md) ← **start here for “play”** |
-| **External API (orders, snapshots, CLI)** | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
+| **Play types & how-to** | [`docs/AGENT-PLAY.md`](docs/AGENT-PLAY.md) |
+| External API | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
+| Batch simulation | [`docs/SIMULATION.md`](docs/SIMULATION.md) |
 | System boundaries | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Rules summary | [`docs/PLAY-V2.md`](docs/PLAY-V2.md) |
-| REPL as a human | [`frontend/repl/GAMEPLAY.md`](frontend/repl/GAMEPLAY.md) |
+| REPL commands (UI play) | [`frontend/repl/GAMEPLAY.md`](frontend/repl/GAMEPLAY.md) |
 | Frontend isolation | [`frontend/README.md`](frontend/README.md) |
-| Batch simulation | [`docs/SIMULATION.md`](docs/SIMULATION.md) |
-
-## Two ways to play
-
-1. **Engine / automated** — API and tests (no interactive UI). Use for smoke,
-   regressions, protocol bugs.
-2. **UI as a user** — primarily the REPL (`python3 frontend/repl/repl.py …`).
-   Use when asked to *play* the game or find UX bugs.
-
-Details, commands, and decision table: **`docs/AGENT-PLAY.md`**.
-
-```bash
-cargo build -q
-python3 frontend/repl/client.py                              # Mode 1 smoke
-(cd frontend/repl && python3 -m unittest discover -s tests)  # Mode 1 suite
-python3 frontend/repl/repl.py scenarios/ai.toml              # Mode 2 play
-```
 
 ## Local scratch (not authoritative)
 

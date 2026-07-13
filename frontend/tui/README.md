@@ -91,7 +91,7 @@ Keep PRs small; each should stay playable or at least runnable.
 
 ## Pointers
 
-- `docs/PROTOCOL.md` (API), `docs/AGENT-PLAY.md` (agent play modes), root `AGENTS.md`
+- `docs/PROTOCOL.md` (API), `docs/AGENT-PLAY.md` (UI / API / sim play), root `AGENTS.md`
 - `docs/PLAY-V2.md`, `docs/ARCHITECTURE.md`
 - `frontend/README.md` (isolation)
 - `frontend/repl/README.md`, `frontend/repl/ASCII-UI.md` (play vocabulary + ASCII lessons)

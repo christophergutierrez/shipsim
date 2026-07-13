@@ -71,5 +71,5 @@ All clients and their session logs live under `frontend/<name>/` (see
 `frontend/README.md`). Do not scatter frontend scratch at the repo root, in
 repo `/tmp`, or system `/tmp`.
 
-**API:** `docs/PROTOCOL.md`. **Agents (tests vs UI play):** `docs/AGENT-PLAY.md`,
+**API:** `docs/PROTOCOL.md`. **Play types (UI / API / sim):** `docs/AGENT-PLAY.md`,
 root `AGENTS.md`.

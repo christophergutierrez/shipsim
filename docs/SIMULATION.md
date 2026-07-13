@@ -1,6 +1,14 @@
-# Gameplay Simulation
+# Gameplay Simulation (sim play)
 
-`shipsim-sim` runs seeded policy matchups through the same `GameState` and `apply_order` path used by tests, the CLI harness, and Love2D. It exists to make gameplay claims measurable and reproducible.
+`shipsim-sim` is **sim play**: seeded policy matchups through the same
+`GameState` and `apply_order` path used by tests, the CLI harness, and frontends
+— but **in-process**, without NDJSON or a UI. Use it for hundreds–thousands of
+matches, balance, and rubrics.
+
+Play-type overview (UI / API / sim): `docs/AGENT-PLAY.md`. This file is the
+sim-play reference.
+
+`shipsim-sim` exists to make gameplay claims measurable and reproducible.
 
 ## Quick start
 

@@ -35,8 +35,8 @@ frontend/
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml          # UI play (Mode 2)
-python3 frontend/repl/client.py                          # API smoke (Mode 1)
+python3 frontend/repl/repl.py scenarios/ai.toml          # UI play
+python3 frontend/repl/client.py                          # API play smoke
 (cd frontend/repl && python3 -m unittest discover -s tests)
 love frontend/love
 luajit frontend/love/tests/run_all.lua
@@ -46,4 +46,4 @@ luajit frontend/love/tests/run_all.lua
 See each client's README for details. TUI decision: `frontend/tui/ADR.md`.
 
 **Engine API:** `docs/PROTOCOL.md`.  
-**How agents should play (tests vs UI):** `docs/AGENT-PLAY.md`, root `AGENTS.md`.
+**Play types (UI / API / sim):** `docs/AGENT-PLAY.md`, root `AGENTS.md`.

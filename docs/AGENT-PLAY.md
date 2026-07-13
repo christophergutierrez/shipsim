@@ -1,135 +1,45 @@
-# Agent play guide
+# Play types — UI play, API play, sim play
 
-**Start here** when asked to play shipsim, smoke the game, hunt UX/rules bugs, or
-drive a session yourself.
+**Start here** when a human or agent is asked to play shipsim, smoke the game,
+hunt bugs, or “play itself.”
 
-There are **two intentional ways** an agent (or human) interacts with the product:
+There are **three intentional play types**. Use the names below in reports and
+prompts so everyone picks the same path.
 
-| Mode | What it is | When to use |
-|---|---|---|
-| **1. Engine / automated play** | Talk to the API (or run tests that do). No interactive UI. | Regression, protocol bugs, scripted flows, CI, quick “does it still work?” |
-| **2. UI play (as a user)** | Drive a frontend that already uses the API. | Presentation bugs, command UX, “play until win/loss”, feel of the game |
+| Name | What drives the rules | When to use | Not for |
+|---|---|---|---|
+| **UI play** | A frontend (REPL, Love, …) as a user | Feel, UX, “play until win/loss”, command traps | Thousands of matches |
+| **API play** | NDJSON harness (`shipsim`) + client/tests | Protocol, smoke, regressions, scripted flows | Screen layout / menus |
+| **Sim play** | Rust core in-process (`shipsim-sim` / policies) | Hundreds–thousands of seeded matches, balance, rubrics | Interactive UX |
 
-Architecture (always true):
+Architecture:
 
 ```text
-  [ Engine: shipsim_core + shipsim NDJSON harness ]  ← sole rules authority
-           ▲
-           │  docs/PROTOCOL.md  (the API)
-           │
-  [ UI clients under frontend/<name>/ ]  ← many allowed; each isolated
+                    ┌── UI play ──── frontend/*  (many allowed)
+                    │
+  shipsim_core  ◄───┼── API play ─── shipsim NDJSON  (docs/PROTOCOL.md)
+  (rules)           │
+                    └── sim play ─── shipsim-sim / apply_order in-process
 ```
 
-- Engine-only play = API only.
-- Every UI is an API client.
-- Adding/removing a UI must not break the engine or other UIs (`frontend/README.md`).
+- Rules live only in the engine. UIs never reimplement combat.
+- Every UI is an **API play** client under the hood.
+- **Sim play** uses the same order validation path, without a harness process
+  or a frontend — see `docs/SIMULATION.md`.
+- Isolation: `frontend/README.md`. API contract: `docs/PROTOCOL.md`.
+
+**Default when an agent is told to “play the game” or “play itself”:**
+prefer **UI play** (REPL) unless the ask is clearly tests/smoke (**API play**)
+or balance/volume (**sim play**).
 
 ---
 
-## Mode 1 — Engine / automated (tests & API)
+## UI play
 
-Use this for **basic bug finding** without sitting in a live terminal UI: order
-legality, phase progress, scripted-ship deadlock, bar math units, golden
-replays. This is the bulk of what automated “play” has been.
+Drive a **live frontend** with the same commands/clicks a human uses.
+Session logs under `frontend/<name>/local/`.
 
-### 1a. REPL unit/integration tests (recommended default)
-
-From **repo root** after `cargo build -q`:
-
-```bash
-cd frontend/repl
-python3 -m unittest discover -s tests -v
-```
-
-Or run subsets:
-
-```bash
-cd frontend/repl
-python3 -m unittest tests.test_m1_transport tests.test_m1_commands -v
-python3 -m unittest tests.test_m3_scripted_driver tests.test_m3_fixes_flow -v
-python3 -m unittest tests.test_bar_honesty -v
-```
-
-| Suite area | Catches |
-|---|---|
-| `test_m1_*` | Transport, command dispatch, view basics |
-| `test_m2_*` | Tactical/targeting presentation helpers |
-| `test_m3_*` | Scripted auto-drive, fire/allocate flow fixes |
-| `test_bar_honesty` | Bar labels show `filled/total` honestly |
-| `test_characterization` / `test_legacy_output` | Guard rails against silent output drift |
-
-Scratch from these tests stays under `frontend/repl/local/` (gitignored).
-
-### 1b. Non-interactive harness smoke
-
-```bash
-cargo build -q
-python3 frontend/repl/client.py
-```
-
-Spawns `shipsim --scenario scenarios/combat.toml --stdin`, checks post-load
-snapshot + one allocate. Good first health check.
-
-### 1c. Raw API (no Python client)
-
-```bash
-cargo build -q
-target/debug/shipsim --scenario scenarios/ai.toml --stdin
-# then write one JSON order per line; read one snapshot/error per line
-```
-
-Full contract: **`docs/PROTOCOL.md`**.
-Example order stream: `tests/fixtures/v2/duel_orders.jsonl`.
-
-### 1d. Rust engine tests
-
-```bash
-cargo test
-```
-
-Rules, AI, fixtures, save/resume, simulation invariants — not UI chrome.
-
-### 1e. Screen grid audit (presentation invariants, not self-play)
-
-Self-play that only reads command transcripts **misses** double-paint, scrolled
-frames, and dishonest bars. Use:
-
-```bash
-pip install pexpect pyte   # once
-python3 frontend/repl/screen_audit.py
-```
-
-Asserts I1–I3 (bar honesty on a real grid, no duplicate panels, header on a
-40-row terminal). Lives in `frontend/repl/screen_audit.py`.
-
-### 1f. Batch simulation (balance / many matches)
-
-Not interactive play. See `docs/SIMULATION.md` and `shipsim-sim`. Use when
-evaluating policies and rubrics, not when debugging a single UX path.
-
-### 1g. Love client unit checks
-
-```bash
-luajit frontend/love/tests/run_all.lua
-```
-
-### What Mode 1 is *bad* at
-
-- Judging whether the **play frame** is readable or confusing
-- Discovering stuck fire menus, focus confusion, draft UX
-- “Play like a human until win/loss and narrate bugs”
-
-For those, use Mode 2.
-
----
-
-## Mode 2 — UI play (as a user)
-
-Use this when the request is to **play the game**, exercise the live client, or
-find bugs a user would hit. The agent types (or drives) the **same commands** a
-human would.
-
-### Primary UI: REPL (recommended)
+### Primary: REPL
 
 ```bash
 cargo build -q
@@ -138,109 +48,199 @@ python3 frontend/repl/repl.py scenarios/ai.toml
 
 | Resource | Why |
 |---|---|
-| **`frontend/repl/GAMEPLAY.md`** | Commands, phases, traps — **read before / while playing** |
-| `frontend/repl/README.md` | Flags, session logs, screen audit |
+| **`frontend/repl/GAMEPLAY.md`** | Commands, phases, traps — read while playing |
+| `frontend/repl/README.md` | Flags, session logs |
 | `docs/PLAY-V2.md` | Engine rules summary |
-
-**Useful scenarios:**
 
 | Scenario | Notes |
 |---|---|
 | `scenarios/ai.toml` | Default duel vs AI — best first play |
-| `scenarios/combat.toml` | Includes **scripted** ship (REPL auto-pumps passive orders) |
-| `scenarios/v2_duel.toml` | Cleaner duel fixture sibling |
+| `scenarios/combat.toml` | Includes **scripted** ship (REPL pumps passive orders) |
+| `scenarios/v2_duel.toml` | Cleaner duel sibling |
 
-**Session logs** (default): `frontend/repl/local/session-*.log` — use these when
-reporting bugs. Prefer `--debug` only when you need raw ORDER JSON lines.
+**Agent procedure:**
 
-**How to play as an agent:**
+1. Build and start the REPL. Prefer a real TTY/PTY so the play frame works.
+2. Use on-screen hints + `GAMEPLAY.md` — do not hand-write raw JSON unless
+   debugging transport.
+3. Loop: allocate (`mov` / `w` / `sh` → `commit`) → one maneuver per ship
+   (`coast` / `accel` / …) → fire menus or `r`/`nofire` → `e` at turn end.
+4. Play until `Won` / `Lost`, or until stuck (`status` / `cls`, then `quit`).
+   If `quit` fails, stop and report a bug.
+5. Report phase, focus, last commands, session log path, expected vs actual.
 
-1. Build and start the REPL (command above). Prefer a real TTY / PTY so the
-   play frame redraws correctly.
-2. Learn the loop from the on-screen hint + `GAMEPLAY.md` — do **not** invent
-   engine orders by hand unless debugging transport.
-3. Typical first turn:
-   - Allocate: `a` → `mov N` → weapon/shield draft → `commit` (each player ship)
-   - Movement: `motion` then one of `coast` / `accel` / `decel` / `course …` / `rotate …`
-   - Firing: optional commits via fire flow, then `r` / `done` / `nofire` (not bare `e`)
-   - End turn when appropriate: `e`
-4. Play until `Won` / `Lost`, or until stuck. If stuck: try `status` / `cls`,
-   then `quit`. If `quit` fails, stop and report a bug.
-5. Report: phase, focus ship, last commands, session log path, expected vs actual.
-
-**Do not** reimplement AI for `controller = "ai"` ships — the harness advances
-them. **Scripted** ships are pumped by the REPL when they alone block the phase.
-
-Flags agents often want:
+Do **not** invent AI orders — the harness advances `controller = "ai"`.
+Scripted ships are pumped by the REPL when they alone block the phase.
 
 ```bash
 python3 frontend/repl/repl.py scenarios/ai.toml --debug
 python3 frontend/repl/repl.py scenarios/ai.toml --no-session-log
-python3 frontend/repl/repl.py scenarios/ai.toml --bin target/debug/shipsim
 ```
 
-### Secondary UI: Love2D (graphical)
+Logs: `frontend/repl/local/session-*.log`, `orders-*.jsonl`.
+
+### Secondary: Love2D
 
 ```bash
 cargo build -q
 love frontend/love
 ```
 
-Human mouse/keyboard play. Weaker for headless agents. Isolation and notes:
-`frontend/love/README.md`. Prefer REPL for agent sessions.
+Graphical; weaker for headless agents. See `frontend/love/README.md`.
 
-### Future UI: ratatui TUI
+### Future: ratatui TUI
 
-Not implemented. Scaffold: `frontend/tui/`. When it exists, it will be another
-Mode 2 client on the same API.
+Not implemented (`frontend/tui/`). Will be another UI-play client on the same API.
 
----
+### Screen grid audit (UI presentation, not a full game)
 
-## Choosing a mode (decision table)
-
-| Ask / goal | Mode |
-|---|---|
-| “Run the tests” / “smoke after a change” | **1** — unittest + `client.py` + `cargo test` |
-| “Find basic rules/protocol bugs” | **1** — fixtures + REPL tests + raw API |
-| “Does the scripted ship still deadlock?” | **1** — `tests.test_m3_scripted_driver` + optional Mode 2 on `combat.toml` |
-| “Play the game yourself” / “play until win” | **2** — REPL as user |
-| “UI is wrong / bars / double paint” | **2** + `screen_audit.py` (1e) |
-| “Balance / many matches” | **1f** simulation, not REPL |
-| “Wire a new client” | Read `docs/PROTOCOL.md` + copy REPL isolation rules |
-
----
-
-## Isolation rules (do not break)
-
-1. All frontend work under `frontend/<name>/` only.
-2. Logs and agent scratch → `frontend/<name>/local/` (not repo root, not shared `/tmp`).
-3. No cross-client imports; no engine dependence on `frontend/`.
-4. Clients speak **protocol v2** only (`docs/PROTOCOL.md`).
-
----
-
-## Quick command cheat sheet
+Self-play that only watches orders **misses** double-paint and dishonest bars:
 
 ```bash
-# Build once
+pip install pexpect pyte   # once
+python3 frontend/repl/screen_audit.py
+```
+
+---
+
+## API play
+
+Talk to the **public NDJSON API** (or tests that do). No interactive UI frame.
+Contract: **`docs/PROTOCOL.md`**.
+
+### Harness smoke
+
+```bash
+cargo build -q
+python3 frontend/repl/client.py
+```
+
+### Raw harness
+
+```bash
+cargo build -q
+target/debug/shipsim --scenario scenarios/ai.toml --stdin
+# one JSON order per line → one snapshot or error per line
+```
+
+Example stream: `tests/fixtures/v2/duel_orders.jsonl`.
+
+### REPL automated suite (command → order; not live UI)
+
+```bash
+cd frontend/repl
+python3 -m unittest discover -s tests -v
+```
+
+| Suite | Catches |
+|---|---|
+| `test_m1_*` | Transport, commands, view basics |
+| `test_m2_*` | Tactical/targeting helpers |
+| `test_m3_*` | Scripted auto-drive, fire/allocate flows |
+| `test_bar_honesty` | Bar labels `filled/total` |
+| `test_characterization` | Guard rails on order emission |
+
+These use fakes/helpers; they are **API/command-layer** checks, not UI play.
+
+### Engine integration tests
+
+```bash
+cargo test
+```
+
+Rules, fixtures, save/resume, sim invariants — not frontend chrome.
+
+### Love unit checks
+
+```bash
+luajit frontend/love/tests/run_all.lua
+```
+
+### What API play is *bad* at
+
+- Readable play frame, stuck menus, draft UX, “feels wrong”
+- For those: **UI play** (+ `screen_audit.py` when it’s paint/grid)
+
+---
+
+## Sim play
+
+**Batch simulation** through the Rust core in-process: same `GameState` /
+`apply_order` path, no NDJSON process and no UI. Built for volume.
+
+Full docs: **`docs/SIMULATION.md`**. CLI: `shipsim-sim`.
+
+```bash
+cargo run --release --bin shipsim-sim -- \
+  --suite simulation/suites/smoke.toml \
+  --output tmp/simulation/reports/smoke.json
+```
+
+| Piece | Role |
+|---|---|
+| Policies (`random`, `greedy`, …) | Both sides choose legal orders |
+| Suites under `simulation/suites/` | Scenario × seed × policy matrix |
+| Rubrics under `simulation/rubrics/` | Pass/fail thresholds |
+| Report JSON | Aggregates + per-match traces |
+
+Use sim play for balance, termination rates, stalemates, policy comparison —
+**not** for “does the REPL make sense?”
+
+Do not call ordinary `cargo test` unit cases “sim play” unless they are
+simulation suite/policy matches. **Sim play** means the batch runner and its
+suites.
+
+---
+
+## Decision table (agents: pick one)
+
+| Ask / goal | Play type |
+|---|---|
+| “Play the game” / “play itself” / “play until win” | **UI play** (REPL) |
+| “UI is wrong / bars / menus / double paint” | **UI play** + `screen_audit.py` |
+| “Smoke / run the tests / protocol bug” | **API play** |
+| “Scripted ship deadlock?” | **API play** (`test_m3_scripted_driver`) ± UI on `combat.toml` |
+| “Balance / many matches / rubrics” | **Sim play** |
+| “Wire a new client” | Read `docs/PROTOCOL.md`; implement as API client; optional UI play later |
+
+---
+
+## Isolation (all types)
+
+1. Frontend code and scratch only under `frontend/<name>/` (`local/` gitignored).
+2. No cross-client imports; engine must not depend on `frontend/`.
+3. External clients: protocol **v2** only (`docs/PROTOCOL.md`).
+4. Sim reports under ignored `tmp/simulation/` (or equivalent local paths).
+
+---
+
+## Quick commands
+
+```bash
 cargo build -q
 
-# Mode 1 — automated
+# UI play
+python3 frontend/repl/repl.py scenarios/ai.toml
+
+# API play
 python3 frontend/repl/client.py
 (cd frontend/repl && python3 -m unittest discover -s tests -v)
 cargo test
 python3 frontend/repl/screen_audit.py
 
-# Mode 2 — play as user
-python3 frontend/repl/repl.py scenarios/ai.toml
+# Sim play
+cargo run --release --bin shipsim-sim -- \
+  --suite simulation/suites/smoke.toml \
+  --output tmp/simulation/reports/smoke.json
 ```
 
-Docs map:
+## Docs map
 
-| Path | Audience |
+| Path | Role |
 |---|---|
-| `AGENTS.md` | Repo entry for agents |
-| `docs/AGENT-PLAY.md` | This file |
-| `docs/PROTOCOL.md` | API |
-| `docs/ARCHITECTURE.md` | Boundaries |
-| `frontend/repl/GAMEPLAY.md` | Live REPL how-to |
+| **`AGENTS.md`** | Repo entry for agents |
+| **`docs/AGENT-PLAY.md`** | This file — play types |
+| `docs/PROTOCOL.md` | API (API play wire format) |
+| `docs/SIMULATION.md` | Sim play details |
+| `docs/ARCHITECTURE.md` | System boundaries |
+| `frontend/repl/GAMEPLAY.md` | UI play command vocabulary |

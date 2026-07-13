@@ -116,8 +116,8 @@ The external NDJSON contract is now versioned; see `docs/PROTOCOL.md` (the publi
 API). Save files use deterministic scenario-plus-order replay with a verified
 PRNG checkpoint; see `docs/SAVE-FORMAT.md`.
 
-**Agents playing the game** (API tests vs UI-as-user): `docs/AGENT-PLAY.md` and
-root `AGENTS.md`.
+**Agents / humans playing the game** — three types (**UI play**, **API play**,
+**sim play**): `docs/AGENT-PLAY.md` and root `AGENTS.md`.
 
 ## Verification
 
@@ -132,4 +132,4 @@ Architecture decisions and supersession history live in `docs/adr/`.
 Gameplay simulation uses validated production orders as defined by ADR-0021. See `docs/SIMULATION.md` and `docs/GAMEPLAY-RUBRICS.md`.
 
 Combat constants: `docs/combat-v2-tables.md`. Play guide: `docs/PLAY-V2.md`.
-Agent play modes: `docs/AGENT-PLAY.md`.
+Play types (UI / API / sim): `docs/AGENT-PLAY.md`.
