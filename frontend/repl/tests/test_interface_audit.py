@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from commands import COMMAND_REGISTRY, ReplContext, build_action, interactive_fire, render_help
-from view import format_combat_events
+from view import format_combat_events, format_weapons
 from tests.test_characterization import snapshot
 
 
@@ -42,6 +42,24 @@ class InterfaceGoldenTests(unittest.TestCase):
         self.assertIn("fire", text)
         self.assertIn("example:", text)
         self.assertIn("charged weapon", text)
+
+    def test_help_recognizes_documented_aliases_and_phase_commands(self):
+        expected = {
+            "e": "end | e",
+            "p": "coast | p",
+            "r": "ready | nofire | r",
+            "commit": "commit | c | ok",
+            "engine": "engine N",
+            "w": "w [weapon] N",
+            "sh": "sh [face] N",
+            "accel": "accel [course 0..5]",
+        }
+        for topic, syntax in expected.items():
+            with self.subTest(topic=topic):
+                text = render_help(topic)
+                self.assertNotIn("unknown help topic", text)
+                self.assertIn(syntax, text)
+                self.assertIn("example:", text)
 
     def test_question_mark_and_attack_alias(self):
         snap = snapshot(phase="movement")
@@ -146,6 +164,44 @@ class InterfaceGoldenTests(unittest.TestCase):
             "damage": 6, "shield": 0, "shield_absorbed": 4, "hull_damage": 2,
         }], snap)
         self.assertIn("shield absorbed 4, hull took 2", text)
+
+    def test_persistent_weapon_summary_labels_shield_as_a_facing(self):
+        ship = {
+            "id": 1,
+            "weapons": [{
+                "id": "beam_1", "kind": "Beam", "charge": 0,
+                "max_charge": 4, "max_range": 10, "arc": "forward",
+                "operational": True, "fired": True,
+            }],
+        }
+        snap = {"combat_log": [{
+            "attacker": 1, "target": 2, "weapon": "beam_1", "kind": "hit",
+            "damage": 6, "shield": 0, "shield_absorbed": 4, "hull_damage": 2,
+        }]}
+        text = format_weapons(ship, snap=snap)
+        self.assertIn("shield face=0:F", text)
+        self.assertNotIn("shield=0 absorbed", text)
+
+    def test_direct_fire_explains_already_queued_weapon(self):
+        snap = snapshot(phase="firing")
+        attacker = snap["ships"][0]
+        attacker.update(q=0, r=0, facing=0, controller="player")
+        attacker["weapons"] = [{
+            "id": "beam_1", "kind": "Beam", "charge": 4,
+            "max_charge": 4, "max_range": 10, "mount": "forward",
+            "operational": True, "fired": False,
+        }]
+        snap["ships"].append({
+            "id": 2, "class": "Escort", "controller": "ai", "q": 3,
+            "r": 0, "facing": 3, "destroyed": False, "weapons": [],
+        })
+        snap["fire_commits"] = [{"ship": 1, "weapon": "beam_1", "target": 2}]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            action = build_action("fire b1 #2", snap, ReplContext(selected=1))
+        self.assertFalse(action.orders)
+        self.assertIn("already queued", out.getvalue())
+        self.assertIn("ready", out.getvalue())
 
     def test_numeric_input_during_firing_does_not_change_focus(self):
         snap = snapshot(phase="firing")

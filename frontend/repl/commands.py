@@ -42,24 +42,72 @@ COMMAND_REGISTRY = {
     "hint": ("hint", "repeat the next-action hint for the current phase"),
 }
 
+# Detailed help includes phase-local commands that do not belong in the short
+# global command index.  Aliases resolve here too, so documented spellings such
+# as `e`, `p`, and `r` are useful help topics rather than false "unknown"
+# errors.
+HELP_TOPICS = {
+    **COMMAND_REGISTRY,
+    "engine": ("engine N", "allocate N power to thrust for this turn"),
+    "weapon": ("w [weapon] N", "allocate charge to a weapon in the current ship draft"),
+    "shield": ("sh [face] N", "allocate power to shield facing 0..5 in the current ship draft"),
+    "commit": ("commit | c | ok", "apply the current allocation draft to the engine"),
+    "accel": ("accel [course 0..5]", "increase speed by one; choose a course only while stopped"),
+    "decel": ("decel", "decrease speed by one"),
+    "course": ("course port | course starboard", "turn the travel course by 60 degrees"),
+    "rotate": ("rotate port | rotate starboard", "turn the hull facing without changing course"),
+}
+
+HELP_ALIASES = {
+    "?": "help",
+    "h": "help",
+    "s": "status",
+    "b": "board",
+    "a": "allocate",
+    "alloc": "allocate",
+    "m": "move",
+    "motion": "move",
+    "maneuvers": "move",
+    "movement": "move",
+    "p": "coast",
+    "pass": "coast",
+    "attack": "fire",
+    "atk": "fire",
+    "f": "fire",
+    "r": "ready",
+    "nofire": "ready",
+    "no-fire": "ready",
+    "e": "end",
+    "end_turn": "end",
+    "q": "quit",
+    "exit": "quit",
+    "hist": "log",
+    "history": "log",
+    "w": "weapon",
+    "weapons": "weapon",
+    "sh": "shield",
+    "shields": "shield",
+    "c": "commit",
+    "ok": "commit",
+    "accelerate": "accel",
+    "decelerate": "decel",
+}
+
 
 def render_help(command: str | None = None) -> str:
     """Generate help from the same registry used by the command surface."""
     if command:
-        key = command.lower()
-        if key in ("?", "h", "attack", "atk", "f"):
-            key = "help"
-        if key in ("motion", "maneuvers", "movement"):
-            key = "move"
-        if command.lower() in ("attack", "atk", "f"):
-            key = "fire"
-        if key not in COMMAND_REGISTRY:
+        key = HELP_ALIASES.get(command.lower(), command.lower())
+        if key not in HELP_TOPICS:
             suggestion = difflib.get_close_matches(
-                key, list(COMMAND_REGISTRY) + ["attack", "move", "quit", "status"], n=1, cutoff=0.45
+                key,
+                list(HELP_TOPICS) + list(HELP_ALIASES),
+                n=1,
+                cutoff=0.45,
             )
             suffix = f" Did you mean '{suggestion[0]}'?" if suggestion else ""
             return f"  unknown help topic {command!r}.{suffix} Try: help"
-        syntax, description = COMMAND_REGISTRY[key]
+        syntax, description = HELP_TOPICS[key]
         examples = {
             "allocate": "a 1, then engine 4, w b1 2, sh 0 3, commit",
             "move": "motion (then choose coast or accel; add 0..5 only when stopped)",
@@ -67,6 +115,14 @@ def render_help(command: str | None = None) -> str:
             "ready": "r",
             "end": "e",
             "quit": "quit",
+            "engine": "engine 6",
+            "weapon": "w b1 4",
+            "shield": "sh 0 6",
+            "commit": "commit",
+            "accel": "accel 0",
+            "decel": "decel",
+            "course": "course port",
+            "rotate": "rotate starboard",
         }
         example = examples.get(key, syntax.split(" | ")[0])
         return f"  {syntax}\n    {description}\n    example: {example}"
@@ -1042,7 +1098,14 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
         if wid:
             wi = next(i for i, w in enumerate(charged) if str(w.get("id")) == wid)
             break
-        print(f"  invalid weapon choice {raw!r}; type one of {choices}, b1, fire b1 #2, or -1 (back)")
+        names = ", ".join(
+            weapon_short_alias(str(w.get("id")), str(w.get("kind") or ""))
+            for w in charged
+        )
+        print(
+            f"  invalid weapon choice {raw!r}; choose number {choices} or weapon {names}; "
+            "one-line form: fire <weapon> <target>; -1 = back"
+        )
     if wi < 0 or wi >= len(charged):
         # "Done" finishes the fire phase for this ship directly: emit a
         # ready_fire order so the caller sends it and the phase ends,
@@ -1216,6 +1279,19 @@ def direct_fire(snap: dict[str, Any], ship_id: int, weapon_token: str, target_to
         return None
     if target is None or target.get("controller") == attacker.get("controller"):
         print(f"  unknown or friendly target {target_token!r}; use a contact such as B2 or #2")
+        return None
+    if not weapon.get("operational", True):
+        print(f"  {weapon_token} is destroyed and cannot fire or recharge")
+        return None
+    if weapon.get("fired"):
+        print(f"  {weapon_token} already fired this turn; recharge it during the next allocation phase")
+        return None
+    if any(
+        int(commit.get("ship") or -1) == int(ship_id)
+        and str(commit.get("weapon")) == str(weapon.get("id"))
+        for commit in (snap.get("fire_commits") or [])
+    ):
+        print(f"  {weapon_token} is already queued; use r/ready/nofire to resolve the volley")
         return None
     rng = distance(int(attacker["q"]), int(attacker["r"]), int(target["q"]), int(target["r"]))
     if int(weapon.get("charge") or 0) <= 0:

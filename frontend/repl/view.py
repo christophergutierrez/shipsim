@@ -306,10 +306,12 @@ def format_weapons(
         for wid, e in outcomes.items():
             kind = str(e.get("kind") or "").lower()
             tag = sty_hit("HIT") if kind == "hit" else sty_miss("MISS")
+            face = int(e.get("shield") or 0)
+            face_label = SHIELD_LABELS[face] if 0 <= face < len(SHIELD_LABELS) else "?"
             lines.append(
                 indent
                 + f"  {wid} → #{e.get('target')} {tag} "
-                f"raw={e.get('damage')} shield={e.get('shield')} "
+                f"raw={e.get('damage')} shield face={face}:{face_label} "
                 f"absorbed={e.get('shield_absorbed', '?')} hull={e.get('hull_damage', '?')}"
             )
     return "\n".join(lines) if lines else f"{indent}(no weapons)"
