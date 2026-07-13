@@ -21,6 +21,69 @@ FACING_LEGEND = "0→ 1↗ 2↖ 3← 4↙ 5↘  (q right, r down; port=↗, star
 # Relative shield labels (0 = ship's own forward face).
 SHIELD_LABELS = ["F", "FR", "RR", "R", "RL", "FL"]
 
+# Inertial translation schedule (ADR-0022): which of the four movement phases
+# a ship actually slides on, given its *current* speed. Presentation only —
+# engine remains authoritative.
+TRANSLATION_PHASES: dict[int, tuple[int, ...]] = {
+    0: (),
+    1: (4,),
+    2: (2, 4),
+    3: (1, 2, 4),
+    4: (1, 2, 3, 4),
+}
+
+
+def translation_phases(speed: int) -> tuple[int, ...]:
+    return TRANSLATION_PHASES.get(int(speed), ())
+
+
+def translation_schedule_label(speed: int) -> str:
+    phases = translation_phases(speed)
+    return "none" if not phases else ",".join(str(p) for p in phases)
+
+
+def dir_glyph(direction: int) -> str:
+    d = int(direction) % 6
+    return f"{d}{FACING_GLYPH.get(d, '?')}"
+
+
+def course_facing_diverge(course: int, facing: int) -> bool:
+    return int(course) % 6 != int(facing) % 6
+
+
+def motion_status_bits(ship: dict) -> str:
+    """Compact sticky line for prompts / ship cards: v, course, face, thrust, slides."""
+    speed = int(ship.get("velocity") or 0)
+    course = int(ship.get("course") or 0)
+    facing = int(ship.get("facing") or 0)
+    thrust = int(ship.get("thrust_remaining") or 0)
+    bits = (
+        f"v={speed} course={dir_glyph(course)} face={dir_glyph(facing)} "
+        f"thrust={thrust} slides=[{translation_schedule_label(speed)}]"
+    )
+    if course_facing_diverge(course, facing):
+        bits += f"  ⚠ sliding {dir_glyph(course)}, nose {dir_glyph(facing)}"
+    return bits
+
+
+def next_translation_note(speed: int, movement_phase: int) -> str:
+    """Human note: when the ship will next slide after this speed is set."""
+    schedule = translation_phases(speed)
+    if not schedule:
+        return "no hex translation while stopped (speed 0)"
+    phase_now = int(movement_phase or 0)
+    if phase_now in schedule:
+        return "translates this movement phase"
+    next_phase = next((p for p in schedule if p > phase_now), None)
+    if next_phase is not None:
+        if speed == 1 and next_phase == 4:
+            return (
+                f"next hex slide is movement phase {next_phase}/4 "
+                f"(at speed 1 you only move late in the turn)"
+            )
+        return f"next hex slide is movement phase {next_phase}/4"
+    return "next hex slide is next turn (no remaining translate phases this turn)"
+
 # Presentation-only preview of the engine's documented d20 threshold tables.
 # The engine remains authoritative; this lets the picker explain a result
 # before the irreversible fire commit.

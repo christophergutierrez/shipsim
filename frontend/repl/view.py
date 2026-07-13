@@ -20,6 +20,7 @@ from hexutil import (
     distance,
     hit_preview,
     legal_shield_facings,
+    motion_status_bits,
     relative_bearing,
     ship_callsign,
     threats_to_ship,
@@ -206,12 +207,14 @@ def format_ship_line(
         )
     pa = ship.get("power_available")
     pwr = pa if pa is not None else ship.get("power")
+    # Sticky inertial line so players need not type `motion` to see course vs
+    # face and which phases they will slide on (flight UX).
+    sticky = motion_status_bits(ship)
     return (
         f"{mark}{name} ({ctrl}) "
-        f"@({ship.get('q')},{ship.get('r')}) face={face} "
+        f"@({ship.get('q')},{ship.get('r')}) "
         f"pwr={pwr} engine={ship.get('movement_allocated')} "
-        f"thrust={ship.get('thrust_remaining')} "
-        f"v={ship.get('velocity')} course={ship.get('course')}{FACING_GLYPH.get(int(ship.get('course') or 0) % 6, '?')} "
+        f"{sticky} "
         f"hull={hull}/{hmax}{dead}"
     )
 

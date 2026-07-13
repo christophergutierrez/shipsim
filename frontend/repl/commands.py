@@ -15,12 +15,17 @@ from hexutil import (
     FACING_GLYPH,
     SHIELD_LABELS,
     bar,
-    format_bar,
+    course_facing_diverge,
+    dir_glyph,
     distance,
     damage_preview,
+    format_bar,
     hit_preview,
     legal_shield_facings,
+    motion_status_bits,
+    next_translation_note,
     ship_callsign,
+    translation_schedule_label,
     weapon_in_arc,
 )
 from view import living_player_ships, living_ships, ship_by_id
@@ -33,7 +38,10 @@ COMMAND_REGISTRY = {
     "ships": ("ships", "list every ship and its callsign, position, facing, and hull"),
     "help": ("help [command] | ?", "show commands, or detailed syntax and an example"),
     "allocate": ("allocate [ship-id] | a [ship-id]", "spend a ship's power on engine (thrust for movement), weapons, and shields"),
-    "move": ("move | m | motion", "show movement commands for the active ship"),
+    "move": (
+        "move | m | motion",
+        "show speed/course/facing/thrust, when you slide, and maneuver choices",
+    ),
     "coast": ("coast | p [ship-id]", "commit a no-cost movement maneuver"),
     "fire": ("fire | attack | f", "choose a charged weapon and target"),
     "ready": ("ready | nofire | r", "finish firing without another shot"),
@@ -53,10 +61,19 @@ HELP_TOPICS = {
     "weapon": ("w [weapon] N", "allocate charge to a weapon in the current ship draft"),
     "shield": ("sh [face] N", "allocate power to shield facing 0..5 in the current ship draft"),
     "commit": ("commit | c | ok", "apply the current allocation draft to the engine"),
-    "accel": ("accel [course 0..5]", "increase speed by one; choose a course only while stopped"),
-    "decel": ("decel", "decrease speed by one"),
-    "course": ("course port | course starboard", "turn the travel course by 60 degrees"),
-    "rotate": ("rotate port | rotate starboard", "turn the hull facing without changing course"),
+    "accel": (
+        "accel [course 0..5]",
+        "speed +1 (cost 1 thrust); optional course 0..5 only while stopped",
+    ),
+    "decel": ("decel", "speed −1 (cost 1 thrust); does not reverse course"),
+    "course": (
+        "course port | course starboard",
+        "turn travel direction 60° (cost = current speed, min 1); nose/facing unchanged",
+    ),
+    "rotate": (
+        "rotate port | rotate starboard",
+        "turn hull/weapons 60° (cost 1); travel course unchanged",
+    ),
 }
 
 HELP_ALIASES = {
@@ -95,6 +112,19 @@ HELP_ALIASES = {
 }
 
 
+def _inertial_primer() -> str:
+    """Static teaching block for help motion / help accel / etc."""
+    return (
+        "  Inertial flight (not arcade tank controls):\n"
+        "    • course = where you travel; face/nose = where weapons point — they can differ.\n"
+        "    • accel/decel change speed by 1; coast keeps speed (free).\n"
+        "    • course port/starboard turns travel direction; rotate turns the hull only.\n"
+        "    • You slide automatically on some of the 4 movement phases (speed table):\n"
+        "        speed 0: none | 1: phase 4 only | 2: 2,4 | 3: 1,2,4 | 4: every phase\n"
+        "    • At speed 1, accel does not move you until phase 4/4 — type motion anytime."
+    )
+
+
 def render_help(command: str | None = None) -> str:
     """Generate help from the same registry used by the command surface."""
     if command:
@@ -111,7 +141,7 @@ def render_help(command: str | None = None) -> str:
         syntax, description = HELP_TOPICS[key]
         examples = {
             "allocate": "a 1, then engine 4, w b1 2, sh 0 3, commit",
-            "move": "motion (then choose coast or accel; add 0..5 only when stopped)",
+            "move": "motion",
             "fire": "attack (then choose a charged weapon and target)",
             "ready": "r",
             "end": "e",
@@ -120,13 +150,16 @@ def render_help(command: str | None = None) -> str:
             "weapon": "w b1 4",
             "shield": "sh 0 6",
             "commit": "commit",
-            "accel": "accel 0",
+            "accel": "accel 0   # from a stop; bare accel also works",
             "decel": "decel",
             "course": "course port",
             "rotate": "rotate starboard",
         }
         example = examples.get(key, syntax.split(" | ")[0])
-        return f"  {syntax}\n    {description}\n    example: {example}"
+        body = f"  {syntax}\n    {description}\n    example: {example}"
+        if key in ("move", "motion", "accel", "decel", "course", "rotate", "coast"):
+            body += "\n" + _inertial_primer()
+        return body
     lines = [
         "shipsim REPL — objective: destroy the opposing fleet.",
         "The prompt shows turn, phase, focus, and remaining actions. Type help <command> for details.",
@@ -137,6 +170,10 @@ def render_help(command: str | None = None) -> str:
     lines.append("Allocate draft: engine N | w [weapon] N | sh [face] N | show | reset | commit | cancel")
     lines.append("Directions: 0→ 1↗ 2↖ 3← 4↙ 5↘ (port turns toward ↗; starboard toward ↘); shields 0:F 1:FR 2:RR 3:R 4:RL 5:FL")
     lines.append("Turn flow: allocate → 4×(movement/fire) → next turn; use coast/ready to finish phases, e to end the whole turn")
+    lines.append(
+        "Flight: course = travel direction, face = nose/weapons (can differ); "
+        "speed sets which of 4 phases you slide on; motion shows the sticky status line"
+    )
     lines.append("Combat: fire uses d20 vs range; the picker shows the threshold and charge affects damage, not accuracy")
     return "\n".join(lines)
 
@@ -330,20 +367,18 @@ def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
     if phase == "movement":
         ship = ship_by_id(snap, focus) if focus is not None else None
         if ship:
+            mp = snap.get("movement_phase", "?")
+            sticky = motion_status_bits(ship)
             speed = int(ship.get("velocity") or 0)
-            course = int(ship.get("course") or 0)
-            facing = int(ship.get("facing") or 0)
-            thrust = int(ship.get("thrust_remaining") or 0)
-            schedule = {0: "none", 1: "4", 2: "2,4", 3: "1,2,4", 4: "1,2,3,4"}.get(speed, "?")
-            return (
-                f"movement/fire cycle {snap.get('movement_phase', '?')}/4:{foc}  "
-                f"speed={speed} course={course}{FACING_GLYPH.get(course, '?')} "
-                f"facing={facing}{FACING_GLYPH.get(facing, '?')} thrust={thrust} "
-                f"moves on phases [{schedule}]\n"
-                "  after this maneuver: fire window → next cycle (or end turn after 4/4)\n"
+            when = next_translation_note(speed, int(mp) if str(mp).isdigit() else 0)
+            lines = [
+                f"movement/fire cycle {mp}/4:{foc}  {sticky}",
+                f"  now: {when}",
+                "  after this maneuver: fire window → next cycle (or end turn after 4/4)",
                 "  choose one: coast | accel [course if stopped] | decel | "
-                "course port/starboard | rotate port/starboard  (motion = details)"
-            )
+                "course port/starboard | rotate port/starboard  (motion = full help)",
+            ]
+            return "\n".join(lines)
         return (
             f"movement {snap.get('movement_phase', '?')}/4: "
             "select a pending player ship; motion shows maneuver help"
@@ -714,22 +749,38 @@ def _pending_movement_ship(
 
 
 def movement_summary(ship: dict[str, Any], movement_phase: Any) -> str:
+    """Full motion help (also what `motion` / `m` / help motion should teach)."""
     speed = int(ship.get("velocity") or 0)
     course = int(ship.get("course") or 0)
     facing = int(ship.get("facing") or 0)
     thrust = int(ship.get("thrust_remaining") or 0)
-    schedule = {0: "none", 1: "4", 2: "2,4", 3: "1,2,4", 4: "1,2,3,4"}.get(speed, "?")
-    return (
-        f"  ship #{ship['id']} movement phase {movement_phase}/4\n"
-        f"  speed={speed} course={course}{FACING_GLYPH.get(course, '?')} "
-        f"facing={facing}{FACING_GLYPH.get(facing, '?')} thrust={thrust}\n"
-        f"  current speed translates on phases: {schedule}\n"
-        "  Coast keeps speed/course (cost 0). Accel/decel cost 1.\n"
-        f"  Course turns change travel direction (cost {max(speed, 1)}); "
-        "rotate changes facing only (cost 1).\n"
+    mp = movement_phase if movement_phase is not None else "?"
+    mp_int = int(mp) if str(mp).isdigit() else 0
+    lines = [
+        f"  ship #{ship['id']} movement phase {mp}/4",
+        f"  {motion_status_bits(ship)}",
+        f"  now: {next_translation_note(speed, mp_int)}",
+        f"  current speed translates on phases: {translation_schedule_label(speed)}",
+        "  Coast keeps speed/course (cost 0). Accel/decel cost 1 thrust each.",
+        f"  Course turns change travel direction (cost {max(speed, 1)} thrust); "
+        "rotate changes facing only (cost 1).",
+        "  course = where you slide; face = nose/weapons — they are independent.",
+    ]
+    if course_facing_diverge(course, facing):
+        lines.append(
+            f"  ⚠ you are sliding {dir_glyph(course)} but your nose is "
+            f"{dir_glyph(facing)} — rotate to aim, course to steer travel"
+        )
+    elif speed == 0:
+        lines.append(
+            "  stopped: accel [0..5] sets course (or bare accel keeps current course); "
+            "you will not slide until speed ≥ 1 (at speed 1: only phase 4/4)"
+        )
+    lines.append(
         "  Commands: coast | accel [0..5 if stopped] | decel | "
         "course port/starboard | rotate port/starboard"
     )
+    return "\n".join(lines)
 
 
 def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
@@ -1514,6 +1565,9 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             return Action(side="empty")
         sid = int(ship["id"])
         speed = int(ship.get("velocity") or 0)
+        course_now = int(ship.get("course") or 0)
+        facing_now = int(ship.get("facing") or 0)
+        phase_now = int(snap.get("movement_phase") or 0)
         if cmd in ("accel", "accelerate"):
             course = None
             if rest:
@@ -1524,43 +1578,52 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             if speed > 0 and course is not None:
                 print(
                     f"  ship is already moving; accel {course} keeps current course "
-                    f"{ship.get('course')}. Applying acceleration only."
+                    f"{dir_glyph(course_now)}. Applying acceleration only."
                 )
                 course = None
             maneuver: dict[str, Any] = {"type": "accelerate"}
             if course is not None:
                 maneuver["course"] = course
-            new_speed = speed + 1
-            schedule = {1: (4,), 2: (2, 4), 3: (1, 2, 4), 4: (1, 2, 3, 4)}.get(new_speed, ())
-            phase_now = int(snap.get("movement_phase") or 0)
-            if phase_now in schedule:
-                translation = "translates this movement phase"
-            else:
-                next_phase = next((p for p in schedule if p > phase_now), None)
-                translation = (
-                    f"next translation is movement phase {next_phase}/4"
-                    if next_phase is not None else "next translation is next turn"
-                )
-            course_for_note = course if course is not None else int(ship.get("course") or 0)
+            new_speed = min(speed + 1, 4)
+            course_for_note = course if course is not None else course_now
+            translation = next_translation_note(new_speed, phase_now)
             note = (
-                f"speed {speed}→{new_speed}, course {course_for_note}"
-                f"{FACING_GLYPH.get(course_for_note, '?')}; {translation}"
+                f"speed {speed}→{new_speed}, course {dir_glyph(course_for_note)}; "
+                f"{translation}"
             )
+            if speed == 0 and new_speed == 1:
+                note += " — you are not in a new hex yet"
         elif cmd in ("decel", "decelerate"):
             maneuver = {"type": "decelerate"}
-            note = "speed -1"
+            new_speed = max(speed - 1, 0)
+            note = (
+                f"speed {speed}→{new_speed}; "
+                f"{next_translation_note(new_speed, phase_now)}"
+            )
         else:
             if not rest or rest[0].lower() not in ("port", "starboard", "left", "right"):
                 print(f"  usage: {cmd} port|starboard")
                 return Action(side="empty")
             direction = rest[0].lower()
             starboard = direction in ("starboard", "right")
+            # Port = +1 on the map ring (0→ → 1↗); starboard = −1 (0→ → 5↘).
+            delta = -1 if starboard else 1
             if cmd == "course":
                 maneuver = {"type": "turn_course_starboard" if starboard else "turn_course_port"}
-                note = f"travel course turns {'starboard' if starboard else 'port'}"
+                new_course = (course_now + delta) % 6
+                note = (
+                    f"travel course {dir_glyph(course_now)}→{dir_glyph(new_course)} "
+                    f"({'starboard' if starboard else 'port'}); "
+                    f"nose still {dir_glyph(facing_now)} — rotate to aim weapons"
+                )
             else:
                 maneuver = {"type": "rotate_starboard" if starboard else "rotate_port"}
-                note = f"ship facing rotates {'starboard' if starboard else 'port'}; course unchanged"
+                new_facing = (facing_now + delta) % 6
+                note = (
+                    f"nose {dir_glyph(facing_now)}→{dir_glyph(new_facing)} "
+                    f"({'starboard' if starboard else 'port'}); "
+                    f"still sliding {dir_glyph(course_now)} — course steers travel"
+                )
         return Action(
             orders=[_order("commit_maneuver", ship=sid, maneuver=maneuver)],
             note=note,
@@ -1682,12 +1745,17 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         return Action(orders=[obj])
 
     if phase == "movement" and cmd in ("thrust", "speed", "power", "engine"):
+        ship = _pending_movement_ship(snap, ctx) or (
+            ship_by_id(snap, ctx.selected) if ctx.selected is not None else None
+        )
+        sticky = f"\n  now: {motion_status_bits(ship)}" if ship else ""
         print(
             f"  'thrust' isn't a command you type an amount into — it's the fuel "
             f"shown on your status line, spent automatically by a maneuver command.\n"
             "  Commands that spend it: coast (free) | accel [course] | decel | "
-            "course port/starboard | rotate port/starboard.\n"
-            "  Type motion to see this ship's current speed/course/thrust."
+            "course port/starboard | rotate port/starboard."
+            f"{sticky}\n"
+            "  Type motion for the full flight help block."
         )
         return Action(side="empty")
 

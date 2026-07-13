@@ -197,13 +197,19 @@ rest sets course `0→`; at speed 1 it first translates in movement phase 4/4.
 
 | Command | Effect |
 |---|---|
-| `motion` / `m` | Show current speed, course, facing, thrust, schedule, and choices |
+| `motion` / `m` | Full flight help (status + course≠face rule + speed→slide table) |
 | `coast` / `p` / `pass` | Keep velocity and course; spend 0 thrust |
 | `accel [0..5]` | Increase speed by 1; choose a course only while stopped |
 | `decel` | Decrease speed by 1 |
 | `course port` / `course starboard` | Turn travel course 60 degrees; cost is current speed, minimum 1 |
 | `rotate port` / `rotate starboard` | Rotate hull facing 60 degrees without changing course; cost 1 |
 | `m accel`, `m decel`, etc. | Equivalent prefixed forms |
+| `help motion` / `help accel` | Same inertial primer (course vs face, slide schedule) |
+
+The movement **hint** and **YOUR SHIP** line always show a sticky status:
+`v=… course=… face=… thrust=… slides=[…]`, and warn when sliding direction
+differs from the nose. After `accel` from a stop at speed 1, the note says you
+do **not** change hex until phase 4/4.
 
 Ships translate automatically according to their **post-maneuver speed**:
 
