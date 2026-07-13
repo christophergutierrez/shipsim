@@ -393,8 +393,9 @@ def run_repl(session: ShipsimSession, ui: TerminalUI) -> int:
                 )
             )
             print(phase_hint(session.snapshot, ctx))
-        else:
-            paint_frame(ui, session, ctx)
+        # Play mode: do NOT paint here. The main loop's phase-transition hook
+        # paints once when last_phase is None → allocate. Painting both here
+        # and there stacked two full frames in scrollback on short TTYs (I2/I3).
 
         last_phase: str | None = None
         terminal_announced = False

@@ -360,6 +360,9 @@ Before merging presentation work:
 6. Shield/hull bars **move** when rem/structure change?
 7. Scratch files only under **`frontend/repl/local/`**?
 8. README / this file updated if commands or glyph meanings changed?
+9. Scaled bars use `format_bar` (always `filled/total`), not bare `bar` + lone number?
+10. Play mode does not double-paint at launch; alternate screen avoids scrollback stack?
+11. New visual bugs become invariants in `screen_audit.py` (not only rubric prose)?
 9. Absolute `m N` still emits exactly **one** engine order (past regression)?
 10. Fire menu still opens **once per phase entry** — no auto-reopen after `r`?
 11. New markers/colors added to the **glyph and palette tables** in §2?

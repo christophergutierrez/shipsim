@@ -112,16 +112,24 @@ pointers to live scratch (handoffs, killhouse artifacts, PDFs under `tmp/`).
 
 Scenarios, ship definitions, campaigns, and test order streams are version-controlled inputs. Snapshots are the integration representation, while save files are deterministic replay documents. Breaking wire changes require a new protocol version, and fixtures and clients must be updated together.
 
-The external NDJSON contract is now versioned; see `docs/PROTOCOL.md`. Save files use deterministic scenario-plus-order replay with a verified PRNG checkpoint; see `docs/SAVE-FORMAT.md`.
+The external NDJSON contract is now versioned; see `docs/PROTOCOL.md` (the public
+API). Save files use deterministic scenario-plus-order replay with a verified
+PRNG checkpoint; see `docs/SAVE-FORMAT.md`.
+
+**Agents playing the game** (API tests vs UI-as-user): `docs/AGENT-PLAY.md` and
+root `AGENTS.md`.
 
 ## Verification
 
 - `cargo test` covers unit, integration, acceptance, AI, and deterministic fixture behavior.
 - `luajit frontend/love/tests/run_all.lua` covers pure Lua order and UI-state behavior.
 - `tests/fixtures/v2/duel.jsonl` is the golden end-to-end v2 replay.
+- REPL automated suite: `(cd frontend/repl && python3 -m unittest discover -s tests)`.
+- REPL live play: `python3 frontend/repl/repl.py scenarios/ai.toml`.
 
 Architecture decisions and supersession history live in `docs/adr/`.
 
 Gameplay simulation uses validated production orders as defined by ADR-0021. See `docs/SIMULATION.md` and `docs/GAMEPLAY-RUBRICS.md`.
 
 Combat constants: `docs/combat-v2-tables.md`. Play guide: `docs/PLAY-V2.md`.
+Agent play modes: `docs/AGENT-PLAY.md`.

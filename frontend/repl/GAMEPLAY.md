@@ -4,6 +4,10 @@ How to **play** Combat Model v2 through `frontend/repl/`. Rules live in the Rust
 engine (`docs/PLAY-V2.md`, ADR-0020); this file is the **REPL-shaped** walkthrough:
 phases, commands, what the screen means, and common traps.
 
+This is **Mode 2 (UI as a user)** in `docs/AGENT-PLAY.md`. For automated tests
+and raw API play without the interactive frame, use that doc’s Mode 1 and
+`docs/PROTOCOL.md`.
+
 Start a game:
 
 ```bash

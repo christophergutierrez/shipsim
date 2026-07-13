@@ -15,6 +15,7 @@ from hexutil import (
     FACING_GLYPH,
     SHIELD_LABELS,
     bar,
+    format_bar,
     distance,
     damage_preview,
     hit_preview,
@@ -466,7 +467,7 @@ class AllocDraft:
             ch = int(self.weapons.get(wid, 0))
             mx = max(int(m["max_charge"]), 1)
             lines.append(
-                f"    {short:4} {wid:10} {bar(ch, mx)} {ch}/{m['max_charge']}  "
+                f"    {short:4} {wid:10} {format_bar(ch, mx)}  "
                 f"({m.get('kind')})"
             )
         lines.append("  set: t1 1   or   b1 2   |  done leaves group  |  sh = shields")
@@ -477,18 +478,20 @@ class AllocDraft:
         for i, lab in enumerate(SHIELD_LABELS):
             v = self.shields[i]
             mx = max(self.max_shield, 1)
-            lines.append(f"    {i}:{lab:2} {bar(v, mx)} {v}/{self.max_shield}")
+            lines.append(f"    {i}:{lab:2} {format_bar(v, mx)}")
         lines.append("  set: 0 3   or   F 2   |  done leaves group  |  w = weapons")
         return "\n".join(lines)
 
     def summary(self) -> str:
         used, free = self.used(), self.free()
         over = "  ** OVER **" if free < 0 else ""
+        pool = max(self.power, 1)
         lines = [
             f"  draft #{self.ship_id} {self.ship_class}  "
             f"pool={self.power} used={used} free={free}{over}",
-            f"  total {bar(used, self.power)}",
-            f"  engine {bar(self.movement, max(self.power, 1))} {self.movement}  (→ thrust for movement phase)",
+            # format_bar always prints filled/total so scaled bars (pool>16) stay honest
+            f"  total  {format_bar(used, self.power)}",
+            f"  engine {format_bar(self.movement, pool)}  (→ thrust for movement phase)",
             "  weapons:",
         ]
         for m in self.weapon_meta:
@@ -496,14 +499,12 @@ class AllocDraft:
             short = weapon_short_alias(wid, str(m.get("kind") or ""))
             ch = int(self.weapons.get(wid, 0))
             mx = max(int(m["max_charge"]), 1)
-            lines.append(
-                f"    {short:4} {wid:10} {bar(ch, mx)} {ch}/{m['max_charge']}"
-            )
+            lines.append(f"    {short:4} {wid:10} {format_bar(ch, mx)}")
         lines.append("  shields:")
         for i, lab in enumerate(SHIELD_LABELS):
             v = self.shields[i]
             mx = max(self.max_shield, 1)
-            lines.append(f"    {i}:{lab:2} {bar(v, mx)} {v}/{self.max_shield}")
+            lines.append(f"    {i}:{lab:2} {format_bar(v, mx)}")
         if free > 0:
             lines.append(f"  ⚠ {free} unspent power — put it toward engine, a weapon, or a shield")
         return "\n".join(lines)
@@ -1056,7 +1057,7 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
         ch, mx = int(w.get("charge") or 0), int(w.get("max_charge") or 0)
         mount = str(w.get("mount") or w.get("arc") or "?")
         print(
-            f"    [{i}] {w.get('id')} {bar(ch, max(mx,1))} {ch}/{mx} "
+            f"    [{i}] {w.get('id')} {format_bar(ch, max(mx,1))} "
             f"rng≤{w.get('max_range')} arc={mount}"
         )
     aliases = build_weapon_aliases([

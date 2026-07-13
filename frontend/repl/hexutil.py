@@ -222,7 +222,12 @@ def threats_to_ship(
 
 
 def bar(filled: int, total: int, width: Optional[int] = None) -> str:
-    """Text bar like [####....]. filled/total; width defaults to total (capped)."""
+    """Text bar body like [####....].
+
+    When total > width (default cap 16), the bar is *scaled* and hashes are not
+    1:1 with `filled`. Callers MUST show a filled/total label (use format_bar)
+    so readers never confuse hash count with the numeric value.
+    """
     total = max(0, int(total))
     filled = min(total, max(0, int(filled)))
     if total <= 0:
@@ -234,3 +239,14 @@ def bar(filled: int, total: int, width: Optional[int] = None) -> str:
     nf = round(filled * w / total) if total else 0
     nf = min(w, max(0, nf))
     return "[" + "#" * nf + "." * (w - nf) + "]"
+
+
+def format_bar(filled: int, total: int, width: Optional[int] = None) -> str:
+    """Bar plus always-honest filled/total label (safe for scaled bars)."""
+    total_i = max(0, int(total))
+    filled_i = max(0, int(filled))
+    if total_i <= 0:
+        return f"{bar(0, 0, width)} 0/0"
+    # Clamp fill for display consistency with bar()
+    filled_disp = min(total_i, filled_i)
+    return f"{bar(filled_disp, total_i, width)} {filled_disp}/{total_i}"

@@ -15,6 +15,7 @@ from hexutil import (
     FACING_LEGEND,
     SHIELD_LABELS,
     bar,
+    format_bar,
     damage_preview,
     distance,
     hit_preview,
@@ -261,11 +262,11 @@ def format_weapons(
             if not w.get("operational", True):
                 tail += sty_dead(" (box)")
             # Never show leftover charge after a resolved shot.
-            b = bar(0, mx)
+            meter = format_bar(0, mx)
             ch_note = muted(" charge spent")
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
-                f"rng≤{w.get('max_range')} {b} {tail}{ch_note}"
+                f"rng≤{w.get('max_range')} {meter} {tail}{ch_note}"
             )
         elif is_queued:
             # Simplified tail: the PENDING FIRE panel carries the full target/
@@ -273,31 +274,30 @@ def format_weapons(
             # (UX_ANALYSIS.md §1c — dedup with PENDING FIRE panel).
             tail = sty_queued("QUEUED (see PENDING FIRE)")
             # Charge still present until resolve — do not call it available CHG.
-            b = bar(ch, mx)
+            meter = format_bar(ch, mx)
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
-                f"rng≤{w.get('max_range')} {b} {tail}"
+                f"rng≤{w.get('max_range')} {meter} {tail}"
             )
         elif not w.get("operational", True):
             tail = sty_dead("DESTROYED (cannot recharge)")
-            b = bar(0, mx)
+            meter = format_bar(0, mx)
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
-                f"rng≤{w.get('max_range')} {b} {tail}"
+                f"rng≤{w.get('max_range')} {meter} {tail}"
             )
         elif ch > 0:
-            tail = sty_available(f"CHARGED {ch}/{max_c}  (ready to fire)")
-            b = bar(ch, mx)
+            tail = sty_available("ready to fire")
+            meter = format_bar(ch, mx)
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
-                f"rng≤{w.get('max_range')} {b} {tail}"
+                f"rng≤{w.get('max_range')} {meter} {tail}"
             )
         else:
-            tail = muted(f"0/{max_c}")
-            b = bar(0, mx)
+            meter = format_bar(0, mx)
             lines.append(
                 f"{indent}{wid:10} {w.get('kind'):6} arc={w.get('arc')} "
-                f"rng≤{w.get('max_range')} {b} {tail}"
+                f"rng≤{w.get('max_range')} {meter}"
             )
 
     # Explicit shot list so multi-weapon volleys aren't lost in RECENT truncation.
@@ -333,10 +333,10 @@ def format_shields(
         rem = int(remaining[i]) if i < len(remaining) else 0
         pwr = int(powered[i]) if i < len(powered) else 0
         mark = "←" if i in hi else " "
-        # rem against max_face so hits visibly shrink the bar
+        # rem against max_face so hits visibly shrink the bar; always show rem/max
         lines.append(
-            f"{indent}{mark}{i}:{lab:2} {bar(rem, max_face)} "
-            f"remaining={rem} / powered={pwr}"
+            f"{indent}{mark}{i}:{lab:2} {format_bar(rem, max_face)} "
+            f"powered={pwr}"
         )
     return "\n".join(lines)
 
@@ -375,7 +375,7 @@ def format_ship_card(
 
     if redacted:
         # Sensor-limited: hull bar only, no bridge/engine/power_sys/keel ratings.
-        parts.append(f"    hull {bar(hull, hmax)} {hull}/{hmax}")
+        parts.append(f"    hull {format_bar(hull, hmax)}")
     else:
         # Spelled-out labels (UX_ANALYSIS.md §4g): avoid opaque abbreviations.
         systems = (
@@ -384,7 +384,7 @@ def format_ship_card(
         )
         if ship.get("keel") is not None:
             systems += f" frame={ship.get('keel')}"
-        parts.append(f"    hull {bar(hull, hmax)} {hull}/{hmax}  {systems}")
+        parts.append(f"    hull {format_bar(hull, hmax)}  {systems}")
 
     highlight = None
     if vs is not None and not vs.get("destroyed"):

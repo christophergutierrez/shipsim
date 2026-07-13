@@ -60,8 +60,9 @@ With two player ships: finish **End/Pass on ship #1**, then ship #2 becomes Acti
 
 ```
 cargo build
-python3 frontend/repl/repl.py scenarios/ai.toml   # interactive dev client (recommended)
-python3 frontend/repl/client.py                   # non-interactive smoke
+python3 frontend/repl/repl.py scenarios/ai.toml   # interactive UI (play as user)
+python3 frontend/repl/client.py                   # non-interactive API smoke
+(cd frontend/repl && python3 -m unittest discover -s tests)  # REPL automated suite
 luajit frontend/love/tests/run_all.lua            # Love unit tests
 love frontend/love                                # graphical client (secondary)
 ```
@@ -69,3 +70,6 @@ love frontend/love                                # graphical client (secondary)
 All clients and their session logs live under `frontend/<name>/` (see
 `frontend/README.md`). Do not scatter frontend scratch at the repo root, in
 repo `/tmp`, or system `/tmp`.
+
+**API:** `docs/PROTOCOL.md`. **Agents (tests vs UI play):** `docs/AGENT-PLAY.md`,
+root `AGENTS.md`.

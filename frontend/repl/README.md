@@ -1,16 +1,22 @@
 # shipsim REPL (playable dev client)
 
 Ship-centric text client for Combat Model v2. Spawns the Rust `shipsim` harness
-over stdin/stdout NDJSON (`protocol_version: 1`).
+over stdin/stdout NDJSON (`protocol_version: 2`).
 
 **This directory is the entire REPL client.** See `frontend/README.md`.
+
+Agents: for *how* to play (automated tests vs live UI), read
+**`docs/AGENT-PLAY.md`** and root **`AGENTS.md`**. API wire format:
+**`docs/PROTOCOL.md`**.
 
 ```
 frontend/repl/
   repl.py client.py commands.py view.py hexutil.py style.py screen.py
+  screen_audit.py # PTY+pyte grid invariants (I1–I3); needs pexpect+pyte
   README.md       # this file — run, flags, map of docs
-  GAMEPLAY.md     # how to play (phases, commands, traps)  ← start here to play
+  GAMEPLAY.md     # how to play (phases, commands, traps)  ← start here for UI play
   ASCII-UI.md     # terminal presentation practices (for UI work)
+  tests/          # automated Mode 1 suite (unittest)
   .gitignore
   local/          # gitignored: session logs, orders, readline history
 ```
@@ -19,9 +25,11 @@ frontend/repl/
 
 | File | Audience |
 |---|---|
-| **[`GAMEPLAY.md`](GAMEPLAY.md)** | Players / agents learning the play loop in this client |
+| **[`GAMEPLAY.md`](GAMEPLAY.md)** | Players / agents learning the **live** play loop in this client |
 | **[`ASCII-UI.md`](ASCII-UI.md)** | Anyone changing layout, colors, map glyphs, draft UX |
 | `README.md` | Run commands, logging, isolation |
+| `../../docs/AGENT-PLAY.md` | Mode 1 (tests/API) vs Mode 2 (UI as user) |
+| `../../docs/PROTOCOL.md` | Engine API |
 
 Rules of the game (engine): `docs/PLAY-V2.md`, `docs/PROTOCOL.md`, ADR-0020.
 
@@ -51,6 +59,26 @@ full `ORDER` JSON lines (does not change the play frame).
 to write its save under `frontend/repl/local/`.
 
 Arrow-up recalls prior command lines (`local/history`).
+
+**Automated tests (Mode 1 — agent regression / basic bugs):**
+
+```bash
+cd frontend/repl
+python3 -m unittest discover -s tests -v
+python3 -m unittest tests.test_bar_honesty -v
+```
+
+See `docs/AGENT-PLAY.md` § Mode 1.
+
+**Screen audit (grid invariants, not self-play):**
+
+```bash
+pip install pexpect pyte   # once
+python3 frontend/repl/screen_audit.py
+```
+
+Asserts bar-label honesty (I1), no duplicate panels on one screen (I2), and that
+the frame header stays on a 40-row terminal (I3).
 
 ## Play loop (summary)
 

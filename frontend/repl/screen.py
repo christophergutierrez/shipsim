@@ -48,6 +48,7 @@ class TerminalUI:
         self._file: Optional[TextIO] = None
         self.session_path = session_path
         self._real_print = print
+        self._alt_screen = False  # xterm alternate buffer (no scrollback stack)
         if session_path is not None:
             session_path.parent.mkdir(parents=True, exist_ok=True)
             self._file = open(session_path, "a", encoding="utf-8")
@@ -64,10 +65,26 @@ class TerminalUI:
         return self.session_path
 
     def close(self) -> None:
+        self.leave_alt_screen()
         if self._file is not None:
             self._file.write(f"===== end {datetime.now().isoformat()} =====\n")
             self._file.close()
             self._file = None
+
+    def enter_alt_screen(self) -> None:
+        """Use the terminal alternate screen so paints do not stack in scrollback."""
+        if self.scroll or self._alt_screen or not sys.stdout.isatty():
+            return
+        # Save cursor/alt buffer (xterm). Harmless no-ops on dumb terminals that
+        # ignore unknown sequences when we only enter on isatty().
+        self._real_print("\x1b[?1049h\x1b[2J\x1b[H", end="", flush=True)
+        self._alt_screen = True
+
+    def leave_alt_screen(self) -> None:
+        if not self._alt_screen:
+            return
+        self._real_print("\x1b[?1049l", end="", flush=True)
+        self._alt_screen = False
 
     def _write_file(self, text: str) -> None:
         if self._file is not None:
@@ -146,7 +163,8 @@ class TerminalUI:
     def clear(self) -> None:
         if self.scroll or not sys.stdout.isatty():
             return
-        self._real_print("\033[2J\033[H", end="")
+        # Home + clear. On the alternate screen this never pollutes scrollback.
+        self._real_print("\033[H\033[2J", end="", flush=True)
 
     def redraw(
         self,
@@ -163,6 +181,8 @@ class TerminalUI:
         if self.scroll:
             return
 
+        if not self._alt_screen:
+            self.enter_alt_screen()
         self.clear()
         lines: list[str] = []
         if banner:
@@ -198,7 +218,7 @@ class TerminalUI:
                 )
             )
         frame = "\n".join(lines)
-        self._real_print(frame)
+        self._real_print(frame, flush=True)
         # Always persist frames to the session file so post-mortems match the screen.
         self._write_file("--- frame ---\n" + frame)
 
