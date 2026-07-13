@@ -1,10 +1,11 @@
 id = "heavy_cruiser"
 name = "Heavy Cruiser"
+size = 2
 speed = 4
 power = 22
 max_shield_per_facing = 6
 structure = 12
-max_velocity = 4
+max_velocity = 8
 thrust_per_power = 1
 power_per_thrust = 1
 

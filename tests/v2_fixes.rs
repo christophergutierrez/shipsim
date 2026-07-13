@@ -23,6 +23,10 @@ fn load_combat() -> shipsim_core::game_state::GameState {
     load_scenario(&manifest_path("scenarios/combat.toml")).expect("combat loads")
 }
 
+fn load_size_hit() -> shipsim_core::game_state::GameState {
+    load_scenario(&manifest_path("scenarios/m8_size_hit.toml")).expect("size-hit loads")
+}
+
 fn load_fleet() -> shipsim_core::game_state::GameState {
     load_scenario(&manifest_path("scenarios/fleet.toml")).expect("fleet loads")
 }
@@ -221,11 +225,11 @@ fn e4_snapshot_exposes_power_available() {
 /// M5 interleaves fire back in.
 #[test]
 fn e4b_snapshot_power_available_drops_after_damage() {
-    let mut game = load_combat();
+    let mut game = load_size_hit();
     game.set_ship_facing(1, 3).unwrap();
     game.set_ship_pos(2, Hex::new(0, 0)).unwrap();
     game.set_ship_facing(2, 0).unwrap();
-    // Seed 4242's first d20 is 16, a hit vs a range-1 beam threshold of 18.
+    // Seed 7's first d20 is 8, a hit vs the Escort's size-1 threshold of 9.
     allocate(&mut game, 1, 0, &[("beam_1", 3)], [0; 6]);
     allocate(&mut game, 2, 1, &[], [0; 6]); // zero shields: overflow = full damage
     for id in [1u32, 2] {

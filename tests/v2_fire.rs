@@ -15,6 +15,10 @@ fn load_combat() -> shipsim_core::game_state::GameState {
     load_scenario(&manifest_path("scenarios/combat.toml")).expect("combat loads")
 }
 
+fn load_size_hit() -> shipsim_core::game_state::GameState {
+    load_scenario(&manifest_path("scenarios/m8_size_hit.toml")).expect("size-hit loads")
+}
+
 fn load_fleet() -> shipsim_core::game_state::GameState {
     load_scenario(&manifest_path("scenarios/fleet.toml")).expect("fleet loads")
 }
@@ -80,6 +84,8 @@ fn ready_all(game: &mut shipsim_core::game_state::GameState, ships: &[u32]) {
 
 #[test]
 fn test_v2_fire_illegal_before_closing_then_commit_legal_after_move() {
+    // Protocol 3: constant-rate slide. Start at range 11 (illegal for beam max 10);
+    // accel once along facing 3 closes 1 hex to range 10 (legal).
     let mut game = load_fleet();
     game.set_ship_pos(1, Hex::new(11, 0)).unwrap();
     game.set_ship_facing(1, 3).unwrap();
@@ -87,19 +93,15 @@ fn test_v2_fire_illegal_before_closing_then_commit_legal_after_move() {
     game.set_ship_facing(2, 0).unwrap();
     game.set_ship_pos(3, Hex::new(5, 5)).unwrap();
     game.set_ship_pos(4, Hex::new(6, 5)).unwrap();
-    // Ship 1 accelerates west (course 3) toward ship 2 across all four
-    // movement phases this turn: velocity schedule means it only actually
-    // translates in phases 2 and 4 (v2's and v4's schedules), closing two
-    // hexes (11 -> 9) by the end of the turn — accelerate costs 1 thrust each.
     allocate(&mut game, 1, 4, &[("beam_1", 1)], [0; 6]);
     allocate(&mut game, 2, 0, &[("beam_1", 1)], [2, 0, 0, 0, 0, 0]);
     allocate(&mut game, 3, 0, &[("beam_1", 1)], [0; 6]);
     allocate(&mut game, 4, 0, &[("beam_1", 1)], [0; 6]);
 
-    // Phase 1: accelerate from a stop, selecting the course. Velocity 1 does
-    // not translate in phase 1, so ship 1 is still at range 11.
-    commit_maneuver(&mut game, 1, Maneuver::Accelerate { course: Some(3) }).expect("accelerate");
-    for id in [2u32, 3, 4] {
+    // Before moving: still range 11 — fire illegal. Use coast for all so we can
+    // try fire without sliding first... actually we need a fire window. Coast
+    // all without accel keeps range 11.
+    for id in [1u32, 2, 3, 4] {
         commit_maneuver(&mut game, id, Maneuver::Coast).expect("coast");
     }
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
@@ -116,33 +118,17 @@ fn test_v2_fire_illegal_before_closing_then_commit_legal_after_move() {
     assert!(matches!(err, OrderError::OutOfRange { .. }));
     ready_all(&mut game, &[1, 2, 3, 4]);
 
-    // Phases 2-3: keep accelerating (velocity 1 -> 2 -> 3). Velocity 2 translates
-    // in phase 2, closing one hex (11 -> 10); velocity 3 does not translate in
-    // phase 3.
-    for _ in 0..2 {
-        commit_maneuver(&mut game, 1, Maneuver::Accelerate { course: None }).expect("accelerate");
-        for id in [2u32, 3, 4] {
-            commit_maneuver(&mut game, id, Maneuver::Coast).expect("coast");
-        }
-        ready_all(&mut game, &[1, 2, 3, 4]);
-    }
-
-    // Phase 4: accelerate to velocity 4, which translates in phase 4, closing
-    // the second hex (10 -> 9) — check before readying, so the fire window is
-    // still open to commit into.
-    commit_maneuver(&mut game, 1, Maneuver::Accelerate { course: None }).expect("accelerate");
+    // Accel along facing 3: speed 1, slide 1 hex toward target.
+    commit_maneuver(&mut game, 1, Maneuver::Accel).expect("accel");
     for id in [2u32, 3, 4] {
         commit_maneuver(&mut game, id, Maneuver::Coast).expect("coast");
     }
-    // scenarios/fleet.toml is a floating map: the whole formation recenters after
-    // each phase that moves a ship, so check the closed *distance* rather than an
-    // absolute hex (recentering preserves relative positions).
     let distance = game
         .ship(1)
         .unwrap()
         .pos
         .distance(game.ship(2).unwrap().pos);
-    assert_eq!(distance, 9, "closed two hexes (11 -> 9)");
+    assert_eq!(distance, 10, "closed one hex (11 -> 10)");
     assert_eq!(StateSnapshot::from_game_state(&game).phase, "firing");
     apply_order(
         &mut game,
@@ -255,7 +241,7 @@ fn test_v2_miss_consumes_weapon_without_damage() {
 
 #[test]
 fn test_v2_shield_depletes_then_hull_takes_overflow() {
-    let mut game = load_combat();
+    let mut game = load_size_hit();
     game.set_ship_pos(1, Hex::new(1, 0)).unwrap();
     game.set_ship_facing(1, 3).unwrap();
     game.set_ship_pos(2, Hex::new(0, 0)).unwrap();
@@ -293,7 +279,7 @@ fn test_v2_shield_depletes_then_hull_takes_overflow() {
 
 #[test]
 fn test_v2_unpowered_facing_absorbs_zero() {
-    let mut game = load_combat();
+    let mut game = load_size_hit();
     game.set_ship_pos(1, Hex::new(1, 0)).unwrap();
     game.set_ship_facing(1, 3).unwrap();
     game.set_ship_pos(2, Hex::new(0, 0)).unwrap();

@@ -30,6 +30,8 @@ pub enum LoadError {
     OffBoard { q: i32, r: i32 },
     #[error("facing {facing} is not in 0..=5")]
     InvalidFacing { facing: u8 },
+    #[error("ship class {class:?} has size 0; size must be at least 1")]
+    InvalidShipSize { class: String },
     #[error("ships {a} and {b} both placed on hex ({q},{r})")]
     OverlappingPlacement { a: u32, b: u32, q: i32, r: i32 },
     #[error("scenario defines both objective and destruction terminal")]
@@ -129,6 +131,11 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         }
 
         let ship_def = load_ship_def(path, &placement.class)?;
+        if ship_def.size == 0 {
+            return Err(LoadError::InvalidShipSize {
+                class: placement.class.clone(),
+            });
+        }
         let ctrl = placement.controller.to_ascii_lowercase();
         let is_ai = matches!(ctrl.as_str(), "ai" | "greedy");
         let is_scripted = !is_ai && ctrl == "scripted";
@@ -213,6 +220,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name,
+            size: ship_def.size,
             pos,
             facing: placement.facing,
             speed: ship_def.speed,

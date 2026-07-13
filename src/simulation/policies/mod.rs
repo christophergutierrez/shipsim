@@ -71,23 +71,29 @@ impl BaselinePolicy {
             0
         };
         let weapon_budget = remaining - defensive_reserve;
+        // Protocol 3: charge carries. Desired totals must be >= current charge;
+        // only *increases* spend from the power pool.
         let mut weapon_remaining = weapon_budget;
         for weapon in ship.weapons.iter().filter(|weapon| weapon.operational) {
-            if weapon_remaining == 0 {
-                break;
-            }
+            let have = weapon.charge;
             let desired = match self.style {
-                Style::Mobility => 1,
+                Style::Mobility => 1u32.max(have),
                 Style::Random => {
-                    1 + (self.next_random() % u64::from(weapon.max_charge.max(1))) as u32
+                    let roll =
+                        1 + (self.next_random() % u64::from(weapon.max_charge.max(1))) as u32;
+                    roll.max(have)
                 }
-                _ => weapon.max_charge,
+                _ => weapon.max_charge.max(have),
             };
-            let charge = desired.min(weapon.max_charge).min(weapon_remaining);
-            if charge > 0 {
-                weapons.insert(weapon.id.clone(), charge);
-                weapon_remaining -= charge;
+            let target = desired.min(weapon.max_charge).max(have);
+            let increase = target.saturating_sub(have);
+            if increase > weapon_remaining {
+                // Keep carried charge; cannot afford top-up.
+                weapons.insert(weapon.id.clone(), have);
+                continue;
             }
+            weapons.insert(weapon.id.clone(), target);
+            weapon_remaining -= increase;
         }
         remaining -= weapon_budget - weapon_remaining;
 
@@ -161,26 +167,23 @@ impl BaselinePolicy {
                 return i32::MIN;
             };
             let mut score = match (self.style, maneuver) {
-                (Style::Mobility, Maneuver::Accelerate { .. }) => 100,
-                (Style::Aggressive, Maneuver::Accelerate { .. }) => 90,
-                (Style::Greedy, Maneuver::Accelerate { .. }) => 80,
-                (_, Maneuver::Accelerate { .. }) => 70,
-                (Style::Defensive, Maneuver::RotatePort | Maneuver::RotateStarboard) => 75,
+                (Style::Mobility, Maneuver::Accel) => 100,
+                (Style::Aggressive, Maneuver::Accel) => 90,
+                (Style::Greedy, Maneuver::Accel) => 80,
+                (_, Maneuver::Accel) => 70,
+                (Style::Defensive, Maneuver::Turn { .. }) => 75,
                 (_, Maneuver::Coast) => 20,
-                (_, Maneuver::Decelerate) => 10,
-                (_, Maneuver::TurnCoursePort | Maneuver::TurnCourseStarboard) => 60,
-                (_, Maneuver::RotatePort | Maneuver::RotateStarboard) => 30,
+                (_, Maneuver::Turn { .. }) => 50,
             };
             if let Some(wanted) = desired {
                 match maneuver {
-                    Maneuver::Accelerate {
-                        course: Some(course),
-                    } if *course == wanted => score += 50,
-                    Maneuver::TurnCourseStarboard if (current + 5) % 6 == wanted => score += 45,
-                    Maneuver::TurnCoursePort if (current + 1) % 6 == wanted => score += 45,
+                    Maneuver::Turn { facing } if *facing == wanted => score += 50,
+                    Maneuver::Accel if context.ship.facing == wanted => score += 40,
+                    Maneuver::Accel if context.ship.course == wanted => score += 30,
                     _ => {}
                 }
             }
+            let _ = current;
             score
         })
     }

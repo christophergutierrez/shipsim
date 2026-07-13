@@ -21,25 +21,22 @@ FACING_LEGEND = "0→ 1↗ 2↖ 3← 4↙ 5↘  (q right, r down; port=↗, star
 # Relative shield labels (0 = ship's own forward face).
 SHIELD_LABELS = ["F", "FR", "RR", "R", "RL", "FL"]
 
-# Inertial translation schedule (ADR-0022): which of the four movement phases
-# a ship actually slides on, given its *current* speed. Presentation only —
-# engine remains authoritative.
-TRANSLATION_PHASES: dict[int, tuple[int, ...]] = {
-    0: (),
-    1: (4,),
-    2: (2, 4),
-    3: (1, 2, 4),
-    4: (1, 2, 3, 4),
-}
+# Protocol 3: constant-rate slide — each cycle the ship moves `speed` hexes
+# along course (all four movement phases if speed > 0). Presentation only.
 
 
 def translation_phases(speed: int) -> tuple[int, ...]:
-    return TRANSLATION_PHASES.get(int(speed), ())
+    s = int(speed)
+    if s <= 0:
+        return ()
+    return (1, 2, 3, 4)
 
 
 def translation_schedule_label(speed: int) -> str:
-    phases = translation_phases(speed)
-    return "none" if not phases else ",".join(str(p) for p in phases)
+    s = int(speed)
+    if s <= 0:
+        return "none"
+    return f"every cycle ×{s} hex"
 
 
 def dir_glyph(direction: int) -> str:
@@ -67,24 +64,15 @@ def motion_status_bits(ship: dict) -> str:
 
 
 def next_translation_note(speed: int, movement_phase: int) -> str:
-    """Human note: when the ship will next slide after this speed is set."""
-    schedule = translation_phases(speed)
-    if not schedule:
-        return "POSITION HOLDS: stopped at speed 0; accelerate to begin moving"
-    phase_now = int(movement_phase or 0)
-    if phase_now in schedule:
-        return "MOVE OCCURS after this maneuver resolves: 1 hex on the current course"
-    next_phase = next((p for p in schedule if p > phase_now), None)
-    if next_phase is not None:
-        if speed == 1 and next_phase == 4:
-            return (
-                f"POSITION HOLDS this cycle; the next 1-hex move occurs after "
-                f"your movement cycle {next_phase}/4 maneuver (speed 1 moves once per turn)"
-            )
-        return (
-            f"POSITION HOLDS this cycle; the next 1-hex move occurs after "
-            f"your movement cycle {next_phase}/4 maneuver"
-        )
+    """Human note: how many hexes you slide this cycle (protocol 3 constant rate)."""
+    _ = movement_phase
+    s = int(speed)
+    if s <= 0:
+        return "POSITION HOLDS: stopped (speed 0); accel to begin sliding each cycle"
+    return (
+        f"MOVE OCCURS after this maneuver: slide {s} hex(es) along course "
+        f"(constant rate every cycle)"
+    )
     return "POSITION HOLDS for the rest of this turn; the next move is next turn"
 
 # Presentation-only preview of the engine's documented d20 threshold tables.
@@ -97,12 +85,14 @@ _TO_HIT = {
 }
 
 
-def hit_preview(kind: str, range_: int) -> tuple[int, int] | None:
-    """Return (d20 threshold, percent) for the engine's range table."""
+def hit_preview(kind: str, range_: int, target_size: int = 2) -> tuple[int, int] | None:
+    """Return the engine's size-adjusted (d20 threshold, percent)."""
     values = _TO_HIT.get(str(kind).lower())
-    if not values or range_ < 1 or range_ > len(values):
+    if not values or range_ < 1 or range_ > len(values) or target_size < 1:
         return None
-    threshold = values[range_ - 1]
+    base = values[range_ - 1]
+    # Size 2 is neutral. Match the engine's positive half-up integer scaling.
+    threshold = min(20, max(1, (base * target_size + 1) // 2))
     return threshold, threshold * 5
 
 

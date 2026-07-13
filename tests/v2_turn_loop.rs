@@ -18,6 +18,10 @@ fn load_combat() -> shipsim_core::game_state::GameState {
     load_scenario(&manifest_path("scenarios/combat.toml")).expect("combat loads")
 }
 
+fn load_size_hit() -> shipsim_core::game_state::GameState {
+    load_scenario(&manifest_path("scenarios/m8_size_hit.toml")).expect("size-hit loads")
+}
+
 fn load_fleet() -> shipsim_core::game_state::GameState {
     load_scenario(&manifest_path("scenarios/fleet.toml")).expect("fleet loads")
 }
@@ -213,7 +217,7 @@ fn test_g4_end_turn_warning_false_when_no_actions() {
 /// immediately, without waiting for the remaining movement phases.
 #[test]
 fn test_g5_destruction_win() {
-    let mut game = load_combat();
+    let mut game = load_size_hit();
     game.set_ship_pos(1, shipsim_core::hex::Hex::new(1, 0))
         .unwrap();
     game.set_ship_facing(1, 3).unwrap();
@@ -251,8 +255,8 @@ fn test_player_fleet_destruction_is_lost() {
     );
 }
 
-/// G6: EndTurn (legal in any phase after allocation) clears allocation,
-/// thrust, shields, and weapon charges/fired flags for a fresh turn.
+/// G6: EndTurn clears thrust/shields/fired flags. Protocol 3: weapon charge
+/// *carries* across turns; shields always re-buy from 0.
 #[test]
 fn test_g6_new_turn_resets_allocation() {
     let mut game = load_fleet();
@@ -274,8 +278,18 @@ fn test_g6_new_turn_resets_allocation() {
         assert_eq!(ship.shields_powered, [0; 6], "ship {}", ship.id);
         assert_eq!(ship.shields_remaining, [0; 6], "ship {}", ship.id);
         for weapon in &ship.weapons {
-            assert_eq!(weapon.charge, 0, "ship {} weapon {}", ship.id, weapon.id);
             assert!(!weapon.fired, "ship {} weapon {}", ship.id, weapon.id);
         }
     }
+    // Carried charge on ship 1 beam_1.
+    let beam = snapshot
+        .ships
+        .iter()
+        .find(|s| s.id == 1)
+        .unwrap()
+        .weapons
+        .iter()
+        .find(|w| w.id == "beam_1")
+        .unwrap();
+    assert_eq!(beam.charge, 2);
 }

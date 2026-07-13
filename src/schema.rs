@@ -11,6 +11,10 @@ pub struct ShipDef {
     #[serde(default)]
     pub id: String,
     pub name: String,
+    /// Relative target silhouette. Size 2 is the neutral to-hit baseline;
+    /// smaller ships are harder to hit and larger ships are easier to hit.
+    #[serde(default = "default_ship_size")]
+    pub size: u32,
     pub speed: u32,
     /// Energy per turn; defaults to `speed` when omitted (full movement available).
     #[serde(default)]
@@ -34,6 +38,10 @@ pub struct ShipDef {
     /// Engine power required per unit of thrust (ADR-0022 §5). Defaults to 1.
     #[serde(default = "default_power_per_thrust")]
     pub power_per_thrust: u32,
+}
+
+fn default_ship_size() -> u32 {
+    crate::combat_tables::BASELINE_TARGET_SIZE
 }
 
 fn default_thrust_per_power() -> u32 {

@@ -1,0 +1,25 @@
+width = 4
+height = 4
+seed = 7
+
+# Deterministic size-adjusted damage fixture: first d20 roll is 8, which hits
+# an Escort's size-1 range-1 beam threshold of 9.
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 1
+r = 0
+facing = 3
+controller = "player"
+
+[[ships]]
+id = 2
+class = "escort"
+q = 0
+r = 0
+facing = 0
+controller = "scripted"

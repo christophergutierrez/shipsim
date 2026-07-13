@@ -39,7 +39,7 @@ def _ship(sid, controller, q=0, r=0, facing=0, destroyed=False, weapons=None):
 
 def _snap(ships, phase, **kw):
     snap = {
-        "protocol_version": 2, "phase": phase, "status": "Playing",
+        "protocol_version": 3, "phase": phase, "status": "Playing",
         "turn": 1, "active_ship": None, "ships": ships, "combat_log": [],
         "ships_allocated_this_turn": [], "ships_committed_this_phase": [],
         "ships_ready_fire": [], "fire_commits": [],

@@ -10,7 +10,7 @@ import re
 import unittest
 from contextlib import redirect_stdout
 
-from hexutil import MOUNT_FACINGS, distance, weapon_in_arc, threats_to_ship
+from hexutil import MOUNT_FACINGS, distance, hit_preview, weapon_in_arc, threats_to_ship
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -34,9 +34,19 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None, destroyed=Fals
     return {
         "id": sid, "class": "Scout", "controller": controller,
         "destroyed": destroyed, "q": q, "r": r, "facing": facing,
-        "structure": 4, "power": 4, "weapons": weapons or [],
+        "structure": 4, "power": 4, "size": 2, "weapons": weapons or [],
         "max_shield_per_facing": 2,
     }
+
+
+class TargetSizeHitPreviewTests(unittest.TestCase):
+    def test_size_one_halves_and_size_four_doubles_baseline_chance(self):
+        self.assertEqual((8, 40), hit_preview("beam", 3, 1))
+        self.assertEqual((15, 75), hit_preview("beam", 3, 2))
+        self.assertEqual((20, 100), hit_preview("beam", 3, 4))
+
+    def test_invalid_size_has_no_preview(self):
+        self.assertIsNone(hit_preview("beam", 3, 0))
 
 
 class WeaponInArcTests(unittest.TestCase):
@@ -172,6 +182,30 @@ class FirePickerOutputTests(unittest.TestCase):
                 builtins.input = orig_input
         text = ANSI.sub("", buf.getvalue())
         self.assertIn("[OUT OF RANGE]", text)
+
+    def test_target_picker_displays_size_adjusted_odds(self):
+        from commands import interactive_fire
+
+        ship = _ship(1, 0, 0, 0, "player",
+                     [_weapon("forward", max_range=5, id="L1", kind="beam")])
+        enemy = _ship(2, 3, 0, 3, "ai")
+        enemy["size"] = 1
+        snap = {"ships": [ship, enemy], "phase": "firing", "status": "Playing",
+                "turn": 1, "active_ship": 1, "combat_log": []}
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            import builtins
+            orig_input = builtins.input
+            answers = iter(["0", "0", "0"])
+            builtins.input = lambda *_a, **_k: next(answers)
+            try:
+                interactive_fire(snap, 1)
+            finally:
+                builtins.input = orig_input
+        text = ANSI.sub("", buf.getvalue())
+        self.assertIn("size=1", text)
+        self.assertIn("to-hit d20≤8 (40%)", text)
 
 
 if __name__ == "__main__":

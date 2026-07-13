@@ -1,10 +1,11 @@
 id = "huge"
 name = "Huge"
+size = 4
 speed = 2
 power = 16
 max_shield_per_facing = 8
 structure = 30
-max_velocity = 2
+max_velocity = 8
 thrust_per_power = 1
 power_per_thrust = 4
 

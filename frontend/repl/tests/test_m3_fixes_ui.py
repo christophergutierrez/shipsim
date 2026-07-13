@@ -44,7 +44,7 @@ def _ship(sid, controller="player", weapons=None, destroyed=False, power=22,
 
 def _snap(ships, **kw):
     snap = {
-        "protocol_version": 2, "phase": "allocate", "status": "Playing",
+        "protocol_version": 3, "phase": "allocate", "status": "Playing",
         "turn": 1, "active_ship": 1, "ships": ships, "combat_log": [],
     }
     snap.update(kw)

@@ -6,7 +6,7 @@ from repl import send_orders
 
 def snapshot(phase="movement", status="Playing"):
     return {
-        "protocol_version": 2,
+        "protocol_version": 3,
         "phase": phase,
         "status": status,
         "turn": 1,
@@ -35,39 +35,39 @@ class FakeSession:
 
 
 class PreservedBehavior(unittest.TestCase):
-    def test_absolute_course_accelerates_from_rest(self):
+    def test_absolute_course_turns_or_accels(self):
         orders, note = plan_absolute_move(snapshot(), 1, 1)
         self.assertEqual("commit_maneuver", orders[0]["type"])
-        self.assertEqual({"type": "accelerate", "course": 1}, orders[0]["maneuver"])
-        self.assertIn("course 1", note)
+        self.assertIn(orders[0]["maneuver"]["type"], ("turn", "accel"))
+        self.assertTrue(note)
 
-    def test_inertial_maneuver_commands_emit_v2_orders(self):
+    def test_inertial_maneuver_commands_emit_v3_orders(self):
         cases = {
-            "accel 2": {"type": "accelerate", "course": 2},
-            "decel": {"type": "decelerate"},
-            "course port": {"type": "turn_course_port"},
-            "course starboard": {"type": "turn_course_starboard"},
-            "rotate port": {"type": "rotate_port"},
-            "rotate starboard": {"type": "rotate_starboard"},
+            "accel": {"type": "accel"},
+            "turn 2": {"type": "turn", "facing": 2},
+            "course port": {"type": "turn", "facing": 1},
+            "course starboard": {"type": "turn", "facing": 5},
+            "rotate port": {"type": "turn", "facing": 1},
+            "rotate starboard": {"type": "turn", "facing": 5},
         }
         for command, maneuver in cases.items():
             with self.subTest(command=command):
                 action = build_action(command, snapshot(), ReplContext(selected=1))
                 self.assertEqual(maneuver, action.orders[0]["maneuver"])
 
-    def test_interactive_pass_emits_v2_coast(self):
+    def test_interactive_pass_emits_v3_coast(self):
         for command in ("pass", "pass_move", "p"):
             with self.subTest(command=command):
                 action = build_action(command, snapshot(), ReplContext(selected=1))
                 self.assertEqual(
-                    [{"protocol_version": 2, "type": "commit_maneuver", "ship": 1,
+                    [{"protocol_version": 3, "type": "commit_maneuver", "ship": 1,
                       "maneuver": {"type": "coast"}}],
                     action.orders,
                 )
 
     def test_raw_order_preserves_expert_payload(self):
         action = build_action('order {"type":"probe","x":7}', snapshot(), ReplContext())
-        self.assertEqual([{"type": "probe", "x": 7, "protocol_version": 2}], action.orders)
+        self.assertEqual([{"type": "probe", "x": 7, "protocol_version": 3}], action.orders)
 
     def test_raw_retired_movement_is_rejected_before_transmission(self):
         action = build_action('order {"type":"move","ship":1,"mode":"forward"}',

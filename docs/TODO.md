@@ -2,7 +2,9 @@
 
 ## Hull size, movement efficiency, and system capacity
 
-Status: Design candidate, not accepted rules.
+Status: Partially implemented. Explicit hull `size` and size-adjusted to-hit are
+accepted rules; construction capacity and other size-derived mechanics remain
+design candidates.
 
 ### Goal
 
@@ -15,7 +17,8 @@ Make hull size a strategic tradeoff rather than a linear power upgrade:
 
 ### Candidate ship-data fields
 
-- `size`: hull classification and future construction input.
+- `size`: implemented as the relative target silhouette and future construction
+  input. Size 2 is the neutral d20 baseline.
 - `power`: energy available each turn.
 - `movement_cost`: base power required to purchase one movement point.
 - `system_capacity`: space available for weapons and future systems.

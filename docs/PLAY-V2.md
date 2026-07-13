@@ -45,6 +45,9 @@ With two player ships: finish **End/Pass on ship #1**, then ship #2 becomes Acti
 - **Ready** — this ship is done committing. When every living ship is Ready,
   resolve all shots together (hit **or miss**).
 - **A miss still uses the weapon charge** and marks the weapon fired for the turn.
+- Hit chance depends on range and the target's explicit size. Size 2 uses the
+  normal weapon table, size 1 has half its threshold, and size 4 has twice its
+  threshold up to 100%.
 - Beam: more charge → more damage; long range may need higher charge or the
   shot is illegal (would deal 0 after rounding).
 

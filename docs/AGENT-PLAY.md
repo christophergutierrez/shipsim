@@ -9,7 +9,7 @@ prompts so everyone picks the same path.
 | Name | What drives the rules | When to use | Not for |
 |---|---|---|---|
 | **UI play** | A frontend (REPL, Love, …) as a user | Feel, UX, “play until win/loss”, command traps | Thousands of matches |
-| **API play** | NDJSON harness (`shipsim`) + client/tests | Protocol, smoke, regressions, scripted flows | Screen layout / menus |
+| **API play** | NDJSON harness (`shipsim`) + client/tests (protocol **v3**) | Protocol, smoke, regressions, scripted flows | Screen layout / menus |
 | **Sim play** | Rust core in-process (`shipsim-sim` / policies) | Hundreds–thousands of seeded matches, balance, rubrics | Interactive UX |
 
 Architecture:
@@ -31,6 +31,12 @@ Architecture:
 **Default when an agent is told to “play the game” or “play itself”:**
 prefer **UI play** (REPL) unless the ask is clearly tests/smoke (**API play**)
 or balance/volume (**sim play**).
+
+**Explicit routing is binding:** “play a UI game” / “use the UI” means launch
+`frontend/repl/repl.py` (or another named frontend) and submit choices through
+its user-facing controls. A raw order stream, `client.py`, or tests are not a
+substitute. “Play via the API” means use the NDJSON harness/client and does not
+count as UI validation.
 
 ---
 
@@ -64,7 +70,7 @@ python3 frontend/repl/repl.py scenarios/ai.toml
 2. Use on-screen hints + `GAMEPLAY.md` — do not hand-write raw JSON unless
    debugging transport.
 3. Loop: allocate (`mov` / `w` / `sh` → `commit`) → one maneuver per ship
-   (`coast` / `accel` / …) → fire menus or `r`/`nofire` → `e` at turn end.
+   (`coast`, `accel`, or `turn N`) → fire menus or `r`/`nofire` → `e` at turn end.
 4. Play until `Won` / `Lost`, or until stuck (`status` / `cls`, then `quit`).
    If `quit` fails, stop and report a bug.
 5. Report phase, focus, last commands, session log path, expected vs actual.
@@ -123,7 +129,7 @@ target/debug/shipsim --scenario scenarios/ai.toml --stdin
 # one JSON order per line → one snapshot or error per line
 ```
 
-Example stream: `tests/fixtures/v2/duel_orders.jsonl`.
+Example protocol-v3 stream: `scenarios/d8_frontend_orders.jsonl`.
 
 ### REPL automated suite (command → order; not live UI)
 
@@ -209,7 +215,7 @@ suites.
 
 1. Frontend code and scratch only under `frontend/<name>/` (`local/` gitignored).
 2. No cross-client imports; engine must not depend on `frontend/`.
-3. External clients: protocol **v2** only (`docs/PROTOCOL.md`).
+3. External clients: protocol **v3** only (`docs/PROTOCOL.md`).
 4. Sim reports under ignored `tmp/simulation/` (or equivalent local paths).
 
 ---

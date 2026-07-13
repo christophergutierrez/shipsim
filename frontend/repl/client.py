@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 HERE = Path(__file__).resolve().parent
 LOCAL = HERE / "local"

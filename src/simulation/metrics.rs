@@ -121,9 +121,11 @@ impl MatchMetrics {
             self.thrust_spent += u64::from(result.thrust_cost);
         }
         match maneuver {
-            Maneuver::TurnCoursePort | Maneuver::TurnCourseStarboard => self.course_changes += 1,
-            Maneuver::RotatePort | Maneuver::RotateStarboard => self.facing_rotations += 1,
-            Maneuver::Coast | Maneuver::Accelerate { .. } | Maneuver::Decelerate => {}
+            Maneuver::Turn { .. } => {
+                self.course_changes += 1; // facing change (turn-in-place)
+                self.facing_rotations += 1;
+            }
+            Maneuver::Coast | Maneuver::Accel => {}
         }
     }
 
@@ -144,7 +146,8 @@ impl MatchMetrics {
             }
             let prior = before.ships.iter().find(|old| old.id == ship.id);
             if let Some(old) = prior {
-                let scheduled = motion::translates_in_phase(ship.velocity, before.movement_phase);
+                // Protocol 3: any ship with speed > 0 is scheduled to slide this cycle.
+                let scheduled = ship.velocity > 0;
                 if scheduled {
                     self.scheduled_translations += 1;
                     hull.scheduled_translations += 1;

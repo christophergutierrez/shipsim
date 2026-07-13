@@ -270,6 +270,21 @@ if nobody else has a move left.
 
 **Miss still spends charge** and marks the weapon fired for the turn.
 
+### Target size and accuracy
+
+The weapon's range-table threshold assumes a size-2 target. Before the d20
+roll, the engine multiplies that threshold by `target size / 2`, rounds half-up,
+and clamps it to `1..20`:
+
+| Target | Size | Accuracy effect |
+|---|---:|---:|
+| Escort | 1 | Half the listed threshold |
+| Heavy Cruiser | 2 | No change |
+| Huge / Starbase | 4 | Double, up to 100% |
+
+The ENGAGEMENT panel and fire picker show the adjusted threshold and percentage.
+Size affects accuracy only; weapon charge and range still determine damage.
+
 ### Commands
 
 | Command | Effect |
@@ -419,15 +434,21 @@ hint (e.g. wrong phase). Fix the phase or ship and retry.
 5. Repeat move/fire or `e` when the turn is done.
 6. Session text log: path in footer / on quit under `local/session-*.log`.
 
-### Guided rear attack
+### Guided rear attack (protocol 3)
 
-Run `python3 frontend/repl/repl.py --tutorial rear-attack` for a strict,
-narrated version of this fight. It teaches allocation, inertial movement,
-course-versus-facing, firing arcs, exposed shield facings, and queued-shot
-resolution by reproducing a verified range-1 rear-shield victory. The TUTORIAL
-panel gives the required command and its reason at every step. Other gameplay
-choices are rejected without changing the game, while read-only commands such
-as `status`, `board`, `ships`, `help`, and `log` remain available.
+```bash
+python3 frontend/repl/repl.py --tutorial rear-attack
+```
+
+Strict narrated fight on `scenarios/tutorial_rear_attack.toml`. Teaches:
+
+- allocate (thrust, weapon charge that **carries**, shields from **zero**),
+- **accel** along the nose, **coast**, **turn N** (facing only; cost 1/2/3),
+- constant-rate slides (`speed` hexes each cycle),
+- flying past the escort then aiming west for stern volleys,
+- `fire b1 B2` queues + `ready` resolves (hit and miss spend charge).
+
+Wrong gameplay keys are blocked; `status` / `board` / `motion` / `help` / `log` stay free.
 
 ---
 

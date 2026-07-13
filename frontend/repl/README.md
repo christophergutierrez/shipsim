@@ -1,7 +1,7 @@
 # shipsim REPL (playable dev client)
 
 Ship-centric text client for Combat Model v2. Spawns the Rust `shipsim` harness
-over stdin/stdout NDJSON (`protocol_version: 2`).
+over stdin/stdout NDJSON (`protocol_version: 3`).
 
 **This directory is the entire REPL client.** See `frontend/README.md`.
 
@@ -48,11 +48,15 @@ python3 frontend/repl/repl.py --tutorial rear-attack                 # strict na
 python3 frontend/repl/client.py                                      # non-interactive smoke
 ```
 
-**Rear-attack tutorial:** `--tutorial rear-attack` replays a verified victory
-through the live engine. The TUTORIAL panel explains each tactical choice and
-shows the one required command. Incorrect gameplay commands are blocked before
-they can change the draft or game; `help`, `status`, `board`, `ships`, and `log`
-remain available for inspection without advancing the lesson.
+**Rear-attack tutorial (protocol 3):** `--tutorial rear-attack` is a strict
+narrated pass — accelerate east, `turn 3` to aim west, stern volleys to Won.
+See `tutorial.py` (sequence verified against the dedicated deterministic
+`scenarios/tutorial_rear_attack.toml`) through the live engine. Guidance
+immediately above every input states the mission, explains why the next
+tactical choice matters, and gives the exact
+required command. Incorrect gameplay commands are blocked before they can change
+the draft or game; `help`, `status`, `board`, `ships`, and `log` remain available
+for inspection without advancing the lesson.
 
 **Play frame (default):** redraws map + ships each step so shield/hull/weapon bars
 update in place. **RECENT** holds the last events; `log` toggles longer scrollback.
@@ -99,7 +103,7 @@ allocate (draft → commit) → movement (one decision / ship) → firing (queue
 | Phase | Typical commands |
 |---|---|
 | Allocate | `a` → `mov` / `w` / `sh` → `commit` |
-| Movement | `motion`, then `accel`, `decel`, `course …`, `rotate …`, or `coast` (**one** per ship) |
+| Movement | `motion`, then `accel`, `turn 0..5`, or `coast` (**one** per ship) |
 | Firing | `f` (optional) → `r` / `done` / `nofire` (not `e`) |
 | End turn | `e` (whole turn; confirm in firing) |
 

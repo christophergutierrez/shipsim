@@ -128,6 +128,15 @@ pub enum OrderError {
         power: u32,
         max: u32,
     },
+    #[error(
+        "weapon {weapon} on ship {ship} already has charge {have}; cannot strip to {want} (charge carries across turns)"
+    )]
+    CannotStripWeaponCharge {
+        ship: u32,
+        weapon: String,
+        have: u32,
+        want: u32,
+    },
 }
 
 pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError> {

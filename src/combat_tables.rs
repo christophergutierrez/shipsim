@@ -15,6 +15,9 @@ const BEAM_TO_HIT: [u8; 10] = [18, 17, 15, 13, 11, 10, 8, 7, 5, 4];
 const PLASMA_TO_HIT: [u8; 14] = [16, 14, 12, 10, 8, 6, 5, 4, 3, 2, 2, 2, 1, 1];
 const TORP_TO_HIT: [u8; 12] = [14, 13, 12, 11, 10, 9, 7, 6, 5, 4, 3, 3];
 
+/// Hull size whose hit chance is exactly the range-table chance.
+pub const BASELINE_TARGET_SIZE: u32 = 2;
+
 pub fn half_up(value: f64) -> u32 {
     (value + 0.5).floor() as u32
 }
@@ -53,6 +56,27 @@ pub fn to_hit_threshold(kind: WeaponKind, range: u32) -> Option<u8> {
         WeaponKind::Plasma => table_value(&PLASMA_TO_HIT, range),
         WeaponKind::Torp => table_value(&TORP_TO_HIT, range),
     }
+}
+
+/// Scale the range-table d20 threshold by target silhouette.
+///
+/// The result is rounded half-up and clamped to the meaningful d20 range.
+/// Thus size 1 has half the baseline chance, size 2 is unchanged, and size 4
+/// has twice the baseline chance (up to an automatic threshold of 20).
+pub fn size_adjusted_to_hit_threshold(
+    kind: WeaponKind,
+    range: u32,
+    target_size: u32,
+) -> Option<u8> {
+    if target_size == 0 {
+        return None;
+    }
+    let base = u32::from(to_hit_threshold(kind, range)?);
+    let scaled = base
+        .saturating_mul(target_size)
+        .saturating_add(BASELINE_TARGET_SIZE / 2)
+        / BASELINE_TARGET_SIZE;
+    Some(scaled.clamp(1, 20) as u8)
 }
 
 fn table_value<T: Copy>(values: &[T], range: u32) -> Option<T> {
@@ -99,5 +123,26 @@ mod tests {
         assert_eq!(to_hit_threshold(WeaponKind::Beam, 11), None);
         assert_eq!(to_hit_threshold(WeaponKind::Plasma, 14), Some(1));
         assert_eq!(to_hit_threshold(WeaponKind::Torp, 12), Some(3));
+    }
+
+    #[test]
+    fn target_size_scales_threshold_from_size_two_baseline() {
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 3, 1),
+            Some(8)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 3, 2),
+            Some(15)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 3, 4),
+            Some(20)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 10, 1),
+            Some(2)
+        );
+        assert_eq!(size_adjusted_to_hit_threshold(WeaponKind::Beam, 1, 0), None);
     }
 }

@@ -16,14 +16,8 @@ fn parse_stdout(stdout: &[u8]) -> Vec<Value> {
 }
 
 fn shipsim_command() -> Command {
-    let mut command = Command::new("cargo");
-    command
-        .arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("shipsim")
-        .arg("--")
-        .current_dir(env!("CARGO_MANIFEST_DIR"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_shipsim"));
+    command.current_dir(env!("CARGO_MANIFEST_DIR"));
     command
 }
 
@@ -45,6 +39,7 @@ fn test_orders_file_emits_snapshots() {
     assert!(snaps.len() >= 2, "post-load + orders");
     assert_eq!(snaps[0]["turn"], 1);
     assert_eq!(snaps[0]["phase"], "allocate");
+    assert_eq!(snaps[0]["protocol_version"], 3);
     assert!(snaps[0]["ships"][0]["power"].as_u64().is_some());
 }
 
@@ -62,10 +57,9 @@ fn test_soft_reject_illegal_fire() {
         .unwrap();
     {
         let stdin = child.stdin.as_mut().unwrap();
-        // v2: fire before allocating — CommitFire is illegal in the Allocate phase.
         writeln!(
             stdin,
-            r#"{{"protocol_version":2,"type":"commit_fire","ship":1,"weapon":"missing_weapon","target":2,"shield_facing":3}}"#
+            r#"{{"protocol_version":3,"type":"commit_fire","ship":1,"weapon":"missing_weapon","target":2,"shield_facing":3}}"#
         )
         .unwrap();
     }
@@ -90,7 +84,7 @@ fn test_soft_reject_missing_protocol_version_without_mutation() {
         r#"{"type":"allocate","ship":1,"movement":4,"weapons":{},"shields":[0,0,0,0,0,0]}"#,
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_shipsim"))
+    let output = shipsim_command()
         .arg("--scenario")
         .arg(manifest_path("scenarios/combat.toml"))
         .arg("--orders")
@@ -105,26 +99,35 @@ fn test_soft_reject_missing_protocol_version_without_mutation() {
         .collect();
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[1]["code"], "unsupported_protocol");
-    assert_eq!(lines[1]["protocol_version"], 2);
+    assert_eq!(lines[1]["protocol_version"], 3);
     assert_eq!(lines[0]["phase"], "allocate");
     let _ = std::fs::remove_file(orders_path);
 }
 
 #[test]
-fn test_d8_fixture_regenerate_lock() {
+fn test_soft_reject_protocol_v2_orders() {
+    let orders_path = std::env::temp_dir().join(format!(
+        "shipsim-v2-orders-{}.jsonl",
+        std::process::id()
+    ));
+    std::fs::write(
+        &orders_path,
+        r#"{"protocol_version":2,"type":"allocate","ship":1,"movement":4,"weapons":{},"shields":[0,0,0,0,0,0]}"#,
+    )
+    .unwrap();
     let output = shipsim_command()
         .arg("--scenario")
         .arg(manifest_path("scenarios/combat.toml"))
         .arg("--orders")
-        .arg(manifest_path("scenarios/d8_frontend_orders.jsonl"))
+        .arg(&orders_path)
         .output()
         .unwrap();
     assert!(output.status.success());
-    std::fs::write(
-        manifest_path("tests/fixtures/d8/snapshots.jsonl"),
-        &output.stdout,
-    )
-    .unwrap();
-    let expected = std::fs::read(manifest_path("tests/fixtures/d8/snapshots.jsonl")).unwrap();
-    assert_eq!(output.stdout, expected);
+    let lines: Vec<serde_json::Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(lines.iter().any(|v| v["code"] == "unsupported_protocol"));
+    let _ = std::fs::remove_file(orders_path);
 }

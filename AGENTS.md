@@ -34,6 +34,11 @@ cargo run --release --bin shipsim-sim -- \
 Default for “play itself” / “play the game”: **UI play** (REPL), unless the
 user asks for tests (**API play**) or mass matches (**sim play**).
 
+An explicit “play a UI game” / “play through the UI” request **must** launch a
+frontend and enter decisions through that frontend. Driving NDJSON directly or
+only running tests does not satisfy a UI-play request. Conversely, “play via the
+API” means drive the NDJSON harness without claiming that as UI coverage.
+
 ## Where to look
 
 | Need | Doc |

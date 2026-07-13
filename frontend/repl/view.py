@@ -189,7 +189,10 @@ def format_ship_line(
     hull = int(ship.get("structure") or 0)
     hmax = hull_max or hull
     cs = ship_callsign(ship)
-    name = f"{cs} #{ship.get('id')} {ship.get('class', '?')}"
+    name = (
+        f"{cs} #{ship.get('id')} {ship.get('class', '?')} "
+        f"size={int(ship.get('size') or 2)}"
+    )
     if ship.get("controller") == "player":
         name = sty_player(name)
     elif not ship.get("destroyed"):
@@ -459,7 +462,8 @@ def format_engagement(me: dict[str, Any], contacts: list[dict[str, Any]]) -> str
             f"{face}:{SHIELD_LABELS[face]}" for face in exposed
         ) or "?"
         lines.append(
-            f"  {ship_callsign(contact)}  range={rng}  bearing={bearing}:{SHIELD_LABELS[bearing]} "
+            f"  {ship_callsign(contact)}  size={int(contact.get('size') or 2)}  "
+            f"range={rng}  bearing={bearing}:{SHIELD_LABELS[bearing]} "
             f"(from your nose)  shield exposed={exposed_text}"
         )
         for weapon in me.get("weapons") or []:
@@ -477,9 +481,20 @@ def format_engagement(me: dict[str, Any], contacts: list[dict[str, Any]]) -> str
                 status = sty_warn("OUT OF ARC")
             charge = int(weapon.get("charge") or 0)
             charge_note = "charged" if charge > 0 else "uncharged"
+            preview = hit_preview(
+                str(weapon.get("kind") or ""),
+                rng,
+                int(contact.get("size") or 2),
+            )
+            odds = (
+                f", to-hit≤{preview[0]} ({preview[1]}%)"
+                if preview is not None
+                else ""
+            )
             lines.append(
                 f"    {weapon.get('id')} {mount}: range {rng}/{max_range}, "
-                f"bearing {bearing}:{SHIELD_LABELS[bearing]}  {status} ({charge_note})"
+                f"bearing {bearing}:{SHIELD_LABELS[bearing]}{odds}  "
+                f"{status} ({charge_note})"
             )
     return "\n".join(lines)
 
@@ -695,10 +710,17 @@ def format_commits(snap: dict[str, Any]) -> str:
         preview = ""
         if atk and target and weapon:
             rng = distance(int(atk.get("q") or 0), int(atk.get("r") or 0), int(target.get("q") or 0), int(target.get("r") or 0))
-            to_hit = hit_preview(str(weapon.get("kind") or ""), rng)
+            to_hit = hit_preview(
+                str(weapon.get("kind") or ""),
+                rng,
+                int(target.get("size") or 2),
+            )
             damage = damage_preview(str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng)
             if to_hit:
-                preview = f" range={rng} to-hit≤{to_hit[0]} ({to_hit[1]}%), damage≈{damage}"
+                preview = (
+                    f" size={int(target.get('size') or 2)} range={rng} "
+                    f"to-hit≤{to_hit[0]} ({to_hit[1]}%), damage≈{damage}"
+                )
         lines.append(
             f"  {cs} {c.get('weapon')} → #{c.get('target')} "
             f"shield={face}:{lab}{preview}"

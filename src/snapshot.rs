@@ -22,6 +22,8 @@ pub struct HexSnapshot {
 pub struct ShipSnapshot {
     pub id: u32,
     pub class: String,
+    /// Relative target silhouette; size 2 is the neutral to-hit baseline.
+    pub size: u32,
     /// `player`, `ai`, or `scripted` (ADR-0018).
     pub controller: String,
     pub q: i32,
@@ -136,6 +138,7 @@ impl StateSnapshot {
                 .map(|ship| ShipSnapshot {
                     id: ship.id,
                     class: ship.class.clone(),
+                    size: ship.size,
                     controller: game.controller_label(ship.id).to_string(),
                     q: ship.pos.q,
                     r: ship.pos.r,

@@ -29,7 +29,7 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None, destroyed=Fals
     return {
         "id": sid, "class": "Scout", "controller": controller,
         "destroyed": destroyed, "q": q, "r": r, "facing": facing,
-        "structure": structure, "power": 4, "weapons": weapons or [],
+        "structure": structure, "power": 4, "size": 2, "weapons": weapons or [],
         "max_shield_per_facing": 2, "shields_remaining": [2, 2, 2, 2, 2, 2],
         "bridge": 1, "engine": 1, "power_sys": 1, "keel": 4,
     }
@@ -37,7 +37,7 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None, destroyed=Fals
 
 def _snap(ships, **kw):
     snap = {
-        "protocol_version": 2, "phase": "firing", "status": "Playing",
+        "protocol_version": 3, "phase": "firing", "status": "Playing",
         "turn": 1, "active_ship": 1, "ships": ships, "combat_log": [],
     }
     snap.update(kw)
@@ -104,6 +104,19 @@ class EngagementPanelTests(unittest.TestCase):
         out = ANSI.sub("", format_tactical(snap, selected=1))
         self.assertIn("ENGAGEMENT", out)
 
+    def test_engagement_shows_target_size_adjusted_hit_chance(self):
+        me = _ship(
+            1, 0, 0, 0, "player",
+            [_weapon("forward", max_range=5, id="L1", kind="beam")],
+        )
+        enemy = _ship(2, 3, 0, 3, "ai")
+        enemy["size"] = 1
+
+        out = ANSI.sub("", format_engagement(me, [enemy]))
+
+        self.assertIn("size=1", out)
+        self.assertIn("to-hit≤8 (40%)", out)
+
 
 class UnspentPowerTests(unittest.TestCase):
     """AllocDraft.summary warns when power is left unspent after allocation."""
@@ -120,11 +133,13 @@ class UnspentPowerTests(unittest.TestCase):
 
     def test_summary_silent_when_power_fully_spent(self):
         from commands import AllocDraft
-        d = AllocDraft.from_ship(_ship(1, 0, 0, 0, "player",
-                                        [_weapon("forward", id="L1", max_charge=2)]))
+        # No carried charge: spending full pool silences the unspent warning.
+        ship = _ship(1, 0, 0, 0, "player", [_weapon("forward", id="L1", max_charge=2, charge=0)])
+        d = AllocDraft.from_ship(ship)
         d.movement = 2
         d.weapons = {"L1": 2}
         d.shields = [0, 0, 0, 0, 0, 0]
+        self.assertEqual(0, d.free())
         text = d.summary()
         self.assertNotIn("unspent power", text)
 

@@ -11,7 +11,7 @@ from tests.test_characterization import snapshot
 
 def _fire_snapshot():
     return {
-        "protocol_version": 2,
+        "protocol_version": 3,
         "phase": "firing",
         "status": "InProgress",
         "turn": 1,
@@ -52,7 +52,7 @@ class InterfaceGoldenTests(unittest.TestCase):
             "engine": "engine N",
             "w": "w [weapon] N",
             "sh": "sh [face] N",
-            "accel": "accel [course 0..5]",
+            "accel": "accel",
         }
         for topic, syntax in expected.items():
             with self.subTest(topic=topic):
@@ -139,19 +139,13 @@ class InterfaceGoldenTests(unittest.TestCase):
         self.assertEqual("empty", action.side)
         self.assertIn("end", out.getvalue().lower())
 
-    def test_accel_explains_delayed_first_translation(self):
+    def test_accel_emits_protocol3_along_facing(self):
         snap = snapshot(phase="movement")
         snap["movement_phase"] = 1
-        action = build_action("accel 0", snap, ReplContext(selected=1))
-        self.assertEqual({"type": "accelerate", "course": 0}, action.orders[0]["maneuver"])
-        self.assertIn("speed 0→1", action.note)
-        self.assertIn("movement cycle 4/4", action.note)
-        self.assertTrue(
-            "next translation is movement phase 4/4" in action.note
-            or "movement cycle 4/4" in action.note,
-            action.note,
-        )
-        self.assertIn("not in a new hex yet", action.note)
+        action = build_action("accel", snap, ReplContext(selected=1))
+        self.assertEqual({"type": "accel"}, action.orders[0]["maneuver"])
+        self.assertTrue(action.note)
+        self.assertIn("accel", action.note.lower())
 
     def test_direction_legend_uses_all_six_diagonals(self):
         text = render_help()

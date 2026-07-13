@@ -61,25 +61,31 @@ pub fn v2_allocation(
         .min(remaining);
     remaining -= movement;
 
-    // Arm each operational v2 weapon in id order: beams to full charge, single-shot
-    // plasma/torps to 1.
+    // Arm operational weapons. Charge carries (protocol 3): pay only for increases;
+    // never request less than the carried charge.
     let mut weapons: BTreeMap<String, u32> = BTreeMap::new();
     for weapon in &ship.weapons {
-        if remaining == 0 {
-            break;
-        }
-        let kind = weapon.kind;
         if ship.weapon(&weapon.id).is_none() {
             continue; // SSD-destroyed
         }
-        let charge = match kind {
-            V2Kind::Beam => weapon.max_charge.min(remaining),
-            V2Kind::Plasma | V2Kind::Torp => weapon.max_charge.min(1).min(remaining),
-        };
-        if charge > 0 {
-            weapons.insert(weapon.id.clone(), charge);
-            remaining -= charge;
+        let have = ship
+            .weapon_charges
+            .get(&weapon.id)
+            .copied()
+            .unwrap_or(0);
+        let kind = weapon.kind;
+        let want = match kind {
+            V2Kind::Beam => weapon.max_charge,
+            V2Kind::Plasma | V2Kind::Torp => weapon.max_charge.min(1).max(have),
         }
+        .max(have);
+        let increase = want.saturating_sub(have);
+        if increase > remaining {
+            weapons.insert(weapon.id.clone(), have);
+            continue;
+        }
+        weapons.insert(weapon.id.clone(), want);
+        remaining -= increase;
     }
 
     // Front-facing shields (0 = bow, then its two shoulders) soak the remainder.
@@ -96,12 +102,7 @@ pub fn v2_allocation(
     Some((movement, weapons, shields))
 }
 
-/// Greedy v2 maneuver decision for a ship committing this movement phase.
-///
-/// During M3–M6 (ADR-0022) the AI coasts: it returns `None` so the driver issues
-/// a `PassMove` (commits `Maneuver::Coast`) and the ship preserves its persistent
-/// velocity without spending thrust. M7 replaces this stub with real
-/// maneuver-selection logic.
+/// Preferred travel facing toward the seek target (one step from current pos).
 pub fn preferred_course(game: &GameState, ship_id: u32, target_id: u32) -> Option<u8> {
     let ship = game.ship(ship_id)?;
     let target = game.ship(target_id)?;
@@ -111,8 +112,8 @@ pub fn preferred_course(game: &GameState, ship_id: u32, target_id: u32) -> Optio
     })
 }
 
-/// Deterministic inertial maneuver selection for the production NPC driver.
-/// Every returned maneuver is checked against the current ship state and thrust.
+/// Deterministic maneuver selection for the production NPC driver (protocol 3).
+/// Prefer: turn nose toward target if needed, else accel when aligned, else coast.
 pub fn v2_move_decision(game: &GameState, ship_id: u32) -> Option<Maneuver> {
     let ship = game.ship(ship_id)?;
     if ship.destroyed {
@@ -121,28 +122,25 @@ pub fn v2_move_decision(game: &GameState, ship_id: u32) -> Option<Maneuver> {
     let desired =
         seek_target(game, ship_id).and_then(|target| preferred_course(game, ship_id, target));
     let velocity = ship.velocity;
+    let facing = ship.facing;
     let mut choices = Vec::new();
-    if velocity.speed == 0 {
-        choices.push(Maneuver::Accelerate { course: desired });
-    } else if let Some(course) = desired {
-        let delta = (course as i8 - velocity.course as i8).rem_euclid(6);
-        if delta == 3 || delta == 4 || delta == 5 {
-            choices.push(Maneuver::TurnCourseStarboard);
-        } else if delta > 0 {
-            choices.push(Maneuver::TurnCoursePort);
-        } else if velocity.speed < ship.max_velocity {
-            choices.push(Maneuver::Accelerate { course: None });
+    if let Some(want) = desired {
+        if facing != want {
+            choices.push(Maneuver::Turn { facing: want });
+        } else if velocity.speed == 0 || velocity.course == want {
+            choices.push(Maneuver::Accel);
+        } else if facing == crate::motion::opposite_dir(velocity.course) {
+            // Facing reverse of momentum — cancel first.
+            choices.push(Maneuver::Accel);
+        } else {
+            choices.push(Maneuver::Turn { facing: want });
         }
     } else if velocity.speed < ship.max_velocity {
-        choices.push(Maneuver::Accelerate { course: None });
+        choices.push(Maneuver::Accel);
     }
-    choices.extend([
-        Maneuver::Coast,
-        Maneuver::RotateStarboard,
-        Maneuver::Decelerate,
-    ]);
+    choices.push(Maneuver::Coast);
     choices.into_iter().find(|maneuver| {
-        crate::motion::resolve_maneuver(velocity, ship.facing, ship.max_velocity, *maneuver)
+        crate::motion::resolve_maneuver(velocity, facing, ship.max_velocity, *maneuver)
             .is_ok_and(|result| result.thrust_cost <= ship.thrust_remaining)
     })
 }
@@ -183,6 +181,7 @@ mod tests {
         Ship {
             id,
             class: "t".into(),
+            size: crate::combat_tables::BASELINE_TARGET_SIZE,
             pos: Hex::new(q, r),
             facing: 0,
             speed: 4,

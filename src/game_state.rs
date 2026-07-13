@@ -263,6 +263,11 @@ impl GameState {
             return Err(crate::movement::OrderError::ShipNotFound(ship_id));
         }
 
+        // Weapon charge carries across turns. The allocate map lists *desired*
+        // totals; power is spent only on *increases*. You may not strip charge
+        // from a weapon that still holds last turn's charge.
+        let mut weapon_increases: u32 = 0;
+        let mut merged_charges = ship.weapon_charges.clone();
         for (weapon_id, charge) in &weapons {
             let weapon = ship
                 .weapon(weapon_id)
@@ -275,6 +280,21 @@ impl GameState {
                     max: weapon.max_charge,
                 });
             }
+            let have = ship
+                .weapon_charges
+                .get(weapon_id)
+                .copied()
+                .unwrap_or(0);
+            if *charge < have {
+                return Err(crate::movement::OrderError::CannotStripWeaponCharge {
+                    ship: ship_id,
+                    weapon: weapon_id.clone(),
+                    have,
+                    want: *charge,
+                });
+            }
+            weapon_increases = weapon_increases.saturating_add(charge - have);
+            merged_charges.insert(weapon_id.clone(), *charge);
         }
         for (facing, power) in shields.iter().copied().enumerate() {
             if power > ship.max_shield_per_facing {
@@ -287,10 +307,11 @@ impl GameState {
             }
         }
 
-        let weapon_power: u32 = weapons.values().copied().sum();
+        // Pre-charged weapons do not free power: the pool is still full, but
+        // only *new* weapon charge, shields, and engine spend from it.
         let shield_power: u32 = shields.iter().copied().sum();
         let total = movement
-            .saturating_add(weapon_power)
+            .saturating_add(weapon_increases)
             .saturating_add(shield_power);
         let available = ship.effective_power();
         if total > available {
@@ -305,12 +326,12 @@ impl GameState {
             .ship_mut(ship_id)
             .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
         ship.movement_allocated = movement;
-        // Engine power becomes a thrust reserve via the hull's rational conversion
-        // (ADR-0022 M3). Velocity/course/facing persist across turns; only the
-        // per-turn thrust reserve is (re)established here.
+        // Engine power → thrust via hull conversion. Velocity persists; thrust is
+        // re-bought each turn.
         let (thrust, _remainder) = ship.thrust_conversion.convert(movement);
         ship.thrust_remaining = thrust;
-        ship.weapon_charges = weapons;
+        ship.weapon_charges = merged_charges;
+        // Shields always start this turn from the allocate order (0 if unspent).
         ship.shields_powered = shields;
         ship.shields_remaining = shields;
         self.allocated_this_turn.insert(ship_id);
@@ -398,12 +419,12 @@ impl GameState {
             .all(|ship| self.maneuver_commits.contains_key(&ship.id))
     }
 
-    /// Resolve every committed maneuver simultaneously, translate scheduled ships, and
-    /// advance to the next firing window or (after phase 4) end the turn (ADR-0022 M5).
+    /// Resolve every committed maneuver simultaneously, then slide each ship
+    /// `speed` hexes along course (protocol 3 constant-rate translation), then
+    /// open the fire window (or TurnEnd after phase 4 / scenario end).
     fn resolve_movement_phase(&mut self) {
         self.last_translation_outcomes.clear();
-        // Step 1: apply each ship's committed maneuver to its own velocity/facing/thrust.
-        // Independent per ship; no cross-ship interaction happens here.
+        // Step 1: apply each ship's committed maneuver (independent).
         let commits: Vec<(u32, crate::motion::Maneuver)> = self
             .maneuver_commits
             .iter()
@@ -425,34 +446,55 @@ impl GameState {
             }
         }
 
-        // Step 2: determine this phase's scheduled movers from the *post-maneuver* velocity.
+        // Step 2: lockstep multi-hex slide — each ship with speed S moves S hexes
+        // along course this cycle (unless blocked). Steps are simultaneous.
+        let max_step = self
+            .ships
+            .iter()
+            .filter(|s| !s.destroyed)
+            .map(|s| s.velocity.speed)
+            .max()
+            .unwrap_or(0);
+        for step in 1..=max_step {
+            self.resolve_one_hex_translation_step(step);
+        }
+
+        // Step 3: objective / phase advance.
+        self.refresh_status();
+        self.maneuver_commits.clear();
+        self.fire_commits.clear();
+        self.ready_fire.clear();
+        if self.status != ScenarioStatus::InProgress {
+            self.phase = Phase::TurnEnd;
+            return;
+        }
+        self.phase = Phase::Firing;
+    }
+
+    /// One simultaneous hex of translation for every ship whose speed >= `step`.
+    fn resolve_one_hex_translation_step(&mut self, step: u8) {
         let hard_map = self.board.mode == crate::board::MapMode::Hard;
         let mut destination: BTreeMap<u32, Hex> = BTreeMap::new();
-        let mut origin: BTreeMap<u32, Hex> = BTreeMap::new();
         let mut active: HashSet<u32> = HashSet::new();
-        for ship in self.ships.iter().filter(|s| {
-            !s.destroyed
-                && crate::motion::translates_in_phase(s.velocity.speed, self.movement_phase)
-        }) {
+        for ship in self
+            .ships
+            .iter()
+            .filter(|s| !s.destroyed && s.velocity.speed >= step)
+        {
             let Some(delta) = Hex::direction(ship.velocity.course) else {
                 continue;
             };
             let dest = ship.pos + delta;
-            // Hard-map exits are blocked outcomes: the ship stays put and keeps velocity.
             if hard_map && !self.board.contains(dest) {
                 self.last_translation_outcomes.insert(ship.id, false);
                 continue;
             }
-            origin.insert(ship.id, ship.pos);
             destination.insert(ship.id, dest);
             active.insert(ship.id);
         }
 
-        // Step 3: fixed-point block resolution.
         loop {
             let mut changed = false;
-
-            // (a) Any destination claimed by more than one active mover blocks all of them.
             let mut claims: HashMap<Hex, Vec<u32>> = HashMap::new();
             for id in &active {
                 claims.entry(destination[id]).or_default().push(*id);
@@ -466,12 +508,6 @@ impl GameState {
                     }
                 }
             }
-
-            // (b) Any active mover whose destination is the current position of a ship
-            // that is not itself an active (still-unblocked) mover is blocked. This lets
-            // two active movers swap/cross (neither's origin is "occupied by a
-            // non-departing ship"), while entering a stationary or already-blocked ship's
-            // hex fails.
             let stationary_positions: HashSet<Hex> = self
                 .ships
                 .iter()
@@ -488,14 +524,13 @@ impl GameState {
                     changed = true;
                 }
             }
-
             if !changed {
                 break;
             }
         }
 
-        // Step 4: apply final positions for the unblocked movers in one batch.
         for id in destination.keys() {
+            // Last step's outcome wins for snapshot diagnostics.
             self.last_translation_outcomes
                 .insert(*id, active.contains(id));
         }
@@ -507,25 +542,6 @@ impl GameState {
         if !active.is_empty() {
             self.maybe_float_recenter();
         }
-
-        // Step 5: a reach-hex objective can be won by translation alone, with no
-        // fire involved — refresh status right after the batch so that win is
-        // recognized immediately rather than waiting on a fire window nobody
-        // needs to open. A decided scenario parks at TurnEnd without entering
-        // Phase::Firing this phase.
-        self.refresh_status();
-        self.maneuver_commits.clear();
-        self.fire_commits.clear();
-        self.ready_fire.clear();
-        if self.status != ScenarioStatus::InProgress {
-            self.phase = Phase::TurnEnd;
-            return;
-        }
-
-        // Every resolved movement phase is followed by a fire window (ADR-0022
-        // M5). `movement_phase` is left as the phase whose translation just
-        // resolved; it advances only after fire resolves (`resolve_fire_phase_v2`).
-        self.phase = Phase::Firing;
     }
 
     /// Translation outcomes from the most recently resolved movement phase.
@@ -685,13 +701,12 @@ impl GameState {
             let kind = weapon.kind;
             let range = attacker.pos.distance(target.pos);
             let threshold =
-                crate::combat_tables::to_hit_threshold(kind, range).ok_or_else(|| {
-                    crate::movement::OrderError::OutOfRange {
+                crate::combat_tables::size_adjusted_to_hit_threshold(kind, range, target.size)
+                    .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                         weapon: commit.weapon.clone(),
                         range,
                         max_range: crate::combat_tables::max_range(kind),
-                    }
-                })?;
+                    })?;
             let roll = self.prng.roll(20);
             let hit = roll <= threshold as u32;
             let damage = if hit {

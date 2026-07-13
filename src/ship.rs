@@ -10,6 +10,8 @@ use crate::thrust::ThrustConversion;
 pub struct Ship {
     pub id: u32,
     pub class: String,
+    /// Relative target silhouette used to scale d20 hit thresholds.
+    pub size: u32,
     pub pos: Hex,
     pub facing: u8,
     /// Design maximum movement speed before engine damage.
@@ -60,12 +62,13 @@ impl Ship {
     }
 
     pub fn reset_v2_allocation(&mut self) {
+        // Shields never carry: every allocate starts faces at 0 (no protection
+        // until power is spent again).
         self.shields_powered = [0; 6];
         self.shields_remaining = [0; 6];
         self.movement_allocated = 0;
-        self.weapon_charges.clear();
-        // Inertial movement: velocity persists across turns; only the
-        // per-turn thrust reserve is cleared (ADR-0022 §1).
+        // Weapon charge *does* carry across turns (protocol 3). Only thrust
+        // reserve is cleared; velocity persists.
         self.thrust_remaining = 0;
     }
 

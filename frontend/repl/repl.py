@@ -499,8 +499,11 @@ def run_repl(
                     prompt += f" actions=charged:{charged}"
 
             try:
-                # Prompt always live (dialog-ish) so the user sees it under the frame.
+                # Tutorial guidance must be adjacent to input. The tactical frame
+                # can exceed a short terminal and push its top panel out of view.
                 with ui.dialog():
+                    if tutorial is not None:
+                        print(tutorial.prompt_text())
                     line = input(f"{prompt}> ")
             except (EOFError, KeyboardInterrupt):
                 print()
@@ -678,7 +681,7 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
                 continue
             orders.append(
                 {
-                    "protocol_version": 2,
+                    "protocol_version": 3,
                     "type": "allocate",
                     "ship": int(ship["id"]),
                     "movement": 0,
@@ -700,7 +703,7 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
             return []
         return [
             {
-                "protocol_version": 2,
+                "protocol_version": 3,
                 "type": "commit_maneuver",
                 "ship": int(ship["id"]),
                 "maneuver": {"type": "coast"},
@@ -727,7 +730,7 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
                 continue
             orders.append(
                 {
-                    "protocol_version": 2,
+                    "protocol_version": 3,
                     "type": "ready_fire",
                     "ship": int(ship["id"]),
                 }

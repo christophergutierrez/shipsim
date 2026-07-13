@@ -13,6 +13,18 @@ Tune only with an explicit doc change.
 
 ## To-hit (d20, success if roll ≤ N)
 
+The table is the **size-2 baseline**. Scale its threshold by the target ship's
+explicit size before rolling:
+
+```text
+adjusted threshold = round_half_up(table threshold × target size / 2)
+adjusted threshold = clamp(adjusted threshold, 1, 20)
+```
+
+Consequently, size 1 has half the listed chance, size 2 uses the table as-is,
+and size 4 has twice the listed chance up to 100%. Target size changes accuracy,
+not damage.
+
 | Range | Beam | Plasma | Torp |
 |------:|-----:|-------:|-----:|
 | 1 | 18 | 16 | 14 |
@@ -45,6 +57,15 @@ Tune only with an explicit doc change.
 |-------|------:|
 | Escort | 14 |
 | Cruiser | 22 |
+
+## Target sizes
+
+| Class | Size | Hit-threshold multiplier |
+|---|---:|---:|
+| Escort | 1 | ×0.5 |
+| Heavy Cruiser | 2 | ×1 |
+| Huge | 4 | ×2 |
+| Starbase | 4 | ×2 |
 
 ## Weapon Mount Arcs (frozen)
 

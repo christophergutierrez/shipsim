@@ -1,8 +1,10 @@
 /// External NDJSON protocol version.
 ///
-/// M6 (ADR-0022) increments the protocol from v1 to v2: order and snapshot
-/// contracts change to maneuver commitment semantics, and snapshots expose
-/// velocity/course/facing/thrust/movement-phase/commitments. Protocol-v1
-/// saves are rejected by version at `SaveDocument::read` before replay or
-/// order-shape interpretation. Only v2 is emitted or accepted externally.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// Protocol 3 (combat model refresh):
+/// - weapon charge carries across turns (allocate only pays for increases; cannot strip);
+/// - shields always re-bought from 0 each allocate;
+/// - maneuvers are coast / accel / turn{facing}; max velocity 8;
+/// - each movement phase slides `speed` hexes along course (constant rate).
+///
+/// Protocol-v1/v2 saves and clients are rejected by version checks.
+pub const PROTOCOL_VERSION: u32 = 3;

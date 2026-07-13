@@ -390,28 +390,20 @@ fn actor_for(
 
 fn legal_orders(game: &GameState, ship: u32) -> Vec<Order> {
     let candidates = match game.phase() {
-        Phase::Movement => [
-            Maneuver::Coast,
-            Maneuver::Accelerate { course: None },
-            Maneuver::Accelerate { course: Some(0) },
-            Maneuver::Accelerate { course: Some(1) },
-            Maneuver::Accelerate { course: Some(2) },
-            Maneuver::Accelerate { course: Some(3) },
-            Maneuver::Accelerate { course: Some(4) },
-            Maneuver::Accelerate { course: Some(5) },
-            Maneuver::Decelerate,
-            Maneuver::TurnCoursePort,
-            Maneuver::TurnCourseStarboard,
-            Maneuver::RotatePort,
-            Maneuver::RotateStarboard,
-        ]
-        .into_iter()
-        .map(|maneuver| Order::CommitManeuver { ship, maneuver })
-        .filter(|order| {
-            let mut candidate = game.clone();
-            apply_order(&mut candidate, order.clone()).is_ok()
-        })
-        .collect(),
+        Phase::Movement => {
+            let mut candidates = vec![Maneuver::Coast, Maneuver::Accel];
+            for facing in 0..6u8 {
+                candidates.push(Maneuver::Turn { facing });
+            }
+            candidates
+                .into_iter()
+                .map(|maneuver| Order::CommitManeuver { ship, maneuver })
+                .filter(|order| {
+                    let mut candidate = game.clone();
+                    apply_order(&mut candidate, order.clone()).is_ok()
+                })
+                .collect()
+        }
         Phase::Firing => {
             let mut orders = Vec::new();
             if let Some(attacker) = game.ship(ship) {
