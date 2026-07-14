@@ -86,6 +86,7 @@ HELP_TOPICS = {
 HELP_ALIASES = {
     "?": "help",
     "h": "help",
+    "commands": "help",
     "s": "status",
     "b": "board",
     "a": "allocate",
@@ -1442,7 +1443,7 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
     # Help is global, including while a draft or fire sub-dialog is active.
     # Keeping this before draft dispatch prevents the old context trap where
     # typing help twice could never reach the command index.
-    if tokens and tokens[0].lower() in ("help", "?", "h"):
+    if tokens and tokens[0].lower() in ("help", "?", "h", "commands"):
         topic = tokens[1] if len(tokens) > 1 else None
         if ctx.draft is not None:
             print("  global help: status, board, ships, log, hint, quit; use help <command> for syntax")
