@@ -109,10 +109,13 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
     # active = the ship the engine is currently processing; focus = the ship
     # your view is centered on. They often differ during the enemy's turn.
     legend = ""
-    if active is not None and selected is not None and active != selected:
-        legend = muted(
-            "  (* = next pending maneuver, @ = your focused ship)"
-        )
+    if selected is not None:
+        if active is not None and active != selected:
+            legend = muted(
+                "  (* = next pending maneuver, @ = your focused ship)"
+            )
+        else:
+            legend = muted("  (@ = your focused ship)")
     return (
         f"{rule('shipsim')}\n"
         f"turn {turn}  phase={phase_s}  status={status_s}{active_s}{sel_s}{actions_s}{warn_s}"
@@ -886,8 +889,11 @@ def format_combat_events(
             # an absorption split for those logs.
             if "shield_absorbed" in e or "hull_damage" in e:
                 effect = f"; shield absorbed {absorbed}, hull took {hull_damage}"
+        # Only mention the shield face on a HIT — a MISS struck no shield, so
+        # printing "on shield {face}" there is misleading.
+        shield_clause = f"  on shield {face}:{lab}" if kind == "hit" else ""
         body_lines.append(
-            f"{atk_cs} {wpn} → {tgt_cs} {roll_text} {tag}  on shield {face}:{lab}{effect}"
+            f"{atk_cs} {wpn} → {tgt_cs} {roll_text} {tag}{shield_clause}{effect}"
         )
         if tgt:
             # Redact enemy targets: the player observed the shot outcome but

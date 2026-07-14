@@ -62,7 +62,7 @@ python3 frontend/repl/repl.py scenarios/ai.toml
 |---|---|
 | `scenarios/ai.toml` | Default duel vs AI — best first play |
 | `scenarios/combat.toml` | Includes **scripted** ship (REPL pumps passive orders) |
-| `scenarios/v2_duel.toml` | Cleaner duel sibling |
+| `scenarios/v2_duel.toml` | AI-vs-AI headless self-play (rejected by the interactive harness; use `shipsim-sim` instead) |
 
 **Agent procedure:**
 
