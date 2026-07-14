@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import sys
 import time
 from collections import deque
@@ -53,6 +54,15 @@ class TerminalUI:
         self.session_path = session_path
         self._real_print = print
         self._alt_screen = False  # xterm alternate buffer (no scrollback stack)
+        # Detect the terminal height once (not on every redraw) and use it as
+        # a fixed frame budget; re-detect only when the terminal actually
+        # resizes (SIGWINCH), not on every frame.
+        self._frame_rows = shutil.get_terminal_size(fallback=(80, 24)).lines
+        if sys.stdout.isatty() and hasattr(signal, "SIGWINCH"):
+            try:
+                signal.signal(signal.SIGWINCH, self._on_resize)
+            except (ValueError, OSError):
+                pass  # not the main thread, or signals unsupported here
         if session_path is not None:
             session_path.parent.mkdir(parents=True, exist_ok=True)
             self._file = open(session_path, "a", encoding="utf-8")
@@ -67,6 +77,9 @@ class TerminalUI:
     @property
     def debug_path(self) -> Optional[Path]:
         return self.session_path
+
+    def _on_resize(self, signum: int, frame: Any) -> None:
+        self._frame_rows = shutil.get_terminal_size(fallback=(80, 24)).lines
 
     def close(self) -> None:
         self.leave_alt_screen()
@@ -247,9 +260,10 @@ class TerminalUI:
 
         if sys.stdout.isatty():
             core_height = sum(block.count("\n") + 1 for block in core)
-            term_rows = shutil.get_terminal_size(fallback=(80, 24)).lines
+            # Fixed per-session budget (detected once at startup, updated only
+            # on SIGWINCH) rather than re-querying the terminal every frame.
             # Leave a couple of rows of slack for the shell's own input line.
-            budget = max(0, term_rows - core_height - 2)
+            budget = max(0, self._frame_rows - core_height - 2)
         else:
             # Piped/redirected output (scripted play, tests, session logs)
             # isn't a screen that can scroll content out of view — show
