@@ -480,45 +480,30 @@ follow-up triage.)*
 
 ## Investigated, not reproduced
 
-*(Fill in here for Phase 1c / Phase 4 if you could not reproduce the reported
-behavior — include what you tried.)*
+### Phase 1c — `end`/`e` discard-warning mislabeling the target ship
 
-### Phase 1c — `end`/`e` discard-warning target mislabel — NOT reproduced
+Reproduced a firing-phase state with a queued shot against the enemy using
+`scenarios/combat.toml` (`allocate / w b1 4 / commit / coast / fire b1 2 /
+end / yes`). Added a temporary `print(pending_shots)` before the discard-warning
+render and captured the raw `fire_commits` data:
 
-**Reported symptom:** the `end`/`e` discard warning showed `beam_1→#1` (the
-player's own ship) when the shot was actually queued against the enemy (`#2`).
+    [{'ship': 1, 'weapon': 'beam_1', 'target': 2, 'shield_facing': 0}]
 
-**What I did:**
-1. Read `frontend/repl/commands.py` lines 1778-1796. The warning's `queued`
-   string is built at lines 1788-1791 from `pending_shots` (=
-   `snap.get("fire_commits")`), reading `s.get('weapon')` and
-   `s.get('target')` directly off the server snapshot.
-2. The plan's suggested repro (`allocate / w b1 4 / commit / fire b1 2 / end
-   / yes`) does NOT reach the firing phase — after `commit` the phase advances
-   to `movement`, so `fire b1 2` is rejected with "fire/attack is available
-   during firing only (now movement)" and no shot is ever queued. I corrected
-   the sequence to actually reach firing: `allocate / w b1 4 / commit / coast
-   / fire b1 2 / end / yes` (the `coast` finishes the movement phase and
-   advances to firing).
-3. Added a temporary `print(pending_shots)` immediately before line 1788, ran
-   the corrected scripted game, captured the raw snapshot data, then removed
-   the temporary print.
+The raw `target` is `2` (the enemy — correct), and the rendered warning shows
+`beam_1→#2` (correct). The display code and the engine's fire-commit recording
+are both correct. The original tester's `beam_1→#1` report was most likely a
+misread of the output (the player ship `#1` appears prominently elsewhere in
+the frame). No code changed for 1c.
 
-**Raw `fire_commits` data captured (player ship #1, enemy ship #2, fired
-`fire b1 2`):**
-```
-[{'ship': 1, 'weapon': 'beam_1', 'target': 2, 'shield_facing': 0}]
-```
+### Phase 4 — Ship class/size flip on first render
 
-**Rendered discard warning:**
-```
-warning: queued shot(s) not yet resolved will be DISCARDED, not fired: beam_1→#2. Use ready/nofire to resolve them first.
-```
+Tried to reproduce using the exact scenario and command sequence from
+`results_20260713_220423_429.log` (Bug #1): launched
+`scenarios/simulation_duel.toml`, read the first status frame (before any
+input), then issued `allocate / engine 6 / w b1 4 / w t1 1 / w p1 1 /
+sh 0 6 / sh 3 6 / commit / status`. The enemy ship C2 #2 rendered
+consistently as "Escort size=1" on every frame — the opening frame AND the
+post-commit frame. The reported flip to "Heavy Cruiser size=2" did not
+reproduce. The report was not cross-corroborated by any other playtest log.
+Closing as could not reproduce; no code changed.
 
-**Conclusion:** The raw `fire_commits.target` from the Rust engine is `2`
-(correct — the enemy), and the REPL display code renders it as `beam_1→#2`
-(correct). The bug is NOT in this display code and NOT in the engine's
-fire-commit recording. No code changed for 1c. The original tester's
-`beam_1→#1` report was most likely a misread of the output (the player ship
-`#1` appears prominently elsewhere in the frame) or occurred against a
-different/earlier code state. Closing 1c as not reproduced.
