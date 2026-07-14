@@ -594,11 +594,125 @@ def format_tactical(
     return "\n".join(parts)
 
 
-def format_terminal_banner(status: str) -> str:
-    """Plain-text terminal outcome announcement."""
+def format_terminal_banner(
+    status: str, snap: Optional[dict[str, Any]] = None
+) -> str:
+    """Plain-text terminal outcome announcement.
+
+    When a snapshot is supplied, the cause of loss is made explicit: a ship
+    reduced to bridge=0 is reported as "bridge destroyed" rather than the
+    generic hull-loss line, so the player sees the actual kill condition.
+    """
     label = f"SCENARIO {status.upper()}"
     styled = sty_ok(label) if status == "Won" else sty_err(label)
-    return "*** GAME OVER ***\n" + styled + "\nOrders disabled; use quit or log."
+    cause = ""
+    if snap is not None and status != "Won":
+        cause = _loss_cause(snap)
+    lines = ["*** GAME OVER ***", styled]
+    if cause:
+        lines.append(cause)
+    lines.append("Orders disabled; use quit or log.")
+    return "\n".join(lines)
+
+
+def _loss_cause(snap: dict[str, Any]) -> str:
+    """One-line cause-of-loss derived from the terminal snapshot.
+
+    A destroyed player ship with bridge==0 was bridge-killed; one with
+    structure==0 was hull-killed. Both fields are already in the snapshot, so
+    this is a pure rendering derivation (no engine change).
+    """
+    for s in snap.get("ships") or []:
+        if not s.get("destroyed"):
+            continue
+        if s.get("controller") != "player":
+            continue
+        cs = ship_callsign(s)
+        bridge = int(s.get("bridge") or 0)
+        hull = int(s.get("structure") or 0)
+        if bridge == 0:
+            return sty_err(f"{cs} bridge destroyed — ship lost")
+        if hull == 0:
+            return sty_err(f"{cs} hull breached — ship lost")
+        return sty_err(f"{cs} destroyed")
+    return ""
+
+
+def format_event_highlights(
+    before: Optional[dict[str, Any]],
+    after: dict[str, Any],
+) -> str:
+    """Explicit one-line summaries of damage that must always surface live.
+
+    The compact Δ line (snapshot_delta) is truncated by the RECENT strip and
+    buries weapon destruction / power-pool loss among many other changes. This
+    helper lifts those three player-critical facts into their own lines so the
+    recent-events panel can show them untruncated across repaints:
+
+      - weapon destroyed (operational True→False)
+      - system damaged (engine / power_sys / bridge), with the power-pool
+        consequence called out when power_sys is the one hit
+      - ship destroyed, with the bridge-vs-hull cause
+    """
+    if not before:
+        return ""
+    lines: list[str] = []
+    bships = {int(s["id"]): s for s in (before.get("ships") or [])}
+    for s in after.get("ships") or []:
+        sid = int(s["id"])
+        old = bships.get(sid)
+        if not old:
+            continue
+        cs = ship_callsign(s)
+        # Weapon destruction: operational flipped to False.
+        ow = {w["id"]: w for w in (old.get("weapons") or [])}
+        for w in s.get("weapons") or []:
+            prev = ow.get(w["id"])
+            if not prev:
+                continue
+            if bool(prev.get("operational", True)) and not bool(
+                w.get("operational", True)
+            ):
+                lines.append(sty_dead(f"{cs} {w['id']} DESTROYED"))
+        # System damage — call out the power-pool consequence explicitly.
+        for system in ("engine", "power_sys", "bridge"):
+            old_rating = old.get(system)
+            new_rating = s.get(system)
+            if (
+                old_rating is not None
+                and new_rating is not None
+                and int(old_rating) != int(new_rating)
+            ):
+                lines.append(
+                    sty_warn(
+                        f"{cs} {system} damaged {old_rating}→{new_rating}"
+                    )
+                )
+                if system == "power_sys":
+                    old_pool = old.get("power_available", old.get("power"))
+                    new_pool = s.get("power_available", s.get("power"))
+                    if (
+                        old_pool is not None
+                        and new_pool is not None
+                        and int(old_pool) != int(new_pool)
+                    ):
+                        lines.append(
+                            sty_warn(
+                                f"{cs} usable power {old_pool}→{new_pool} "
+                                f"(power_sys damaged)"
+                            )
+                        )
+        # Ship destroyed — surface the cause.
+        if not bool(old.get("destroyed")) and bool(s.get("destroyed")):
+            bridge = int(s.get("bridge") or 0)
+            hull = int(s.get("structure") or 0)
+            if bridge == 0:
+                lines.append(sty_err(f"{cs} bridge destroyed — ship lost"))
+            elif hull == 0:
+                lines.append(sty_err(f"{cs} hull breached — ship lost"))
+            else:
+                lines.append(sty_err(f"{cs} destroyed"))
+    return "\n".join(lines)
 
 
 def _cell_glyph(
@@ -911,7 +1025,11 @@ def snapshot_delta(before: Optional[dict[str, Any]], after: dict[str, Any]) -> s
             prev = ow.get(w["id"])
             if not prev:
                 continue
-            if bool(prev.get("fired")) != bool(w.get("fired")) and w.get("fired"):
+            if bool(prev.get("operational", True)) and not bool(
+                w.get("operational", True)
+            ):
+                bits.append(sty_dead(f"#{sid} {w['id']} DESTROYED"))
+            elif bool(prev.get("fired")) != bool(w.get("fired")) and w.get("fired"):
                 bits.append(sty_warn(f"#{sid} {w['id']} FIRED"))
             elif int(prev.get("charge") or 0) != int(w.get("charge") or 0):
                 bits.append(

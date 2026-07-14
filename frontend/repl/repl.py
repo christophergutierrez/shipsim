@@ -49,6 +49,7 @@ from view import (
     format_board,
     format_combat_events,
     format_error,
+    format_event_highlights,
     format_ship_line,
     format_snapshot,
     format_terminal_banner,
@@ -330,7 +331,19 @@ def send_orders(
                 value = ((value ^ (value >> 30)) * 0xBF58476D1CE4E5B9) & ((1 << 64) - 1)
                 value = ((value ^ (value >> 27)) * 0x94D049BB133111EB) & ((1 << 64) - 1)
                 event["roll"] = ((value ^ (value >> 31)) % 20) + 1
-            ui.log(format_combat_events(events, msg, hull_max=ctx.hull_max))
+            fire_text = format_combat_events(events, msg, hull_max=ctx.hull_max)
+            ui.log(fire_text)
+            # Persist the full FIRE RESOLUTION block (plus explicit damage
+            # highlights) across repaints. The RECENT strip truncates the
+            # compact Δ line and the live "shots resolved" block is scoped to
+            # the focused ship's own weapons — so without this panel the
+            # enemy's fire, weapon destruction, and power-pool loss vanish
+            # after the next paint_frame. Reuse the existing formatted text;
+            # do not reinvent it.
+            highlights = format_event_highlights(before, msg)
+            ui.recent_events_text = (
+                (highlights + "\n" + fire_text) if highlights else fire_text
+            )
             log_len = len(new_log)
         if order.get("type") == "commit_fire":
             # Fire is queued, not resolved yet — tell the player so they know
@@ -428,7 +441,7 @@ def run_repl(
             status = snap.get("status")
             if status in ("Won", "Lost"):
                 if not terminal_announced:
-                    ui.log(format_terminal_banner(str(status)))
+                    ui.log(format_terminal_banner(str(status), snap))
                     terminal_announced = True
             phase = str(snap.get("phase") or "?")
             turn = snap.get("turn", "?")

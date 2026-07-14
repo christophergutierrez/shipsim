@@ -46,6 +46,7 @@ class TerminalUI:
         self.history: deque[str] = deque(maxlen=history_cap)
         self.show_history = False  # toggled by `log`
         self.tutorial_text = ""
+        self.recent_events_text = ""
         self._dialog = False  # interactive sub-prompts print live
         self._file: Optional[TextIO] = None
         self.session_path = session_path
@@ -202,6 +203,8 @@ class TerminalUI:
                 snap, selected=selected, hull_max=hull_max, verbose=True
             )
         )
+        if self.recent_events_text:
+            lines.append(panel("RECENT FIRE", self.recent_events_text, width=72))
         recent = list(self.history)[-self.recent :]
         if recent:
             lines.append(panel("RECENT", "\n".join(recent), width=72))
