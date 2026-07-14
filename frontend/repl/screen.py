@@ -15,6 +15,7 @@ History: also kept in memory; `log` toggles a scrollback panel in the frame.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import time
 from collections import deque
@@ -193,47 +194,97 @@ class TerminalUI:
         if not self._alt_screen:
             self.enter_alt_screen()
         self.clear()
-        lines: list[str] = []
+
+        # Core content is never trimmed: it's what the player needs every
+        # single frame to keep playing (map/status, pending draft, the
+        # phase hint, the footer). Play mode uses the alternate screen
+        # buffer (no scrollback), so anything pushed above the terminal's
+        # visible rows is gone until the next redraw — the map must never
+        # be one of those things.
+        core: list[str] = []
         if banner:
-            lines.append(banner)
-        if self.tutorial_text:
-            lines.append(panel("TUTORIAL", self.tutorial_text, width=72))
-        lines.append(
+            core.append(banner)
+        core.append(
             format_snapshot(
                 snap, selected=selected, hull_max=hull_max, verbose=True
             )
         )
+        if draft_text:
+            core.append(panel("ALLOCATE DRAFT (local until commit)", draft_text, width=72))
+        if hint:
+            core.append(muted(hint))
+        if footer:
+            core.append(muted(footer))
+        else:
+            core.append(
+                muted(
+                    "play frame · log=history · cls=redraw · "
+                    "session log under frontend/repl/local/"
+                )
+            )
+
+        # Supplementary panels are shown highest-priority-first, but only as
+        # many as actually fit below the core content on this terminal.
+        # Anything that doesn't fit is dropped in favor of a one-line note,
+        # rather than silently scrolling the core content off-screen.
+        optional: list[str] = []
         if self.recent_events_text:
-            lines.append(panel("RECENT FIRE", self.recent_events_text, width=72))
+            optional.append(panel("RECENT FIRE", self.recent_events_text, width=72))
         recent = list(self.history)[-self.recent :]
         if recent:
-            lines.append(panel("RECENT", "\n".join(recent), width=72))
+            optional.append(panel("RECENT", "\n".join(recent), width=72))
         if self.show_history:
             hist = list(self.history)[-40:]
-            lines.append(
+            optional.append(
                 panel(
                     f"LOG (last {len(hist)}; type log to hide)",
                     "\n".join(hist) if hist else "(empty)",
                     width=72,
                 )
             )
-        if draft_text:
-            lines.append(panel("ALLOCATE DRAFT (local until commit)", draft_text, width=72))
-        if hint:
-            lines.append(muted(hint))
-        if footer:
-            lines.append(muted(footer))
+        if self.tutorial_text:
+            optional.append(panel("TUTORIAL", self.tutorial_text, width=72))
+
+        if sys.stdout.isatty():
+            core_height = sum(block.count("\n") + 1 for block in core)
+            term_rows = shutil.get_terminal_size(fallback=(80, 24)).lines
+            # Leave a couple of rows of slack for the shell's own input line.
+            budget = max(0, term_rows - core_height - 2)
         else:
-            lines.append(
+            # Piped/redirected output (scripted play, tests, session logs)
+            # isn't a screen that can scroll content out of view — show
+            # everything.
+            budget = float("inf")
+
+        shown: list[str] = []
+        hidden = 0
+        for block in optional:
+            height = block.count("\n") + 1
+            if height <= budget:
+                shown.append(block)
+                budget -= height
+            else:
+                hidden += 1
+        if hidden:
+            shown.append(
                 muted(
-                    "play frame · log=history · cls=redraw · "
-                    "session log under frontend/repl/local/"
+                    f"({hidden} panel(s) hidden — terminal too short to show them "
+                    "without scrolling the map off-screen; resize taller to see them)"
                 )
             )
+
+        # core = [banner?, map/status, draft?, hint?, footer]; keep the map
+        # immediately after the banner and put optional panels between the
+        # map and the draft/hint/footer, matching the original layout.
+        map_idx = 1 if banner else 0
+        lines = core[: map_idx + 1] + shown + core[map_idx + 1 :]
         frame = "\n".join(lines)
         self._real_print(frame, flush=True)
-        # Always persist frames to the session file so post-mortems match the screen.
-        self._write_file("--- frame ---\n" + frame)
+        # Always persist the FULL frame (including anything hidden on-screen)
+        # to the session file so post-mortems match the game, not just the
+        # terminal's current size.
+        full_frame = "\n".join(core[: map_idx + 1] + optional + core[map_idx + 1 :])
+        self._write_file("--- frame ---\n" + full_frame)
 
     def install_print_hook(self) -> Callable[[], None]:
         """Route builtin print into the UI log (for commands.py)."""
