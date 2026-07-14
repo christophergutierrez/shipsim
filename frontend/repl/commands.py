@@ -1724,9 +1724,16 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             )
             return Action(side="empty")
         sid = ctx.ensure_selected(snap)
-        if rest and rest[0].isdigit():
-            sid = int(rest[0])
+        # An optional leading ship id (`fire 1 b1 2`) overrides the focus.
+        # Parse it off the front of rest so the remaining tokens are the
+        # weapon/target one-liner — do NOT let the digit check consume a
+        # weapon or target token and shrink a complete one-liner below the
+        # `len >= 2` threshold, which would drop into the interactive menu.
+        fire_args = list(rest)
+        if fire_args and fire_args[0].isdigit():
+            sid = int(fire_args[0])
             ctx.selected = sid
+            fire_args = fire_args[1:]
         if sid is None:
             print("  select ship first")
             return Action(side="empty")
@@ -1734,11 +1741,16 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if ship is None or ship.get("controller") != "player" or ship.get("destroyed"):
             print(f"  cannot fire ship #{sid}: not a living player ship")
             return Action(side="empty")
-        if len(rest) >= 2:
-            order = direct_fire(snap, sid, rest[0], rest[1])
+        # A syntactically complete one-liner (`fire <weapon> <target>`, or
+        # `fire <ship> <weapon> <target>`) must fire directly and never fall
+        # through to the interactive weapon menu — falling through consumes
+        # the next piped line as the menu answer and desyncs scripted play.
+        if len(fire_args) >= 2:
+            order = direct_fire(snap, sid, fire_args[0], fire_args[1])
             return Action(orders=[order]) if order else Action(side="empty")
-        # Defer to the REPL's looping fire offer so the player can fire
-        # multiple weapons in one go (each commit refreshes the snapshot).
+        # Bare `fire` / `fire <ship>`: defer to the REPL's looping fire offer
+        # so the player can fire multiple weapons in one go (each commit
+        # refreshes the snapshot).
         return Action(side="fire_loop")
 
     if cmd in ("ready", "r", "ready_fire", "nofire", "no-fire", "skipfire", "skip", "done"):

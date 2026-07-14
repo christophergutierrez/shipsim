@@ -85,6 +85,48 @@ class InterfaceGoldenTests(unittest.TestCase):
         self.assertEqual("beam_1", action.orders[0]["weapon"])
         self.assertEqual(2, action.orders[0]["target"])
 
+    def _firing_snap_with_enemy(self):
+        snap = snapshot(phase="firing")
+        attacker = snap["ships"][0]
+        attacker.update(q=0, r=0, facing=0, controller="player")
+        attacker["weapons"] = [{
+            "id": "beam_1", "kind": "Beam", "charge": 4,
+            "max_charge": 4, "max_range": 10, "mount": "forward",
+            "operational": True, "fired": False,
+        }]
+        snap["ships"].append({
+            "id": 2, "class": "Escort", "controller": "ai", "q": 3,
+            "r": 0, "facing": 3, "destroyed": False, "weapons": [],
+        })
+        return snap
+
+    def test_one_line_fire_never_drops_to_interactive_menu(self):
+        # Regression (Phase 1d): a syntactically complete one-liner
+        # `fire <weapon> <target>` must fire directly and must NOT fall through
+        # to the interactive weapon menu (which prints "Enter weapon number"
+        # and consumes the next piped line as the answer, desyncing scripted
+        # play). Asserted for both the bare form and the leading-ship-id form.
+        for line in ("fire b1 2", "fire b1 #2", "fire 1 b1 2", "f b1 #2"):
+            with self.subTest(line=line):
+                snap = self._firing_snap_with_enemy()
+                ctx = ReplContext(selected=1)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    action = build_action(line, snap, ctx)
+                self.assertNotEqual(
+                    "fire_loop", action.side,
+                    f"{line!r} fell through to the interactive fire menu",
+                )
+                self.assertTrue(
+                    action.orders and action.orders[0]["type"] == "commit_fire",
+                    f"{line!r} did not produce a commit_fire order",
+                )
+                self.assertEqual(2, action.orders[0]["target"])
+                self.assertNotIn(
+                    "Enter weapon number", out.getvalue(),
+                    f"{line!r} printed the interactive weapon-menu prompt",
+                )
+
     def test_weapon_picker_accepts_number_and_name(self):
         snap = snapshot(phase="firing")
         attacker = snap["ships"][0]

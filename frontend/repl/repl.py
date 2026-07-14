@@ -174,6 +174,12 @@ def _auto_fire_offer(
     snap = session.snapshot
     if not snap:
         return None
+    # In scripted (non-interactive) mode, do not auto-open the fire menu:
+    # it would read the next piped line (e.g. "fire b1 2") as a weapon-name
+    # answer and desync the rest of the command sequence. Let piped one-liners
+    # flow through the normal input loop and build_action instead.
+    if not sys.stdin.isatty():
+        return None
     sid = ctx.ensure_selected(snap)
     if sid is None:
         return None
