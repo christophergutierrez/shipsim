@@ -998,6 +998,13 @@ impl GameState {
             .any(|ship| !ship.destroyed && !self.is_v2_ai(ship.id))
     }
 
+    /// True if this scenario has at least one ship that is not AI-controlled,
+    /// living or not. Used to detect scenarios that were authored for headless
+    /// self-play and should not be driven interactively.
+    pub fn has_player_ship(&self) -> bool {
+        self.ships.iter().any(|ship| !self.is_v2_ai(ship.id))
+    }
+
     /// Combat v2 NPC auto-play. Plays greedy AI ships through the v2 phase machine:
     /// allocate un-allocated AI ships, emit the active AI mover's move/pass, commit each
     /// AI ship's legal shots then ready it, and (when only AI ships remain) end the turn to

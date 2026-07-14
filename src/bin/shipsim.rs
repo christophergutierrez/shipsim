@@ -44,6 +44,16 @@ fn run() -> Result<(), String> {
     match args.mode {
         Mode::Scenario(path) => {
             let mut game = load_scenario(&path).map_err(|e| e.to_string())?;
+            // A scenario with no player-controlled ship is headless self-play
+            // (e.g. AI-vs-AI duels). Driving it through the interactive harness
+            // would fast-forward through every turn and confuse clients, so
+            // refuse it up front with a clear error.
+            if !game.has_player_ship() {
+                return Err(format!(
+                    "scenario {} has no player-controlled ship; it is headless self-play",
+                    path.display()
+                ));
+            }
             // Let AI ships act before the first human order when the opening
             // phase is entirely NPC-driven (e.g. AI-only allocate).
             game.resolve_v2_npc_actions();

@@ -14,6 +14,7 @@ History: also kept in memory; `log` toggles a scrollback panel in the frame.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from collections import deque
@@ -270,9 +271,13 @@ class TerminalUI:
 
 
 def default_session_path() -> Path:
-    """Gitignored session transcript under this client tree."""
+    """Gitignored session transcript under this client tree.
+
+    Includes the PID and microseconds so two testers launched in the same
+    second never collide on the same append-mode file.
+    """
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    return _LOCAL / f"session-{stamp}.log"
+    return _LOCAL / f"session-{stamp}-{os.getpid()}.log"
 
 
 def default_debug_path() -> Path:
