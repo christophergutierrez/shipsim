@@ -11,7 +11,8 @@ mod protocol;
 mod tutorial;
 mod ui;
 
-use std::time::Duration;
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{self, Event};
 use crossterm::execute;
@@ -79,7 +80,50 @@ fn main() -> std::io::Result<()> {
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
+    if result.is_ok() {
+        match write_session_log(&app) {
+            Ok(path) => println!("Session log: {}", path.display()),
+            Err(error) => eprintln!("warning: could not write session log: {error}"),
+        }
+    }
+
     result
+}
+
+fn write_session_log(app: &App) -> std::io::Result<PathBuf> {
+    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("local");
+    std::fs::create_dir_all(&directory)?;
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let path = directory.join(format!("session-{stamp}-{}.log", std::process::id()));
+    std::fs::write(&path, session_log_contents(app))?;
+    Ok(path)
+}
+
+fn session_log_contents(app: &App) -> String {
+    let mut out = String::from("shipsim TUI session\n");
+    if let Some(snapshot) = &app.snap {
+        out.push_str(&format!(
+            "turn={} phase={} status={}\n",
+            snapshot.turn, snapshot.phase, snapshot.status
+        ));
+    }
+    if let Some(error) = &app.last_error {
+        out.push_str(&format!("last_error={error}\n"));
+    }
+    out.push_str("\nCombat history:\n");
+    for event in &app.combat_history {
+        out.push_str(event);
+        out.push('\n');
+    }
+    out.push_str("\nCommand log:\n");
+    for line in &app.log {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 fn run(

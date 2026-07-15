@@ -122,7 +122,7 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     };
     let queued = snap.fire_commits.len();
 
-    let mut lines = vec![Line::from(vec![
+    let status_line = Line::from(vec![
         Span::styled(
             format!(" turn {} ", snap.turn),
             Style::default().add_modifier(Modifier::BOLD),
@@ -174,7 +174,15 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         } else {
             ""
         }),
-    ])];
+    ]);
+    let mut lines = if let Some(error) = &app.last_error {
+        vec![Line::from(Span::styled(
+            format!(" ERROR: {error}"),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ))]
+    } else {
+        vec![status_line]
+    };
 
     if let Some(do_now) = tutorial_do_now(app) {
         lines.push(Line::from(Span::styled(
@@ -414,8 +422,38 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     let title = title.to_string();
 
     let block = Block::default().borders(Borders::ALL).title(title);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let tutorial_error = app
+        .tutorial
+        .as_ref()
+        .and_then(|tutorial| tutorial.error_msg.as_deref());
+    let content_area = if let Some(error) = tutorial_error {
+        let alert_height = inner.height.min(1);
+        let alert = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: alert_height,
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!(" ERROR: {error}"),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ))),
+            alert,
+        );
+        Rect {
+            x: inner.x,
+            y: inner.y.saturating_add(alert_height),
+            width: inner.width,
+            height: inner.height.saturating_sub(alert_height),
+        }
+    } else {
+        inner
+    };
     let scroll = if matches!(app.mode, Mode::Allocate) {
-        allocate_scroll(app, area)
+        allocate_scroll(app, content_area)
     } else {
         0
     };
@@ -424,11 +462,8 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     } else {
         Wrap { trim: true }
     };
-    let p = Paragraph::new(lines)
-        .block(block)
-        .wrap(wrap)
-        .scroll((scroll, 0));
-    f.render_widget(p, area);
+    let p = Paragraph::new(lines).wrap(wrap).scroll((scroll, 0));
+    f.render_widget(p, content_area);
 }
 
 fn allocate_scroll(app: &App, area: Rect) -> u16 {
@@ -606,7 +641,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     lines.push(Line::from(""));
     lines.push(Line::from(" Targets:"));
     for s in &snap.ships {
-        if s.id == ship.id || s.destroyed {
+        if s.controller == "player" || s.destroyed {
             continue;
         }
         let marker = if draft.target == Some(s.id) {
@@ -642,7 +677,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     )));
     lines.push(Line::from(""));
     lines.push(Line::from(
-        " Enter: fire  Tab: next weapon/target  Esc: cancel",
+        " Enter: fire  ↓/↑: weapon  digits: target  Esc: cancel",
     ));
 
     ("Fire", lines)
@@ -671,13 +706,26 @@ fn render_events_log(f: &mut Frame, app: &App, area: Rect) {
             })
             .collect()
     };
-    let mut items = event_items;
-    items.extend(app.log.iter().rev().map(|l| {
-        ListItem::new(Span::styled(
-            l.as_str(),
-            Style::default().fg(Color::DarkGray),
-        ))
-    }));
+    let mut items = Vec::new();
+    if let Some(error) = &app.last_error {
+        items.push(ListItem::new(Span::styled(
+            format!("ERROR: {error}"),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )));
+    }
+    items.extend(event_items);
+    items.extend(
+        app.log
+            .iter()
+            .rev()
+            .filter(|line| !line.starts_with("ERROR:"))
+            .map(|l| {
+                ListItem::new(Span::styled(
+                    l.as_str(),
+                    Style::default().fg(Color::DarkGray),
+                ))
+            }),
+    );
     let visible = area.height.saturating_sub(2) as usize;
     if items.len() > visible {
         items.truncate(visible);

@@ -146,6 +146,10 @@ pub struct App {
     pub focused_ship: Option<i64>,
     pub alloc_draft: Option<AllocDraft>,
     pub fire_draft: Option<FireDraft>,
+    /// Drafts parked while the player inspects or commands another ship.
+    alloc_drafts: std::collections::BTreeMap<i64, AllocDraft>,
+    /// Fire selections parked per source ship for the same reason.
+    fire_drafts: std::collections::BTreeMap<i64, FireDraft>,
     /// Last soft error message from the engine (shown briefly).
     pub last_error: Option<String>,
     /// Recent combat events for the events panel.
@@ -182,6 +186,8 @@ impl App {
             focused_ship: None,
             alloc_draft: None,
             fire_draft: None,
+            alloc_drafts: std::collections::BTreeMap::new(),
+            fire_drafts: std::collections::BTreeMap::new(),
             last_error: None,
             recent_events: Vec::new(),
             combat_history: Vec::new(),
@@ -208,6 +214,8 @@ impl App {
     /// Called when a new snapshot arrives from the engine.
     pub fn update_snapshot(&mut self, snap: Snapshot) {
         self.digit_entry = None;
+        // A fresh accepted snapshot resolves any previous soft rejection.
+        self.last_error = None;
         // Auto-focus the player ship on the first snapshot.
         if self.focused_ship.is_none() {
             self.focused_ship = snap.player_ship().map(|s| s.id);
@@ -233,6 +241,8 @@ impl App {
                 if s.phase != snap.phase {
                     self.alloc_draft = None;
                     self.fire_draft = None;
+                    self.alloc_drafts.clear();
+                    self.fire_drafts.clear();
                     if snap.phase == "allocate" {
                         if let Some(sid) = self.focused_ship {
                             self.alloc_draft = Some(AllocDraft::from_ship(&snap, sid));
@@ -305,6 +315,7 @@ impl App {
         }
 
         self.snap = Some(snap);
+        self.focus_next_pending_ship();
         self.confirm_tutorial_order();
     }
 
@@ -349,5 +360,89 @@ impl App {
         self.snap
             .as_ref()
             .and_then(|s| self.focused_ship.and_then(|id| s.ship(id)))
+    }
+
+    /// Switch command focus without allowing a local draft to follow the
+    /// previous ship. The engine still owns order legality; this only keeps
+    /// the client from sending A1's draft with A2's id.
+    pub fn switch_focus(&mut self, ship_id: i64) {
+        if self.focused_ship == Some(ship_id) {
+            return;
+        }
+
+        if let Some(previous) = self.focused_ship {
+            if let Some(draft) = self.alloc_draft.take() {
+                self.alloc_drafts.insert(previous, draft);
+            }
+            if let Some(draft) = self.fire_draft.take() {
+                self.fire_drafts.insert(previous, draft);
+            }
+        }
+
+        self.focused_ship = Some(ship_id);
+        match self.mode {
+            Mode::Allocate => self.open_allocate_for_focus(),
+            Mode::Fire => self.open_fire_for_focus(),
+            Mode::Normal | Mode::Movement | Mode::GameOver => {}
+        }
+    }
+
+    pub fn open_allocate_for_focus(&mut self) {
+        let Some(ship_id) = self.focused_ship else {
+            return;
+        };
+        let draft = self
+            .alloc_draft
+            .take()
+            .or_else(|| self.alloc_drafts.remove(&ship_id))
+            .or_else(|| {
+                self.snap
+                    .as_ref()
+                    .map(|snap| AllocDraft::from_ship(snap, ship_id))
+            });
+        self.alloc_draft = draft;
+        self.mode = Mode::Allocate;
+    }
+
+    pub fn open_fire_for_focus(&mut self) {
+        let Some(ship_id) = self.focused_ship else {
+            return;
+        };
+        self.fire_draft = self
+            .fire_draft
+            .take()
+            .or_else(|| self.fire_drafts.remove(&ship_id))
+            .or_else(|| Some(FireDraft::default()));
+        self.mode = Mode::Fire;
+    }
+
+    fn focus_next_pending_ship(&mut self) {
+        let next = {
+            let Some(snap) = self.snap.as_ref() else {
+                return;
+            };
+            let Some(current) = self.focused_ship else {
+                return;
+            };
+            let completed = match snap.phase.as_str() {
+                "allocate" => &snap.ships_allocated_this_turn,
+                "movement" => &snap.ships_committed_this_phase,
+                "firing" => &snap.ships_ready_fire,
+                _ => return,
+            };
+            if !completed.contains(&current) {
+                return;
+            }
+            snap.ships
+                .iter()
+                .find(|ship| {
+                    ship.controller == "player" && !ship.destroyed && !completed.contains(&ship.id)
+                })
+                .map(|ship| ship.id)
+        };
+
+        if let Some(next) = next {
+            self.switch_focus(next);
+        }
     }
 }

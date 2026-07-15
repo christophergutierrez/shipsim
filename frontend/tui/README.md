@@ -70,7 +70,7 @@ cargo run --release --manifest-path frontend/tui/Cargo.toml
 
 | Key | Action |
 |---|---|
-| `q` | Request quit; press `y` to confirm (`n`/`Esc` cancels) |
+| `q` | Request quit; press `y` to confirm (`n`/`Esc` cancels); prints the session-log path after exit |
 | `Esc` | Return to Normal mode; in the tutorial, reopen the expected form |
 | `Tab` | Cycle focus in free play; blocked during the tutorial |
 | `e` | Request end turn; press `y` to confirm (`n`/`Esc` cancels) |
@@ -101,6 +101,9 @@ the first enemy if none is chosen.
 cargo test   --manifest-path frontend/tui/Cargo.toml   # 56 TestBackend tests
 cargo clippy --manifest-path frontend/tui/Cargo.toml
 ```
+
+Confirmed quits write a transcript under `frontend/tui/local/` and print its
+absolute path after the terminal UI closes.
 
 ## Relationship to other clients
 

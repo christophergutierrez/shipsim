@@ -166,11 +166,11 @@ fn reopen_tutorial_mode(app: &mut App, message: &str) {
 }
 
 fn cycle_ship_focus(app: &mut App) {
-    if let Some(snap) = &app.snap {
+    if let Some(snap) = app.snap.clone() {
         let living: Vec<i64> = snap
             .ships
             .iter()
-            .filter(|s| !s.destroyed)
+            .filter(|s| s.controller == "player" && !s.destroyed)
             .map(|s| s.id)
             .collect();
         if living.is_empty() {
@@ -186,7 +186,7 @@ fn cycle_ship_focus(app: &mut App) {
             }
             None => living[0],
         };
-        app.focused_ship = Some(next);
+        app.switch_focus(next);
     }
 }
 
@@ -326,55 +326,43 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
 }
 
 fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
-    let snap = match &app.snap {
-        Some(s) => s,
+    let phase = match app.snap.as_ref() {
+        Some(s) => s.phase.clone(),
         None => return KeyResult::Continue,
     };
 
     match key.code {
         KeyCode::Char('a') => {
-            if snap.phase == "allocate" {
-                if let Some(sid) = app.focused_ship {
-                    app.alloc_draft = Some(crate::app::AllocDraft::from_ship(snap, sid));
-                    app.mode = Mode::Allocate;
-                }
+            if phase == "allocate" {
+                app.open_allocate_for_focus();
             }
             KeyResult::Continue
         }
         KeyCode::Char('m') => {
-            if snap.phase == "movement" {
+            if phase == "movement" {
                 app.mode = Mode::Movement;
             }
             KeyResult::Continue
         }
         KeyCode::Char('f') => {
-            if snap.phase == "firing" {
-                app.fire_draft = Some(crate::app::FireDraft::default());
-                app.mode = Mode::Fire;
+            if phase == "firing" {
+                app.open_fire_for_focus();
             }
             KeyResult::Continue
         }
         // Maneuvers also work from Normal during movement (quick keys).
-        KeyCode::Char('c') if snap.phase == "movement" => send_coast(app),
-        KeyCode::Char('t') if snap.phase == "movement" => send_accel(app),
-        KeyCode::Char(c) if snap.phase == "movement" && c.is_ascii_digit() && c <= '5' => {
+        KeyCode::Char('c') if phase == "movement" => send_coast(app),
+        KeyCode::Char('t') if phase == "movement" => send_accel(app),
+        KeyCode::Char(c) if phase == "movement" && c.is_ascii_digit() && c <= '5' => {
             let facing = (c as u8 - b'0') as u32;
             send_turn(app, facing)
         }
-        KeyCode::Char(' ') if snap.phase == "firing" => send_ready(app),
+        KeyCode::Char(' ') if phase == "firing" => send_ready(app),
         KeyCode::Enter => {
-            match snap.phase.as_str() {
-                "allocate" => {
-                    if let Some(sid) = app.focused_ship {
-                        app.alloc_draft = Some(crate::app::AllocDraft::from_ship(snap, sid));
-                        app.mode = Mode::Allocate;
-                    }
-                }
+            match phase.as_str() {
+                "allocate" => app.open_allocate_for_focus(),
                 "movement" => app.mode = Mode::Movement,
-                "firing" => {
-                    app.fire_draft = Some(crate::app::FireDraft::default());
-                    app.mode = Mode::Fire;
-                }
+                "firing" => app.open_fire_for_focus(),
                 _ => {}
             }
             KeyResult::Continue
@@ -594,7 +582,10 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
             let target = match draft.target {
                 Some(t) => t,
                 None => {
-                    let enemy = snap.ships.iter().find(|s| s.id != sid && !s.destroyed);
+                    let enemy = snap
+                        .ships
+                        .iter()
+                        .find(|s| s.controller != "player" && !s.destroyed);
                     match enemy {
                         Some(e) => e.id,
                         None => return KeyResult::Continue,
@@ -617,7 +608,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
             let enemies: Vec<i64> = snap
                 .ships
                 .iter()
-                .filter(|s| s.id != sid && !s.destroyed)
+                .filter(|s| s.controller != "player" && !s.destroyed)
                 .map(|s| s.id)
                 .collect();
             if let Some(&tid) = enemies.get(idx) {

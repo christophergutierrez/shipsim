@@ -135,6 +135,24 @@ fn fire_phase_snapshot() -> Snapshot {
     serde_json::from_str(json).expect("fire snapshot must parse")
 }
 
+/// Two player ships with different loadouts plus an enemy. This is the
+/// smallest fixture that can expose command-focus and draft ownership bugs.
+fn fleet_snapshot() -> Snapshot {
+    let mut snap = test_snapshot();
+    snap.ships[1].controller = "player".into();
+    snap.ships[1].id = 2;
+    snap.ships[1].q = 1;
+    snap.ships[1].r = 6;
+
+    let mut enemy = snap.ships[1].clone();
+    enemy.id = 3;
+    enemy.controller = "ai".into();
+    enemy.q = 8;
+    enemy.r = 4;
+    snap.ships.push(enemy);
+    snap
+}
+
 /// A snapshot where the game is over (player won).
 fn game_over_snapshot() -> Snapshot {
     let mut snap = test_snapshot();
@@ -474,16 +492,86 @@ fn key_esc_returns_to_normal_mode() {
 }
 
 #[test]
-fn key_tab_cycles_focus() {
+fn key_tab_does_not_enter_an_enemy_ship() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     assert_eq!(app.focused_ship, Some(1));
 
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
-    assert_eq!(app.focused_ship, Some(2));
+    assert_eq!(app.focused_ship, Some(1));
 
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
     assert_eq!(app.focused_ship, Some(1));
+}
+
+#[test]
+fn tab_cycles_only_player_ships_and_keeps_each_allocate_draft_with_its_ship() {
+    let mut app = App::new();
+    app.update_snapshot(fleet_snapshot());
+    app.alloc_draft.as_mut().unwrap().movement = 7;
+    app.alloc_draft
+        .as_mut()
+        .unwrap()
+        .weapons
+        .insert("torp_1".into(), 1);
+
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
+
+    assert_eq!(app.focused_ship, Some(2));
+    let escort_draft = app.alloc_draft.as_ref().unwrap();
+    assert_eq!(escort_draft.movement, 1);
+    assert_eq!(escort_draft.weapons.len(), 1);
+    assert!(escort_draft.weapons.contains_key("beam_1"));
+
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let KeyResult::SendOrder(order) = result else {
+        panic!("expected escort allocation order");
+    };
+    let json = order.to_json();
+    assert!(json.contains("\"ship\":2"));
+    assert!(!json.contains("torp_1"));
+
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
+    assert_eq!(app.focused_ship, Some(1));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().movement, 7);
+    assert!(app
+        .alloc_draft
+        .as_ref()
+        .unwrap()
+        .weapons
+        .contains_key("torp_1"));
+}
+
+#[test]
+fn accepted_order_focuses_the_next_player_ship_that_is_still_pending() {
+    let mut app = App::new();
+    app.update_snapshot(fleet_snapshot());
+    assert_eq!(app.focused_ship, Some(1));
+
+    let mut after_a1 = fleet_snapshot();
+    after_a1.ships_allocated_this_turn = vec![1];
+    app.update_snapshot(after_a1);
+
+    assert_eq!(app.focused_ship, Some(2));
+}
+
+#[test]
+fn fire_target_selection_excludes_player_ships() {
+    let mut snap = fleet_snapshot();
+    snap.phase = "firing".into();
+    let mut app = App::new();
+    app.update_snapshot(snap);
+    assert_eq!(app.focused_ship, Some(1));
+
+    handle_key(&mut app, make_key('1'));
+
+    assert_eq!(app.fire_draft.as_ref().unwrap().target, Some(3));
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let KeyResult::SendOrder(order) = result else {
+        panic!("expected fire order");
+    };
+    let json = order.to_json();
+    assert!(json.contains("\"target\":3"));
 }
 
 #[test]
@@ -767,6 +855,55 @@ fn tutorial_combat_log_keeps_damage_result_visible() {
 }
 
 #[test]
+fn render_prioritizes_an_engine_rejection_above_combat_history() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.record_error(&ErrorResponse {
+        kind: "error".into(),
+        ok: false,
+        code: "order_illegal".into(),
+        message: "weapon is uncharged".into(),
+        order: None,
+    });
+
+    let buf = render_to_string(&mut app, 80, 24);
+
+    assert!(buffer_contains(
+        &buf,
+        "ERROR: order_illegal: weapon is uncharged"
+    ));
+}
+
+#[test]
+fn tutorial_error_is_pinned_above_the_form_at_the_small_floor() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+    app.tutorial
+        .as_mut()
+        .unwrap()
+        .set_error("WRONG ACTION: use the highlighted field");
+
+    let buf = render_to_string(&mut app, 80, 24);
+
+    assert!(buffer_contains(&buf, "WRONG ACTION"));
+}
+
+#[test]
+fn session_log_contains_snapshot_combat_and_command_context() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.combat_history
+        .push("A1 beam_1>B2 HIT +4 sh-0 hull-4".into());
+    app.log("ready_fire");
+
+    let contents = crate::session_log_contents(&app);
+
+    assert!(contents.contains("turn=2 phase=firing status=InProgress"));
+    assert!(contents.contains("A1 beam_1>B2 HIT +4 sh-0 hull-4"));
+    assert!(contents.contains("ready_fire"));
+}
+
+#[test]
 fn render_does_not_panic_with_no_snapshot() {
     let mut app = App::new();
     // Should render a placeholder without panicking.
@@ -903,17 +1040,17 @@ fn full_cycle_game_over_detection() {
 }
 
 #[test]
-fn full_cycle_tab_focus_then_render() {
+fn full_cycle_tab_keeps_player_ship_rendered_when_only_one_is_owned() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
 
-    // Focus ship 2.
+    // Enemy ship 2 is not a command-focus candidate.
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
-    assert_eq!(app.focused_ship, Some(2));
+    assert_eq!(app.focused_ship, Some(1));
 
-    // Render — should show ship 2's details.
+    // Render — the player ship remains the command source.
     let buf = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&buf, "Escort"));
+    assert!(buffer_contains(&buf, "Heavy Cruiser"));
 }
 
 #[test]
