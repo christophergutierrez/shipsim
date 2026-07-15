@@ -157,13 +157,25 @@ fn run(
             }
             KeyResult::Continue => {}
         }
+
+        // Drain a pending movement-preview request (read-only query, not an
+        // order). The input handler queues this when the alloc draft changes;
+        // we send it here and store the response for rendering.
+        if let Some(preview_json) = app.pending_preview.take() {
+            if harness.send(&preview_json).is_ok() {
+                if let Some(line) = harness.read_line() {
+                    apply_engine_line(app, line);
+                }
+            }
+        }
     }
 }
 
-/// Apply one engine line (snapshot or error) to app state.
+/// Apply one engine line (snapshot, movement preview, or error) to app state.
 fn apply_engine_line(app: &mut App, line: EngineLine) {
     match line {
         EngineLine::Snapshot(s) => app.update_snapshot(s),
+        EngineLine::MovementPreview(p) => app.movement_preview = Some(p),
         EngineLine::Error(e) => app.record_error(&e),
         EngineLine::Raw(r) => app.log(format!("engine: {r}")),
     }

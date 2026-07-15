@@ -195,6 +195,13 @@ pub struct App {
     last_combat_snapshot: Vec<String>,
     /// Pending orders to send (built by input handlers, drained by main loop).
     pub pending_order: Option<Order>,
+    /// Pending movement-preview request JSON (built by input handlers, drained
+    /// by main loop). Unlike `pending_order`, this is a read-only query that
+    /// returns a `movement_preview` envelope, not a snapshot.
+    pub pending_preview: Option<String>,
+    /// Last movement-preview response (for rendering reachable endpoints on
+    /// the map and the projected position in the ship status panel).
+    pub movement_preview: Option<crate::protocol::MovementPreview>,
     /// True if the engine subprocess has exited.
     pub engine_dead: bool,
     /// Message log lines (for the log panel).
@@ -229,6 +236,8 @@ impl App {
             combat_history: Vec::new(),
             last_combat_snapshot: Vec::new(),
             pending_order: None,
+            pending_preview: None,
+            movement_preview: None,
             engine_dead: false,
             log: Vec::new(),
             tutorial: None,
@@ -279,6 +288,7 @@ impl App {
                     self.fire_draft = None;
                     self.alloc_drafts.clear();
                     self.fire_drafts.clear();
+                    self.movement_preview = None;
                     if snap.phase == "allocate" {
                         if let Some(sid) = self.focused_ship {
                             self.alloc_draft = Some(AllocDraft::from_ship(&snap, sid));
@@ -411,6 +421,47 @@ impl App {
         if let Some(t) = self.tutorial.as_mut() {
             t.set_error(format!("Engine rejected that order: {}", err.message));
         }
+    }
+
+    /// Queue a read-only `movement_preview` request for the focused ship using
+    /// the current alloc draft. The main loop drains `pending_preview` and
+    /// stores the response in `movement_preview`. Uses `clamp: true` so an
+    /// over-allocated draft still returns a reachable set (for live slider
+    /// previews) rather than rejecting.
+    pub fn request_movement_preview(&mut self) {
+        let snap = match &self.snap {
+            Some(s) => s,
+            None => return,
+        };
+        // Preview is only meaningful during allocate/movement phases.
+        if snap.phase != "allocate" && snap.phase != "movement" {
+            return;
+        }
+        let ship_id = match self.focused_ship {
+            Some(id) => id,
+            None => return,
+        };
+        let draft = match &self.alloc_draft {
+            Some(d) => d,
+            None => return,
+        };
+        // Build the weapons map.
+        let weapons: serde_json::Value = draft
+            .weapons
+            .iter()
+            .map(|(name, power)| (name.clone(), serde_json::json!(power)))
+            .collect();
+        let shields: serde_json::Value = draft.shields.iter().map(|s| serde_json::json!(s)).collect();
+        let req = serde_json::json!({
+            "protocol_version": 3,
+            "request": "movement_preview",
+            "ship": ship_id,
+            "movement": draft.movement,
+            "weapons": weapons,
+            "shields": shields,
+            "clamp": true,
+        });
+        self.pending_preview = Some(req.to_string());
     }
 
     /// Commit a tutorial step only after the corresponding order produced a

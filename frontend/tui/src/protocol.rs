@@ -139,6 +139,41 @@ pub struct FireCommit {
     pub shield_facing: u32,
 }
 
+// ── Movement preview (read-only query response) ──────────────────────────
+
+/// One reachable endpoint after the four movement cycles.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PreviewEndpoint {
+    pub q: i32,
+    pub r: i32,
+    pub facing: u32,
+    pub course: u32,
+    pub speed: u32,
+    pub thrust_remaining: u32,
+}
+
+/// The `movement_preview` response envelope (`type: "movement_preview"`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MovementPreview {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub ok: bool,
+    pub ship: i64,
+    pub endpoints: Vec<PreviewEndpoint>,
+    pub coast: PreviewEndpoint,
+    #[serde(default)]
+    pub occupied: Vec<HexCoord>,
+    /// Present only when `clamp: true` was requested.
+    #[serde(default)]
+    pub clamped_movement: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct HexCoord {
+    pub q: i32,
+    pub r: i32,
+}
+
 // ── Soft error ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]

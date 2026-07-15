@@ -471,6 +471,7 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             if let Some(draft) = &mut app.alloc_draft {
                 adjust_field(draft, -1);
             }
+            app.request_movement_preview();
             KeyResult::Continue
         }
         KeyCode::Right => {
@@ -478,6 +479,7 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             if let Some(draft) = &mut app.alloc_draft {
                 adjust_field(draft, 1);
             }
+            app.request_movement_preview();
             KeyResult::Continue
         }
         KeyCode::Char(c) if c.is_ascii_digit() => {
@@ -489,6 +491,7 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                     draft.set_field_value(new);
                 }
             }
+            app.request_movement_preview();
             KeyResult::Continue
         }
         KeyCode::Backspace => {
@@ -496,6 +499,7 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             if let Some(draft) = &mut app.alloc_draft {
                 draft.set_field_value(0);
             }
+            app.request_movement_preview();
             KeyResult::Continue
         }
         _ => KeyResult::Continue,

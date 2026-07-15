@@ -428,10 +428,27 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     // ships that drift to negative coordinates on-screen.
     let (oq, or_) = app.map_origin();
 
+    // Collect movement-preview endpoint coordinates for the focused ship.
+    // These are the reachable hexes after the four movement cycles.
+    let preview_endpoints: std::collections::HashSet<(i32, i32)> = app
+        .movement_preview
+        .as_ref()
+        .map(|p| p.endpoints.iter().map(|e| (e.q, e.r)).collect())
+        .unwrap_or_default();
+    let preview_coast = app
+        .movement_preview
+        .as_ref()
+        .map(|p| (p.coast.q, p.coast.r));
+
     let title = if let Some(ref s) = shade {
         format!(
             "Map @({},{}) · shade = {} arc + range ≤{} · green=you red=ai",
             oq, or_, s.mount_label, s.max_range
+        )
+    } else if !preview_endpoints.is_empty() {
+        format!(
+            "Map @({},{}) · ◆=reachable · green=you red=ai · arrow=facing",
+            oq, or_
         )
     } else {
         format!("Map @({},{}) · green=you red=ai · arrow=facing", oq, or_)
@@ -469,6 +486,9 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 .iter()
                 .find(|s| s.q == wq && s.r == wr);
 
+            let is_preview_endpoint = preview_endpoints.contains(&(wq, wr));
+            let is_coast = preview_coast == Some((wq, wr));
+
             let (text, fg) = if let Some(s) = ship {
                 let cs = callsign(s);
                 let focused = app.focused_ship == Some(s.id);
@@ -489,6 +509,10 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                     }
                 };
                 (cell, ship_fg(s, focused))
+            } else if is_coast {
+                ("◆   ".to_string(), Color::Cyan)
+            } else if is_preview_endpoint {
+                ("◇   ".to_string(), Color::DarkGray)
             } else if in_arc_range {
                 ("··  ".to_string(), Color::DarkGray)
             } else {
@@ -500,6 +524,8 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 if let Some(ref s) = shade {
                     style = style.bg(s.bg);
                 }
+            } else if is_coast {
+                style = style.bg(Color::DarkGray);
             }
             if ship.is_some() && app.focused_ship == ship.map(|s| s.id) {
                 style = style.add_modifier(Modifier::BOLD);
@@ -510,8 +536,13 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     }
 
     lines.push(Line::from(""));
+    let legend = if !preview_endpoints.is_empty() {
+        "A# you  B# ai  arrow=facing  ◆=coast ◇=reachable  shade=weapon (range ∩ arc)"
+    } else {
+        "A# you  B# ai  arrow=facing  shade=selected weapon (range ∩ arc)"
+    };
     lines.push(Line::from(Span::styled(
-        "A# you  B# ai  arrow=facing  shade=selected weapon (range ∩ arc)",
+        legend,
         Style::default().fg(Color::DarkGray),
     )));
 
@@ -574,6 +605,39 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 ship.thrust_remaining
             )),
         );
+
+        // Show the projected position from the movement preview (if available).
+        if let Some(ref preview) = app.movement_preview {
+            let c = &preview.coast;
+            push(
+                f,
+                &mut y,
+                Line::from(vec![
+                    Span::styled(
+                        "  ▶ projected: ",
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw(format!(
+                        "({},{}) face={}{} vel={}",
+                        c.q, c.r, c.facing, facing_arrow(c.facing), c.speed
+                    )),
+                    Span::styled(
+                        format!("  [{} endpoints]", preview.endpoints.len()),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]),
+            );
+            if let Some(cm) = preview.clamped_movement {
+                push(
+                    f,
+                    &mut y,
+                    Line::from(Span::styled(
+                        format!("    (thrust clamped to {} for preview)", cm),
+                        Style::default().fg(Color::Yellow),
+                    )),
+                );
+            }
+        }
         push(
             f,
             &mut y,

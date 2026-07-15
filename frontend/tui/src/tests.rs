@@ -1108,6 +1108,7 @@ fn engine_bin() -> Option<std::path::PathBuf> {
 fn apply_line(app: &mut App, line: crate::harness::EngineLine) {
     match line {
         crate::harness::EngineLine::Snapshot(s) => app.update_snapshot(s),
+        crate::harness::EngineLine::MovementPreview(p) => app.movement_preview = Some(p),
         crate::harness::EngineLine::Error(e) => app.record_error(&e),
         crate::harness::EngineLine::Raw(r) => app.log(format!("raw: {r}")),
     }
@@ -1122,6 +1123,14 @@ fn send_key(app: &mut App, harness: &mut crate::harness::Harness, key: crossterm
             }
         }
         KeyResult::Quit | KeyResult::Continue => {}
+    }
+    // Drain a pending movement-preview request (mirrors the main loop).
+    if let Some(preview_json) = app.pending_preview.take() {
+        if harness.send(&preview_json).is_ok() {
+            if let Some(line) = harness.read_line() {
+                apply_line(app, line);
+            }
+        }
     }
 }
 

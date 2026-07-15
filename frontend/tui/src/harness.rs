@@ -8,7 +8,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use crate::protocol::{ErrorResponse, Snapshot};
+use crate::protocol::{ErrorResponse, MovementPreview, Snapshot};
 
 /// Manages the shipsim engine subprocess.
 pub struct Harness {
@@ -17,10 +17,11 @@ pub struct Harness {
     stdout: BufReader<ChildStdout>,
 }
 
-/// A line from the engine: either a snapshot or a soft error.
+/// A line from the engine: either a snapshot, a movement preview, or a soft error.
 #[derive(Debug)]
 pub enum EngineLine {
     Snapshot(Snapshot),
+    MovementPreview(MovementPreview),
     Error(ErrorResponse),
     /// A line that didn't parse as either (shouldn't happen in normal play).
     Raw(String),
@@ -67,12 +68,28 @@ impl Harness {
         if trimmed.is_empty() {
             return None;
         }
-        // Try snapshot first (has "phase" field), then error.
+        // Disambiguate by the "type" field: snapshots have no "type" (they
+        // have "phase"), errors have type "error", and movement previews have
+        // type "movement_preview". Parse accordingly.
+        let type_field: Option<String> = serde_json::from_str::<serde_json::Value>(trimmed)
+            .ok()
+            .and_then(|v| v.get("type").and_then(|t| t.as_str().map(String::from)));
+        match type_field.as_deref() {
+            Some("error") => {
+                if let Ok(err) = serde_json::from_str::<ErrorResponse>(trimmed) {
+                    return Some(EngineLine::Error(err));
+                }
+            }
+            Some("movement_preview") => {
+                if let Ok(preview) = serde_json::from_str::<MovementPreview>(trimmed) {
+                    return Some(EngineLine::MovementPreview(preview));
+                }
+            }
+            _ => {}
+        }
+        // No "type" field (or unrecognized) → try snapshot.
         if let Ok(snap) = serde_json::from_str::<Snapshot>(trimmed) {
             return Some(EngineLine::Snapshot(snap));
-        }
-        if let Ok(err) = serde_json::from_str::<ErrorResponse>(trimmed) {
-            return Some(EngineLine::Error(err));
         }
         Some(EngineLine::Raw(trimmed.into()))
     }
