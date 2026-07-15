@@ -423,13 +423,18 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     let h = snap.map.height as usize;
     let shade = selected_weapon_shade(app);
 
+    // Viewport origin (top-left visible hex). Auto-centers on the focused ship
+    // unless the player has panned manually. In the unbounded world this keeps
+    // ships that drift to negative coordinates on-screen.
+    let (oq, or_) = app.map_origin();
+
     let title = if let Some(ref s) = shade {
         format!(
-            "Map · shade = {} arc + range ≤{} · green=you red=ai",
-            s.mount_label, s.max_range
+            "Map @({},{}) · shade = {} arc + range ≤{} · green=you red=ai",
+            oq, or_, s.mount_label, s.max_range
         )
     } else {
-        "Map · green=you red=ai · arrow=facing".into()
+        format!("Map @({},{}) · green=you red=ai · arrow=facing", oq, or_)
     };
 
     let mut lines: Vec<Line> = Vec::new();
@@ -437,28 +442,32 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     // Column header (q)
     let mut hdr = vec![Span::styled("   ", Style::default().fg(Color::DarkGray))];
     for q in 0..w {
+        let wq = oq + q as i32;
         hdr.push(Span::styled(
-            format!("{:<4}", q % 10),
+            format!("{:<4}", wq.rem_euclid(10)),
             Style::default().fg(Color::DarkGray),
         ));
     }
     lines.push(Line::from(hdr));
 
     for r in 0..h {
+        let wr = or_ + r as i32;
         let mut spans: Vec<Span> = vec![Span::styled(
-            format!("{:2} ", r),
+            format!("{:2} ", wr),
             Style::default().fg(Color::DarkGray),
         )];
         for q in 0..w {
+            let wq = oq + q as i32;
+            let wr = or_ + r as i32;
             let in_arc_range = shade
                 .as_ref()
-                .map(|s| s.covers(q as i32, r as i32))
+                .map(|s| s.covers(wq, wr))
                 .unwrap_or(false);
 
             let ship = snap
                 .ships
                 .iter()
-                .find(|s| s.q as usize == q && s.r as usize == r);
+                .find(|s| s.q == wq && s.r == wr);
 
             let (text, fg) = if let Some(s) = ship {
                 let cs = callsign(s);
@@ -659,9 +668,27 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             vec![
                 Line::from(" q: quit  Tab: cycle focus  Enter: act in phase"),
                 Line::from(" a: allocate  m: move  f: fire  e: end turn"),
+                Line::from(" v: map-focus (WASD/hjkl pan, c recenter)"),
                 Line::from(""),
             ],
         ),
+        Mode::Map => {
+            let (oq, or_) = app.map_origin();
+            let auto = if app.map_pan.is_none() { " (auto-center)" } else { "" };
+            (
+                "Map Focus",
+                vec![
+                    Line::from(" WASD / hjkl / arrows: pan  c: recenter"),
+                    Line::from(" v / Esc / Enter: back to Normal"),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!(" origin=({},{}){}", oq, or_, auto),
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                    Line::from(""),
+                ],
+            )
+        }
         Mode::Allocate => render_allocate_panel(app),
         Mode::Movement => render_movement_panel(app),
         Mode::Fire => render_fire_panel(app),

@@ -1368,3 +1368,198 @@ fn weapon_shade_forward_mount_is_range_and_arc() {
         0, 4, 0, 2, &[0], 5, 4
     )); // beyond range 2
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Slice 5: Map viewport panning (Phase 5)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Snapshot with an unbounded map and a ship at negative coordinates.
+fn unbounded_snapshot() -> Snapshot {
+    let json = r#"{
+        "protocol_version": 3,
+        "turn": 5,
+        "status": "InProgress",
+        "phase": "allocate",
+        "movement_phase": 0,
+        "ships_committed_this_phase": [],
+        "ships_ready_fire": [],
+        "ships_allocated_this_turn": [],
+        "map": {"width": 10, "height": 10, "mode": "unbounded"},
+        "ships": [
+            {
+                "id": 1, "class": "Heavy Cruiser", "controller": "player",
+                "size": 2,
+                "q": -3, "r": -2, "facing": 0,
+                "hull": 12, "max_hull": 12, "power": 22, "thrust_remaining": 0,
+                "structure": 12, "engine": 4, "power_sys": 2, "bridge": 1,
+                "max_velocity": 8, "velocity": 0, "course": 0,
+                "max_shield_per_facing": 6,
+                "shields": [0,0,0,0,0,0], "shield_power": 0,
+                "weapons": [
+                    {"id":"beam_1","kind":"Beam","arc":"Forward","mount":"forward","max_range":10,"charge":0,"fired":false,"max_charge":4,"operational":true}
+                ],
+                "destroyed": false
+            },
+            {
+                "id": 2, "class": "Escort", "controller": "ai",
+                "size": 1,
+                "q": 4, "r": -2, "facing": 3,
+                "hull": 8, "max_hull": 8, "power": 16, "thrust_remaining": 0,
+                "structure": 8, "engine": 3, "power_sys": 2, "bridge": 1,
+                "max_velocity": 8, "velocity": 0, "course": 0,
+                "max_shield_per_facing": 4,
+                "shields": [0,0,0,0,0,0], "shield_power": 0,
+                "weapons": [
+                    {"id":"beam_1","kind":"Beam","arc":"Forward","mount":"forward","max_range":10,"charge":4,"fired":false,"max_charge":4,"operational":true}
+                ],
+                "destroyed": false
+            }
+        ],
+        "combat_log": []
+    }"#;
+    serde_json::from_str(json).expect("unbounded snapshot must parse")
+}
+
+#[test]
+fn bounded_map_origin_is_zero_zero_by_default() {
+    // On a bounded (hard) map with the ship in-bounds, the origin stays at
+    // (0,0) so the whole board is visible.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    assert_eq!(app.map_origin(), (0, 0));
+}
+
+#[test]
+fn unbounded_map_auto_centers_on_focused_ship() {
+    // On an unbounded map, the viewport auto-centers on the focused ship
+    // (which is at (-3,-2)) so it stays on-screen.
+    let mut app = App::new();
+    app.update_snapshot(unbounded_snapshot());
+    // update_snapshot auto-focuses ship 1.
+    assert_eq!(app.focused_ship, Some(1));
+    let (oq, or_) = app.map_origin();
+    // Auto-center places the ship at upper-left third: origin = (q-3, r-2).
+    assert_eq!((oq, or_), (-3 - 3, -2 - 2));
+}
+
+#[test]
+fn v_enters_map_mode() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let result = handle_key(&mut app, make_key('v'));
+    assert!(matches!(result, KeyResult::Continue));
+    assert_eq!(app.mode, crate::app::Mode::Map);
+}
+
+#[test]
+fn map_mode_esc_returns_to_normal() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('v'));
+    assert_eq!(app.mode, crate::app::Mode::Map);
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+    // test_snapshot is in the allocate phase, so Esc restores Allocate mode.
+    assert_eq!(app.mode, crate::app::Mode::Allocate);
+}
+
+#[test]
+fn map_mode_v_toggles_back_to_normal() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('v'));
+    assert_eq!(app.mode, crate::app::Mode::Map);
+    handle_key(&mut app, make_key('v'));
+    // test_snapshot is in the allocate phase, so v restores Allocate mode.
+    assert_eq!(app.mode, crate::app::Mode::Allocate);
+}
+
+#[test]
+fn wasd_pans_map_and_sets_explicit_offset() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('v'));
+    // Pan east (d) then south (s).
+    handle_key(&mut app, make_key('d'));
+    handle_key(&mut app, make_key('s'));
+    // Origin should now be (1, 1) — explicit pan overrides auto-center.
+    assert_eq!(app.map_pan, Some((1, 1)));
+    assert_eq!(app.map_origin(), (1, 1));
+}
+
+#[test]
+fn hjkl_pans_map() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('v'));
+    // Pan west (h) then north (k).
+    handle_key(&mut app, make_key('h'));
+    handle_key(&mut app, make_key('k'));
+    assert_eq!(app.map_pan, Some((-1, -1)));
+}
+
+#[test]
+fn map_mode_c_recenters() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('v'));
+    // Pan away.
+    handle_key(&mut app, make_key('d'));
+    handle_key(&mut app, make_key('d'));
+    assert!(app.map_pan.is_some());
+    // Recenter clears the explicit pan.
+    handle_key(&mut app, make_key('c'));
+    assert!(app.map_pan.is_none());
+}
+
+#[test]
+fn focus_change_recenters_map() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('v'));
+    // Pan away.
+    handle_key(&mut app, make_key('d'));
+    assert!(app.map_pan.is_some());
+    // Tab changes focus, which should recenter.
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
+    // In Map mode, Tab is not handled (falls to _ => Continue), so pan stays.
+    // Focus change via switch_focus() is what recenters; verify the helper.
+    app.switch_focus(2);
+    assert!(app.map_pan.is_none());
+}
+
+#[test]
+fn map_mode_is_read_only_no_order_sent() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('v'));
+    // Panning in map mode must not produce an order.
+    let result = handle_key(&mut app, make_key('d'));
+    assert!(matches!(result, KeyResult::Continue));
+    // No pending order should exist.
+    assert!(app.pending_order.is_none());
+}
+
+#[test]
+fn unbounded_map_shows_focused_ship_on_screen() {
+    // On an unbounded map with the ship at (-3,-2), the auto-centered
+    // viewport must render the ship's callsign (A1) in the buffer.
+    let mut app = App::new();
+    app.update_snapshot(unbounded_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "A1"),
+        "focused ship A1 at (-3,-2) must be visible in auto-centered unbounded viewport"
+    );
+}
+
+#[test]
+fn bounded_map_origin_stays_zero_when_ship_in_bounds() {
+    // Even after entering and exiting map mode on a bounded map, the origin
+    // returns to (0,0) (no lingering pan) because recenter clears it.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('v'));
+    handle_key(&mut app, make_key('c'));
+    handle_key(&mut app, make_key('v'));
+    assert_eq!(app.map_origin(), (0, 0));
+}

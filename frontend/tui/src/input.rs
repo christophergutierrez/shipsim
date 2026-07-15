@@ -58,11 +58,16 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyResult {
                     app,
                     "Esc does not cancel the lesson; the expected form is open again.",
                 );
+                return KeyResult::Continue;
+            } else if app.mode == Mode::Map {
+                // Let handle_map own Esc so it can restore the phase-appropriate
+                // mode (not unconditionally Normal). Fall through to the mode
+                // dispatch below.
             } else {
                 app.mode = Mode::Normal;
                 app.last_error = None;
+                return KeyResult::Continue;
             }
-            return KeyResult::Continue;
         }
         KeyCode::Tab => {
             if tutorial_active {
@@ -85,8 +90,24 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyResult {
         return KeyResult::Continue;
     }
 
+    // `v` enters map-focus from any active phase mode (not just Normal). The
+    // phase auto-switch in update_snapshot leaves the app in Allocate/Movement/
+    // Fire, so gating `v` on Normal alone would make it unreachable during
+    // normal play. Map mode is read-only and exits cleanly back to the phase
+    // mode via Esc/v/Enter.
+    if key.code == KeyCode::Char('v')
+        && app.mode != Mode::GameOver
+        && app.mode != Mode::Map
+        && app.confirmation.is_none()
+    {
+        app.reset_map_pan();
+        app.mode = Mode::Map;
+        return KeyResult::Continue;
+    }
+
     match app.mode {
         Mode::Normal => handle_normal(app, key),
+        Mode::Map => handle_map(app, key),
         Mode::Allocate => handle_allocate(app, key),
         Mode::Movement => handle_movement(app, key),
         Mode::Fire => handle_fire(app, key),
@@ -351,6 +372,49 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
                 "firing" => app.open_fire_for_focus(),
                 _ => {}
             }
+            KeyResult::Continue
+        }
+        _ => KeyResult::Continue,
+    }
+}
+
+/// Map-focus mode: WASD/hjkl pans the viewport, Esc/v returns to Normal.
+///
+/// Read-only — no orders are sent. The pan is relative to the current origin
+/// (auto-centered on the focused ship until the first manual pan). In the
+/// unbounded world this is the only way to follow a ship that has drifted to
+/// negative coordinates.
+fn handle_map(app: &mut App, key: KeyEvent) -> KeyResult {
+    match key.code {
+        // Pan: WASD and hjkl both work (vi-style + gamer-style).
+        // q increases to the east, r increases to the south-east in this
+        // axial system, so w/k = north (r-1), s/j = south (r+1),
+        // a/h = west (q-1), d/l = east (q+1).
+        KeyCode::Char('w') | KeyCode::Char('k') | KeyCode::Up => {
+            app.pan_map(0, -1);
+            KeyResult::Continue
+        }
+        KeyCode::Char('s') | KeyCode::Char('j') | KeyCode::Down => {
+            app.pan_map(0, 1);
+            KeyResult::Continue
+        }
+        KeyCode::Char('a') | KeyCode::Char('h') | KeyCode::Left => {
+            app.pan_map(-1, 0);
+            KeyResult::Continue
+        }
+        KeyCode::Char('d') | KeyCode::Char('l') | KeyCode::Right => {
+            app.pan_map(1, 0);
+            KeyResult::Continue
+        }
+        // Re-center on the focused ship.
+        KeyCode::Char('c') | KeyCode::Char('z') => {
+            app.reset_map_pan();
+            KeyResult::Continue
+        }
+        // Exit map-focus: restore the phase-appropriate mode (not just Normal,
+        // since `v` can be pressed from Allocate/Movement/Fire).
+        KeyCode::Esc | KeyCode::Char('v') | KeyCode::Enter => {
+            app.exit_map_mode();
             KeyResult::Continue
         }
         _ => KeyResult::Continue,
@@ -669,5 +733,7 @@ fn map_key_to_action(
             KeyCode::Enter => Some(ExpectedAction::Dismiss),
             _ => None,
         },
+        // Map-focus is read-only: no tutorial action is produced.
+        Mode::Map => None,
     }
 }

@@ -19,6 +19,10 @@ pub enum Mode {
     Movement,
     /// Fire phase: choosing a weapon + target.
     Fire,
+    /// Map-focus: WASD/hjkl pans the map viewport. Read-only; no orders.
+    /// Entered with `v` from Normal, exited with Esc/v. Essential for the
+    /// unbounded world where ships can drift to negative coordinates.
+    Map,
     /// Game over screen.
     GameOver,
 }
@@ -170,6 +174,11 @@ pub struct App {
     pub snap: Option<Snapshot>,
     pub mode: Mode,
     pub focused_ship: Option<i64>,
+    /// Map viewport pan offset (q, r) of the top-left visible hex.
+    /// `None` = auto-center on the focused ship each render. Set to `Some`
+    /// the moment the player pans manually; reset to `None` on focus change
+    /// or when entering Map mode so the view recenters.
+    pub map_pan: Option<(i32, i32)>,
     pub alloc_draft: Option<AllocDraft>,
     pub fire_draft: Option<FireDraft>,
     /// Drafts parked while the player inspects or commands another ship.
@@ -210,6 +219,7 @@ impl App {
             snap: None,
             mode: Mode::Normal,
             focused_ship: None,
+            map_pan: None,
             alloc_draft: None,
             fire_draft: None,
             alloc_drafts: std::collections::BTreeMap::new(),
@@ -435,6 +445,69 @@ impl App {
             .and_then(|s| self.focused_ship.and_then(|id| s.ship(id)))
     }
 
+    /// Effective top-left hex (q, r) of the map viewport.
+    ///
+    /// When the player has not panned (`map_pan == None`):
+    /// - On a **bounded** map, the origin stays at (0, 0) so the whole board
+    ///   is visible — both ships remain on screen.
+    /// - On an **unbounded** map, the viewport auto-centers on the focused
+    ///   ship so it stays in view as it moves (ships can drift to negative
+    ///   coordinates far from the origin).
+    /// - If the focused ship has drifted **outside** the bounded board, the
+    ///   viewport recenters on it even on a bounded map (defensive: should not
+    ///   happen under the rules, but keeps the ship visible if it does).
+    ///
+    /// When the player pans manually, the explicit offset is honored until
+    /// focus changes or Map mode is re-entered.
+    pub fn map_origin(&self) -> (i32, i32) {
+        if let Some(pan) = self.map_pan {
+            return pan;
+        }
+        let Some(snap) = self.snap.as_ref() else {
+            return (0, 0);
+        };
+        let unbounded = snap.map.mode == "unbounded" || snap.map.mode == "infinite";
+        if let Some(ship) = self.focused() {
+            let w = snap.map.width as i32;
+            let h = snap.map.height as i32;
+            let off_board = ship.q < 0 || ship.r < 0 || ship.q >= w || ship.r >= h;
+            if unbounded || off_board {
+                // Auto-center: place the focused ship in the upper-left third
+                // of the viewport (ships tend to move forward/down-right, so
+                // biasing up-left keeps their likely trajectory on-screen).
+                return (ship.q - 3, ship.r - 2);
+            }
+        }
+        (0, 0)
+    }
+
+    /// Pan the map by (dq, dr). Sets the explicit offset (disabling auto-center)
+    /// so the player's manual pan sticks.
+    pub fn pan_map(&mut self, dq: i32, dr: i32) {
+        let (q, r) = self.map_origin();
+        self.map_pan = Some((q + dq, r + dr));
+    }
+
+    /// Reset the pan to auto-center (called on focus change and Map-mode entry).
+    pub fn reset_map_pan(&mut self) {
+        self.map_pan = None;
+    }
+
+    /// Exit Map mode, restoring the phase-appropriate input mode.
+    ///
+    /// Since `v` can be pressed from Allocate/Movement/Fire (the phase
+    /// auto-switch leaves the app there), exiting Map mode must return to the
+    /// mode matching the current phase — not unconditionally Normal.
+    pub fn exit_map_mode(&mut self) {
+        let phase = self.snap.as_ref().map(|s| s.phase.as_str()).unwrap_or("");
+        self.mode = match phase {
+            "allocate" => Mode::Allocate,
+            "movement" => Mode::Movement,
+            "firing" => Mode::Fire,
+            _ => Mode::Normal,
+        };
+    }
+
     /// Switch command focus without allowing a local draft to follow the
     /// previous ship. The engine still owns order legality; this only keeps
     /// the client from sending A1's draft with A2's id.
@@ -453,10 +526,12 @@ impl App {
         }
 
         self.focused_ship = Some(ship_id);
+        // Recenter the map on the newly focused ship (clears any manual pan).
+        self.reset_map_pan();
         match self.mode {
             Mode::Allocate => self.open_allocate_for_focus(),
             Mode::Fire => self.open_fire_for_focus(),
-            Mode::Normal | Mode::Movement | Mode::GameOver => {}
+            Mode::Normal | Mode::Movement | Mode::GameOver | Mode::Map => {}
         }
     }
 
