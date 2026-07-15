@@ -1,5 +1,5 @@
 use std::env;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -109,10 +109,10 @@ fn run() -> Result<(), String> {
 
 fn emit_snapshot(game: &GameState) -> Result<(), String> {
     let snapshot = StateSnapshot::from_game_state(game);
-    println!(
-        "{}",
-        serde_json::to_string(&snapshot).map_err(|error| error.to_string())?
-    );
+    let mut out = io::stdout().lock();
+    writeln!(out, "{}", serde_json::to_string(&snapshot).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+    out.flush().map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -134,10 +134,10 @@ fn emit_error(
     if let Some(order) = order {
         body["order"] = order;
     }
-    println!(
-        "{}",
-        serde_json::to_string(&body).map_err(|error| error.to_string())?
-    );
+    let mut out = io::stdout().lock();
+    writeln!(out, "{}", serde_json::to_string(&body).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+    out.flush().map_err(|error| error.to_string())?;
     Ok(())
 }
 

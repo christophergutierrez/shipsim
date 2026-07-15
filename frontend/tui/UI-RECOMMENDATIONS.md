@@ -298,12 +298,21 @@ Avoid three equal horizontal slivers of coach/events/form without hierarchy.
 
 ## 9. Quick checklist for the next UI pass
 
-- [ ] Fix map cell `Span` composition  
-- [ ] Fix hull display  
-- [ ] Rename tutorial soft-block prefix  
-- [ ] Allocate selection widget  
-- [ ] Shield face diagram  
-- [ ] Facing vs course on map  
-- [ ] Wording pass on yellow `why` + short coach steps  
-- [ ] Stabilize weapon order in draft  
-- [ ] Modal confirms via `Clear`  
+Status after 2026-07-14 implementation pass:
+
+- [x] Fix map cell `Span` composition
+- [x] Fix hull display (current structure only)
+- [x] Rename tutorial soft-block prefix (`TUTORIAL:`) / engine (`ENGINE:`)
+- [x] Allocate selection highlight (inverted ▶ rows)
+- [x] Shield face diagram
+- [x] Facing vs course on map
+- [x] Wording pass on yellow `why` + short coach steps
+- [x] Stabilize weapon order in draft (ship order `Vec`)
+- [x] Modal confirms via `Clear`
+- [x] Auto-cursor to tutorial allocate field
+- [x] Power `Gauge` on allocate
+- [x] Pending fire queue summary
+- [ ] Tabs Coach | Combat | Help (deferred)
+- [ ] Canvas hex map + triangle ships + range rings (deferred)
+- [ ] Scrollbars on coach / combat (deferred)
+- [ ] Player color picker (fixed green/red for now)

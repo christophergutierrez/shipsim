@@ -13,7 +13,7 @@ use crate::protocol::Snapshot;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpectedAction {
     /// Tab/Down until the allocate cursor is on this field index.
-    /// 0 = movement, 1..=n = weapons (BTreeMap order), then shields 0..5.
+    /// 0 = movement, 1..=n = weapons (**ship order**), then shields 0..5.
     NavField(usize),
     /// Adjust the current allocate field until it equals `target`.
     ReachValue {
@@ -89,6 +89,7 @@ impl Tutorial {
         if let Some(step) = self.current_step() {
             if let ExpectedAction::NavField(target) = step.expected {
                 if let ExpectedAction::NavField(next) = action {
+                    // Allow stepping toward the target field (↓ from above).
                     if *next <= target {
                         self.error_msg = None;
                         if *next == target {
@@ -262,13 +263,13 @@ impl Tutorial {
     }
 }
 
-/// Human labels for allocate cursor slots (heavy cruiser: 3 weapons A–Z).
+/// Human labels for allocate cursor slots (heavy cruiser ship order).
 fn field_label(field: usize) -> String {
     match field {
-        0 => "Movement (engine)".into(),
+        0 => "Engine (Movement)".into(),
         1 => "beam_1".into(),
-        2 => "plasma_1".into(),
-        3 => "torp_1".into(),
+        2 => "torp_1".into(),
+        3 => "plasma_1".into(),
         4 => "shield F (forward)".into(),
         5 => "shield FR (fwd-right)".into(),
         6 => "shield RR (rear-right)".into(),
@@ -298,8 +299,8 @@ fn action_matches(expected: &ExpectedAction, actual: &ExpectedAction) -> bool {
 
 // ── Rear-attack sequence (matches REPL tutorial / seed 4) ─────────────────
 //
-// Allocate cursor (heavy cruiser, weapons alphabetical):
-//   0 Movement · 1 beam_1 · 2 plasma_1 · 3 torp_1
+// Allocate cursor (heavy cruiser, ship/TOML order):
+//   0 Movement · 1 beam_1 · 2 torp_1 · 3 plasma_1
 //   4 F · 5 FR · 6 RR · 7 R · 8 RL · 9 FL
 
 static REAR_ATTACK_STEPS: &[TutorialStep] = &[
@@ -340,18 +341,18 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         },
     },
     TutorialStep {
-        title: "Select plasma",
-        text: "plasma_1 is a short-range hammer (max charge 1). Huge damage at \
-               range 1 — perfect for the kill shot. Weapons list alphabetically \
-               (beam, plasma, torp).",
-        why: "Move to plasma_1 — short-range heavy punch",
-        hint: "↓ to plasma_1",
+        title: "Select torpedo",
+        text: "torp_1 is a single-charge, fixed-damage shot. It fires in the \
+               same volley as beam and plasma. Weapon rows follow ship order \
+               (same list you will see in fire mode).",
+        why: "Move to torp_1 — one-shot hull punch",
+        hint: "↓ to torp_1",
         expected: ExpectedAction::NavField(2),
     },
     TutorialStep {
-        title: "Charge plasma",
-        text: "One point arms the plasma. It stays charged until you fire it.",
-        why: "Arm plasma for the point-blank dump",
+        title: "Charge torpedo",
+        text: "Charge to 1 (max). Leave it loaded — we fire later at range 1.",
+        why: "Arm torp for the same volley as beam + plasma",
         hint: "→ once (charge 1)",
         expected: ExpectedAction::ReachValue {
             field: 2,
@@ -359,17 +360,17 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         },
     },
     TutorialStep {
-        title: "Select torpedo",
-        text: "torp_1 is a single-charge, fixed-damage shot. Third leg of the \
-               alpha strike — fires with beam and plasma in one volley.",
-        why: "Move to torp_1 — one-shot hull punch",
-        hint: "↓ to torp_1",
+        title: "Select plasma",
+        text: "plasma_1 is a short-range hammer (max charge 1). Huge damage at \
+               range 1 — the finisher of the point-blank dump.",
+        why: "Move to plasma_1 — short-range heavy punch",
+        hint: "↓ to plasma_1",
         expected: ExpectedAction::NavField(3),
     },
     TutorialStep {
-        title: "Charge torpedo",
-        text: "Charge to 1 (max). Now all three weapons are loaded.",
-        why: "Arm torp for the same volley as beam + plasma",
+        title: "Charge plasma",
+        text: "One point arms the plasma. It stays charged until you fire it.",
+        why: "Arm plasma for the point-blank dump",
         hint: "→ once (charge 1)",
         expected: ExpectedAction::ReachValue {
             field: 3,
@@ -449,7 +450,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     TutorialStep {
         title: "Hold fire — cycle 3",
         text: "Charge stays for point blank.",
-        why: "Save the alpha strike",
+        why: "Save the full volley for point blank",
         hint: "Space",
         expected: ExpectedAction::ReadyFire,
     },
@@ -564,35 +565,37 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     TutorialStep {
         title: "Ready — brake 1",
         text: "Clear the fire window; keep weapons charged.",
-        why: "Skip fire — still reloading geometry",
+        why: "Skip fire — still fixing course/position",
         hint: "Space",
         expected: ExpectedAction::ReadyFire,
     },
     TutorialStep {
         title: "Brake (2/3)",
-        text: "Speed 2→1.",
+        text: "Accel again against the vector: speed 2→1. Same key as speeding \
+               up — geometry decides whether you slow or accelerate.",
         why: "Keep braking the eastbound slide",
         hint: "t",
         expected: ExpectedAction::Accel,
     },
     TutorialStep {
         title: "Ready — brake 2",
-        text: "Space.",
-        why: "Skip fire",
+        text: "Clear the fire window without spending weapon charge.",
+        why: "Skip fire — hold the loaded volley",
         hint: "Space",
         expected: ExpectedAction::ReadyFire,
     },
     TutorialStep {
         title: "Brake (3/3)",
-        text: "Speed 1→0. At rest, course becomes west (your facing).",
+        text: "Speed 1→0. At rest, course becomes west (your facing). You can \
+               now thrust toward the escort instead of past it.",
         why: "Kill eastbound speed — ready to push west",
         hint: "t",
         expected: ExpectedAction::Accel,
     },
     TutorialStep {
         title: "Ready — stopped",
-        text: "Space.",
-        why: "Skip fire",
+        text: "Clear fire. Next cycle starts the westbound push.",
+        why: "Skip fire — still not shooting",
         hint: "Space",
         expected: ExpectedAction::ReadyFire,
     },
@@ -727,21 +730,21 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         title: "Fire the beam",
         text: "Fire mode is open. Enter queues **beam_1** at the escort (does not \
                resolve yet). Charge drops when everyone readies.",
-        why: "Queue beam — main damage at PB",
+        why: "Queue beam — main damage at range 1",
         hint: "Enter",
         expected: ExpectedAction::FireWeapon,
     },
     TutorialStep {
         title: "Select torpedo",
-        text: "↓ cycles the selected weapon to torp_1.",
+        text: "↓ cycles the selected weapon to torp_1 (ship order: beam, torp, plasma).",
         why: "Select torp for the same volley",
         hint: "↓",
         expected: ExpectedAction::TabWeapon,
     },
     TutorialStep {
         title: "Fire the torpedo",
-        text: "Queue torp_1 into the simultaneous volley.",
-        why: "Queue torp",
+        text: "Queue torp_1. It does not resolve until every living ship readies.",
+        why: "Queue torp into the simultaneous volley",
         hint: "Enter",
         expected: ExpectedAction::FireWeapon,
     },
@@ -754,8 +757,8 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     },
     TutorialStep {
         title: "Fire the plasma",
-        text: "Queue plasma. All three resolve together when you ready.",
-        why: "Queue plasma — full alpha strike",
+        text: "Queue plasma. All three resolve together when you press Space.",
+        why: "Queue plasma — complete the full volley",
         hint: "Enter",
         expected: ExpectedAction::FireWeapon,
     },
@@ -768,8 +771,8 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     },
     TutorialStep {
         title: "Victory",
-        text: "Point-blank all-weapons dump complete.",
-        why: "Lesson complete",
+        text: "Point-blank all-weapons dump complete. Yellow bar can rest.",
+        why: "Won — Enter dismisses or q quits",
         hint: "Enter or q",
         expected: ExpectedAction::Dismiss,
     },

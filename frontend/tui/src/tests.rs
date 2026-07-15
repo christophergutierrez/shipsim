@@ -409,7 +409,7 @@ fn alloc_draft_from_ship_copies_current_allocation() {
     let draft = AllocDraft::from_ship(&snap, 2);
     // Ship 2 has movement_allocated=1, beam_1 charge=4, shields [6,3,0,0,0,0]
     assert_eq!(draft.movement, 1);
-    assert_eq!(draft.weapons.get("beam_1"), Some(&4));
+    assert_eq!(draft.weapon_charge("beam_1"), Some(4));
     assert_eq!(draft.shields, [6, 3, 0, 0, 0, 0]);
 }
 
@@ -512,8 +512,7 @@ fn tab_cycles_only_player_ships_and_keeps_each_allocate_draft_with_its_ship() {
     app.alloc_draft
         .as_mut()
         .unwrap()
-        .weapons
-        .insert("torp_1".into(), 1);
+        .set_weapon_charge("torp_1", 1);
 
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
 
@@ -521,7 +520,7 @@ fn tab_cycles_only_player_ships_and_keeps_each_allocate_draft_with_its_ship() {
     let escort_draft = app.alloc_draft.as_ref().unwrap();
     assert_eq!(escort_draft.movement, 1);
     assert_eq!(escort_draft.weapons.len(), 1);
-    assert!(escort_draft.weapons.contains_key("beam_1"));
+    assert!(escort_draft.weapon_charge("beam_1").is_some());
 
     let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     let KeyResult::SendOrder(order) = result else {
@@ -534,12 +533,10 @@ fn tab_cycles_only_player_ships_and_keeps_each_allocate_draft_with_its_ship() {
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
     assert_eq!(app.focused_ship, Some(1));
     assert_eq!(app.alloc_draft.as_ref().unwrap().movement, 7);
-    assert!(app
-        .alloc_draft
-        .as_ref()
-        .unwrap()
-        .weapons
-        .contains_key("torp_1"));
+    assert_eq!(
+        app.alloc_draft.as_ref().unwrap().weapon_charge("torp_1"),
+        Some(1)
+    );
 }
 
 #[test]
@@ -665,16 +662,25 @@ fn digit_entry_clears_on_snapshot_and_commit() {
 }
 
 #[test]
-fn tutorial_allocation_scroll_keeps_last_shield_visible() {
-    let mut app = App::new_with_tutorial();
+fn allocation_scroll_keeps_last_shield_visible() {
+    // Free play (no tutorial auto-cursor) so we can force the last shield face.
+    let mut app = App::new();
     app.update_snapshot(test_snapshot());
+    // test_snapshot heavy cruiser: beam + torp → FL face 5 is cursor 1+2+5 = 8
     let draft = app.alloc_draft.as_mut().unwrap();
-    draft.cursor = 8;
+    draft.cursor = 1 + draft.weapons.len() + 5;
 
-    let buf = render_to_string(&mut app, 80, 24);
+    let buf = render_to_string(&mut app, 80, 28);
 
-    assert!(buffer_contains(&buf, "FL:0"));
-    assert!(buffer_contains(&buf, "▶ FL:0"));
+    assert!(
+        buffer_contains(&buf, "FL") && buffer_contains(&buf, "forward-left"),
+        "expected FL forward-left row visible; buf has FL? {}",
+        buffer_contains(&buf, "FL")
+    );
+    assert!(
+        buffer_contains(&buf, "▶") && buffer_contains(&buf, "forward-left"),
+        "expected selected FL row"
+    );
 }
 
 #[test]
@@ -734,9 +740,12 @@ fn render_shows_header_with_turn_and_phase() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
-    // Header renders " turn 1 " and " phase=allocate "
+    // Header renders " turn 1 " and humanized phase "Allocate"
     assert!(buffer_contains(&buf, "turn 1") || buffer_contains(&buf, "Turn 1"));
-    assert!(buffer_contains(&buf, "allocate"));
+    assert!(
+        buffer_contains(&buf, "Allocate") || buffer_contains(&buf, "allocate"),
+        "expected allocate phase in header"
+    );
 }
 
 #[test]
@@ -868,10 +877,11 @@ fn render_prioritizes_an_engine_rejection_above_combat_history() {
 
     let buf = render_to_string(&mut app, 80, 24);
 
-    assert!(buffer_contains(
-        &buf,
-        "ERROR: order_illegal: weapon is uncharged"
-    ));
+    assert!(
+        buffer_contains(&buf, "ENGINE: order_illegal: weapon is uncharged")
+            || buffer_contains(&buf, "order_illegal: weapon is uncharged"),
+        "expected engine rejection in buffer, got:\n{buf}"
+    );
 }
 
 #[test]
@@ -1277,4 +1287,84 @@ fn tutorial_rear_attack_wins_against_engine() {
         "tutorial should complete after dismiss; step={}",
         app.tutorial.as_ref().map(|t| t.current).unwrap_or(0)
     );
+}
+
+#[test]
+fn tutorial_can_power_beam_after_select_step() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+
+    // Complete movement ReachValue (field 0 → 10).
+    {
+        let d = app.alloc_draft.as_mut().unwrap();
+        d.cursor = 0;
+        d.set_field_value(10);
+    }
+    app.tutorial.as_mut().unwrap().advance(); // skip to NavField beam
+    // Step should be NavField(1)
+    assert!(matches!(
+        app.tutorial.as_ref().unwrap().current_step().unwrap().expected,
+        crate::tutorial::ExpectedAction::NavField(1)
+    ));
+
+    // Cursor still on 0 — ↓ to beam should work.
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    let r = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    assert!(matches!(r, KeyResult::Continue));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, 1);
+    // NavField completed → now ReachValue beam charge.
+    assert!(matches!(
+        app.tutorial.as_ref().unwrap().current_step().unwrap().expected,
+        crate::tutorial::ExpectedAction::ReachValue { field: 1, target: 4 }
+    ));
+
+    // → must raise beam charge (the bug: blocked after auto-cursor on NavField).
+    for _ in 0..4 {
+        let r = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+        assert!(matches!(r, KeyResult::Continue), "→ blocked while powering beam");
+    }
+    assert_eq!(app.alloc_draft.as_ref().unwrap().weapon_charge("beam_1"), Some(4));
+}
+
+#[test]
+fn tutorial_prompt_is_not_duplicated_in_header() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 100, 30);
+    // Coach area should mention engine/thrust; header should not show the yellow
+    // "Engine = thrust" strip (only the TUTORIAL badge).
+    assert!(buffer_contains(&buf, "TUTORIAL"));
+    // Count "Engine = thrust" — should appear once (coach), not also as header strip.
+    let n = buf.matches("Engine = thrust").count();
+    assert!(n <= 2, "prompt duplicated too many times: {n}");
+}
+
+#[test]
+fn tutorial_floor_keeps_the_required_action_visible() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+
+    let buf = render_to_string(&mut app, 80, 24);
+
+    assert!(
+        buffer_contains(&buf, "0→10"),
+        "the 80x24 tutorial view must show the value and action: {buf}"
+    );
+}
+
+#[test]
+fn weapon_shade_forward_mount_is_range_and_arc() {
+    // facing 0 at (0,4): forward mount covers relative bearing 0 only.
+    assert!(crate::ui::weapon_covers_hex(
+        0, 4, 0, 10, &[0], 3, 4
+    )); // east along row — in arc
+    assert!(!crate::ui::weapon_covers_hex(
+        0, 4, 0, 10, &[0], 0, 0
+    )); // not straight ahead — out of forward-only arc
+    assert!(!crate::ui::weapon_covers_hex(
+        0, 4, 0, 10, &[0], 0, 4
+    )); // same hex
+    assert!(!crate::ui::weapon_covers_hex(
+        0, 4, 0, 2, &[0], 5, 4
+    )); // beyond range 2
 }

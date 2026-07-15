@@ -217,29 +217,15 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
             );
             return Some(KeyResult::Continue);
         }
+        // Ensure ▶ is on the field this step edits before reading its value.
+        if let Some(draft) = app.alloc_draft.as_mut() {
+            let max = draft.n_fields().saturating_sub(1);
+            draft.cursor = need_field.min(max);
+        }
         let (field, old) = {
             let draft = app.alloc_draft.as_ref()?;
             (draft.cursor, draft.field_value())
         };
-
-        // Allow ↓/↑ to recover if the cursor is on the wrong field.
-        if field != need_field {
-            match key.code {
-                KeyCode::Down | KeyCode::Char('j') | KeyCode::Up | KeyCode::Char('k') => {
-                    // Fall through to allocate handler (no advance until on field).
-                    app.tutorial.as_mut().unwrap().error_msg = Some(format!(
-                        "Move ▶ to field {need_field} (now on {field}). ↓ next · ↑ previous."
-                    ));
-                    return None;
-                }
-                _ => {
-                    app.tutorial.as_mut().unwrap().set_error(format!(
-                        "▶ is on field {field}; need field {need_field}. Press ↓ or ↑."
-                    ));
-                    return Some(KeyResult::Continue);
-                }
-            }
-        }
 
         let new = match key.code {
             KeyCode::Right => old.saturating_add(1),
@@ -387,7 +373,7 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                 None => return KeyResult::Continue,
             };
 
-            let weapons_json = serde_json::to_value(&draft.weapons).unwrap_or_default();
+            let weapons_json = draft.weapons_json();
             let shields = draft.shields.to_vec();
 
             app.log(format!(
@@ -403,16 +389,16 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
         KeyCode::Down | KeyCode::Char('j') => {
             app.digit_entry = None;
             if let Some(draft) = &mut app.alloc_draft {
-                let n_fields = 1 + draft.weapons.len() + 6;
-                draft.cursor = (draft.cursor + 1) % n_fields.max(1);
+                let n_fields = draft.n_fields().max(1);
+                draft.cursor = (draft.cursor + 1) % n_fields;
             }
             KeyResult::Continue
         }
         KeyCode::Up | KeyCode::Char('k') => {
             app.digit_entry = None;
             if let Some(draft) = &mut app.alloc_draft {
-                let n_fields = 1 + draft.weapons.len() + 6;
-                draft.cursor = (draft.cursor + n_fields - 1) % n_fields.max(1);
+                let n_fields = draft.n_fields().max(1);
+                draft.cursor = (draft.cursor + n_fields - 1) % n_fields;
             }
             KeyResult::Continue
         }
@@ -650,8 +636,8 @@ fn map_key_to_action(
             let draft = app.alloc_draft.as_ref()?;
             match key.code {
                 KeyCode::Down | KeyCode::Char('j') => {
-                    let n_fields = 1 + draft.weapons.len() + 6;
-                    let next = (draft.cursor + 1) % n_fields.max(1);
+                    let n_fields = draft.n_fields().max(1);
+                    let next = (draft.cursor + 1) % n_fields;
                     Some(ExpectedAction::NavField(next))
                 }
                 KeyCode::Enter => Some(ExpectedAction::CommitAllocate),

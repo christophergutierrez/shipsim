@@ -33,8 +33,8 @@ pub enum Confirmation {
 #[derive(Debug, Clone, Default)]
 pub struct AllocDraft {
     pub movement: u32,
-    /// weapon_id → desired charge
-    pub weapons: std::collections::BTreeMap<String, u32>,
+    /// Desired charge per weapon, **ship order** (same as fire list / TOML).
+    pub weapons: Vec<(String, u32)>,
     /// 6 shield facings, desired power each
     pub shields: [u32; 6],
     /// Which sub-field is being edited: 0=movement, 1..=n_weapons=weapons, then shields
@@ -47,10 +47,11 @@ impl AllocDraft {
             Some(s) => s,
             None => return Self::default(),
         };
-        let mut weapons = std::collections::BTreeMap::new();
-        for w in &ship.weapons {
-            weapons.insert(w.id.clone(), w.charge);
-        }
+        let weapons = ship
+            .weapons
+            .iter()
+            .map(|w| (w.id.clone(), w.charge))
+            .collect();
         let shields = if ship.shields_powered.len() == 6 {
             let mut s = [0u32; 6];
             s.copy_from_slice(&ship.shields_powered);
@@ -66,9 +67,31 @@ impl AllocDraft {
         }
     }
 
+    pub fn weapon_charge(&self, id: &str) -> Option<u32> {
+        self.weapons
+            .iter()
+            .find(|(wid, _)| wid == id)
+            .map(|(_, c)| *c)
+    }
+
+    pub fn set_weapon_charge(&mut self, id: &str, charge: u32) {
+        if let Some((_, c)) = self.weapons.iter_mut().find(|(wid, _)| wid == id) {
+            *c = charge;
+        }
+    }
+
+    /// Weapons map for the allocate order JSON.
+    pub fn weapons_json(&self) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        for (id, chg) in &self.weapons {
+            map.insert(id.clone(), serde_json::json!(chg));
+        }
+        serde_json::Value::Object(map)
+    }
+
     /// Sum of all draft field values (desired totals, not engine cost).
     pub fn power_spent(&self) -> u32 {
-        let weapons: u32 = self.weapons.values().sum();
+        let weapons: u32 = self.weapons.iter().map(|(_, c)| c).sum();
         let shields: u32 = self.shields.iter().sum();
         self.movement + weapons + shields
     }
@@ -93,6 +116,10 @@ impl AllocDraft {
         self.movement + weapons + shields
     }
 
+    pub fn n_fields(&self) -> usize {
+        1 + self.weapons.len() + 6
+    }
+
     /// Current value of the field under `cursor` (flat: mov, weapons…, shields…).
     pub fn field_value(&self) -> u32 {
         let n_weapons = self.weapons.len();
@@ -100,9 +127,8 @@ impl AllocDraft {
             self.movement
         } else if self.cursor <= n_weapons {
             self.weapons
-                .values()
-                .nth(self.cursor - 1)
-                .copied()
+                .get(self.cursor - 1)
+                .map(|(_, c)| *c)
                 .unwrap_or(0)
         } else {
             let idx = self.cursor - 1 - n_weapons;
@@ -116,8 +142,8 @@ impl AllocDraft {
         if self.cursor == 0 {
             self.movement = value;
         } else if self.cursor <= n_weapons {
-            if let Some(k) = self.weapons.keys().nth(self.cursor - 1).cloned() {
-                self.weapons.insert(k, value);
+            if let Some((_, c)) = self.weapons.get_mut(self.cursor - 1) {
+                *c = value;
             }
         } else {
             let idx = self.cursor - 1 - n_weapons;
@@ -317,6 +343,53 @@ impl App {
         self.snap = Some(snap);
         self.focus_next_pending_ship();
         self.confirm_tutorial_order();
+        self.sync_tutorial_allocate_cursor();
+    }
+
+    /// Keep allocate cursor aligned with the tutorial step.
+    ///
+    /// - `ReachValue`: snap ▶ onto the field being edited (so → powers the right row).
+    /// - `NavField`: do **not** force the cursor (forcing it made ↓ overshoot and
+    ///   blocked powering). If ▶ is already on the target field, complete the
+    ///   select step automatically.
+    pub fn sync_tutorial_allocate_cursor(&mut self) {
+        use crate::tutorial::ExpectedAction;
+        loop {
+            if self.mode != Mode::Allocate {
+                return;
+            }
+            let Some(t) = self.tutorial.as_ref() else {
+                return;
+            };
+            if t.is_complete() {
+                return;
+            }
+            let expected = match t.current_step() {
+                Some(s) => s.expected.clone(),
+                None => return,
+            };
+            let Some(draft) = self.alloc_draft.as_mut() else {
+                return;
+            };
+            let max = draft.n_fields().saturating_sub(1);
+            match expected {
+                ExpectedAction::ReachValue { field, .. } => {
+                    draft.cursor = field.min(max);
+                    return;
+                }
+                ExpectedAction::NavField(field) => {
+                    if draft.cursor == field.min(max) {
+                        // Already on the row — no need to force another ↓.
+                        if let Some(t) = self.tutorial.as_mut() {
+                            t.advance();
+                        }
+                        continue;
+                    }
+                    return;
+                }
+                _ => return,
+            }
+        }
     }
 
     /// Record a soft error from the engine.
