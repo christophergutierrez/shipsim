@@ -1572,3 +1572,111 @@ fn bounded_map_origin_stays_zero_when_ship_in_bounds() {
     handle_key(&mut app, make_key('v'));
     assert_eq!(app.map_origin(), (0, 0));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 8: end-to-end movement-preview data-flow verification
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Drives the real engine subprocess through the TUI input path and asserts the
+// full preview round-trip: a value change in allocate mode queues a preview
+// request, the engine responds with a movement_preview envelope, and the
+// response is stored in app.movement_preview with endpoints and a coast.
+
+#[test]
+fn movement_preview_flows_end_to_end() {
+    let bin = engine_bin().expect("shipsim binary not found — cargo build at repo root");
+    let scenario = if std::path::Path::new("../../scenarios/combat.toml").is_file() {
+        "../../scenarios/combat.toml"
+    } else {
+        "scenarios/combat.toml"
+    };
+
+    let mut harness = crate::harness::Harness::spawn(bin.to_str().unwrap(), scenario)
+        .unwrap_or_else(|e| panic!("spawn engine {bin:?}: {e}"));
+    let mut app = App::new();
+
+    // Consume the post-load snapshot.
+    let line = harness.read_line().expect("post-load snapshot");
+    apply_line(&mut app, line);
+    assert_eq!(app.mode, Mode::Allocate);
+    assert!(app.alloc_draft.is_some());
+
+    // No preview yet.
+    assert!(app.movement_preview.is_none());
+    assert!(app.pending_preview.is_none());
+
+    // Press Right once to bump movement allocation. handle_key should queue a
+    // preview request via request_movement_preview().
+    let right = || make_key_code(crossterm::event::KeyCode::Right);
+    let result = handle_key(&mut app, right());
+    assert!(matches!(result, KeyResult::Continue));
+    assert!(
+        app.pending_preview.is_some(),
+        "Right in allocate must queue a movement_preview request"
+    );
+
+    // Drain the pending preview (mirrors the main loop / send_key helper).
+    let preview_json = app.pending_preview.take().unwrap();
+    harness.send(&preview_json).expect("send preview request");
+    let line = harness.read_line().expect("movement_preview response");
+    apply_line(&mut app, line);
+
+    // The response must be a populated MovementPreview.
+    let preview = app
+        .movement_preview
+        .as_ref()
+        .expect("movement_preview must be populated after the round-trip");
+    assert!(preview.ok, "preview response ok flag must be true");
+    assert!(
+        !preview.endpoints.is_empty(),
+        "preview must return at least one reachable endpoint"
+    );
+
+    // The coast endpoint must be among the reachable endpoints.
+    assert!(
+        preview
+            .endpoints
+            .iter()
+            .any(|e| e.q == preview.coast.q && e.r == preview.coast.r),
+        "coast ({},{}) must be among the reachable endpoints",
+        preview.coast.q,
+        preview.coast.r
+    );
+}
+
+#[test]
+fn movement_preview_clears_on_phase_change() {
+    // After a preview is populated, advancing to the movement phase (via a
+    // commit order) must clear it so stale endpoints are never rendered.
+    //
+    // Uses ai.toml (NPC is greedy-seek) so that after the player commits
+    // allocation, the engine auto-resolves the NPC and advances the phase
+    // from "allocate" to "movement" in the same turn.
+    let bin = engine_bin().expect("shipsim binary not found — cargo build at repo root");
+    let scenario = if std::path::Path::new("../../scenarios/ai.toml").is_file() {
+        "../../scenarios/ai.toml"
+    } else {
+        "scenarios/ai.toml"
+    };
+
+    let mut harness = crate::harness::Harness::spawn(bin.to_str().unwrap(), scenario)
+        .unwrap_or_else(|e| panic!("spawn engine {bin:?}: {e}"));
+    let mut app = App::new();
+
+    let line = harness.read_line().expect("post-load snapshot");
+    apply_line(&mut app, line);
+
+    // Generate a preview by pressing Right.
+    send_key(&mut app, &mut harness, make_key_code(crossterm::event::KeyCode::Right));
+    assert!(app.movement_preview.is_some(), "preview populated after Right");
+
+    // Commit the allocation (Enter). The engine applies the order, auto-
+    // resolves the NPC, and emits a single snapshot with the advanced phase.
+    send_key(&mut app, &mut harness, make_key_code(crossterm::event::KeyCode::Enter));
+
+    // After the phase change, the preview must be cleared.
+    assert!(
+        app.movement_preview.is_none(),
+        "movement_preview must be cleared after leaving allocate phase"
+    );
+}
