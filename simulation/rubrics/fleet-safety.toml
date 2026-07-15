@@ -1,0 +1,8 @@
+id = "fleet_safety"
+description = """
+Legal-order and bounded-run gate for multi-ship cost-matched fleets.
+Allows longer matches than the 1v1 safety rubric (higher max_turns suites).
+"""
+max_rejected_orders = 0
+max_stalemate_rate = 1.0
+max_average_turns = 85.0

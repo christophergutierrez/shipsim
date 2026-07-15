@@ -34,10 +34,12 @@ pub enum LoadError {
     InvalidShipSize { class: String },
     #[error("ships {a} and {b} both placed on hex ({q},{r})")]
     OverlappingPlacement { a: u32, b: u32, q: i32, r: i32 },
-    #[error("scenario defines both objective and destruction terminal")]
+    #[error("scenario defines conflicting terminals (objective / destruction / annihilation)")]
     ConflictingTerminals,
     #[error("destruction terminal missing target")]
     DestructionTargetMissing,
+    #[error("unknown terminal type {0:?}")]
+    UnknownTerminal(String),
     #[error("unknown weapon kind {kind:?} on weapon {weapon_id}")]
     UnknownWeaponKind { kind: String, weapon_id: String },
     #[error("unknown weapon arc {arc:?} on weapon {weapon_id}")]
@@ -75,6 +77,16 @@ pub enum LoadError {
 pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     let text = read_to_string(path)?;
     let def: ScenarioDef = parse_toml(path, &text)?;
+    let data_root = path
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new("."));
+    load_scenario_def(&def, data_root)
+}
+
+/// Load a scenario from an in-memory definition.
+/// `data_root` is the repository root containing `data/ships/`.
+pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameState, LoadError> {
     let mode = def
         .map_mode
         .as_deref()
@@ -83,24 +95,28 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     let board = Board::new(def.width, def.height).with_mode(mode);
 
     let has_objective = def.objective.is_some();
-    let has_destruction = def
-        .terminal
-        .as_ref()
-        .is_some_and(|t| t.terminal_type == "destruction");
-    if has_objective && has_destruction {
+    let terminal_kind = def.terminal.as_ref().map(|t| t.terminal_type.as_str());
+    let has_destruction = terminal_kind == Some("destruction");
+    let has_annihilation = terminal_kind == Some("annihilation");
+    let terminal_count = usize::from(has_objective)
+        + usize::from(has_destruction)
+        + usize::from(has_annihilation);
+    if terminal_count > 1 {
         return Err(LoadError::ConflictingTerminals);
     }
 
-    let terminal = if let Some(obj) = def.objective {
+    let terminal = if let Some(obj) = def.objective.as_ref() {
         let hex = Hex::new(obj.q, obj.r);
         validate_on_board(&board, hex)?;
         Some(Terminal::ReachHex(hex))
-    } else if let Some(term) = def.terminal {
-        if term.terminal_type == "destruction" {
-            let target = term.target.ok_or(LoadError::DestructionTargetMissing)?;
-            Some(Terminal::DestroyShip(target))
-        } else {
-            None
+    } else if let Some(term) = def.terminal.as_ref() {
+        match term.terminal_type.as_str() {
+            "destruction" => {
+                let target = term.target.ok_or(LoadError::DestructionTargetMissing)?;
+                Some(Terminal::DestroyShip(target))
+            }
+            "annihilation" => Some(Terminal::AnnihilateEnemies),
+            other => return Err(LoadError::UnknownTerminal(other.to_string())),
         }
     } else {
         None
@@ -112,7 +128,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     let mut npcs: BTreeMap<u32, NpcController> = BTreeMap::new();
     let mut occupied: BTreeMap<(i32, i32), u32> = BTreeMap::new();
 
-    for placement in def.ships {
+    for placement in &def.ships {
         if !Hex::is_valid_facing(placement.facing) {
             return Err(LoadError::InvalidFacing {
                 facing: placement.facing,
@@ -130,7 +146,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             });
         }
 
-        let ship_def = load_ship_def(path, &placement.class)?;
+        let ship_def = load_ship_def(data_root, &placement.class)?;
         if ship_def.size == 0 {
             return Err(LoadError::InvalidShipSize {
                 class: placement.class.clone(),
@@ -140,19 +156,25 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         let is_ai = matches!(ctrl.as_str(), "ai" | "greedy");
         let is_scripted = !is_ai && ctrl == "scripted";
 
-        let power = ship_def.power.unwrap_or(ship_def.speed);
+        let power = placement
+            .power
+            .or(ship_def.power)
+            .unwrap_or(ship_def.speed);
+        let structure = placement.structure.unwrap_or(ship_def.structure);
+        let max_shield_per_facing = placement
+            .max_shield_per_facing
+            .unwrap_or(ship_def.max_shield_per_facing);
         let weapons: Vec<_> = ship_def
             .weapons
             .into_iter()
             .map(parse_weapon)
             .collect::<Result<Vec<_>, LoadError>>()?;
-        let ssd = crate::ssd::Ssd::new(ship_def.structure, ship_def.speed.max(1), 2, weapons.len());
+        let ssd = crate::ssd::Ssd::new(structure, ship_def.speed.max(1), 2, weapons.len());
 
         // Inertial movement: resolve the hull's design maximum velocity
         // (ADR-0022 §1). An explicit `max_velocity` overrides the legacy `speed`
         // derivation; when omitted, `max_velocity` is derived from `speed` so a
-        // legacy speed-1 hull becomes max velocity 1, etc. The resolved value is
-        // then bounded by the global MAX_VELOCITY (currently 4).
+        // legacy speed-1 hull becomes max velocity 1, etc.
         let max_velocity = ship_def
             .max_velocity
             .unwrap_or_else(|| ship_def.speed.try_into().unwrap_or(u8::MAX));
@@ -164,10 +186,6 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             });
         }
 
-        // Build and validate the thrust conversion for this hull (ADR-0022 §5).
-        // A mobile hull must have a nonzero conversion numerator and must produce
-        // at least one thrust with its design power; an immobile hull
-        // (max_velocity 0) must produce no thrust.
         let thrust_conversion = crate::thrust::ThrustConversion::new(
             ship_def.thrust_per_power,
             ship_def.power_per_thrust,
@@ -178,9 +196,6 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             source,
         })?;
 
-        // A mobile hull must be able to buy at least one thrust when allocating
-        // its full design power (ADR-0022 §5). This rejects e.g. a 1:15
-        // conversion on a hull with only 14 power, which can never move.
         if max_velocity > 0 {
             let (thrust_at_full_power, _remainder) = thrust_conversion.convert(power);
             if thrust_at_full_power < 1 {
@@ -193,8 +208,6 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             }
         }
 
-        // Resolve initial velocity and course from the placement, defaulting to
-        // stopped with course == facing.
         let init_speed = placement.velocity.unwrap_or(0);
         if init_speed > max_velocity {
             return Err(LoadError::InitialVelocityExceedsMax {
@@ -228,7 +241,7 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
             weapons,
             shields_powered: [0; 6],
             shields_remaining: [0; 6],
-            max_shield_per_facing: ship_def.max_shield_per_facing,
+            max_shield_per_facing,
             movement_allocated: 0,
             weapon_charges: BTreeMap::new(),
             ssd,
@@ -250,12 +263,9 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
     ))
 }
 
-fn load_ship_def(scenario_path: &Path, class: &str) -> Result<ShipDef, LoadError> {
-    let root = scenario_path
-        .parent()
-        .and_then(Path::parent)
-        .unwrap_or_else(|| Path::new("."));
-    let ship_path = root
+/// Load a ship class TOML from `{data_root}/data/ships/{class}.toml`.
+pub fn load_ship_def(data_root: &Path, class: &str) -> Result<ShipDef, LoadError> {
+    let ship_path = data_root
         .join("data")
         .join("ships")
         .join(format!("{class}.toml"));

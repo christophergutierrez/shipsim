@@ -1,0 +1,14 @@
+id = "cost_matched"
+description = """
+Cost-matched fleet suite: expect decisive matches under equal construction
+budgets. Win-rate band is deliberately wide — extreme size matchups may be
+nontransitive; use reports to retune hulls/costs, not as a hard balance claim.
+advisory = true so a red competitive band does not fail the CLI when safety passes.
+"""
+advisory = true
+min_termination_rate = 0.50
+max_stalemate_rate = 0.50
+min_win_rate = 0.15
+max_win_rate = 0.85
+min_average_turns = 2.0
+max_average_turns = 70.0

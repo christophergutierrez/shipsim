@@ -1,0 +1,29 @@
+# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
+# See docs/SIZE-VARIANTS.md. Tune after simulation.
+id = "fighter_heavy"
+name = "Fighter (Heavy)"
+size = 1
+speed = 8
+power = 8
+max_shield_per_facing = 4
+structure = 5
+max_velocity = 8
+thrust_per_power = 2
+power_per_thrust = 1
+cost = 73
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "torp_1"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1

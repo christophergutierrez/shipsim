@@ -1,0 +1,21 @@
+# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
+# See docs/SIZE-VARIANTS.md. Tune after simulation.
+id = "destroyer_light"
+name = "Destroyer (Light)"
+size = 2
+speed = 8
+power = 11
+max_shield_per_facing = 3
+structure = 6
+max_velocity = 8
+thrust_per_power = 3
+power_per_thrust = 1
+cost = 85
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4

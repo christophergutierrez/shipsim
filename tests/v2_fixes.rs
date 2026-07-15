@@ -250,9 +250,8 @@ fn e4b_snapshot_power_available_drops_after_damage() {
 
     // beam charge 3 at range 1 = half_up(3 * 2.0) = 6 damage; with shields at 0
     // the full 6 lands as hull overflow, walking the DAC (src/ssd.rs) through
-    // Hull, Hull, Engine, Weapon, Hull, Power — exactly one power_sys hit
-    // without reaching Bridge (which would destroy the ship), so ship 2
-    // survives with power_sys reduced from 2 to 1.
+    // Hull, Hull, Engine, Weapon, Hull, Power — ship 2 survives (hull-only kill)
+    // with power_sys reduced from 2 to 1.
     let damaged = StateSnapshot::from_game_state(&game);
     let ship2 = damaged.ships.iter().find(|s| s.id == 2).unwrap();
     assert!(!ship2.destroyed, "ship 2 should survive this hit");

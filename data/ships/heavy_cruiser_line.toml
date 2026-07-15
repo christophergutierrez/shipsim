@@ -1,0 +1,37 @@
+# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
+# See docs/SIZE-VARIANTS.md. Tune after simulation.
+id = "heavy_cruiser_line"
+name = "Heavy Cruiser (Line)"
+size = 4
+speed = 6
+power = 29
+max_shield_per_facing = 6
+structure = 19
+max_velocity = 6
+thrust_per_power = 1
+power_per_thrust = 1
+cost = 247
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "torp_1"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1
+
+[[weapons]]
+id = "plasma_1"
+kind = "plasma"
+arc = "forward"
+mount = "forward"
+max_range = 6
+max_charge = 1

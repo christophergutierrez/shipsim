@@ -1,0 +1,70 @@
+# Hull size tiers (shipsim).
+#
+# Ship class TOMLs use integer `size` = `id` below (1..=7).
+# Combat to-hit still uses size-2 as the neutral baseline
+# (`docs/combat-v2-tables.md`, `BASELINE_TARGET_SIZE` in code).
+#
+# FASA STCS "Class I–XX" from recognition manuals maps into these
+# seven buckets (~3 source classes per tier). Role labels in source
+# data (Scout, Frigate, …) are not size tiers — use class number when
+# mapping scraped ships.
+#
+# Construction fields (hull space, cost, weapon capacity) will attach
+# to these tiers later; this file is the canonical name/id ladder only
+# until the yard rules land. The engine does not load this file yet.
+
+[[sizes]]
+id = 1
+key = "fighter"
+name = "Fighter"
+fasa_class_min = 1
+fasa_class_max = 3
+fasa_classes = "I–III"
+
+[[sizes]]
+id = 2
+key = "destroyer"
+name = "Destroyer"
+fasa_class_min = 4
+fasa_class_max = 6
+fasa_classes = "IV–VI"
+
+[[sizes]]
+id = 3
+key = "light_cruiser"
+name = "Light Cruiser"
+fasa_class_min = 7
+fasa_class_max = 9
+fasa_classes = "VII–IX"
+
+[[sizes]]
+id = 4
+key = "heavy_cruiser"
+name = "Heavy Cruiser"
+fasa_class_min = 10
+fasa_class_max = 12
+fasa_classes = "X–XII"
+
+[[sizes]]
+id = 5
+key = "battleship"
+name = "Battleship"
+fasa_class_min = 13
+fasa_class_max = 15
+fasa_classes = "XIII–XV"
+
+[[sizes]]
+id = 6
+key = "dreadnought"
+name = "Dreadnought"
+fasa_class_min = 16
+fasa_class_max = 18
+fasa_classes = "XVI–XVIII"
+
+[[sizes]]
+id = 7
+key = "titan"
+name = "Titan"
+fasa_class_min = 19
+fasa_class_max = 20
+fasa_classes = "XIX–XX"

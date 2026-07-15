@@ -1,0 +1,29 @@
+# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
+# See docs/SIZE-VARIANTS.md. Tune after simulation.
+id = "light_cruiser_line"
+name = "Light Cruiser (Line)"
+size = 3
+speed = 7
+power = 18
+max_shield_per_facing = 5
+structure = 14
+max_velocity = 7
+thrust_per_power = 1
+power_per_thrust = 1
+cost = 162
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "torp_1"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1

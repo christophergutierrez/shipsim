@@ -1,0 +1,36 @@
+# Power sweep: 8× destroyer_line vs 1× titan_line, vary titan power.
+# Baseline titan_line power = 90. Find the band from "not enough" to "too much".
+#
+# Diagnostic (titan is opponent; player win = swarm wins):
+#   - Titan loses quickly  → shields/defense not absorbing (power may still help faces)
+#   - Titan loses slowly   → lives but cannot delete the swarm (weapons/offense)
+#   - Titan starts winning → power entered a viable band
+#   - Surplus power        → win rate plateaus while average turns stop improving
+#
+#   cargo run --release --bin shipsim-sim -- \
+#     --suite simulation/suites/titan_power_sweep.toml \
+#     --output tmp/simulation/reports/titan_power_sweep.json
+
+name = "titan power sweep vs destroyer swarm"
+seeds = [1, 2, 3, 4, 5, 6, 7, 8]
+max_turns = 80
+max_orders = 80000
+skip_cost_validation = true
+rubrics = ["simulation/rubrics/fleet-safety.toml"]
+
+[map]
+width = 36
+height = 28
+
+[[matchups]]
+player = "greedy"
+opponent = "greedy"
+
+[[power_sweeps]]
+name = "titan_vs_swarm"
+class = "titan_line"
+side = "opponent"
+# Baseline catalog power is 90; sweep well below and well above.
+values = [60, 90, 120, 150, 180, 210, 240, 300]
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_line", count = 1 }]

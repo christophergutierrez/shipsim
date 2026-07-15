@@ -1,0 +1,170 @@
+# Fleet cost catalog for size variants (mirrors cost= in each ship TOML).
+# Unit: destroyer_line = 100, ratioed from JSONL Combat D medians.
+
+[[ships]]
+class = "fighter_light"
+size = 1
+variant = "light"
+cost = 52
+power = 5
+structure = 2
+
+[[ships]]
+class = "fighter_line"
+size = 1
+variant = "line"
+cost = 61
+power = 6
+structure = 2
+
+[[ships]]
+class = "fighter_heavy"
+size = 1
+variant = "heavy"
+cost = 73
+power = 8
+structure = 5
+
+[[ships]]
+class = "destroyer_light"
+size = 2
+variant = "light"
+cost = 85
+power = 11
+structure = 6
+
+[[ships]]
+class = "destroyer_line"
+size = 2
+variant = "line"
+cost = 100
+power = 14
+structure = 8
+
+[[ships]]
+class = "destroyer_heavy"
+size = 2
+variant = "heavy"
+cost = 120
+power = 16
+structure = 10
+
+[[ships]]
+class = "light_cruiser_light"
+size = 3
+variant = "light"
+cost = 138
+power = 16
+structure = 10
+
+[[ships]]
+class = "light_cruiser_line"
+size = 3
+variant = "line"
+cost = 162
+power = 18
+structure = 14
+
+[[ships]]
+class = "light_cruiser_heavy"
+size = 3
+variant = "heavy"
+cost = 194
+power = 21
+structure = 17
+
+[[ships]]
+class = "heavy_cruiser_light"
+size = 4
+variant = "light"
+cost = 210
+power = 25
+structure = 17
+
+[[ships]]
+class = "heavy_cruiser_line"
+size = 4
+variant = "line"
+cost = 247
+power = 29
+structure = 19
+
+[[ships]]
+class = "heavy_cruiser_heavy"
+size = 4
+variant = "heavy"
+cost = 296
+power = 33
+structure = 25
+
+[[ships]]
+class = "battleship_light"
+size = 5
+variant = "light"
+cost = 335
+power = 37
+structure = 30
+
+[[ships]]
+class = "battleship_line"
+size = 5
+variant = "line"
+cost = 394
+power = 44
+structure = 41
+
+[[ships]]
+class = "battleship_heavy"
+size = 5
+variant = "heavy"
+cost = 473
+power = 54
+structure = 51
+
+[[ships]]
+class = "dreadnought_light"
+size = 6
+variant = "light"
+cost = 483
+power = 62
+structure = 69
+
+[[ships]]
+class = "dreadnought_line"
+size = 6
+variant = "line"
+cost = 568
+power = 70
+structure = 74
+
+[[ships]]
+class = "dreadnought_heavy"
+size = 6
+variant = "heavy"
+cost = 682
+power = 74
+structure = 88
+
+[[ships]]
+class = "titan_light"
+size = 7
+variant = "light"
+cost = 678
+power = 88
+structure = 120
+
+[[ships]]
+class = "titan_line"
+size = 7
+variant = "line"
+cost = 798
+power = 90
+structure = 120
+
+[[ships]]
+class = "titan_heavy"
+size = 7
+variant = "heavy"
+cost = 958
+power = 93
+structure = 120

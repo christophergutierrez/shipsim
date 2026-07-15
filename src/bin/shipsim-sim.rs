@@ -85,12 +85,41 @@ fn resolve_paths(suite_path: &std::path::Path, spec: &mut SuiteSpec) {
     let root = suite_path
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
-    if spec.scenario.is_relative() && !spec.scenario.exists() {
-        spec.scenario = root.join(&spec.scenario);
+    // Suite lives at simulation/suites/foo.toml → repo root is two parents up.
+    let repo_root = suite_path
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .unwrap_or(root);
+    if let Some(scenario) = spec.scenario.as_ref() {
+        if scenario.is_relative() && !scenario.exists() {
+            let from_cwd = scenario.clone();
+            let from_suite = root.join(scenario);
+            let from_repo = repo_root.join(scenario);
+            spec.scenario = Some(if from_cwd.exists() {
+                from_cwd
+            } else if from_suite.exists() {
+                from_suite
+            } else {
+                from_repo
+            });
+        }
+    }
+    if spec.data_root.is_none() {
+        spec.data_root = Some(repo_root.to_path_buf());
+    } else if let Some(dr) = spec.data_root.as_ref() {
+        if dr.is_relative() && !dr.exists() {
+            spec.data_root = Some(repo_root.join(dr));
+        }
     }
     for rubric in &mut spec.rubrics {
         if rubric.is_relative() && !rubric.exists() {
-            *rubric = root.join(&*rubric);
+            let candidate = root.join(&*rubric);
+            *rubric = if candidate.exists() {
+                candidate
+            } else {
+                repo_root.join(&*rubric)
+            };
         }
     }
 }

@@ -1,0 +1,67 @@
+# Equal-construction-budget fleet matchups (see docs/SIZE-VARIANTS.md).
+# Fleets are built in-memory from data/ships/* costs; no one-off scenario files.
+#
+#   cargo run --release --bin shipsim-sim -- \
+#     --suite simulation/suites/cost_matched.toml \
+#     --output tmp/simulation/reports/cost_matched.json
+
+name = "cost-matched size fleets"
+seeds = [1, 2, 3, 4, 5, 6, 7, 8]
+max_turns = 80
+max_orders = 80000
+# Target ~800 for most engagements (see comments). Mirror control is 400/side.
+# Sides must match each other within cost_tolerance; budget is optional.
+# budget = 800
+cost_tolerance = 60
+rubrics = [
+  "simulation/rubrics/fleet-safety.toml",
+  "simulation/rubrics/cost-matched.toml",
+]
+
+[map]
+width = 36
+height = 28
+
+# Policy controls (same policies both sides first — isolate fleet shape).
+[[matchups]]
+player = "greedy"
+opponent = "greedy"
+
+[[matchups]]
+player = "aggressive"
+opponent = "aggressive"
+
+# --- Engagements (costs validated at load) ---
+
+# 8×100 = 800 vs 798
+[[engagements]]
+name = "swarm_vs_titan"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_line", count = 1 }]
+
+# 3×247 = 741 vs 8×100 = 800
+[[engagements]]
+name = "heavies_vs_swarm"
+player = [{ class = "heavy_cruiser_line", count = 3 }]
+opponent = [{ class = "destroyer_line", count = 8 }]
+
+# 2×394 = 788 vs 8×100 = 800
+[[engagements]]
+name = "battleships_vs_swarm"
+player = [{ class = "battleship_line", count = 2 }]
+opponent = [{ class = "destroyer_line", count = 8 }]
+
+# 568+200 = 768 vs 3×247 = 741
+[[engagements]]
+name = "dreadnought_screen_vs_heavies"
+player = [
+  { class = "dreadnought_line", count = 1 },
+  { class = "destroyer_line", count = 2 },
+]
+opponent = [{ class = "heavy_cruiser_line", count = 3 }]
+
+# Control: equal hulls, equal cost (4×100)
+[[engagements]]
+name = "destroyer_mirror"
+player = [{ class = "destroyer_line", count = 4 }]
+opponent = [{ class = "destroyer_line", count = 4 }]

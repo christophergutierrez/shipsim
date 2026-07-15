@@ -10,7 +10,7 @@ use crate::thrust::ThrustConversion;
 pub struct Ship {
     pub id: u32,
     pub class: String,
-    /// Relative target silhouette used to scale d20 hit thresholds.
+    /// Relative target silhouette used to scale d20 hit thresholds (1..=7 tiers in `data/sizes.toml`).
     pub size: u32,
     pub pos: Hex,
     pub facing: u8,

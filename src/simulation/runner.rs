@@ -7,9 +7,14 @@ use thiserror::Error;
 use crate::game_state::{GameState, Phase, ScenarioStatus, Terminal};
 use crate::motion::Maneuver;
 use crate::movement::{apply_order, Order, OrderError};
-use crate::scenario::{load_scenario, LoadError};
+use crate::scenario::{load_scenario, load_scenario_def, LoadError};
+use crate::schema::ScenarioDef;
 use crate::snapshot::StateSnapshot;
 
+use super::fleet::{
+    build_engagement_scenario, engagement_costs, engagement_report_path, validate_engagement_costs,
+    EngagementSpec, FleetError, FleetMapSpec, PowerSweepSpec,
+};
 use super::metrics::{AggregateMetrics, MatchMetrics};
 use super::policies::build_policy;
 use super::policy::{DecisionContext, Policy};
@@ -32,6 +37,39 @@ pub struct MatchConfig {
     pub opponent_policy: String,
     pub max_turns: u32,
     pub max_orders: usize,
+    /// When set, load this definition instead of reading `scenario` from disk.
+    pub built_scenario: Option<ScenarioDef>,
+    /// Repository root used to resolve `data/ships` for built scenarios.
+    pub data_root: Option<PathBuf>,
+    /// Optional engagement label for reports.
+    pub engagement: Option<String>,
+    pub player_cost: Option<u32>,
+    pub opponent_cost: Option<u32>,
+}
+
+impl MatchConfig {
+    pub fn from_scenario(
+        scenario: PathBuf,
+        seed: u64,
+        player_policy: String,
+        opponent_policy: String,
+        max_turns: u32,
+        max_orders: usize,
+    ) -> Self {
+        Self {
+            scenario,
+            seed,
+            player_policy,
+            opponent_policy,
+            max_turns,
+            max_orders,
+            built_scenario: None,
+            data_root: None,
+            engagement: None,
+            player_cost: None,
+            opponent_cost: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -40,6 +78,12 @@ pub struct MatchResult {
     pub seed: u64,
     pub player_policy: String,
     pub opponent_policy: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engagement: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_cost: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opponent_cost: Option<u32>,
     pub status: ScenarioStatus,
     pub terminal_reason: Option<String>,
     pub final_snapshot: StateSnapshot,
@@ -56,6 +100,8 @@ pub struct FailedMatch {
     pub seed: u64,
     pub player_policy: String,
     pub opponent_policy: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engagement: Option<String>,
     pub status: ScenarioStatus,
     pub terminal_reason: String,
     pub final_snapshot: StateSnapshot,
@@ -74,7 +120,9 @@ pub struct MatchupSpec {
 #[serde(deny_unknown_fields)]
 pub struct SuiteSpec {
     pub name: String,
-    pub scenario: PathBuf,
+    /// Fixed scenario path. Required when `engagements` is empty.
+    #[serde(default)]
+    pub scenario: Option<PathBuf>,
     pub seeds: Vec<u64>,
     #[serde(default = "default_max_turns")]
     pub max_turns: u32,
@@ -83,6 +131,30 @@ pub struct SuiteSpec {
     #[serde(default)]
     pub rubrics: Vec<PathBuf>,
     pub matchups: Vec<MatchupSpec>,
+    /// Cost-matched fleet vs fleet pairings. When non-empty, each engagement is
+    /// expanded with every matchup × seed (map + budget apply).
+    #[serde(default)]
+    pub engagements: Vec<EngagementSpec>,
+    /// Generate engagements by varying `power` on one class (see PowerSweepSpec).
+    #[serde(default)]
+    pub power_sweeps: Vec<PowerSweepSpec>,
+    #[serde(default)]
+    pub map: Option<FleetMapSpec>,
+    /// Target construction budget both fleets should approximate.
+    #[serde(default)]
+    pub budget: Option<u32>,
+    #[serde(default = "default_cost_tolerance_suite")]
+    pub cost_tolerance: u32,
+    /// When true, skip cost balance checks (typical for pure stat sweeps).
+    #[serde(default)]
+    pub skip_cost_validation: bool,
+    /// Repository root for `data/ships` (defaults to cwd).
+    #[serde(default)]
+    pub data_root: Option<PathBuf>,
+}
+
+fn default_cost_tolerance_suite() -> u32 {
+    60
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +170,10 @@ pub struct SuiteReport {
 pub enum SimulationError {
     #[error("cannot load scenario: {0}")]
     Scenario(#[from] LoadError),
+    #[error("fleet composition: {0}")]
+    Fleet(#[from] FleetError),
+    #[error("suite requires `scenario` when `engagements` is empty")]
+    MissingScenario,
     #[error("unknown policy {0:?}")]
     UnknownPolicy(String),
     #[error("no actor is available in phase {0:?}")]
@@ -139,12 +215,24 @@ pub fn run_match(config: &MatchConfig) -> Result<MatchResult, SimulationError> {
     run_match_with_policies(config, player, opponent)
 }
 
+fn load_match_game(config: &MatchConfig) -> Result<GameState, SimulationError> {
+    if let Some(def) = &config.built_scenario {
+        let root = config
+            .data_root
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+        Ok(load_scenario_def(def, &root)?)
+    } else {
+        Ok(load_scenario(&config.scenario)?)
+    }
+}
+
 fn run_match_with_policies(
     config: &MatchConfig,
     mut player: Box<dyn Policy>,
     mut opponent: Box<dyn Policy>,
 ) -> Result<MatchResult, SimulationError> {
-    let mut game = load_scenario(&config.scenario)?;
+    let mut game = load_match_game(config)?;
     game.reseed(config.seed);
     let mut trace = Vec::new();
     let mut metrics = MatchMetrics::default();
@@ -223,6 +311,7 @@ fn run_match_with_policies(
                     seed: config.seed,
                     player_policy: config.player_policy.clone(),
                     opponent_policy: config.opponent_policy.clone(),
+                    engagement: config.engagement.clone(),
                     status: game.status(),
                     terminal_reason: "policy_order_rejected".into(),
                     final_snapshot: StateSnapshot::from_game_state(&game),
@@ -287,10 +376,16 @@ fn run_match_with_policies(
         seed: config.seed,
         player_policy: config.player_policy.clone(),
         opponent_policy: config.opponent_policy.clone(),
+        engagement: config.engagement.clone(),
+        player_cost: config.player_cost,
+        opponent_cost: config.opponent_cost,
         status: game.status(),
         terminal_reason: match (game.status(), game.terminal()) {
             (ScenarioStatus::Won, Some(Terminal::DestroyShip(_))) => {
                 Some("destruction_target_reached".into())
+            }
+            (ScenarioStatus::Won, Some(Terminal::AnnihilateEnemies)) => {
+                Some("enemy_fleet_annihilated".into())
             }
             (ScenarioStatus::Won, Some(Terminal::ReachHex(_))) => Some("objective_reached".into()),
             (ScenarioStatus::Won, None) => Some("objective_reached".into()),
@@ -310,17 +405,72 @@ fn run_match_with_policies(
 }
 
 pub fn run_suite(spec: &SuiteSpec) -> Result<SuiteReport, SimulationError> {
+    let data_root = spec
+        .data_root
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("."));
     let mut matches = Vec::new();
-    for matchup in &spec.matchups {
-        for seed in &spec.seeds {
-            matches.push(run_match(&MatchConfig {
-                scenario: spec.scenario.clone(),
-                seed: *seed,
-                player_policy: matchup.player.clone(),
-                opponent_policy: matchup.opponent.clone(),
-                max_turns: spec.max_turns,
-                max_orders: spec.max_orders,
-            })?);
+
+    let has_fleet = !spec.engagements.is_empty() || !spec.power_sweeps.is_empty();
+    if !has_fleet {
+        let scenario = spec
+            .scenario
+            .clone()
+            .ok_or(SimulationError::MissingScenario)?;
+        for matchup in &spec.matchups {
+            for seed in &spec.seeds {
+                matches.push(run_match(&MatchConfig::from_scenario(
+                    scenario.clone(),
+                    *seed,
+                    matchup.player.clone(),
+                    matchup.opponent.clone(),
+                    spec.max_turns,
+                    spec.max_orders,
+                ))?);
+            }
+        }
+    } else {
+        let map = spec.map.clone().unwrap_or_default();
+        let suite_dir = spec
+            .scenario
+            .as_ref()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .unwrap_or_else(|| PathBuf::from("simulation/suites"));
+        let mut engagements = spec.engagements.clone();
+        for sweep in &spec.power_sweeps {
+            engagements.extend(sweep.expand()?);
+        }
+        if engagements.is_empty() {
+            return Err(SimulationError::MissingScenario);
+        }
+        for engagement in &engagements {
+            let costs = engagement_costs(&data_root, engagement)?;
+            if !spec.skip_cost_validation {
+                validate_engagement_costs(
+                    &costs,
+                    &engagement.name,
+                    spec.budget,
+                    spec.cost_tolerance,
+                )?;
+            }
+            for matchup in &spec.matchups {
+                for seed in &spec.seeds {
+                    let def = build_engagement_scenario(engagement, &map, *seed)?;
+                    matches.push(run_match(&MatchConfig {
+                        scenario: engagement_report_path(&suite_dir, &engagement.name),
+                        seed: *seed,
+                        player_policy: matchup.player.clone(),
+                        opponent_policy: matchup.opponent.clone(),
+                        max_turns: spec.max_turns,
+                        max_orders: spec.max_orders,
+                        built_scenario: Some(def),
+                        data_root: Some(data_root.clone()),
+                        engagement: Some(engagement.name.clone()),
+                        player_cost: Some(costs.player),
+                        opponent_cost: Some(costs.opponent),
+                    })?);
+                }
+            }
         }
     }
     let aggregate = AggregateMetrics::from_matches(
@@ -471,14 +621,14 @@ mod tests {
 
     #[test]
     fn failed_match_retains_rejected_trace_metrics_snapshot_and_serialized_report() {
-        let config = MatchConfig {
-            scenario: PathBuf::from("scenarios/simulation_duel.toml"),
-            seed: 41,
-            player_policy: "test_rejecting_policy".into(),
-            opponent_policy: "test_rejecting_policy".into(),
-            max_turns: 10,
-            max_orders: 100,
-        };
+        let config = MatchConfig::from_scenario(
+            PathBuf::from("scenarios/simulation_duel.toml"),
+            41,
+            "test_rejecting_policy".into(),
+            "test_rejecting_policy".into(),
+            10,
+            100,
+        );
         let error = run_match_with_policies(
             &config,
             Box::new(RejectingPolicy),

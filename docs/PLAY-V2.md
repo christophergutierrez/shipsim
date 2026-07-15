@@ -43,6 +43,8 @@ Each **turn**:
 - Queue zero or more legal shots (`commit_fire`), then **ready**.
 - Miss still spends charge.
 - Hit chance uses range and target size tables (`docs/combat-v2-tables.md`).
+  Hull sizes are the seven tiers in `data/sizes.toml` (Fighter … Titan);
+  baseline silhouette is size 2.
 
 ## Running
 

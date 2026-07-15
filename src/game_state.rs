@@ -26,11 +26,15 @@ pub enum Phase {
     TurnEnd,
 }
 
-/// Win condition. Objective and destruction are mutually exclusive (AS1).
+/// Win condition. Objective, single-target destruction, and annihilation are
+/// mutually exclusive (AS1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terminal {
     ReachHex(Hex),
     DestroyShip(u32),
+    /// Player wins when every non-player (NPC/scripted) ship is destroyed.
+    /// Used for multi-ship fleet engagements.
+    AnnihilateEnemies,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1531,6 +1535,18 @@ impl GameState {
                     .iter()
                     .any(|ship| ship.id == target && ship.destroyed)
                 {
+                    ScenarioStatus::Won
+                } else {
+                    ScenarioStatus::InProgress
+                }
+            }
+            Some(Terminal::AnnihilateEnemies) => {
+                let enemies: Vec<_> = self
+                    .ships
+                    .iter()
+                    .filter(|ship| self.npcs.contains_key(&ship.id))
+                    .collect();
+                if !enemies.is_empty() && enemies.iter().all(|ship| ship.destroyed) {
                     ScenarioStatus::Won
                 } else {
                     ScenarioStatus::InProgress

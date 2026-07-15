@@ -1,0 +1,34 @@
+# Experiment: titan max_shield_per_facing 8→16 ("two shields" worth of face cap).
+# Power high enough to fill faces + weapons. Cost ignored.
+name = "titan double face shields vs destroyer swarm"
+seeds = [1, 2, 3, 4, 5, 6, 7, 8]
+max_turns = 80
+max_orders = 80000
+skip_cost_validation = true
+rubrics = ["simulation/rubrics/fleet-safety.toml"]
+
+[map]
+width = 36
+height = 28
+
+[[matchups]]
+player = "greedy"
+opponent = "greedy"
+
+# Baseline control (face max 8, power 90 catalog)
+[[engagements]]
+name = "baseline_shield8_p90"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_line", count = 1 }]
+
+# Double face cap (16), power to fill 6×16 shields (96) + some weapons/thrust
+[[engagements]]
+name = "double_shield16_p150"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_line", count = 1, max_shield_per_facing = 16, power = 150 }]
+
+# Intermediate: face max 12 ("one with 12"), same power headroom
+[[engagements]]
+name = "shield12_p150"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_line", count = 1, max_shield_per_facing = 12, power = 150 }]

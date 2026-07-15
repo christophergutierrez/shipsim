@@ -11,8 +11,9 @@ pub struct ShipDef {
     #[serde(default)]
     pub id: String,
     pub name: String,
-    /// Relative target silhouette. Size 2 is the neutral to-hit baseline;
-    /// smaller ships are harder to hit and larger ships are easier to hit.
+    /// Relative target silhouette. Canonical tiers are 1..=7 in
+    /// `data/sizes.toml` (Fighter … Titan). Size 2 is the neutral to-hit
+    /// baseline; smaller ships are harder to hit and larger ships easier.
     #[serde(default = "default_ship_size")]
     pub size: u32,
     pub speed: u32,
@@ -38,6 +39,10 @@ pub struct ShipDef {
     /// Engine power required per unit of thrust (ADR-0022 §5). Defaults to 1.
     #[serde(default = "default_power_per_thrust")]
     pub power_per_thrust: u32,
+    /// Construction / fleet-budget cost (catalog). Not consumed by combat rules yet.
+    /// Size-variant drafts use destroyer_line = 100, ratioed from JSONL Combat D.
+    #[serde(default)]
+    pub cost: u32,
 }
 
 fn default_ship_size() -> u32 {
@@ -89,6 +94,15 @@ pub struct ShipPlacementDef {
     /// Initial course (hex direction 0..=5). Defaults to `facing` when omitted.
     #[serde(default)]
     pub course: Option<u8>,
+    /// Override design power for this placement (balance sweeps / scenarios).
+    #[serde(default)]
+    pub power: Option<u32>,
+    /// Override hull structure boxes for this placement.
+    #[serde(default)]
+    pub structure: Option<u32>,
+    /// Override per-facing shield cap for this placement.
+    #[serde(default)]
+    pub max_shield_per_facing: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

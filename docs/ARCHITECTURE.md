@@ -80,6 +80,18 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 5. The aggregate mutates atomically or returns a soft protocol error.
 6. `StateSnapshot::from_game_state` produces the client-safe serialized view.
 
+### Content data
+
+| Path | Role |
+|---|---|
+| `data/ships/*.toml` | Shipped ship classes (`ShipDef`); loaded by the scenario loader |
+| `data/ships/*_{light,line,heavy}.toml` | Draft size variants (21 hulls); see `docs/SIZE-VARIANTS.md` |
+| `data/ship_costs.toml` | Fleet-budget index (`cost`; destroyer_line = 100) |
+| `data/sizes.toml` | Canonical hull-size ladder (1..=7: Fighter … Titan) and FASA Class I–XX map; **catalog only** (not loaded by the engine yet) |
+
+Ship `size` is the to-hit silhouette and the future construction frame key.
+See `docs/combat-v2-tables.md` and `docs/TODO.md` (hull size / construction).
+
 ## Invariants
 
 - Rust is the sole rules authority; clients may project but not decide legality.

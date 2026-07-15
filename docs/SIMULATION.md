@@ -66,6 +66,65 @@ player = "aggressive"
 opponent = "mobility"
 ```
 
+### Cost-matched fleet engagements
+
+For equal-construction-budget fleet tests, omit a fixed `scenario` and declare
+`[[engagements]]` instead. The runner builds in-memory scenarios (annihilation
+terminal: all enemy ships destroyed) from ship class TOMLs and validates costs.
+
+```toml
+name = "cost-matched size fleets"
+seeds = [1, 2, 3, 4]
+max_turns = 80
+budget = 800
+cost_tolerance = 60
+rubrics = ["simulation/rubrics/safety.toml"]
+
+[map]
+width = 36
+height = 28
+
+[[matchups]]
+player = "greedy"
+opponent = "greedy"
+
+[[engagements]]
+name = "swarm_vs_titan"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_line", count = 1 }]
+```
+
+Ship `cost` comes from `data/ships/{class}.toml` (see `docs/SIZE-VARIANTS.md`).
+Both fleets must be within `cost_tolerance` of each other and of `budget` when set
+(unless `skip_cost_validation = true`).
+
+### Power sweeps
+
+Vary design `power` on one class without editing ship TOMLs. Placement overrides
+also support `structure` and `max_shield_per_facing` on fleet lines / scenarios.
+
+```toml
+skip_cost_validation = true
+
+[[power_sweeps]]
+name = "titan_vs_swarm"
+class = "titan_line"
+side = "opponent"
+values = [60, 90, 120, 150, 180]
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_line", count = 1 }]
+```
+
+Generated engagements are named `{name}_p{value}`. Method notes:
+`docs/SIZE-VARIANTS.md` (balance method). Example suite:
+`simulation/suites/titan_power_sweep.toml`.
+
+```bash
+cargo run --release --bin shipsim-sim -- \
+  --suite simulation/suites/cost_matched.toml \
+  --output tmp/simulation/reports/cost_matched.json
+```
+
 Run suites from the repository root. The CLI also resolves paths relative to the suite file when a root-relative path does not exist.
 
 ## Test tiers

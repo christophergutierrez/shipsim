@@ -16,6 +16,7 @@ const PLASMA_TO_HIT: [u8; 14] = [16, 14, 12, 10, 8, 6, 5, 4, 3, 2, 2, 2, 1, 1];
 const TORP_TO_HIT: [u8; 12] = [14, 13, 12, 11, 10, 9, 7, 6, 5, 4, 3, 3];
 
 /// Hull size whose hit chance is exactly the range-table chance.
+/// Matches size tier 2 (Destroyer) in `data/sizes.toml`.
 pub const BASELINE_TARGET_SIZE: u32 = 2;
 
 pub fn half_up(value: f64) -> u32 {

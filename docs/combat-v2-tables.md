@@ -21,9 +21,10 @@ adjusted threshold = round_half_up(table threshold × target size / 2)
 adjusted threshold = clamp(adjusted threshold, 1, 20)
 ```
 
-Consequently, size 1 has half the listed chance, size 2 uses the table as-is,
-and size 4 has twice the listed chance up to 100%. Target size changes accuracy,
-not damage.
+Consequently, size 1 (Fighter) has half the listed chance, size 2 (Destroyer)
+uses the table as-is, size 4 (Heavy Cruiser) has twice the listed chance, and
+larger tiers scale further up to 100% after clamp. Target size changes accuracy,
+not damage. Named tiers: `data/sizes.toml`.
 
 | Range | Beam | Plasma | Torp |
 |------:|-----:|-------:|-----:|
@@ -60,12 +61,34 @@ not damage.
 
 ## Target sizes
 
-| Class | Size | Hit-threshold multiplier |
-|---|---:|---:|
-| Escort | 1 | ×0.5 |
-| Heavy Cruiser | 2 | ×1 |
-| Huge | 4 | ×2 |
-| Starbase | 4 | ×2 |
+Canonical hull-size ladder: **`data/sizes.toml`** (seven tiers, `size` 1..=7).
+Combat baseline remains **size 2** (Destroyer): multiplier = `size / 2`.
+
+| Size | Name | FASA Class | Hit-threshold multiplier |
+|---:|---|---|---:|
+| 1 | Fighter | I–III | ×0.5 |
+| 2 | Destroyer | IV–VI | ×1 (baseline) |
+| 3 | Light Cruiser | VII–IX | ×1.5 |
+| 4 | Heavy Cruiser | X–XII | ×2 |
+| 5 | Battleship | XIII–XV | ×2.5 |
+| 6 | Dreadnought | XVI–XVIII | ×3 |
+| 7 | Titan | XIX–XX | ×3.5 |
+
+### Draft size variants
+
+Twenty-one hulls (`{tier}_{light|line|heavy}`) with JSONL-ratioed `cost`:
+see `docs/SIZE-VARIANTS.md` and `data/ship_costs.toml`.
+
+### Legacy scenario hulls (provisional)
+
+Older `data/ships/*.toml` values predate the ladder; kept for existing scenarios.
+
+| Class TOML | Current `size` | Ladder intent |
+|---|---:|---|
+| escort | 1 | prefer `destroyer_*` (size 2) |
+| heavy_cruiser | 2 | prefer `heavy_cruiser_*` (size 4) |
+| huge | 4 | Battleship / Dreadnought variants |
+| starbase | 4 | capital silhouette; immobile engine |
 
 ## Weapon Mount Arcs (frozen)
 

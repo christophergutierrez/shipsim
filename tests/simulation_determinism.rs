@@ -3,15 +3,15 @@ use std::path::{Path, PathBuf};
 use shipsim_core::simulation::{run_match, MatchConfig};
 
 fn config() -> MatchConfig {
-    MatchConfig {
-        scenario: PathBuf::from(Path::new(env!("CARGO_MANIFEST_DIR")))
+    MatchConfig::from_scenario(
+        PathBuf::from(Path::new(env!("CARGO_MANIFEST_DIR")))
             .join("scenarios/simulation_duel.toml"),
-        seed: 4242,
-        player_policy: "random".into(),
-        opponent_policy: "greedy".into(),
-        max_turns: 50,
-        max_orders: 20_000,
-    }
+        4242,
+        "random".into(),
+        "greedy".into(),
+        50,
+        20_000,
+    )
 }
 
 #[test]

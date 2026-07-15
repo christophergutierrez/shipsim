@@ -1,3 +1,4 @@
+pub mod fleet;
 pub mod metrics;
 pub mod policies;
 pub mod policy;
@@ -5,6 +6,7 @@ pub mod rubric;
 pub mod runner;
 pub mod trace;
 
+pub use fleet::{EngagementSpec, FleetLine, FleetMapSpec, PowerSweepSpec};
 pub use metrics::{AggregateMetrics, MatchMetrics};
 pub use policy::{DecisionContext, Policy};
 pub use rubric::{RubricResult, RubricSpec};

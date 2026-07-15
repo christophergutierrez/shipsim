@@ -1,0 +1,45 @@
+# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
+# See docs/SIZE-VARIANTS.md. Tune after simulation.
+id = "battleship_line"
+name = "Battleship (Line)"
+size = 5
+speed = 5
+power = 44
+max_shield_per_facing = 7
+structure = 41
+max_velocity = 5
+thrust_per_power = 1
+power_per_thrust = 3
+cost = 394
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "beam_2"
+kind = "beam"
+arc = "forward"
+mount = "forward_starboard"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "torp_1"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1
+
+[[weapons]]
+id = "plasma_1"
+kind = "plasma"
+arc = "forward"
+mount = "forward"
+max_range = 6
+max_charge = 1

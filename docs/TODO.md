@@ -3,8 +3,29 @@
 ## Hull size, movement efficiency, and system capacity
 
 Status: Partially implemented. Explicit hull `size` and size-adjusted to-hit are
-accepted rules; construction capacity and other size-derived mechanics remain
-design candidates.
+accepted rules. The **seven-tier size ladder** is catalogued in
+`data/sizes.toml` (Fighter … Titan). Construction capacity, component catalogs,
+and size-derived yard limits remain design candidates.
+
+### Size ladder (accepted catalog)
+
+| `size` | Name | FASA Class map |
+|---:|---|---|
+| 1 | Fighter | I–III |
+| 2 | Destroyer | IV–VI |
+| 3 | Light Cruiser | VII–IX |
+| 4 | Heavy Cruiser | X–XII |
+| 5 | Battleship | XIII–XV |
+| 6 | Dreadnought | XVI–XVIII |
+| 7 | Titan | XIX–XX |
+
+~3 FASA classes per shipsim tier. Source role labels (Scout, Frigate, …) are not
+size IDs — map scraped ships by STCS class number when present. Combat baseline
+remains size **2** until an explicit retune. See `docs/combat-v2-tables.md`.
+
+**Draft variants:** three hulls per size (`*_light` / `*_line` / `*_heavy`) with
+JSONL-ratioed `cost` (destroyer_line = 100). Methodology: `docs/SIZE-VARIANTS.md`.
+**Suite:** `simulation/suites/cost_matched.toml` (engagements + budget validation).
 
 ### Goal
 
@@ -17,14 +38,16 @@ Make hull size a strategic tradeoff rather than a linear power upgrade:
 
 ### Candidate ship-data fields
 
-- `size`: implemented as the relative target silhouette and future construction
-  input. Size 2 is the neutral d20 baseline.
+- `size`: implemented as the relative target silhouette (`1..=7` per
+  `data/sizes.toml`) and future construction input. Size 2 is the neutral d20 baseline.
 - `power`: energy available each turn.
 - `movement_cost`: base power required to purchase one movement point.
 - `system_capacity`: space available for weapons and future systems.
 - `hull`: structural endurance.
 - `max_shield_per_facing`: defensive capacity.
 - Optional `turn_cost` or `agility`: only if the movement design needs a separate responsiveness property.
+- Future construction: per-size hull space/cost; weapon and engine component
+  TOMLs with their own space/cost (not loaded yet).
 
 Keep these values explicit in ship data initially. Do not derive every statistic from `size` until simulation evidence supports stable formulas.
 
@@ -50,13 +73,16 @@ Weapons and future systems consume both operational power and permanent system c
 ### Proposed implementation sequence
 
 1. Complete and accept the new movement-system design.
-2. Add explicit hull size, movement cost, and system capacity fields.
-3. Make movement allocation purchase movement capability according to hull cost.
-4. Base initiative on effective movement capability.
-5. Add system-space values and validate installed capacity at load time.
-6. Add generic hulls smaller and larger than the current escort/cruiser.
-7. Add mirrored simulation suites across hull and fleet compositions.
-8. Introduce construction money and configurable loadouts only after the combat tradeoffs are stable.
+2. ~~Catalog seven hull sizes (`data/sizes.toml`).~~ Align shipped ship TOMLs
+   and to-hit baseline with the ladder when ready.
+3. Add movement cost and system capacity fields (per size and/or per hull).
+4. Make movement allocation purchase movement capability according to hull cost.
+5. Base initiative on effective movement capability.
+6. Add weapon/engine component TOMLs (space, cost, combat knobs); validate
+   installed capacity at load time.
+7. Add generic hulls for each size tier (or migrate escort / heavy / huge / base).
+8. Add mirrored simulation suites across hull and fleet compositions.
+9. Introduce construction money and configurable loadouts only after the combat tradeoffs are stable.
 
 ### Simulation evidence required
 

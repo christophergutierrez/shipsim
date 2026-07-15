@@ -8,11 +8,11 @@ pub enum DacSlot {
     Hull,
     Engine,
     Power,
-    Bridge,
     Weapon,
 }
 
 /// Fixed chart (cycles). Hull-heavy early so light internals still mostly hull.
+/// Bridge is not on the chart: ships are destroyed only when hull reaches 0.
 pub const DAC: &[DacSlot] = &[
     DacSlot::Hull,
     DacSlot::Hull,
@@ -21,7 +21,7 @@ pub const DAC: &[DacSlot] = &[
     DacSlot::Hull,
     DacSlot::Power,
     DacSlot::Weapon,
-    DacSlot::Bridge,
+    DacSlot::Hull,
     DacSlot::Hull,
     DacSlot::Engine,
     DacSlot::Hull,
@@ -40,6 +40,7 @@ pub struct Ssd {
     pub engine_max: u32,
     pub power_sys: u32,
     pub power_sys_max: u32,
+    /// Retained for snapshot compatibility; not damaged and not a kill condition.
     pub bridge: u32,
     /// Parallel to ship.weapons by index: remaining boxes (0 = destroyed).
     pub weapon_boxes: Vec<u32>,
@@ -64,8 +65,9 @@ impl Ssd {
         }
     }
 
+    /// Destroyed only when hull is gone. Bridge is not a kill condition.
     pub fn is_destroyed(&self) -> bool {
-        self.hull == 0 || self.bridge == 0
+        self.hull == 0
     }
 
     pub fn weapon_operational(&self, weapon_index: usize) -> bool {
@@ -124,10 +126,6 @@ impl Ssd {
                 self.power_sys -= 1;
                 true
             }
-            DacSlot::Bridge if self.bridge > 0 => {
-                self.bridge -= 1;
-                true
-            }
             DacSlot::Weapon => {
                 if let Some(idx) = self.weapon_boxes.iter().position(|&boxes| boxes > 0) {
                     self.weapon_boxes[idx] -= 1;
@@ -146,11 +144,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hull_and_bridge_destroy() {
+    fn test_hull_zero_destroys() {
         let mut s = Ssd::new(2, 2, 2, 1);
         s.apply_internal(2);
         assert_eq!(s.hull, 0);
         assert!(s.is_destroyed());
+    }
+
+    #[test]
+    fn test_bridge_not_a_kill_condition() {
+        let mut s = Ssd::new(10, 2, 2, 1);
+        s.bridge = 0;
+        assert!(!s.is_destroyed());
+        assert_eq!(s.hull, 10);
     }
 
     #[test]

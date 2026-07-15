@@ -1,0 +1,19 @@
+name = "titan double armament vs destroyer swarm"
+seeds = [1, 2, 3, 4, 5, 6, 7, 8]
+max_turns = 80
+max_orders = 80000
+skip_cost_validation = true
+rubrics = ["simulation/rubrics/fleet-safety.toml"]
+
+[map]
+width = 36
+height = 28
+
+[[matchups]]
+player = "greedy"
+opponent = "greedy"
+
+[[engagements]]
+name = "swarm_vs_titan_double"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_double", count = 1 }]
