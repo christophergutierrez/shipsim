@@ -342,6 +342,141 @@ impl GameState {
         Ok(())
     }
 
+    /// Read-only four-cycle movement preview (ADR-0022 preview contract).
+    ///
+    /// Computes the reachable endpoint set for `ship_id` over the four movement
+    /// phases of the current turn, given a *complete* allocation draft
+    /// (movement power, weapons, shields). The engine — not the TUI — owns
+    /// power accounting: it validates the draft exactly as `allocate_v2` would
+    /// (weapon charge carry rules, shield caps, total <= effective power) and
+    /// converts movement power → thrust via the ship's hull conversion, then
+    /// runs the pure projection in `movement_preview`.
+    ///
+    /// This is **read-only**: it takes `&self`, never mutates position, phase,
+    /// thrust, commits, the combat log, or the PRNG, and is excluded from
+    /// save/replay. Enemy ships remain at their current positions for display;
+    /// their future movement is unknown and is not predicted. Currently
+    /// occupied destinations are reported separately, not removed from the
+    /// geometric envelope.
+    pub fn movement_preview(
+        &self,
+        ship_id: u32,
+        movement: u32,
+        weapons: BTreeMap<String, u32>,
+        shields: [u32; 6],
+    ) -> Result<crate::movement_preview::PreviewResult, crate::movement::OrderError> {
+        // Phase guard: preview is meaningful during allocation (the draft is
+        // being built). We also allow it during the movement phase so a client
+        // can preview remaining cycles, but never during firing/turn-end.
+        if !matches!(self.phase, Phase::Allocate | Phase::Movement) {
+            return Err(crate::movement::OrderError::WrongPhase {
+                expected: "allocate or movement",
+                actual: self.phase_name(),
+            });
+        }
+
+        let ship = self
+            .ship(ship_id)
+            .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
+        if ship.destroyed {
+            return Err(crate::movement::OrderError::ShipNotFound(ship_id));
+        }
+
+        // ── Validate the draft exactly as allocate_v2 would (no mutation) ──
+        // Weapon charge carries across turns; power is spent only on increases.
+        let mut weapon_increases: u32 = 0;
+        for (weapon_id, charge) in &weapons {
+            let weapon = ship
+                .weapon(weapon_id)
+                .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(weapon_id.clone()))?;
+            if *charge > weapon.max_charge {
+                return Err(crate::movement::OrderError::WeaponChargeTooHigh {
+                    ship: ship_id,
+                    weapon: weapon_id.clone(),
+                    charge: *charge,
+                    max: weapon.max_charge,
+                });
+            }
+            let have = ship
+                .weapon_charges
+                .get(weapon_id)
+                .copied()
+                .unwrap_or(0);
+            if *charge < have {
+                return Err(crate::movement::OrderError::CannotStripWeaponCharge {
+                    ship: ship_id,
+                    weapon: weapon_id.clone(),
+                    have,
+                    want: *charge,
+                });
+            }
+            weapon_increases = weapon_increases.saturating_add(charge - have);
+        }
+        for (facing, power) in shields.iter().copied().enumerate() {
+            if power > ship.max_shield_per_facing {
+                return Err(crate::movement::OrderError::ShieldPowerTooHigh {
+                    ship: ship_id,
+                    facing: facing as u8,
+                    power,
+                    max: ship.max_shield_per_facing,
+                });
+            }
+        }
+
+        let shield_power: u32 = shields.iter().copied().sum();
+        let total = movement
+            .saturating_add(weapon_increases)
+            .saturating_add(shield_power);
+        let available = ship.effective_power();
+        if total > available {
+            return Err(crate::movement::OrderError::OverAllocated {
+                ship: ship_id,
+                total,
+                available,
+            });
+        }
+
+        // ── Convert movement power → thrust (engine owns this) ──
+        let (thrust, _remainder) = ship.thrust_conversion.convert(movement);
+
+        // ── Assemble preview inputs from the ship's CURRENT live state ──
+        // During the movement phase, thrust_remaining reflects what was bought
+        // this turn minus what was already spent on committed maneuvers. The
+        // draft's movement power is only authoritative during allocation; once
+        // movement has begun, the preview reflects the remaining thrust.
+        let (start_thrust, start_pos, start_facing, start_velocity) = match self.phase {
+            Phase::Allocate => (thrust, ship.pos, ship.facing, ship.velocity),
+            // During movement, the ship has already spent some thrust; preview
+            // the *remaining* cycles from the current state with remaining thrust.
+            _ => (
+                ship.thrust_remaining,
+                ship.pos,
+                ship.facing,
+                ship.velocity,
+            ),
+        };
+
+        // Occupied hexes = every other living ship's current position.
+        let occupied_hexes: Vec<crate::hex::Hex> = self
+            .ships
+            .iter()
+            .filter(|s| s.id != ship_id && !s.destroyed)
+            .map(|s| s.pos)
+            .collect();
+
+        let inputs = crate::movement_preview::PreviewInputs {
+            start: start_pos,
+            facing: start_facing,
+            velocity: start_velocity,
+            max_velocity: ship.max_velocity,
+            thrust_remaining: start_thrust,
+            occupied_hexes,
+        };
+
+        crate::movement_preview::preview(inputs)
+            .map_err(|e| crate::movement::OrderError::PreviewFailed(e.to_string()))
+    }
+
     fn all_living_allocated(&self) -> bool {
         self.ships
             .iter()

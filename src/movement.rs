@@ -137,6 +137,8 @@ pub enum OrderError {
         have: u32,
         want: u32,
     },
+    #[error("movement preview failed: {0}")]
+    PreviewFailed(String),
 }
 
 pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError> {
