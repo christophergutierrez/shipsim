@@ -1,8 +1,8 @@
 //! Tutorial mode — TUI-native, step-gated walkthrough.
 //!
-//! Same fight as the REPL `--tutorial rear-attack` lesson: race past the
-//! escort, reverse-thrust brake, revector west, point-blank dump of beam +
-//! torp + plasma on turn 3 (`scenarios/tutorial_rear_attack.toml`, seed 4).
+//! Race past the escort, inspect the tactical map, turn onto its stern, and
+//! destroy it with beam + torp + plasma on turn 1
+//! (`scenarios/tutorial_rear_attack.toml`, seed 4).
 //!
 //! Yellow bar = short **why + key** line (no "DO NOW" prefix). Bottom panel
 //! holds the longer coach text.
@@ -24,7 +24,14 @@ pub enum ExpectedAction {
     Accel,
     TurnTo(u32),
     Coast,
+    EnterMap,
+    PanMap,
+    ZoomOut,
+    ZoomIn,
+    RecenterMap,
+    ExitMap,
     EnterFire,
+    ShieldFacing(u32),
     FireWeapon,
     TabWeapon,
     ReadyFire,
@@ -60,8 +67,8 @@ impl Tutorial {
     pub fn new() -> Self {
         Tutorial {
             name: "rear-attack",
-            objective: "Race past the escort, brake and revector, destroy it at \
-                        point blank with all weapons.",
+            objective: "Race past the escort, inspect the map, and destroy it \
+                        from behind with all weapons.",
             steps: REAR_ATTACK_STEPS,
             current: 0,
             error_msg: None,
@@ -98,6 +105,19 @@ impl Tutorial {
                         return true;
                     }
                     self.set_error(format!("Go to field {target} (↓). {}", step.hint));
+                    return false;
+                }
+            }
+            if let ExpectedAction::ShieldFacing(target) = step.expected {
+                if let ExpectedAction::ShieldFacing(next) = action {
+                    if *next <= target {
+                        self.error_msg = None;
+                        if *next == target {
+                            self.advance();
+                        }
+                        return true;
+                    }
+                    self.set_error(format!("Select shield face {target} with →. {}", step.hint));
                     return false;
                 }
             }
@@ -207,7 +227,16 @@ impl Tutorial {
                 format!("{why} · press {f} (face {f} only — course unchanged)")
             }
             ExpectedAction::Coast => format!("{why} · c (coast / free slide)"),
+            ExpectedAction::EnterMap => format!("{why} · v (focus the map)"),
+            ExpectedAction::PanMap => format!("{why} · a (pan west / left)"),
+            ExpectedAction::ZoomOut => format!("{why} · - (zoom out)"),
+            ExpectedAction::ZoomIn => format!("{why} · + (zoom in)"),
+            ExpectedAction::RecenterMap => format!("{why} · c (auto-fit contacts)"),
+            ExpectedAction::ExitMap => format!("{why} · v (return to fire controls)"),
             ExpectedAction::EnterFire => format!("{why} · f or Enter (fire mode)"),
+            ExpectedAction::ShieldFacing(f) => {
+                format!("{why} · → until target shield face = {f}")
+            }
             ExpectedAction::FireWeapon => format!("{why} · Enter (queue shot)"),
             ExpectedAction::TabWeapon => format!("{why} · ↓ (next weapon)"),
             ExpectedAction::ReadyFire => {
@@ -220,7 +249,7 @@ impl Tutorial {
 
     pub fn narration(&self) -> String {
         if self.is_complete() {
-            return "Tutorial complete! Point-blank alpha-strike secured the win. \
+            return "Tutorial complete! The rear-arc alpha strike secured the win. \
                     Press q to quit."
                 .to_string();
         }
@@ -287,7 +316,14 @@ fn action_matches(expected: &ExpectedAction, actual: &ExpectedAction) -> bool {
         (ExpectedAction::Accel, ExpectedAction::Accel) => true,
         (ExpectedAction::TurnTo(e), ExpectedAction::TurnTo(a)) => e == a,
         (ExpectedAction::Coast, ExpectedAction::Coast) => true,
+        (ExpectedAction::EnterMap, ExpectedAction::EnterMap) => true,
+        (ExpectedAction::PanMap, ExpectedAction::PanMap) => true,
+        (ExpectedAction::ZoomOut, ExpectedAction::ZoomOut) => true,
+        (ExpectedAction::ZoomIn, ExpectedAction::ZoomIn) => true,
+        (ExpectedAction::RecenterMap, ExpectedAction::RecenterMap) => true,
+        (ExpectedAction::ExitMap, ExpectedAction::ExitMap) => true,
         (ExpectedAction::EnterFire, ExpectedAction::EnterFire) => true,
+        (ExpectedAction::ShieldFacing(e), ExpectedAction::ShieldFacing(a)) => e == a,
         (ExpectedAction::FireWeapon, ExpectedAction::FireWeapon) => true,
         (ExpectedAction::TabWeapon, ExpectedAction::TabWeapon) => true,
         (ExpectedAction::ReadyFire, ExpectedAction::ReadyFire) => true,
@@ -324,7 +360,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         title: "Select the beam",
         text: "Weapons are separate power sinks. **beam_1** is your main gun: \
                multi-charge, solid damage, long range. Charge **carries** across \
-               turns if you don't fire — we load it now and hold for point blank.",
+               turns if you don't fire — we load it now and hold for the stern shot.",
         why: "Move to beam_1 — main gun (charge carries until fired)",
         hint: "↓ to beam_1",
         expected: ExpectedAction::NavField(1),
@@ -351,7 +387,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     },
     TutorialStep {
         title: "Charge torpedo",
-        text: "Charge to 1 (max). Leave it loaded — we fire later at range 1.",
+        text: "Charge to 1 (max). Leave it loaded for the rear volley.",
         why: "Arm torp for the same volley as beam + plasma",
         hint: "→ once (charge 1)",
         expected: ExpectedAction::ReachValue {
@@ -362,7 +398,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     TutorialStep {
         title: "Select plasma",
         text: "plasma_1 is a short-range hammer (max charge 1). Huge damage at \
-               range 1 — the finisher of the point-blank dump.",
+               close range — the finisher of the rear-arc dump.",
         why: "Move to plasma_1 — short-range heavy punch",
         hint: "↓ to plasma_1",
         expected: ExpectedAction::NavField(3),
@@ -370,7 +406,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     TutorialStep {
         title: "Charge plasma",
         text: "One point arms the plasma. It stays charged until you fire it.",
-        why: "Arm plasma for the point-blank dump",
+        why: "Arm plasma for the close rear-arc dump",
         hint: "→ once (charge 1)",
         expected: ExpectedAction::ReachValue {
             field: 3,
@@ -441,296 +477,79 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         expected: ExpectedAction::ReadyFire,
     },
     TutorialStep {
-        title: "Accel — speed 3",
-        text: "Speed 3, slide 3. You cross / pass their track.",
-        why: "Cross their track so we end up behind them",
-        hint: "t",
-        expected: ExpectedAction::Accel,
-    },
-    TutorialStep {
-        title: "Hold fire — cycle 3",
-        text: "Charge stays for point blank.",
-        why: "Save the full volley for point blank",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
-    },
-    TutorialStep {
         title: "Turn nose west",
         text: "Facing and course are different. **Turn** only changes facing \
                (guns/nose); course/speed keep you sliding east. Face 3 = west. \
-               Cost is hex-ring distance (0→3 costs 3 thrust). Guns now look back \
-               along the track at their stern.",
+               Cost is hex-ring distance (0→3 costs 3 thrust). Inertia carries \
+               you past the escort while your guns turn onto its stern.",
         why: "Point guns west while still flying east (stern shot)",
         hint: "3",
         expected: ExpectedAction::TurnTo(3),
     },
     TutorialStep {
-        title: "Close setup turn",
-        text: "Ready out of fire. Next: end-turn keeps velocity/course and \
-               unfired weapon charge; shields go to 0 next allocate.",
-        why: "Finish fire window before ending the turn",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
+        title: "Focus the tactical map",
+        text: "You crossed the escort and now have its unshielded stern in front \
+               of your guns. Before firing, press v to focus the map. Map focus \
+               is read-only: it never spends thrust or advances the phase.",
+        why: "Inspect the pass without issuing an order",
+        hint: "v",
+        expected: ExpectedAction::EnterMap,
     },
     TutorialStep {
-        title: "End turn 1",
-        text: "e advances the whole turn. Thrust pool resets; weapons stay charged.",
-        why: "Next turn — brake and come back west",
-        hint: "e",
-        expected: ExpectedAction::EndTurn,
-    },
-    // ── Turn 2 allocate ────────────────────────────────────────────────
-    TutorialStep {
-        title: "Engine again (brake fuel)",
-        text: "You still have speed 3 course east. Weapons are already charged — \
-               leave them (carried charge costs nothing to keep). Buy Movement 10 \
-               again so you can reverse-thrust to a stop and push west.",
-        why: "Thrust to brake eastbound vector, then push west",
-        hint: "→ Movement to 10",
-        expected: ExpectedAction::ReachValue {
-            field: 0,
-            target: 10,
-        },
+        title: "Pan toward the escort",
+        text: "WASD pans the camera. The escort is west (left) of you, so press a. \
+               Panning changes only what you can see; ships keep their coordinates.",
+        why: "Move the camera west to inspect the target",
+        hint: "a",
+        expected: ExpectedAction::PanMap,
     },
     TutorialStep {
-        title: "Select shield F again",
-        text: "Shields do not carry. Every allocate rebuilds from zero. Skip the \
-               weapon rows (already full) and put ▶ on **F** again.",
-        why: "Rebuild nose shield from zero (shields never carry)",
-        hint: "↓ to shield F",
-        expected: ExpectedAction::NavField(4),
+        title: "Zoom out",
+        text: "- zooms out to cover more space. Use it when contacts or projected \
+               movement spread beyond the current view.",
+        why: "Fit more of the battle into the map",
+        hint: "-",
+        expected: ExpectedAction::ZoomOut,
     },
     TutorialStep {
-        title: "Shield F = 6",
-        text: "Full forward face again while you maneuver near them.",
-        why: "F=6 — forward arc protection this turn",
-        hint: "→ F to 6",
-        expected: ExpectedAction::ReachValue {
-            field: 4,
-            target: 6,
-        },
+        title: "Zoom in",
+        text: "+ zooms back in for readable local geometry. Zoom and pan remain \
+               manual until you ask the camera to auto-fit again.",
+        why: "Return to a closer tactical view",
+        hint: "+",
+        expected: ExpectedAction::ZoomIn,
     },
     TutorialStep {
-        title: "Select FR",
-        text: "**FR** is forward-right (face 1) — a shoulder facing. Cover side \
-               hits during the pass. Six faces total: F FR RR R RL FL around the hull.",
-        why: "FR = forward-right shoulder armor",
-        hint: "↓ to FR",
-        expected: ExpectedAction::NavField(5),
+        title: "Auto-fit contacts",
+        text: "c clears manual pan and zoom. The map automatically frames all \
+               living ships and, during allocation, your movement preview.",
+        why: "Let the camera frame the battle again",
+        hint: "c",
+        expected: ExpectedAction::RecenterMap,
     },
     TutorialStep {
-        title: "Shield FR = 3",
-        text: "Partial power on FR. Not max — we still need FL and engine budget.",
-        why: "FR=3 — side cover without emptying the pool",
-        hint: "→ FR to 3",
-        expected: ExpectedAction::ReachValue {
-            field: 5,
-            target: 3,
-        },
+        title: "Return to fire controls",
+        text: "Press v again to leave map focus. Your firing window is still \
+               waiting exactly where you left it.",
+        why: "Return without changing the game state",
+        hint: "v",
+        expected: ExpectedAction::ExitMap,
     },
     TutorialStep {
-        title: "Select FL",
-        text: "**FL** is forward-left (face 5) — the other shoulder. Skip RR/R/RL \
-               (rear faces); we care about the bow hemisphere while re-engaging.",
-        why: "FL = forward-left shoulder (mirror of FR)",
-        hint: "↓ to shield FL",
-        expected: ExpectedAction::NavField(9),
-    },
-    TutorialStep {
-        title: "Shield FL = 3",
-        text: "FL=3. Total: 10 engine + 6+3+3 shields = 22; weapons free (carried).",
-        why: "FL=3 — other shoulder; full defensive budget",
-        hint: "→ FL to 3",
-        expected: ExpectedAction::ReachValue {
-            field: 9,
-            target: 3,
-        },
-    },
-    TutorialStep {
-        title: "Commit turn 2",
-        text: "Lock the plan. Next: thrust against your course to kill east speed.",
-        why: "Commit — then reverse-thrust brake",
-        hint: "Enter",
-        expected: ExpectedAction::CommitAllocate,
-    },
-    // ── Turn 2 movement ────────────────────────────────────────────────
-    TutorialStep {
-        title: "Brake (1/3)",
-        text: "Nose is west, course still east. Accel along facing against the \
-               vector reduces speed (3→2). Same key as speeding up — geometry decides.",
-        why: "Reverse-thrust: nose opposite course slows you",
-        hint: "t",
-        expected: ExpectedAction::Accel,
-    },
-    TutorialStep {
-        title: "Ready — brake 1",
-        text: "Clear the fire window; keep weapons charged.",
-        why: "Skip fire — still fixing course/position",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
-    },
-    TutorialStep {
-        title: "Brake (2/3)",
-        text: "Accel again against the vector: speed 2→1. Same key as speeding \
-               up — geometry decides whether you slow or accelerate.",
-        why: "Keep braking the eastbound slide",
-        hint: "t",
-        expected: ExpectedAction::Accel,
-    },
-    TutorialStep {
-        title: "Ready — brake 2",
-        text: "Clear the fire window without spending weapon charge.",
-        why: "Skip fire — hold the loaded volley",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
-    },
-    TutorialStep {
-        title: "Brake (3/3)",
-        text: "Speed 1→0. At rest, course becomes west (your facing). You can \
-               now thrust toward the escort instead of past it.",
-        why: "Kill eastbound speed — ready to push west",
-        hint: "t",
-        expected: ExpectedAction::Accel,
-    },
-    TutorialStep {
-        title: "Ready — stopped",
-        text: "Clear fire. Next cycle starts the westbound push.",
-        why: "Skip fire — still not shooting",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
-    },
-    TutorialStep {
-        title: "Push west",
-        text: "From a stop, accel along face 3 sets course west and speed 1. \
-               You start closing the escort again.",
-        why: "Revector west toward the escort",
-        hint: "t",
-        expected: ExpectedAction::Accel,
-    },
-    TutorialStep {
-        title: "Ready — end motion",
-        text: "Weapons still full. End turn after this window.",
-        why: "Clear fire before end-turn",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
-    },
-    TutorialStep {
-        title: "End turn 2",
-        text: "Kill run next: close to range 1 and dump all weapons.",
-        why: "Into the attack turn",
-        hint: "e",
-        expected: ExpectedAction::EndTurn,
-    },
-    // ── Turn 3 allocate ────────────────────────────────────────────────
-    TutorialStep {
-        title: "Engine for the slam",
-        text: "Weapons still charged from turn 1. Only need thrust + shields.",
-        why: "Thrust to close to point blank",
-        hint: "→ Movement to 10",
-        expected: ExpectedAction::ReachValue {
-            field: 0,
-            target: 10,
-        },
-    },
-    TutorialStep {
-        title: "Shield F",
-        text: "Rebuild F from zero again (every allocate).",
-        why: "Rebuild forward shield from zero",
-        hint: "↓ to F",
-        expected: ExpectedAction::NavField(4),
-    },
-    TutorialStep {
-        title: "F = 6",
-        text: "Full nose armor for the final approach.",
-        why: "F=6 on the kill run",
-        hint: "→ F to 6",
-        expected: ExpectedAction::ReachValue {
-            field: 4,
-            target: 6,
-        },
-    },
-    TutorialStep {
-        title: "FR",
-        text: "Shoulder armor again.",
-        why: "FR shoulder for the pass",
-        hint: "↓ to FR",
-        expected: ExpectedAction::NavField(5),
-    },
-    TutorialStep {
-        title: "FR = 3",
-        text: "Partial FR.",
-        why: "FR=3 side cover",
-        hint: "→ FR to 3",
-        expected: ExpectedAction::ReachValue {
-            field: 5,
-            target: 3,
-        },
-    },
-    TutorialStep {
-        title: "FL",
-        text: "Other shoulder.",
-        why: "FL other shoulder",
-        hint: "↓ to FL",
-        expected: ExpectedAction::NavField(9),
-    },
-    TutorialStep {
-        title: "FL = 3",
-        text: "Then commit and close.",
-        why: "FL=3 — then lock and attack",
-        hint: "→ FL to 3",
-        expected: ExpectedAction::ReachValue {
-            field: 9,
-            target: 3,
-        },
-    },
-    TutorialStep {
-        title: "Commit kill run",
-        text: "Movement opens. Close hard west.",
-        why: "Commit — close to range 1",
-        hint: "Enter",
-        expected: ExpectedAction::CommitAllocate,
-    },
-    // ── Turn 3 movement + volley ───────────────────────────────────────
-    TutorialStep {
-        title: "Close — speed 2",
-        text: "Accel west to collapse range.",
-        why: "Close range for the dump",
-        hint: "t",
-        expected: ExpectedAction::Accel,
-    },
-    TutorialStep {
-        title: "Hold — not yet",
-        text: "Medium range — hold the full volley for point blank.",
-        why: "Not yet — max damage at range 1",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
-    },
-    TutorialStep {
-        title: "Close — speed 3",
-        text: "Keep closing.",
-        why: "Keep closing",
-        hint: "t",
-        expected: ExpectedAction::Accel,
-    },
-    TutorialStep {
-        title: "Hold — almost",
-        text: "One more accel after this window → range 1.",
-        why: "Almost point blank",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
-    },
-    TutorialStep {
-        title: "Point blank",
-        text: "Accel into range 1, nose on them from behind (higher q, face west).",
-        why: "Range 1 — best damage + hit chance",
-        hint: "t",
-        expected: ExpectedAction::Accel,
+        title: "Aim at the rear shield face",
+        text: "Shots must name the target face they enter. The escort faces west, \
+               so your attack from its east side hits face 3: R (rear). Press → \
+               until the fire panel shows target shield R. The engine validates \
+               this against the actual geometry.",
+        why: "Aim the volley through the unshielded rear face",
+        hint: "→ until target shield = 3:R",
+        expected: ExpectedAction::ShieldFacing(3),
     },
     TutorialStep {
         title: "Fire the beam",
         text: "Fire mode is open. Enter queues **beam_1** at the escort (does not \
                resolve yet). Charge drops when everyone readies.",
-        why: "Queue beam — main damage at range 1",
+        why: "Queue beam into their unshielded stern",
         hint: "Enter",
         expected: ExpectedAction::FireWeapon,
     },
@@ -771,7 +590,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     },
     TutorialStep {
         title: "Victory",
-        text: "Point-blank all-weapons dump complete. Yellow bar can rest.",
+        text: "Turn-one rear-arc volley complete. Yellow bar can rest.",
         why: "Won — Enter dismisses or q quits",
         hint: "Enter or q",
         expected: ExpectedAction::Dismiss,

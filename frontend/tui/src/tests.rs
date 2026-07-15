@@ -980,6 +980,21 @@ fn maneuver_turn_serializes_correctly() {
 }
 
 #[test]
+fn alt_facing_key_sends_turn_accel() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Movement;
+    let key = crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('2'),
+        crossterm::event::KeyModifiers::ALT,
+    );
+    let KeyResult::SendOrder(order) = handle_key(&mut app, key) else {
+        panic!("Alt+2 should submit turn_accel");
+    };
+    assert!(order.to_json().contains("turn_accel"));
+}
+
+#[test]
 fn maneuver_coast_serializes_correctly() {
     let m = Maneuver::Coast;
     let json = serde_json::to_string(&m).expect("serialize");
@@ -1108,7 +1123,7 @@ fn engine_bin() -> Option<std::path::PathBuf> {
 fn apply_line(app: &mut App, line: crate::harness::EngineLine) {
     match line {
         crate::harness::EngineLine::Snapshot(s) => app.update_snapshot(s),
-        crate::harness::EngineLine::MovementPreview(p) => app.movement_preview = Some(p),
+        crate::harness::EngineLine::MovementPreview(p) => app.accept_movement_preview(p),
         crate::harness::EngineLine::Error(e) => app.record_error(&e),
         crate::harness::EngineLine::Raw(r) => app.log(format!("raw: {r}")),
     }
@@ -1157,7 +1172,6 @@ fn tutorial_rear_attack_wins_against_engine() {
     let enter = || make_key_code(crossterm::event::KeyCode::Enter);
     let space = || make_key(' ');
     let t_key = || make_key('t');
-    let e_key = || make_key('e');
 
     // T1 allocate: mov 10, beam 4, plasma 1, torp 1, sh0 6
     for _ in 0..10 {
@@ -1182,77 +1196,61 @@ fn tutorial_rear_attack_wins_against_engine() {
         "after t1 commit"
     );
 
-    // T1: accel×3, turn 3, ready each fire, end
-    for _ in 0..3 {
+    // T1: accel twice, turn west into a close stern shot, inspect the map,
+    // and fire the winning volley immediately.
+    for _ in 0..2 {
         send_key(&mut app, &mut harness, t_key());
         send_key(&mut app, &mut harness, space());
     }
-    send_key(&mut app, &mut harness, make_key('3'));
-    send_key(&mut app, &mut harness, space());
-    send_key(&mut app, &mut harness, e_key());
-    send_key(&mut app, &mut harness, make_key('y'));
-    assert_eq!(app.snap.as_ref().map(|s| s.turn), Some(2), "enter turn 2");
+    // Wrong movement keys must be rejected without changing the lesson state
+    // or making the next map redraw unsafe.
+    let turn_step = app.tutorial.as_ref().map(|tutorial| tutorial.current);
+    for key in ['w', 's', 'f', 'd'] {
+        send_key(&mut app, &mut harness, make_key(key));
+        assert_eq!(
+            app.tutorial.as_ref().map(|tutorial| tutorial.current),
+            turn_step,
+            "wrong key {key} advanced the turn-facing lesson"
+        );
+        let _ = render_to_string(&mut app, 100, 30);
+    }
+    // Numpad 3 with Num Lock off is reported as PageDown by many terminals.
+    send_key(
+        &mut app,
+        &mut harness,
+        make_key_code(crossterm::event::KeyCode::PageDown),
+    );
+    // Facing west while course remains east produces a two-arrow ship marker.
+    // Rendering it previously panicked by truncating in the middle of UTF-8.
+    let divergent = render_to_string(&mut app, 100, 30);
+    assert!(
+        divergent.contains("A1"),
+        "divergent facing/course marker should render"
+    );
 
-    // T2 allocate: mov 10, F6, FR3, FL3
-    for _ in 0..10 {
-        send_key(&mut app, &mut harness, right());
-    }
-    for _ in 0..4 {
-        send_key(&mut app, &mut harness, down());
-    } // to F
-    for _ in 0..6 {
-        send_key(&mut app, &mut harness, right());
-    }
-    send_key(&mut app, &mut harness, down()); // FR
+    assert_eq!(app.mode, Mode::Fire);
+    send_key(&mut app, &mut harness, make_key('v'));
+    assert_eq!(app.mode, Mode::Map);
+    send_key(&mut app, &mut harness, make_key('a'));
+    assert!(app.map_pan.is_some(), "map tutorial should pan manually");
+    send_key(&mut app, &mut harness, make_key('-'));
+    assert_eq!(app.map_zoom, Some(-1));
+    send_key(&mut app, &mut harness, make_key('+'));
+    assert_eq!(app.map_zoom, Some(0));
+    send_key(&mut app, &mut harness, make_key('c'));
+    assert_eq!(app.map_pan, None);
+    assert_eq!(app.map_zoom, None);
+    send_key(&mut app, &mut harness, make_key('v'));
+    assert_eq!(app.mode, Mode::Fire);
     for _ in 0..3 {
         send_key(&mut app, &mut harness, right());
     }
-    for _ in 0..4 {
-        send_key(&mut app, &mut harness, down());
-    } // to FL
-    for _ in 0..3 {
-        send_key(&mut app, &mut harness, right());
-    }
-    send_key(&mut app, &mut harness, enter());
+    assert_eq!(
+        app.fire_draft.as_ref().map(|draft| draft.shield_facing),
+        Some(3)
+    );
 
-    // T2: brake×3 + push west
-    for _ in 0..4 {
-        send_key(&mut app, &mut harness, t_key());
-        send_key(&mut app, &mut harness, space());
-    }
-    send_key(&mut app, &mut harness, e_key());
-    send_key(&mut app, &mut harness, make_key('y'));
-    assert_eq!(app.snap.as_ref().map(|s| s.turn), Some(3), "enter turn 3");
-
-    // T3 allocate (same shields pattern)
-    for _ in 0..10 {
-        send_key(&mut app, &mut harness, right());
-    }
-    for _ in 0..4 {
-        send_key(&mut app, &mut harness, down());
-    }
-    for _ in 0..6 {
-        send_key(&mut app, &mut harness, right());
-    }
-    send_key(&mut app, &mut harness, down());
-    for _ in 0..3 {
-        send_key(&mut app, &mut harness, right());
-    }
-    for _ in 0..4 {
-        send_key(&mut app, &mut harness, down());
-    }
-    for _ in 0..3 {
-        send_key(&mut app, &mut harness, right());
-    }
-    send_key(&mut app, &mut harness, enter());
-
-    // T3 close: accel, ready, accel, ready, accel, fire×3, ready
-    send_key(&mut app, &mut harness, t_key());
-    send_key(&mut app, &mut harness, space());
-    send_key(&mut app, &mut harness, t_key());
-    send_key(&mut app, &mut harness, space());
-    send_key(&mut app, &mut harness, t_key());
-    // fire window at PB
+    // The pass produces a close rear shot without spending two extra turns.
     let rng = {
         let snap = app.snap.as_ref().unwrap();
         let a = snap.ship(1).unwrap();
@@ -1262,7 +1260,7 @@ fn tutorial_rear_attack_wins_against_engine() {
         // axial distance for same r row:
         dq.max(dr)
     };
-    assert_eq!(rng, 1, "expected point-blank before volley, got {rng}");
+    assert_eq!(rng, 3, "expected close rear shot before volley, got {rng}");
     send_key(&mut app, &mut harness, enter()); // beam
     send_key(&mut app, &mut harness, down()); // torp
     send_key(&mut app, &mut harness, enter());
@@ -1310,9 +1308,14 @@ fn tutorial_can_power_beam_after_select_step() {
         d.set_field_value(10);
     }
     app.tutorial.as_mut().unwrap().advance(); // skip to NavField beam
-    // Step should be NavField(1)
+                                              // Step should be NavField(1)
     assert!(matches!(
-        app.tutorial.as_ref().unwrap().current_step().unwrap().expected,
+        app.tutorial
+            .as_ref()
+            .unwrap()
+            .current_step()
+            .unwrap()
+            .expected,
         crate::tutorial::ExpectedAction::NavField(1)
     ));
 
@@ -1323,16 +1326,30 @@ fn tutorial_can_power_beam_after_select_step() {
     assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, 1);
     // NavField completed → now ReachValue beam charge.
     assert!(matches!(
-        app.tutorial.as_ref().unwrap().current_step().unwrap().expected,
-        crate::tutorial::ExpectedAction::ReachValue { field: 1, target: 4 }
+        app.tutorial
+            .as_ref()
+            .unwrap()
+            .current_step()
+            .unwrap()
+            .expected,
+        crate::tutorial::ExpectedAction::ReachValue {
+            field: 1,
+            target: 4
+        }
     ));
 
     // → must raise beam charge (the bug: blocked after auto-cursor on NavField).
     for _ in 0..4 {
         let r = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
-        assert!(matches!(r, KeyResult::Continue), "→ blocked while powering beam");
+        assert!(
+            matches!(r, KeyResult::Continue),
+            "→ blocked while powering beam"
+        );
     }
-    assert_eq!(app.alloc_draft.as_ref().unwrap().weapon_charge("beam_1"), Some(4));
+    assert_eq!(
+        app.alloc_draft.as_ref().unwrap().weapon_charge("beam_1"),
+        Some(4)
+    );
 }
 
 #[test]
@@ -1364,18 +1381,10 @@ fn tutorial_floor_keeps_the_required_action_visible() {
 #[test]
 fn weapon_shade_forward_mount_is_range_and_arc() {
     // facing 0 at (0,4): forward mount covers relative bearing 0 only.
-    assert!(crate::ui::weapon_covers_hex(
-        0, 4, 0, 10, &[0], 3, 4
-    )); // east along row — in arc
-    assert!(!crate::ui::weapon_covers_hex(
-        0, 4, 0, 10, &[0], 0, 0
-    )); // not straight ahead — out of forward-only arc
-    assert!(!crate::ui::weapon_covers_hex(
-        0, 4, 0, 10, &[0], 0, 4
-    )); // same hex
-    assert!(!crate::ui::weapon_covers_hex(
-        0, 4, 0, 2, &[0], 5, 4
-    )); // beyond range 2
+    assert!(crate::ui::weapon_covers_hex(0, 4, 0, 10, &[0], 3, 4)); // east along row — in arc
+    assert!(!crate::ui::weapon_covers_hex(0, 4, 0, 10, &[0], 0, 0)); // not straight ahead — out of forward-only arc
+    assert!(!crate::ui::weapon_covers_hex(0, 4, 0, 10, &[0], 0, 4)); // same hex
+    assert!(!crate::ui::weapon_covers_hex(0, 4, 0, 2, &[0], 5, 4)); // beyond range 2
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1439,16 +1448,14 @@ fn bounded_map_origin_is_zero_zero_by_default() {
 }
 
 #[test]
-fn unbounded_map_auto_centers_on_focused_ship() {
-    // On an unbounded map, the viewport auto-centers on the focused ship
-    // (which is at (-3,-2)) so it stays on-screen.
+fn unbounded_map_auto_fits_all_living_ships() {
+    // Auto-fit uses both contacts rather than following only the focused ship.
     let mut app = App::new();
     app.update_snapshot(unbounded_snapshot());
     // update_snapshot auto-focuses ship 1.
     assert_eq!(app.focused_ship, Some(1));
     let (oq, or_) = app.map_origin();
-    // Auto-center places the ship at upper-left third: origin = (q-3, r-2).
-    assert_eq!((oq, or_), (-3 - 3, -2 - 2));
+    assert_eq!((oq, or_), (-4, -7));
 }
 
 #[test]
@@ -1601,9 +1608,24 @@ fn movement_preview_flows_end_to_end() {
     assert_eq!(app.mode, Mode::Allocate);
     assert!(app.alloc_draft.is_some());
 
-    // No preview yet.
+    // The initial allocation queues the zero-thrust coast preview immediately.
     assert!(app.movement_preview.is_none());
-    assert!(app.pending_preview.is_none());
+    assert!(app.pending_preview.is_some());
+
+    let initial_preview = app.pending_preview.take().unwrap();
+    harness
+        .send(&initial_preview)
+        .expect("send initial preview request");
+    apply_line(
+        &mut app,
+        harness
+            .read_line()
+            .expect("initial movement_preview response"),
+    );
+    assert!(
+        app.movement_preview.is_some(),
+        "coast preview must be populated"
+    );
 
     // Press Right once to bump movement allocation. handle_key should queue a
     // preview request via request_movement_preview().
@@ -1645,6 +1667,58 @@ fn movement_preview_flows_end_to_end() {
 }
 
 #[test]
+fn allocation_input_clamps_to_affordable_power() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let draft = app.alloc_draft.as_mut().unwrap();
+    draft.cursor = 0;
+
+    for _ in 0..100 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    }
+
+    let ship = app.focused().unwrap();
+    assert_eq!(
+        app.alloc_draft.as_ref().unwrap().movement,
+        ship.power_available
+    );
+    assert!(app.alloc_draft.as_ref().unwrap().power_cost(ship) <= ship.power_available);
+}
+
+#[test]
+fn preview_is_cleared_when_focus_changes() {
+    let mut app = App::new();
+    app.update_snapshot(fleet_snapshot());
+    let preview: crate::protocol::MovementPreview = serde_json::from_str(
+        r#"{"type":"movement_preview","ok":true,"ship":1,"endpoints":[],"coast":{"q":0,"r":4,"facing":0,"course":0,"speed":0,"thrust_remaining":0}}"#,
+    )
+    .unwrap();
+    app.accept_movement_preview(preview);
+    assert!(app.movement_preview.is_some());
+
+    app.switch_focus(2);
+    assert!(app.movement_preview.is_none());
+}
+
+#[test]
+fn map_focus_can_inspect_enemy_speed_and_zoom() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.snap.as_mut().unwrap().ships[1].velocity = 3;
+    app.snap.as_mut().unwrap().ships[1].course = 3;
+    handle_key(&mut app, make_key('v'));
+    handle_key(&mut app, make_key(']'));
+    assert_eq!(app.focused_ship, Some(2));
+
+    let buffer = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buffer, "B2"));
+    assert!(buffer_contains(&buffer, "B2←3"));
+
+    handle_key(&mut app, make_key('+'));
+    assert_eq!(app.map_zoom, Some(1));
+}
+
+#[test]
 fn movement_preview_clears_on_phase_change() {
     // After a preview is populated, advancing to the movement phase (via a
     // commit order) must clear it so stale endpoints are never rendered.
@@ -1667,12 +1741,23 @@ fn movement_preview_clears_on_phase_change() {
     apply_line(&mut app, line);
 
     // Generate a preview by pressing Right.
-    send_key(&mut app, &mut harness, make_key_code(crossterm::event::KeyCode::Right));
-    assert!(app.movement_preview.is_some(), "preview populated after Right");
+    send_key(
+        &mut app,
+        &mut harness,
+        make_key_code(crossterm::event::KeyCode::Right),
+    );
+    assert!(
+        app.movement_preview.is_some(),
+        "preview populated after Right"
+    );
 
     // Commit the allocation (Enter). The engine applies the order, auto-
     // resolves the NPC, and emits a single snapshot with the advanced phase.
-    send_key(&mut app, &mut harness, make_key_code(crossterm::event::KeyCode::Enter));
+    send_key(
+        &mut app,
+        &mut harness,
+        make_key_code(crossterm::event::KeyCode::Enter),
+    );
 
     // After the phase change, the preview must be cleared.
     assert!(

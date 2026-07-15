@@ -280,11 +280,7 @@ impl GameState {
                     max: weapon.max_charge,
                 });
             }
-            let have = ship
-                .weapon_charges
-                .get(weapon_id)
-                .copied()
-                .unwrap_or(0);
+            let have = ship.weapon_charges.get(weapon_id).copied().unwrap_or(0);
             if *charge < have {
                 return Err(crate::movement::OrderError::CannotStripWeaponCharge {
                     ship: ship_id,
@@ -397,11 +393,7 @@ impl GameState {
                     max: weapon.max_charge,
                 });
             }
-            let have = ship
-                .weapon_charges
-                .get(weapon_id)
-                .copied()
-                .unwrap_or(0);
+            let have = ship.weapon_charges.get(weapon_id).copied().unwrap_or(0);
             if *charge < have {
                 return Err(crate::movement::OrderError::CannotStripWeaponCharge {
                     ship: ship_id,
@@ -448,12 +440,7 @@ impl GameState {
             Phase::Allocate => (thrust, ship.pos, ship.facing, ship.velocity),
             // During movement, the ship has already spent some thrust; preview
             // the *remaining* cycles from the current state with remaining thrust.
-            _ => (
-                ship.thrust_remaining,
-                ship.pos,
-                ship.facing,
-                ship.velocity,
-            ),
+            _ => (ship.thrust_remaining, ship.pos, ship.facing, ship.velocity),
         };
 
         // Occupied hexes = every other living ship's current position.
@@ -471,6 +458,9 @@ impl GameState {
             max_velocity: ship.max_velocity,
             thrust_remaining: start_thrust,
             occupied_hexes,
+            map_mode: self.board.mode,
+            board_width: self.board.width,
+            board_height: self.board.height,
         };
 
         crate::movement_preview::preview(inputs)
@@ -509,11 +499,7 @@ impl GameState {
         // Weapon cost = top-ups only (carried charge does not re-spend).
         let mut weapon_increases: u32 = 0;
         for (weapon_id, charge) in weapons {
-            let have = ship
-                .weapon_charges
-                .get(weapon_id)
-                .copied()
-                .unwrap_or(0);
+            let have = ship.weapon_charges.get(weapon_id).copied().unwrap_or(0);
             // Clamp the top-up at 0: a draft that tries to strip charge still
             // costs nothing extra (the engine would reject it on allocate, but
             // the preview should not panic on overflow).
@@ -571,11 +557,7 @@ impl GameState {
                     max: weapon.max_charge,
                 });
             }
-            let have = ship
-                .weapon_charges
-                .get(weapon_id)
-                .copied()
-                .unwrap_or(0);
+            let have = ship.weapon_charges.get(weapon_id).copied().unwrap_or(0);
             if *charge < have {
                 return Err(crate::movement::OrderError::CannotStripWeaponCharge {
                     ship: ship_id,

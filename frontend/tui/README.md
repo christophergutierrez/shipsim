@@ -86,9 +86,10 @@ cargo run --release --manifest-path frontend/tui/Cargo.toml
 facing, `r` turn +1 facing. Each sends one `commit_maneuver`.
 
 **Tutorial mode** (`--tutorial`) — narration panel + step gate for the aggressive
-rear-attack (race past → reverse-thrust brake → point-blank beam/torp/plasma).
-Wrong keys are blocked; `↓`/`→` fill the allocate form, `t`/`3`/`Space`/`e` drive
-motion and the kill volley. Order-backed steps advance only after engine
+rear-attack (race past → inspect map → turn west → rear-arc beam/torp/plasma).
+Wrong keys are blocked; `↓`/`→` fill the allocate form, `t`/`3` drive motion,
+`v`/WASD/`+`/`-` teach the map, and `Enter`/`Space` resolve the kill volley.
+Order-backed steps advance only after engine
 acknowledgment, so a rejected order cannot desynchronize the lesson.
 
 **Fire mode** — `↓`/`↑` cycles weapon; `1`–`9` select target by enemy index;
@@ -98,7 +99,7 @@ the first enemy if none is chosen.
 ## Verify
 
 ```bash
-cargo test   --manifest-path frontend/tui/Cargo.toml   # 56 TestBackend tests
+cargo test   --manifest-path frontend/tui/Cargo.toml   # TUI + live tutorial tests
 cargo clippy --manifest-path frontend/tui/Cargo.toml
 ```
 

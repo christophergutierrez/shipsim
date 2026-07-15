@@ -174,11 +174,12 @@ pub struct App {
     pub snap: Option<Snapshot>,
     pub mode: Mode,
     pub focused_ship: Option<i64>,
-    /// Map viewport pan offset (q, r) of the top-left visible hex.
-    /// `None` = auto-center on the focused ship each render. Set to `Some`
-    /// the moment the player pans manually; reset to `None` on focus change
-    /// or when entering Map mode so the view recenters.
+    /// Map viewport pan offset (q, r) of the top-left visible hex. `None`
+    /// means auto-fit all living ships plus the active preview envelope.
     pub map_pan: Option<(i32, i32)>,
+    /// Manual zoom override. `None` means choose the clearest zoom that keeps
+    /// all ships and preview endpoints visible.
+    pub map_zoom: Option<i8>,
     pub alloc_draft: Option<AllocDraft>,
     pub fire_draft: Option<FireDraft>,
     /// Drafts parked while the player inspects or commands another ship.
@@ -227,6 +228,7 @@ impl App {
             mode: Mode::Normal,
             focused_ship: None,
             map_pan: None,
+            map_zoom: None,
             alloc_draft: None,
             fire_draft: None,
             alloc_drafts: std::collections::BTreeMap::new(),
@@ -269,6 +271,8 @@ impl App {
         // Update mode based on phase.
         if snap.is_over() {
             self.mode = Mode::GameOver;
+            self.movement_preview = None;
+            self.pending_preview = None;
         } else if self.mode == Mode::GameOver {
             // stay in game over
         } else {
@@ -289,6 +293,7 @@ impl App {
                     self.alloc_drafts.clear();
                     self.fire_drafts.clear();
                     self.movement_preview = None;
+                    self.pending_preview = None;
                     if snap.phase == "allocate" {
                         if let Some(sid) = self.focused_ship {
                             self.alloc_draft = Some(AllocDraft::from_ship(&snap, sid));
@@ -364,6 +369,7 @@ impl App {
         self.focus_next_pending_ship();
         self.confirm_tutorial_order();
         self.sync_tutorial_allocate_cursor();
+        self.request_movement_preview();
     }
 
     /// Keep allocate cursor aligned with the tutorial step.
@@ -418,6 +424,9 @@ impl App {
         self.log.push(format!("ERROR: {}", err.message));
         self.tutorial_order_pending = false;
         self.tutorial_order_candidate = None;
+        if err.code == "preview_invalid" {
+            self.movement_preview = None;
+        }
         if let Some(t) = self.tutorial.as_mut() {
             t.set_error(format!("Engine rejected that order: {}", err.message));
         }
@@ -425,16 +434,15 @@ impl App {
 
     /// Queue a read-only `movement_preview` request for the focused ship using
     /// the current alloc draft. The main loop drains `pending_preview` and
-    /// stores the response in `movement_preview`. Uses `clamp: true` so an
-    /// over-allocated draft still returns a reachable set (for live slider
-    /// previews) rather than rejecting.
+    /// stores the response in `movement_preview`. Local input clamping keeps
+    /// every sent preview draft legal, so the engine can reject stale state
+    /// rather than silently changing the requested movement value.
     pub fn request_movement_preview(&mut self) {
         let snap = match &self.snap {
             Some(s) => s,
             None => return,
         };
-        // Preview is only meaningful during allocate/movement phases.
-        if snap.phase != "allocate" && snap.phase != "movement" {
+        if snap.phase != "allocate" {
             return;
         }
         let ship_id = match self.focused_ship {
@@ -451,7 +459,8 @@ impl App {
             .iter()
             .map(|(name, power)| (name.clone(), serde_json::json!(power)))
             .collect();
-        let shields: serde_json::Value = draft.shields.iter().map(|s| serde_json::json!(s)).collect();
+        let shields: serde_json::Value =
+            draft.shields.iter().map(|s| serde_json::json!(s)).collect();
         let req = serde_json::json!({
             "protocol_version": 3,
             "request": "movement_preview",
@@ -459,9 +468,26 @@ impl App {
             "movement": draft.movement,
             "weapons": weapons,
             "shields": shields,
-            "clamp": true,
         });
         self.pending_preview = Some(req.to_string());
+    }
+
+    /// Keep only a preview that belongs to the currently focused ship. This
+    /// prevents an in-flight response from drawing one ship's envelope around
+    /// another after focus changes.
+    pub fn accept_movement_preview(&mut self, preview: crate::protocol::MovementPreview) {
+        if self.focused_ship == Some(preview.ship)
+            && self
+                .snap
+                .as_ref()
+                .is_some_and(|snap| snap.phase == "allocate")
+        {
+            self.movement_preview = Some(preview);
+        }
+    }
+
+    pub fn movement_preview_for_focus(&self) -> Option<&crate::protocol::MovementPreview> {
+        self.active_preview()
     }
 
     /// Commit a tutorial step only after the corresponding order produced a
@@ -496,40 +522,48 @@ impl App {
             .and_then(|s| self.focused_ship.and_then(|id| s.ship(id)))
     }
 
-    /// Effective top-left hex (q, r) of the map viewport.
-    ///
-    /// When the player has not panned (`map_pan == None`):
-    /// - On a **bounded** map, the origin stays at (0, 0) so the whole board
-    ///   is visible — both ships remain on screen.
-    /// - On an **unbounded** map, the viewport auto-centers on the focused
-    ///   ship so it stays in view as it moves (ships can drift to negative
-    ///   coordinates far from the origin).
-    /// - If the focused ship has drifted **outside** the bounded board, the
-    ///   viewport recenters on it even on a bounded map (defensive: should not
-    ///   happen under the rules, but keeps the ship visible if it does).
-    ///
-    /// When the player pans manually, the explicit offset is honored until
-    /// focus changes or Map mode is re-entered.
+    /// Effective zoom for a viewport with `columns × rows` cells. Negative
+    /// values zoom out by grouping world hexes; positive values zoom in by
+    /// using wider map cells.
+    pub fn effective_map_zoom(&self, columns: i32, rows: i32) -> i8 {
+        if let Some(zoom) = self.map_zoom {
+            return zoom;
+        }
+        let Some((min_q, max_q, min_r, max_r)) = self.map_content_bounds() else {
+            return 0;
+        };
+        for zoom in (0..=3).rev() {
+            let scale = 1_i32 << zoom;
+            if max_q - min_q + 3 <= columns * scale && max_r - min_r + 3 <= rows * scale {
+                return -(zoom as i8);
+            }
+        }
+        -3
+    }
+
+    /// Effective top-left world hex for a viewport. In automatic mode, the
+    /// camera frames every living ship and the focused ship's preview.
     pub fn map_origin(&self) -> (i32, i32) {
+        self.map_origin_for_view(10, 10, 1)
+    }
+
+    pub fn map_origin_for_view(&self, columns: i32, rows: i32, scale: i32) -> (i32, i32) {
         if let Some(pan) = self.map_pan {
             return pan;
         }
-        let Some(snap) = self.snap.as_ref() else {
+        if self
+            .snap
+            .as_ref()
+            .is_some_and(|snap| snap.map.mode == "hard")
+        {
+            return (0, 0);
+        }
+        let Some((min_q, max_q, min_r, max_r)) = self.map_content_bounds() else {
             return (0, 0);
         };
-        let unbounded = snap.map.mode == "unbounded" || snap.map.mode == "infinite";
-        if let Some(ship) = self.focused() {
-            let w = snap.map.width as i32;
-            let h = snap.map.height as i32;
-            let off_board = ship.q < 0 || ship.r < 0 || ship.q >= w || ship.r >= h;
-            if unbounded || off_board {
-                // Auto-center: place the focused ship in the upper-left third
-                // of the viewport (ships tend to move forward/down-right, so
-                // biasing up-left keeps their likely trajectory on-screen).
-                return (ship.q - 3, ship.r - 2);
-            }
-        }
-        (0, 0)
+        let width = (columns.max(1) * scale.max(1)).max(max_q - min_q + 1);
+        let height = (rows.max(1) * scale.max(1)).max(max_r - min_r + 1);
+        ((min_q + max_q - width) / 2, (min_r + max_r - height) / 2)
     }
 
     /// Pan the map by (dq, dr). Sets the explicit offset (disabling auto-center)
@@ -542,6 +576,16 @@ impl App {
     /// Reset the pan to auto-center (called on focus change and Map-mode entry).
     pub fn reset_map_pan(&mut self) {
         self.map_pan = None;
+        self.map_zoom = None;
+    }
+
+    pub fn adjust_map_zoom(&mut self, delta: i8) {
+        let zoom = self
+            .map_zoom
+            .unwrap_or(0)
+            .saturating_add(delta)
+            .clamp(-3, 3);
+        self.map_zoom = Some(zoom);
     }
 
     /// Exit Map mode, restoring the phase-appropriate input mode.
@@ -577,19 +621,30 @@ impl App {
         }
 
         self.focused_ship = Some(ship_id);
-        // Recenter the map on the newly focused ship (clears any manual pan).
+        self.movement_preview = None;
+        self.pending_preview = None;
+        // Recenter the map on the newly focused ship (clears manual view state).
         self.reset_map_pan();
         match self.mode {
             Mode::Allocate => self.open_allocate_for_focus(),
             Mode::Fire => self.open_fire_for_focus(),
             Mode::Normal | Mode::Movement | Mode::GameOver | Mode::Map => {}
         }
+        self.request_movement_preview();
     }
 
     pub fn open_allocate_for_focus(&mut self) {
         let Some(ship_id) = self.focused_ship else {
             return;
         };
+        if self
+            .snap
+            .as_ref()
+            .and_then(|snap| snap.ship(ship_id))
+            .is_none_or(|ship| ship.controller != "player")
+        {
+            return;
+        }
         let draft = self
             .alloc_draft
             .take()
@@ -601,6 +656,7 @@ impl App {
             });
         self.alloc_draft = draft;
         self.mode = Mode::Allocate;
+        self.request_movement_preview();
     }
 
     pub fn open_fire_for_focus(&mut self) {
@@ -643,5 +699,35 @@ impl App {
         if let Some(next) = next {
             self.switch_focus(next);
         }
+    }
+
+    fn active_preview(&self) -> Option<&crate::protocol::MovementPreview> {
+        self.movement_preview
+            .as_ref()
+            .filter(|preview| self.focused_ship == Some(preview.ship))
+    }
+
+    fn map_content_bounds(&self) -> Option<(i32, i32, i32, i32)> {
+        let snap = self.snap.as_ref()?;
+        let mut points: Vec<(i32, i32)> = snap
+            .ships
+            .iter()
+            .filter(|ship| !ship.destroyed)
+            .map(|ship| (ship.q, ship.r))
+            .collect();
+        if let Some(preview) = self.active_preview() {
+            points.extend(
+                preview
+                    .endpoints
+                    .iter()
+                    .map(|endpoint| (endpoint.q, endpoint.r)),
+            );
+            points.push((preview.coast.q, preview.coast.r));
+        }
+        let min_q = points.iter().map(|(q, _)| *q).min()?;
+        let max_q = points.iter().map(|(q, _)| *q).max()?;
+        let min_r = points.iter().map(|(_, r)| *r).min()?;
+        let max_r = points.iter().map(|(_, r)| *r).max()?;
+        Some((min_q, max_q, min_r, max_r))
     }
 }

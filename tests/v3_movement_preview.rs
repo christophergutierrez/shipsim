@@ -39,19 +39,42 @@ fn preview_does_not_mutate_engine_state() {
         .expect("preview succeeds");
 
     // The preview must return endpoints.
-    assert!(!result.endpoints.is_empty(), "preview returned no endpoints");
+    assert!(
+        !result.endpoints.is_empty(),
+        "preview returned no endpoints"
+    );
 
     // ── Nothing may have changed ──
     let after = StateSnapshot::from_game_state(&game);
     assert_eq!(after.phase, before.phase, "phase mutated by preview");
     assert_eq!(after.turn, before.turn, "turn mutated by preview");
-    assert_eq!(after.movement_phase, before.movement_phase, "movement_phase mutated");
+    assert_eq!(
+        after.movement_phase, before.movement_phase,
+        "movement_phase mutated"
+    );
     assert_eq!(after.ships.len(), before.ships.len(), "ship count changed");
     for (a, b) in after.ships.iter().zip(before.ships.iter()) {
-        assert_eq!((a.q, a.r), (b.q, b.r), "ship {} position mutated by preview", a.id);
-        assert_eq!(a.facing, b.facing, "ship {} facing mutated by preview", a.id);
-        assert_eq!(a.velocity, b.velocity, "ship {} velocity mutated by preview", a.id);
-        assert_eq!(a.course, b.course, "ship {} course mutated by preview", a.id);
+        assert_eq!(
+            (a.q, a.r),
+            (b.q, b.r),
+            "ship {} position mutated by preview",
+            a.id
+        );
+        assert_eq!(
+            a.facing, b.facing,
+            "ship {} facing mutated by preview",
+            a.id
+        );
+        assert_eq!(
+            a.velocity, b.velocity,
+            "ship {} velocity mutated by preview",
+            a.id
+        );
+        assert_eq!(
+            a.course, b.course,
+            "ship {} course mutated by preview",
+            a.id
+        );
         assert_eq!(
             a.thrust_remaining, b.thrust_remaining,
             "ship {} thrust mutated by preview",
@@ -63,7 +86,11 @@ fn preview_does_not_mutate_engine_state() {
             a.id
         );
     }
-    assert_eq!(game.prng_state(), prng_before, "PRNG state mutated by preview");
+    assert_eq!(
+        game.prng_state(),
+        prng_before,
+        "PRNG state mutated by preview"
+    );
     assert_eq!(
         game.combat_log().len(),
         log_len_before,
@@ -76,9 +103,15 @@ fn repeated_previews_do_not_advance_game() {
     let game = load_combat();
     let snap_before = StateSnapshot::from_game_state(&game);
 
-    let r1 = game.movement_preview(1, 4, empty_weapons(), [0; 6]).unwrap();
-    let r2 = game.movement_preview(1, 4, empty_weapons(), [0; 6]).unwrap();
-    let r3 = game.movement_preview(1, 4, empty_weapons(), [0; 6]).unwrap();
+    let r1 = game
+        .movement_preview(1, 4, empty_weapons(), [0; 6])
+        .unwrap();
+    let r2 = game
+        .movement_preview(1, 4, empty_weapons(), [0; 6])
+        .unwrap();
+    let r3 = game
+        .movement_preview(1, 4, empty_weapons(), [0; 6])
+        .unwrap();
 
     // Deterministic: same draft ⇒ same result.
     assert_eq!(r1, r2, "preview not deterministic across repeated calls");
@@ -86,8 +119,14 @@ fn repeated_previews_do_not_advance_game() {
 
     // Game state unchanged after three previews.
     let snap_after = StateSnapshot::from_game_state(&game);
-    assert_eq!(snap_after.phase, snap_before.phase, "phase advanced by previews");
-    assert_eq!(snap_after.turn, snap_before.turn, "turn advanced by previews");
+    assert_eq!(
+        snap_after.phase, snap_before.phase,
+        "phase advanced by previews"
+    );
+    assert_eq!(
+        snap_after.turn, snap_before.turn,
+        "turn advanced by previews"
+    );
 }
 
 #[test]
@@ -116,7 +155,10 @@ fn preview_rejects_shield_over_cap() {
     let err = game
         .movement_preview(1, 0, empty_weapons(), [99, 0, 0, 0, 0, 0])
         .expect_err("shield over cap rejects");
-    assert!(matches!(err, OrderError::ShieldPowerTooHigh { ship: 1, .. }));
+    assert!(matches!(
+        err,
+        OrderError::ShieldPowerTooHigh { ship: 1, .. }
+    ));
 }
 
 #[test]
@@ -169,14 +211,32 @@ fn preview_coast_endpoint_present_and_stable() {
 #[test]
 fn preview_more_thrust_never_shrinks_reachable_set() {
     let game = load_combat();
-    let less = game.movement_preview(1, 2, empty_weapons(), [0; 6]).unwrap();
-    let more = game.movement_preview(1, 6, empty_weapons(), [0; 6]).unwrap();
+    let less = game
+        .movement_preview(1, 2, empty_weapons(), [0; 6])
+        .unwrap();
+    let more = game
+        .movement_preview(1, 6, empty_weapons(), [0; 6])
+        .unwrap();
     assert!(
         more.endpoints.len() >= less.endpoints.len(),
         "more thrust reduced reachable set: more={} < less={}",
         more.endpoints.len(),
         less.endpoints.len()
     );
+}
+
+#[test]
+fn hard_map_preview_never_advertises_off_board_endpoints() {
+    // `combat.toml` deliberately opts into Hard mode. Preview must obey the
+    // same edge rule as live translation instead of drawing unreachable cells.
+    let game = load_combat();
+    let result = game
+        .movement_preview(1, 8, empty_weapons(), [0; 6])
+        .expect("hard-map preview succeeds");
+    assert!(result
+        .endpoints
+        .iter()
+        .all(|endpoint| (0..4).contains(&endpoint.q) && (0..4).contains(&endpoint.r)));
 }
 
 // ── Phase 4: allocation power clamp ──────────────────────────────────────
@@ -211,7 +271,10 @@ fn clamp_movement_power_clamps_to_zero_when_shields_exhaust_budget() {
     let clamped = game
         .clamp_movement_power(1, 8, &empty_weapons(), &shields)
         .expect("clamp succeeds");
-    assert_eq!(clamped, 0, "movement should clamp to 0 when shields exhaust budget");
+    assert_eq!(
+        clamped, 0,
+        "movement should clamp to 0 when shields exhaust budget"
+    );
 }
 
 #[test]
@@ -243,13 +306,19 @@ fn clamped_preview_succeeds_where_strict_rejects() {
     let strict_err = game
         .movement_preview(1, 999, empty_weapons(), [0; 6])
         .expect_err("strict preview must reject over-allocation");
-    assert!(matches!(strict_err, OrderError::OverAllocated { ship: 1, .. }));
+    assert!(matches!(
+        strict_err,
+        OrderError::OverAllocated { ship: 1, .. }
+    ));
 
     // Clamped preview succeeds, returning the reachable set for movement 22.
     let result = game
         .movement_preview_clamped(1, 999, empty_weapons(), [0; 6])
         .expect("clamped preview succeeds");
-    assert!(!result.endpoints.is_empty(), "clamped preview returned no endpoints");
+    assert!(
+        !result.endpoints.is_empty(),
+        "clamped preview returned no endpoints"
+    );
 }
 
 #[test]
@@ -260,7 +329,10 @@ fn clamped_preview_still_enforces_shield_cap() {
     let err = game
         .movement_preview_clamped(1, 0, empty_weapons(), [99, 0, 0, 0, 0, 0])
         .expect_err("clamped preview must still reject shield over cap");
-    assert!(matches!(err, OrderError::ShieldPowerTooHigh { ship: 1, .. }));
+    assert!(matches!(
+        err,
+        OrderError::ShieldPowerTooHigh { ship: 1, .. }
+    ));
 }
 
 #[test]
@@ -272,7 +344,10 @@ fn clamped_preview_still_enforces_weapon_charge_cap() {
     let err = game
         .movement_preview_clamped(1, 0, weapons, [0; 6])
         .expect_err("clamped preview must still reject weapon charge over cap");
-    assert!(matches!(err, OrderError::WeaponChargeTooHigh { ship: 1, .. }));
+    assert!(matches!(
+        err,
+        OrderError::WeaponChargeTooHigh { ship: 1, .. }
+    ));
 }
 
 #[test]
@@ -285,13 +360,12 @@ fn clamped_preview_does_not_mutate_engine_state() {
         .expect("clamped preview succeeds");
 
     let after = StateSnapshot::from_game_state(&game);
-    assert_eq!(after.phase, before.phase, "phase mutated by clamped preview");
-    assert_eq!(after.turn, before.turn, "turn mutated by clamped preview");
     assert_eq!(
-        after.ships.len(),
-        before.ships.len(),
-        "ship count changed"
+        after.phase, before.phase,
+        "phase mutated by clamped preview"
     );
+    assert_eq!(after.turn, before.turn, "turn mutated by clamped preview");
+    assert_eq!(after.ships.len(), before.ships.len(), "ship count changed");
     for (a, b) in after.ships.iter().zip(before.ships.iter()) {
         assert_eq!(a.q, b.q, "position mutated by clamped preview");
         assert_eq!(a.r, b.r, "position mutated by clamped preview");

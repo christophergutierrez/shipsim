@@ -214,14 +214,18 @@ pub enum OrderBody {
         ship: i64,
         maneuver: Maneuver,
     },
-    PassMove { ship: i64 },
+    PassMove {
+        ship: i64,
+    },
     CommitFire {
         ship: i64,
         weapon: String,
         target: i64,
         shield_facing: u32,
     },
-    ReadyFire { ship: i64 },
+    ReadyFire {
+        ship: i64,
+    },
     EndTurn,
 }
 
@@ -231,6 +235,7 @@ pub enum Maneuver {
     Coast,
     Accel,
     Turn { facing: u32 },
+    TurnAccel { facing: u32 },
 }
 
 impl Order {
@@ -242,7 +247,12 @@ impl Order {
 // ── Convenience constructors ──────────────────────────────────────────────
 
 impl Order {
-    pub fn allocate(ship: i64, movement: u32, weapons: serde_json::Value, shields: Vec<u32>) -> Self {
+    pub fn allocate(
+        ship: i64,
+        movement: u32,
+        weapons: serde_json::Value,
+        shields: Vec<u32>,
+    ) -> Self {
         Order {
             protocol_version: PROTOCOL_VERSION,
             body: OrderBody::Allocate {

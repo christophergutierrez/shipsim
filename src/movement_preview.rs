@@ -21,6 +21,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::board::MapMode;
 use crate::hex::Hex;
 use crate::motion::{self, Maneuver, ManeuverError, Velocity};
 
@@ -45,8 +46,22 @@ impl PartialOrd for HypotheticalState {
 
 impl Ord for HypotheticalState {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (self.pos.q, self.pos.r, self.facing, self.velocity.speed, self.velocity.course, self.thrust_remaining)
-            .cmp(&(other.pos.q, other.pos.r, other.facing, other.velocity.speed, other.velocity.course, other.thrust_remaining))
+        (
+            self.pos.q,
+            self.pos.r,
+            self.facing,
+            self.velocity.speed,
+            self.velocity.course,
+            self.thrust_remaining,
+        )
+            .cmp(&(
+                other.pos.q,
+                other.pos.r,
+                other.facing,
+                other.velocity.speed,
+                other.velocity.course,
+                other.thrust_remaining,
+            ))
     }
 }
 
@@ -86,6 +101,12 @@ pub struct PreviewInputs {
     pub thrust_remaining: u32,
     /// Hexes currently occupied by other ships (for the separate occupied list).
     pub occupied_hexes: Vec<Hex>,
+    /// The active board policy. Preview must obey hard-map edges just as live
+    /// movement does; unbounded and floating worlds permit leaving the nominal
+    /// rectangle.
+    pub map_mode: MapMode,
+    pub board_width: u32,
+    pub board_height: u32,
 }
 
 impl PreviewInputs {
@@ -113,7 +134,7 @@ pub fn preview(inputs: PreviewInputs) -> Result<PreviewResult, ManeuverError> {
     for _ in 0..PreviewInputs::CYCLES {
         let mut next: BTreeSet<HypotheticalState> = BTreeSet::new();
         for state in &current {
-            for branch in legal_branches(*state, inputs.max_velocity) {
+            for branch in legal_branches(*state, &inputs) {
                 next.insert(branch);
             }
         }
@@ -145,11 +166,8 @@ pub fn preview(inputs: PreviewInputs) -> Result<PreviewResult, ManeuverError> {
         .collect();
     endpoints.sort();
 
-    let occupied_set: BTreeSet<(i32, i32)> = inputs
-        .occupied_hexes
-        .iter()
-        .map(|h| (h.q, h.r))
-        .collect();
+    let occupied_set: BTreeSet<(i32, i32)> =
+        inputs.occupied_hexes.iter().map(|h| (h.q, h.r)).collect();
     let mut occupied: Vec<(i32, i32)> = endpoints
         .iter()
         .map(|e| (e.q, e.r))
@@ -175,26 +193,23 @@ pub fn preview(inputs: PreviewInputs) -> Result<PreviewResult, ManeuverError> {
 /// Enumerate every legal single-cycle maneuver from `state` and return the
 /// resulting hypothetical states. Coast and accel are always considered; turns
 /// and turn_accel are generated for every legal facing.
-fn legal_branches(state: HypotheticalState, max_velocity: u8) -> Vec<HypotheticalState> {
+fn legal_branches(state: HypotheticalState, inputs: &PreviewInputs) -> Vec<HypotheticalState> {
     let mut out = Vec::new();
     let maneuvers = all_maneuvers(state.facing);
     for maneuver in maneuvers {
-        let Ok(result) = motion::resolve_maneuver(
-            state.velocity,
-            state.facing,
-            max_velocity,
-            maneuver,
-        ) else {
+        let Ok(result) =
+            motion::resolve_maneuver(state.velocity, state.facing, inputs.max_velocity, maneuver)
+        else {
             continue;
         };
         if result.thrust_cost > state.thrust_remaining {
             continue;
         }
         // Slide `speed` hexes along the new course (constant-rate translation,
-        // matching live `resolve_movement_phase`). Preview does NOT model
-        // collisions or board edges — those are reported separately as occupied
-        // and enforced only by the live engine.
-        let new_pos = slide(state.pos, result.velocity);
+        // matching live `resolve_movement_phase`). Preview reports current
+        // occupied endpoints separately because other ships' future maneuvers
+        // are unknown, but it does enforce hard-map edges.
+        let new_pos = slide(state.pos, result.velocity, inputs);
         out.push(HypotheticalState {
             pos: new_pos,
             facing: result.facing,
@@ -219,13 +234,24 @@ fn all_maneuvers(_facing: u8) -> Vec<Maneuver> {
 }
 
 /// Slide `speed` hexes along `course`. Speed 0 ⇒ no movement.
-fn slide(pos: Hex, velocity: Velocity) -> Hex {
+fn slide(pos: Hex, velocity: Velocity, inputs: &PreviewInputs) -> Hex {
     let Some(delta) = Hex::direction(velocity.course) else {
         return pos;
     };
     let mut p = pos;
     for _ in 0..velocity.speed {
-        p = p + delta;
+        let next = p + delta;
+        if inputs.map_mode.blocks_edges()
+            && (next.q < 0
+                || next.r < 0
+                || next.q >= inputs.board_width as i32
+                || next.r >= inputs.board_height as i32)
+        {
+            // Live hard-map movement leaves the ship at its last legal hex;
+            // later substeps attempt the same illegal move and remain blocked.
+            break;
+        }
+        p = next;
     }
     p
 }
@@ -245,7 +271,7 @@ fn coast_trajectory(inputs: &PreviewInputs) -> Result<HypotheticalState, Maneuve
             inputs.max_velocity,
             Maneuver::Coast,
         )?;
-        state.pos = slide(state.pos, result.velocity);
+        state.pos = slide(state.pos, result.velocity, inputs);
         state.facing = result.facing;
         state.velocity = result.velocity;
         // Coast costs no thrust.
@@ -269,6 +295,9 @@ mod tests {
             max_velocity: crate::motion::MAX_VELOCITY,
             thrust_remaining: thrust,
             occupied_hexes: vec![],
+            map_mode: MapMode::Unbounded,
+            board_width: 0,
+            board_height: 0,
         }
     }
 
@@ -297,6 +326,9 @@ mod tests {
             max_velocity: crate::motion::MAX_VELOCITY,
             thrust_remaining: 0,
             occupied_hexes: vec![],
+            map_mode: MapMode::Unbounded,
+            board_width: 0,
+            board_height: 0,
         };
         let res = preview(inputs).unwrap();
         assert_eq!(res.coast.q, 8);
@@ -340,6 +372,9 @@ mod tests {
             max_velocity: crate::motion::MAX_VELOCITY,
             thrust_remaining: 2,
             occupied_hexes: vec![Hex::new(1, 0)],
+            map_mode: MapMode::Unbounded,
+            board_width: 0,
+            board_height: 0,
         })
         .unwrap();
         // The occupied hex must appear in the occupied list if it is reachable.
@@ -370,9 +405,7 @@ mod tests {
         // and speed > 0 should exist when thrust is available.
         let res = preview(inputs_at(Hex::new(5, 5), 0, 4)).unwrap();
         assert!(
-            res.endpoints
-                .iter()
-                .any(|e| e.facing != 0 && e.speed > 0),
+            res.endpoints.iter().any(|e| e.facing != 0 && e.speed > 0),
             "no turn_accel endpoint (facing!=0 && speed>0): {:?}",
             res.endpoints
         );

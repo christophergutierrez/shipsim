@@ -286,7 +286,7 @@ fn parse_toml<T: serde::de::DeserializeOwned>(path: &Path, text: &str) -> Result
 }
 
 fn validate_on_board(board: &Board, hex: Hex) -> Result<(), LoadError> {
-    if board.contains(hex) {
+    if board.mode == MapMode::Unbounded || board.contains(hex) {
         Ok(())
     } else {
         Err(LoadError::OffBoard { q: hex.q, r: hex.r })

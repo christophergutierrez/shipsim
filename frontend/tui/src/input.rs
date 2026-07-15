@@ -19,7 +19,7 @@ pub enum KeyResult {
 }
 
 /// Handle a key event.
-pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyResult {
+pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
     if let Some(confirmation) = app.confirmation {
         return handle_confirmation(app, confirmation, key);
     }
@@ -32,6 +32,20 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyResult {
         .as_ref()
         .map(|t| !t.is_complete())
         .unwrap_or(false);
+
+    // With Num Lock off, terminals commonly report numpad 3 as PageDown.
+    // Normalize it only for the explicit facing-3 lesson; free-play navigation
+    // and bindings remain untouched.
+    if tutorial_active
+        && key.code == KeyCode::PageDown
+        && app
+            .tutorial
+            .as_ref()
+            .and_then(|tutorial| tutorial.current_step())
+            .is_some_and(|step| matches!(step.expected, ExpectedAction::TurnTo(3)))
+    {
+        key.code = KeyCode::Char('3');
+    }
 
     // Keep the small global escape hatch explicit. Every other key goes
     // through the lesson gate before mode handlers, so adding a new global
@@ -211,6 +225,28 @@ fn cycle_ship_focus(app: &mut App) {
     }
 }
 
+fn cycle_contact_focus(app: &mut App, direction: i8) {
+    let Some(snap) = app.snap.clone() else {
+        return;
+    };
+    let living: Vec<i64> = snap
+        .ships
+        .iter()
+        .filter(|ship| !ship.destroyed)
+        .map(|ship| ship.id)
+        .collect();
+    if living.is_empty() {
+        return;
+    }
+    let current = app
+        .focused_ship
+        .and_then(|id| living.iter().position(|candidate| *candidate == id))
+        .unwrap_or(0);
+    let len = living.len() as i32;
+    let next = (current as i32 + direction as i32).rem_euclid(len) as usize;
+    app.switch_focus(living[next]);
+}
+
 /// Tutorial gate. Returns `Some(Continue)` if the key is blocked.
 /// Returns `None` if the key is allowed (and tutorial may have advanced).
 fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
@@ -360,6 +396,14 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
         // Maneuvers also work from Normal during movement (quick keys).
         KeyCode::Char('c') if phase == "movement" => send_coast(app),
         KeyCode::Char('t') if phase == "movement" => send_accel(app),
+        KeyCode::Char(c)
+            if phase == "movement"
+                && key.modifiers.contains(KeyModifiers::ALT)
+                && c.is_ascii_digit()
+                && c <= '5' =>
+        {
+            send_turn_accel(app, (c as u8 - b'0') as u32)
+        }
         KeyCode::Char(c) if phase == "movement" && c.is_ascii_digit() && c <= '5' => {
             let facing = (c as u8 - b'0') as u32;
             send_turn(app, facing)
@@ -378,7 +422,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
     }
 }
 
-/// Map-focus mode: WASD/hjkl pans the viewport, Esc/v returns to Normal.
+/// Map-focus mode: WASD/hjkl pans the viewport, +/- zooms, Esc/v returns to Normal.
 ///
 /// Read-only — no orders are sent. The pan is relative to the current origin
 /// (auto-centered on the focused ship until the first manual pan). In the
@@ -404,6 +448,22 @@ fn handle_map(app: &mut App, key: KeyEvent) -> KeyResult {
         }
         KeyCode::Char('d') | KeyCode::Char('l') | KeyCode::Right => {
             app.pan_map(1, 0);
+            KeyResult::Continue
+        }
+        KeyCode::Char('+') | KeyCode::Char('=') => {
+            app.adjust_map_zoom(1);
+            KeyResult::Continue
+        }
+        KeyCode::Char('-') => {
+            app.adjust_map_zoom(-1);
+            KeyResult::Continue
+        }
+        KeyCode::Char('[') => {
+            cycle_contact_focus(app, -1);
+            KeyResult::Continue
+        }
+        KeyCode::Char(']') => {
+            cycle_contact_focus(app, 1);
             KeyResult::Continue
         }
         // Re-center on the focused ship.
@@ -468,17 +528,13 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
         }
         KeyCode::Left => {
             app.digit_entry = None;
-            if let Some(draft) = &mut app.alloc_draft {
-                adjust_field(draft, -1);
-            }
+            adjust_field(app, -1);
             app.request_movement_preview();
             KeyResult::Continue
         }
         KeyCode::Right => {
             app.digit_entry = None;
-            if let Some(draft) = &mut app.alloc_draft {
-                adjust_field(draft, 1);
-            }
+            adjust_field(app, 1);
             app.request_movement_preview();
             KeyResult::Continue
         }
@@ -487,18 +543,14 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             if let Some(cursor) = cursor {
                 let d = (c as u8 - b'0') as u32;
                 let new = digit_entry(app, cursor, d);
-                if let Some(draft) = &mut app.alloc_draft {
-                    draft.set_field_value(new);
-                }
+                set_allocate_field(app, new);
             }
             app.request_movement_preview();
             KeyResult::Continue
         }
         KeyCode::Backspace => {
             app.digit_entry = None;
-            if let Some(draft) = &mut app.alloc_draft {
-                draft.set_field_value(0);
-            }
+            set_allocate_field(app, 0);
             app.request_movement_preview();
             KeyResult::Continue
         }
@@ -506,9 +558,13 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
     }
 }
 
-fn adjust_field(draft: &mut crate::app::AllocDraft, delta: i32) {
-    let v = draft.field_value() as i32 + delta;
-    draft.set_field_value(v.max(0) as u32);
+fn adjust_field(app: &mut App, delta: i32) {
+    let value = app
+        .alloc_draft
+        .as_ref()
+        .map(|draft| (draft.field_value() as i32 + delta).max(0) as u32)
+        .unwrap_or(0);
+    set_allocate_field(app, value);
 }
 
 fn digit_entry(app: &mut App, field: usize, digit: u32) -> u32 {
@@ -522,10 +578,72 @@ fn digit_entry(app: &mut App, field: usize, digit: u32) -> u32 {
     value
 }
 
+fn set_allocate_field(app: &mut App, value: u32) {
+    let Some(ship) = app.focused().cloned() else {
+        return;
+    };
+    let Some(draft) = app.alloc_draft.as_mut() else {
+        return;
+    };
+    let (minimum, maximum) = allocation_field_bounds(draft, &ship);
+    let value = value.clamp(minimum, maximum);
+    if let Some((field, _)) = app.digit_entry {
+        app.digit_entry = Some((field, value));
+    }
+    draft.set_field_value(value);
+}
+
+fn allocation_field_bounds(
+    draft: &crate::app::AllocDraft,
+    ship: &crate::protocol::Ship,
+) -> (u32, u32) {
+    let mut base = draft.clone();
+    let weapon_count = base.weapons.len();
+    if base.cursor == 0 {
+        base.movement = 0;
+        return (
+            0,
+            ship.power_available.saturating_sub(base.power_cost(ship)),
+        );
+    }
+    if base.cursor <= weapon_count {
+        let index = base.cursor - 1;
+        let (weapon_id, current) = base.weapons[index].clone();
+        let carried = ship
+            .weapons
+            .iter()
+            .find(|weapon| weapon.id == weapon_id)
+            .map(|weapon| weapon.charge)
+            .unwrap_or(current);
+        let max_charge = ship
+            .weapons
+            .iter()
+            .find(|weapon| weapon.id == weapon_id)
+            .map(|weapon| weapon.max_charge)
+            .unwrap_or(carried);
+        base.weapons[index].1 = carried;
+        let residual = ship.power_available.saturating_sub(base.power_cost(ship));
+        return (carried, carried.saturating_add(residual).min(max_charge));
+    }
+
+    let shield_index = base.cursor - weapon_count - 1;
+    if shield_index < 6 {
+        base.shields[shield_index] = 0;
+        let residual = ship.power_available.saturating_sub(base.power_cost(ship));
+        return (0, residual.min(ship.max_shield_per_facing));
+    }
+    (0, 0)
+}
+
 fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
     match key.code {
         KeyCode::Char('c') => send_coast(app),
         KeyCode::Char('t') => send_accel(app),
+        KeyCode::Char(c)
+            if key.modifiers.contains(KeyModifiers::ALT) && c.is_ascii_digit() && c <= '5' =>
+        {
+            send_turn_accel(app, (c as u8 - b'0') as u32)
+        }
         // Absolute facing 0–5 (preferred for multi-hex turns).
         KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
             let facing = (c as u8 - b'0') as u32;
@@ -565,6 +683,18 @@ fn send_turn(app: &mut App, facing: u32) -> KeyResult {
     };
     app.log(format!("maneuver: turn facing {facing}"));
     emit_order(app, Order::commit_maneuver(sid, Maneuver::Turn { facing }))
+}
+
+fn send_turn_accel(app: &mut App, facing: u32) -> KeyResult {
+    let sid = match app.focused_ship {
+        Some(id) => id,
+        None => return KeyResult::Continue,
+    };
+    app.log(format!("maneuver: turn_accel facing {facing}"));
+    emit_order(
+        app,
+        Order::commit_maneuver(sid, Maneuver::TurnAccel { facing }),
+    )
 }
 
 fn send_ready(app: &mut App) -> KeyResult {
@@ -686,6 +816,9 @@ fn map_key_to_action(
     if key.code == KeyCode::Char('e') && app.mode != Mode::GameOver {
         return Some(ExpectedAction::EndTurn);
     }
+    if key.code == KeyCode::Char('v') && app.mode != Mode::Map && app.mode != Mode::GameOver {
+        return Some(ExpectedAction::EnterMap);
+    }
 
     match app.mode {
         Mode::Normal => match key.code {
@@ -730,6 +863,14 @@ fn map_key_to_action(
         Mode::Fire => match key.code {
             KeyCode::Enter => Some(ExpectedAction::FireWeapon),
             KeyCode::Down | KeyCode::Char('j') => Some(ExpectedAction::TabWeapon),
+            KeyCode::Left => app
+                .fire_draft
+                .as_ref()
+                .map(|draft| ExpectedAction::ShieldFacing((draft.shield_facing + 5) % 6)),
+            KeyCode::Right => app
+                .fire_draft
+                .as_ref()
+                .map(|draft| ExpectedAction::ShieldFacing((draft.shield_facing + 1) % 6)),
             KeyCode::Char(' ') => Some(ExpectedAction::ReadyFire),
             _ => None,
         },
@@ -737,7 +878,13 @@ fn map_key_to_action(
             KeyCode::Enter => Some(ExpectedAction::Dismiss),
             _ => None,
         },
-        // Map-focus is read-only: no tutorial action is produced.
-        Mode::Map => None,
+        Mode::Map => match key.code {
+            KeyCode::Char('a') | KeyCode::Char('h') | KeyCode::Left => Some(ExpectedAction::PanMap),
+            KeyCode::Char('-') => Some(ExpectedAction::ZoomOut),
+            KeyCode::Char('+') | KeyCode::Char('=') => Some(ExpectedAction::ZoomIn),
+            KeyCode::Char('c') | KeyCode::Char('z') => Some(ExpectedAction::RecenterMap),
+            KeyCode::Char('v') | KeyCode::Enter => Some(ExpectedAction::ExitMap),
+            _ => None,
+        },
     }
 }

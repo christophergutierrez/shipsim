@@ -132,6 +132,7 @@ fn run(
     harness: &mut Harness,
 ) -> std::io::Result<()> {
     loop {
+        drain_pending_preview(app, harness);
         terminal.draw(|f| ui::render(f, app))?;
 
         // Poll for input with a short timeout so we can also drain engine
@@ -157,16 +158,18 @@ fn run(
             }
             KeyResult::Continue => {}
         }
+    }
+}
 
-        // Drain a pending movement-preview request (read-only query, not an
-        // order). The input handler queues this when the alloc draft changes;
-        // we send it here and store the response for rendering.
-        if let Some(preview_json) = app.pending_preview.take() {
-            if harness.send(&preview_json).is_ok() {
-                if let Some(line) = harness.read_line() {
-                    apply_engine_line(app, line);
-                }
-            }
+/// Send queued previews before drawing so allocation opens with the coast
+/// endpoint already visible, rather than waiting for an unrelated keypress.
+fn drain_pending_preview(app: &mut App, harness: &mut Harness) {
+    let Some(preview_json) = app.pending_preview.take() else {
+        return;
+    };
+    if harness.send(&preview_json).is_ok() {
+        if let Some(line) = harness.read_line() {
+            apply_engine_line(app, line);
         }
     }
 }
@@ -175,7 +178,7 @@ fn run(
 fn apply_engine_line(app: &mut App, line: EngineLine) {
     match line {
         EngineLine::Snapshot(s) => app.update_snapshot(s),
-        EngineLine::MovementPreview(p) => app.movement_preview = Some(p),
+        EngineLine::MovementPreview(p) => app.accept_movement_preview(p),
         EngineLine::Error(e) => app.record_error(&e),
         EngineLine::Raw(r) => app.log(format!("engine: {r}")),
     }

@@ -253,14 +253,7 @@ fn render_middle(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 // Axial (q →, r ↓). Engine range = hex distance; arc = mount relative facings
 // (display mirror of src/arc.rs / REPL hexutil — not rules authority).
 
-const HEX_DIRS: [(i32, i32); 6] = [
-    (1, 0),
-    (1, -1),
-    (0, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, 1),
-];
+const HEX_DIRS: [(i32, i32); 6] = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)];
 
 fn ship_fg(ship: &Ship, focused: bool) -> Color {
     if ship.destroyed {
@@ -296,13 +289,7 @@ fn nearest_bearings(from_q: i32, from_r: i32, to_q: i32, to_r: i32) -> Vec<u8> {
     facings
 }
 
-fn relative_bearing(
-    origin_facing: u32,
-    from_q: i32,
-    from_r: i32,
-    to_q: i32,
-    to_r: i32,
-) -> u8 {
+fn relative_bearing(origin_facing: u32, from_q: i32, from_r: i32, to_q: i32, to_r: i32) -> u8 {
     let abs = nearest_bearings(from_q, from_r, to_q, to_r)
         .into_iter()
         .next()
@@ -418,76 +405,125 @@ fn selected_weapon_shade(app: &App) -> Option<WeaponShade> {
     })
 }
 
+struct MapMetrics {
+    columns: usize,
+    rows: usize,
+    cell_width: usize,
+    scale: i32,
+    zoom: i8,
+}
+
+fn map_metrics(app: &App, area: Rect) -> MapMetrics {
+    let inner_width = area.width.saturating_sub(2) as usize;
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let base_columns = ((inner_width.saturating_sub(3)) / 6).max(1);
+    // One row for coordinate headers and two for the legend/footer.
+    let rows = inner_height.saturating_sub(3).max(1);
+    let zoom = app.effective_map_zoom(base_columns as i32, rows as i32);
+    let cell_width = 6 * (usize::try_from(zoom.max(0)).unwrap_or(0) + 1);
+    let columns = ((inner_width.saturating_sub(3)) / cell_width).max(1);
+    let scale = 1_i32 << u32::try_from((-zoom).max(0)).unwrap_or(0);
+    MapMetrics {
+        columns,
+        rows,
+        cell_width,
+        scale,
+        zoom,
+    }
+}
+
+fn in_cell(value: i32, origin: i32, scale: i32, index: usize) -> bool {
+    (value - origin).div_euclid(scale) == index as i32
+}
+
+fn pad_cell(text: String, width: usize) -> String {
+    // Map labels contain multi-byte arrows. String::truncate uses byte offsets,
+    // so truncating a divergent facing/course label such as `A1←→3` can land
+    // inside an arrow and panic. These glyphs are all single-column, making a
+    // character-counted fit both safe and correct for the map cell.
+    let mut fitted: String = text.chars().take(width).collect();
+    let padding = width.saturating_sub(fitted.chars().count());
+    fitted.extend(std::iter::repeat_n(' ', padding));
+    fitted
+}
+
 fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
-    let w = snap.map.width as usize;
-    let h = snap.map.height as usize;
+    let metrics = map_metrics(app, area);
     let shade = selected_weapon_shade(app);
 
     // Viewport origin (top-left visible hex). Auto-centers on the focused ship
     // unless the player has panned manually. In the unbounded world this keeps
     // ships that drift to negative coordinates on-screen.
-    let (oq, or_) = app.map_origin();
+    let (oq, or_) =
+        app.map_origin_for_view(metrics.columns as i32, metrics.rows as i32, metrics.scale);
 
     // Collect movement-preview endpoint coordinates for the focused ship.
     // These are the reachable hexes after the four movement cycles.
     let preview_endpoints: std::collections::HashSet<(i32, i32)> = app
-        .movement_preview
+        .movement_preview_for_focus()
         .as_ref()
         .map(|p| p.endpoints.iter().map(|e| (e.q, e.r)).collect())
         .unwrap_or_default();
     let preview_coast = app
-        .movement_preview
+        .movement_preview_for_focus()
         .as_ref()
         .map(|p| (p.coast.q, p.coast.r));
 
     let title = if let Some(ref s) = shade {
         format!(
-            "Map @({},{}) · shade = {} arc + range ≤{} · green=you red=ai",
-            oq, or_, s.mount_label, s.max_range
+            "Map @({},{}) z={} · {} arc ≤{} · green=you red=ai",
+            oq, or_, metrics.zoom, s.mount_label, s.max_range
         )
     } else if !preview_endpoints.is_empty() {
         format!(
-            "Map @({},{}) · ◆=reachable · green=you red=ai · arrow=facing",
-            oq, or_
+            "Map @({},{}) z={} · ◆ coast ◇ reachable · green=you red=ai",
+            oq, or_, metrics.zoom
         )
     } else {
-        format!("Map @({},{}) · green=you red=ai · arrow=facing", oq, or_)
+        format!(
+            "Map @({},{}) z={} · green=you red=ai",
+            oq, or_, metrics.zoom
+        )
     };
 
     let mut lines: Vec<Line> = Vec::new();
 
     // Column header (q)
     let mut hdr = vec![Span::styled("   ", Style::default().fg(Color::DarkGray))];
-    for q in 0..w {
-        let wq = oq + q as i32;
+    for q in 0..metrics.columns {
+        let wq = oq + q as i32 * metrics.scale;
         hdr.push(Span::styled(
-            format!("{:<4}", wq.rem_euclid(10)),
+            format!("{:<width$}", wq.rem_euclid(10), width = metrics.cell_width),
             Style::default().fg(Color::DarkGray),
         ));
     }
     lines.push(Line::from(hdr));
 
-    for r in 0..h {
-        let wr = or_ + r as i32;
+    for r in 0..metrics.rows {
+        let wr = or_ + r as i32 * metrics.scale;
         let mut spans: Vec<Span> = vec![Span::styled(
             format!("{:2} ", wr),
             Style::default().fg(Color::DarkGray),
         )];
-        for q in 0..w {
-            let wq = oq + q as i32;
-            let wr = or_ + r as i32;
-            let in_arc_range = shade
-                .as_ref()
-                .map(|s| s.covers(wq, wr))
-                .unwrap_or(false);
+        for q in 0..metrics.columns {
+            let wq = oq + q as i32 * metrics.scale;
+            let wr = or_ + r as i32 * metrics.scale;
+            let in_arc_range = shade.as_ref().map(|s| s.covers(wq, wr)).unwrap_or(false);
 
             let ship = snap
                 .ships
                 .iter()
-                .find(|s| s.q == wq && s.r == wr);
+                .filter(|s| {
+                    in_cell(s.q, oq, metrics.scale, q) && in_cell(s.r, or_, metrics.scale, r)
+                })
+                .max_by_key(|s| (app.focused_ship == Some(s.id), !s.destroyed));
 
-            let is_preview_endpoint = preview_endpoints.contains(&(wq, wr));
-            let is_coast = preview_coast == Some((wq, wr));
+            let is_preview_endpoint = preview_endpoints.iter().any(|(q0, r0)| {
+                in_cell(*q0, oq, metrics.scale, q) && in_cell(*r0, or_, metrics.scale, r)
+            });
+            let is_coast = preview_coast.is_some_and(|(q0, r0)| {
+                in_cell(q0, oq, metrics.scale, q) && in_cell(r0, or_, metrics.scale, r)
+            });
 
             let (text, fg) = if let Some(s) = ship {
                 let cs = callsign(s);
@@ -498,25 +534,41 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 } else {
                     let arrow = facing_arrow(s.facing);
                     if s.velocity > 0 && s.course != s.facing {
-                        format!(
-                            "{}{}{}",
-                            short_cs,
-                            arrow,
-                            facing_arrow(s.course)
+                        pad_cell(
+                            format!(
+                                "{}{}{}{}",
+                                short_cs,
+                                arrow,
+                                facing_arrow(s.course),
+                                s.velocity
+                            ),
+                            metrics.cell_width,
                         )
                     } else {
-                        format!("{}{} ", short_cs, arrow)
+                        pad_cell(
+                            format!("{}{}{}", short_cs, arrow, s.velocity),
+                            metrics.cell_width,
+                        )
                     }
                 };
                 (cell, ship_fg(s, focused))
             } else if is_coast {
-                ("◆   ".to_string(), Color::Cyan)
+                (pad_cell("◆".to_string(), metrics.cell_width), Color::Cyan)
             } else if is_preview_endpoint {
-                ("◇   ".to_string(), Color::DarkGray)
+                (
+                    pad_cell("◇".to_string(), metrics.cell_width),
+                    Color::DarkGray,
+                )
             } else if in_arc_range {
-                ("··  ".to_string(), Color::DarkGray)
+                (
+                    pad_cell("··".to_string(), metrics.cell_width),
+                    Color::DarkGray,
+                )
             } else {
-                (".   ".to_string(), Color::DarkGray)
+                (
+                    pad_cell(".".to_string(), metrics.cell_width),
+                    Color::DarkGray,
+                )
             };
 
             let mut style = Style::default().fg(fg);
@@ -537,17 +589,16 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A# you  B# ai  arrow=facing  ◆=coast ◇=reachable  shade=weapon (range ∩ arc)"
+        "A1>3: callsign, facing, speed; second arrow = course. ◆ coast ◇ reach"
     } else {
-        "A# you  B# ai  arrow=facing  shade=selected weapon (range ∩ arc)"
+        "A1>3: callsign, facing, speed; second arrow = course. Shade = weapon arc"
     };
     lines.push(Line::from(Span::styled(
         legend,
         Style::default().fg(Color::DarkGray),
     )));
 
-    let p = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title(title));
+    let p = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(title));
     f.render_widget(p, area);
 }
 
@@ -607,19 +658,20 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         );
 
         // Show the projected position from the movement preview (if available).
-        if let Some(ref preview) = app.movement_preview {
+        if let Some(preview) = app.movement_preview_for_focus() {
             let c = &preview.coast;
             push(
                 f,
                 &mut y,
                 Line::from(vec![
-                    Span::styled(
-                        "  ▶ projected: ",
-                        Style::default().fg(Color::Cyan),
-                    ),
+                    Span::styled("  ▶ projected: ", Style::default().fg(Color::Cyan)),
                     Span::raw(format!(
                         "({},{}) face={}{} vel={}",
-                        c.q, c.r, c.facing, facing_arrow(c.facing), c.speed
+                        c.q,
+                        c.r,
+                        c.facing,
+                        facing_arrow(c.facing),
+                        c.speed
                     )),
                     Span::styled(
                         format!("  [{} endpoints]", preview.endpoints.len()),
@@ -641,7 +693,10 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         push(
             f,
             &mut y,
-            Line::from(format!("  hull {}  (current structure boxes)", ship.structure)),
+            Line::from(format!(
+                "  hull {}  (current structure boxes)",
+                ship.structure
+            )),
         );
 
         push(
@@ -732,21 +787,33 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             vec![
                 Line::from(" q: quit  Tab: cycle focus  Enter: act in phase"),
                 Line::from(" a: allocate  m: move  f: fire  e: end turn"),
-                Line::from(" v: map-focus (WASD/hjkl pan, c recenter)"),
+                Line::from(" v: map-focus (WASD pan, +/- zoom, [/] inspect contacts)"),
                 Line::from(""),
             ],
         ),
         Mode::Map => {
             let (oq, or_) = app.map_origin();
-            let auto = if app.map_pan.is_none() { " (auto-center)" } else { "" };
+            let auto = if app.map_pan.is_none() {
+                " (auto-center)"
+            } else {
+                ""
+            };
             (
                 "Map Focus",
                 vec![
-                    Line::from(" WASD / hjkl / arrows: pan  c: recenter"),
-                    Line::from(" v / Esc / Enter: back to Normal"),
+                    Line::from("          [w]        [+] zoom in"),
+                    Line::from("       [a] [c] [d]    [-] zoom out"),
+                    Line::from("          [s]        c: auto-fit"),
+                    Line::from(" [ / ]: inspect ships   v / Esc / Enter: return"),
                     Line::from(""),
                     Line::from(Span::styled(
-                        format!(" origin=({},{}){}", oq, or_, auto),
+                        format!(
+                            " origin=({},{}){}  zoom={}",
+                            oq,
+                            or_,
+                            auto,
+                            app.map_zoom.map_or("auto".to_string(), |z| z.to_string())
+                        ),
                         Style::default().fg(Color::DarkGray),
                     )),
                     Line::from(""),
@@ -1115,6 +1182,7 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         Line::from(" c: coast (slide only, free)"),
         Line::from(" t: accel along facing"),
         Line::from(" 0–5: turn to that facing (facing only — course stays)"),
+        Line::from(" Alt+0–5: turn then accel to that facing"),
         Line::from(" r: turn +1 facing"),
         Line::from(""),
         Line::from(" Space (fire phase): ready · e: end turn"),
@@ -1302,13 +1370,15 @@ fn render_tutorial_panel(f: &mut Frame, app: &App, area: Rect) {
         let location = app
             .snap
             .as_ref()
-            .map(|s| format!("Turn {} · {}", s.turn, phase_label(&s.phase, s.movement_phase)))
+            .map(|s| {
+                format!(
+                    "Turn {} · {}",
+                    s.turn,
+                    phase_label(&s.phase, s.movement_phase)
+                )
+            })
             .unwrap_or_else(|| "Starting".to_string());
-        format!(
-            "Coach · {location} · {}/{}",
-            t.current + 1,
-            t.steps.len()
-        )
+        format!("Coach · {location} · {}/{}", t.current + 1, t.steps.len())
     } else {
         "Tutorial complete".to_string()
     };

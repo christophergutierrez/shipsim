@@ -1,5 +1,6 @@
 width = 4
 height = 4
+map_mode = "hard"
 seed = 4242
 
 [terminal]

@@ -4,12 +4,12 @@ use crate::hex::Hex;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MapMode {
     /// Off-map is illegal (plots rejected).
-    #[default]
     Hard,
     /// Formation may drift; board recenters after movement.
     Floating,
     /// No edges: negative and large coordinates are legal. No recentering,
     /// no clamping. Width/height are metadata only (ADR-0022 unbounded world).
+    #[default]
     Unbounded,
 }
 
@@ -42,7 +42,7 @@ impl Board {
         Self {
             width,
             height,
-            mode: MapMode::Hard,
+            mode: MapMode::Unbounded,
         }
     }
 

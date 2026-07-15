@@ -58,7 +58,7 @@ pub struct ScenarioDef {
     pub height: u32,
     #[serde(default = "default_seed")]
     pub seed: u64,
-    /// `"hard"` (default) or `"floating"` (D4).
+    /// `"unbounded"` (default), `"hard"`, or `"floating"` (D4).
     #[serde(default)]
     pub map_mode: Option<String>,
     pub objective: Option<HexDef>,

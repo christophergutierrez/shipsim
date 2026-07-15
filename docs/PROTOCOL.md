@@ -117,8 +117,10 @@ Response envelope (`type: "movement_preview"`, `ok: true`):
 | `occupied` | Endpoints that coincide with another ship's current hex (collisions the client should flag). |
 | `clamped_movement` | Present only when `clamp: true` was requested. The effective movement power after clamping to the affordable residual, so the client can show the actual thrust being previewed. |
 
-The preview is a pure projection: it shares the exact rules of live movement
-(`motion::resolve_maneuver`) but never touches game state. See
+The preview is a pure projection: it shares maneuver and hard-map edge rules
+with live movement, but never touches game state. Other ships' future moves
+remain unknown, so occupied endpoints are advisory rather than a promise that
+their current occupants will still be there at resolution. See
 `src/movement_preview.rs` (ADR-0022 preview contract).
 
 ## Phase loop
