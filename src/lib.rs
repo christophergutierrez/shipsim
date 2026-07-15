@@ -8,6 +8,7 @@ pub mod game_state;
 pub mod hex;
 pub mod motion;
 pub mod movement;
+pub mod movement_preview;
 pub mod prng;
 pub mod protocol;
 pub mod save;
