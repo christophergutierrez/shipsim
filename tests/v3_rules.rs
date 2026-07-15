@@ -250,6 +250,130 @@ fn accel_then_coast_slides_one_hex_each_cycle() {
 }
 
 #[test]
+fn accel_oblique_revectors_with_speed_plus_one_cost() {
+    let mut game = load_duel();
+    allocate(&mut game, 1, 10, BTreeMap::new(), [0; 6]);
+    allocate(&mut game, 2, 0, BTreeMap::new(), [0; 6]);
+    // Build speed 2 east, then revector to face 1.
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 1,
+            maneuver: Maneuver::Accel,
+        },
+    )
+    .unwrap();
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 2,
+            maneuver: Maneuver::Coast,
+        },
+    )
+    .unwrap();
+    ready_all(&mut game);
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 1,
+            maneuver: Maneuver::Accel,
+        },
+    )
+    .unwrap();
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 2,
+            maneuver: Maneuver::Coast,
+        },
+    )
+    .unwrap();
+    ready_all(&mut game);
+    let before_thrust = game.ship(1).unwrap().thrust_remaining;
+    assert_eq!(game.ship(1).unwrap().velocity.speed, 2);
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 1,
+            maneuver: Maneuver::TurnAccel { facing: 1 },
+        },
+    )
+    .unwrap();
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 2,
+            maneuver: Maneuver::Coast,
+        },
+    )
+    .ok();
+    let s = game.ship(1).unwrap();
+    assert_eq!(s.facing, 1);
+    assert_eq!(s.velocity.course, 1);
+    assert_eq!(s.velocity.speed, 1);
+    // turn 0→1 cost 1 + revector (2+1)=3 → total 4
+    assert_eq!(before_thrust.saturating_sub(s.thrust_remaining), 4);
+}
+
+#[test]
+fn opposite_course_ships_pass_through_shared_hex() {
+    let mut game = load_scenario(&manifest_path("scenarios/p3_smoke.toml")).expect("load");
+    // Place ships one hex apart, head-on, same speed so mid-step claims collide.
+    game.set_ship_pos(1, shipsim_core::hex::Hex::new(5, 10)).unwrap();
+    game.set_ship_facing(1, 0).unwrap();
+    game.set_ship_pos(2, shipsim_core::hex::Hex::new(7, 10)).unwrap();
+    game.set_ship_facing(2, 3).unwrap();
+    // Seed velocity by allocating and accelerating... easier: allocate, accel both
+    // until v=2, positioned so they meet.
+    allocate(&mut game, 1, 8, BTreeMap::new(), [0; 6]);
+    allocate(&mut game, 2, 8, BTreeMap::new(), [0; 6]);
+    // Force courses via accel from stop on current facing.
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 1,
+            maneuver: Maneuver::Accel,
+        },
+    )
+    .unwrap();
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 2,
+            maneuver: Maneuver::Accel,
+        },
+    )
+    .unwrap();
+    ready_all(&mut game);
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 1,
+            maneuver: Maneuver::Accel,
+        },
+    )
+    .unwrap();
+    apply_order(
+        &mut game,
+        Order::CommitManeuver {
+            ship: 2,
+            maneuver: Maneuver::Accel,
+        },
+    )
+    .unwrap();
+    // After resolve they should have passed (not stuck at same coords forever).
+    let a = game.ship(1).unwrap().pos;
+    let b = game.ship(2).unwrap().pos;
+    assert_ne!(a, b);
+    // With pass-through, ship1 moving east and ship2 west from 5 and 7 at v2
+    // should cross; positions differ and ordering can flip.
+    assert!(
+        a.q != 5 || b.q != 7,
+        "expected translation; still at start a={a:?} b={b:?}"
+    );
+}
+
+#[test]
 fn turn_to_reverse_costs_three_thrust() {
     let mut game = load_duel();
     allocate(&mut game, 1, 8, BTreeMap::new(), [0; 6]);

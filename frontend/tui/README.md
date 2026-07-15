@@ -1,8 +1,9 @@
-# shipsim TUI (ratatui) — not implemented yet
+# shipsim TUI (ratatui)
 
-Terminal product client for Combat Model v2. **Decision is accepted; code is not
-started.** Read **[`ADR.md`](ADR.md)** for why ratatui and how it fits the
-architecture.
+Terminal product client for Combat Model v2. **Implemented (Small tier).** Read
+**[`ADR.md`](ADR.md)** for why ratatui and how it fits the architecture, and
+**[ADR-0023](../../docs/adr/0023-tui-input-layout-and-verification.md)**
+for input model, layout, responsive tiers, and verification strategy.
 
 This directory is the **entire** TUI client tree (isolation: `frontend/README.md`).
 Dropping it must not affect the engine, `frontend/repl/`, or `frontend/love/`.
@@ -10,10 +11,94 @@ Dropping it must not affect the engine, `frontend/repl/`, or `frontend/love/`.
 ```
 frontend/tui/
   ADR.md           # decision: ratatui + subprocess NDJSON
-  README.md        # this handoff
-  .gitignore       # local/ scratch
-  (future) Cargo.toml, src/, …
+  README.md        # this file
+  Cargo.toml       # standalone crate (ratatui + crossterm + serde_json)
+  src/
+    main.rs        # binary entry point, crossterm event loop
+    app.rs         # app state (Mode, AllocDraft, FireDraft, focus)
+    harness.rs     # subprocess wrapper: spawns shipsim, reads/writes NDJSON
+    protocol.rs    # NDJSON v3 snapshot + order types
+    input.rs       # keyboard → app state + pending orders
+    ui.rs          # ratatui rendering (Small-tier layout)
+    tests.rs       # TestBackend tests (all 6 slices)
   local/           # gitignored session junk only
+```
+
+## Run
+
+The TUI is a standalone Cargo package that spawns the `shipsim` engine binary as
+a subprocess. **Run from the repo root** so the default engine path
+(`target/debug/shipsim`) resolves.
+
+```bash
+# 1. Build the engine binary the TUI spawns (one-time).
+cargo build
+
+# 2. Build + run the TUI. Defaults to scenarios/ai.toml.
+cargo run --manifest-path frontend/tui/Cargo.toml
+```
+
+**Guided rear-attack tutorial** (same fight as REPL `--tutorial rear-attack`):
+
+```bash
+cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial
+# → scenarios/tutorial_rear_attack.toml (seed 4), step-gated keys, ~3 turns to Won
+```
+
+Pick a different scenario (first positional arg):
+
+```bash
+cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/fleet.toml
+cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/combat.toml
+```
+
+If the engine binary is not at `target/debug/shipsim` relative to the repo root,
+point at it explicitly:
+
+```bash
+SHIPSIM_BIN=/path/to/shipsim cargo run --manifest-path frontend/tui/Cargo.toml
+```
+
+Release build (smoother rendering):
+
+```bash
+cargo build --release
+cargo run --release --manifest-path frontend/tui/Cargo.toml
+```
+
+## Keys
+
+| Key | Action |
+|---|---|
+| `q` | Quit |
+| `Esc` | Return to Normal mode, clear soft error |
+| `Tab` | Cycle focus among living ships (any mode) |
+| `e` | End turn (any non-GameOver mode) |
+| `a` / `Enter` | Enter Allocate mode (when phase = allocate) |
+| `m` / `Enter` | Enter Movement mode (when phase = movement) |
+| `f` / `Enter` | Enter Fire mode (when phase = fire) |
+
+**Allocate mode** — `Tab` cycles the cursor across movement / weapons / shield
+facings; `←`/`→` decrement/increment the focused field; `Enter` commits the
+`allocate` order.
+
+**Movement mode** — `c` coast, `t` accel along facing, `0`–`5` turn to absolute
+facing, `r` turn +1 facing. Each sends one `commit_maneuver`.
+
+**Tutorial mode** (`--tutorial`) — narration panel + step gate for the aggressive
+rear-attack (race past → reverse-thrust brake → point-blank beam/torp/plasma).
+Wrong keys are blocked; `↓`/`→` fill the allocate form, `t`/`3`/`Space`/`e` drive
+motion and the kill volley.
+
+**Fire mode** — `Tab` cycles weapon; `1`–`9` select target by enemy index;
+`←`/`→` cycle shield facing; `Enter` commits `commit_fire`. Target auto-selects
+the first enemy if none is chosen.
+
+## Verify
+
+```bash
+cargo test   --manifest-path frontend/tui/Cargo.toml   # 56 TestBackend tests
+cargo clippy --manifest-path frontend/tui/Cargo.toml
 ```
 
 ## Relationship to other clients
@@ -49,9 +134,24 @@ Port **behavior and vocabulary** from the REPL, not pixel-identical ANSI:
   — shapes in `src/movement.rs` and `docs/PROTOCOL.md`. Fixtures:
   `tests/fixtures/v2/duel_orders.jsonl`.
 
+## Design decisions (grilled 2026-07-14)
+
+**[ADR-0023](../../docs/adr/0023-tui-input-layout-and-verification.md)**
+resolved the product-shape questions this handoff originally left open:
+keypress-primary input (vim + arrows, `:` for a typed fallback), a layout
+where the map + a compact status bar are always visible and everything else
+is tabbed, three responsive tiers (Small/Medium/Large, exact breakpoints
+deferred until Small is built and measured), a live recoverable pause below
+the floor rather than a crash, `TestBackend`-driven tests as the required
+verification path, and a standalone (non-workspace) Cargo package. Read it
+before starting slice 1 below — every slice targets the **Small tier only**;
+Medium/Large don't exist yet.
+
 ## Suggested first implementation slices
 
-Keep PRs small; each should stay playable or at least runnable.
+Keep PRs small; each should stay playable or at least runnable. Every slice
+below targets the Small tier's layout (see ADR-0023) — no tier-switching
+code until slice 5 is done and fully playable.
 
 1. **Skeleton** — `Cargo.toml` (ratatui + crossterm + serde_json), binary that
    spawns harness, reads post-load snapshot, draws turn/phase + ship names, `q` quits.
@@ -100,9 +200,9 @@ Keep PRs small; each should stay playable or at least runnable.
 
 ## Status checklist for implementers
 
-- [ ] Package builds under `frontend/tui/`
-- [ ] Spawns harness, shows live snapshot fields
-- [ ] Player can finish allocate → move → fire → end turn on `scenarios/ai.toml`
-- [ ] Soft errors visible; state only changes on accepted orders
-- [ ] Scratch only under `frontend/tui/local/`
-- [ ] This README updated with real run commands once the binary exists
+- [x] Package builds under `frontend/tui/`
+- [x] Spawns harness, shows live snapshot fields
+- [x] Player can finish allocate → move → fire → end turn on `scenarios/ai.toml`
+- [x] Soft errors visible; state only changes on accepted orders
+- [x] Scratch only under `frontend/tui/local/`
+- [x] This README updated with real run commands once the binary exists

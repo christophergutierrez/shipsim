@@ -1,0 +1,97 @@
+//! Subprocess wrapper around the `shipsim` binary.
+//!
+//! Spawns `target/debug/shipsim --scenario <path> --stdin`, writes NDJSON
+//! orders to its stdin, and reads NDJSON snapshots/errors from its stdout.
+
+#![allow(dead_code)]
+
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+
+use crate::protocol::{ErrorResponse, Snapshot};
+
+/// Manages the shipsim engine subprocess.
+pub struct Harness {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+}
+
+/// A line from the engine: either a snapshot or a soft error.
+#[derive(Debug)]
+pub enum EngineLine {
+    Snapshot(Snapshot),
+    Error(ErrorResponse),
+    /// A line that didn't parse as either (shouldn't happen in normal play).
+    Raw(String),
+}
+
+impl Harness {
+    /// Spawn the engine with the given scenario path.
+    pub fn spawn(engine_path: &str, scenario: &str) -> std::io::Result<Self> {
+        let mut child = Command::new(engine_path)
+            .arg("--scenario")
+            .arg(scenario)
+            .arg("--stdin")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()?;
+
+        let stdin = child.stdin.take().expect("stdin pipe");
+        let stdout = child.stdout.take().expect("stdout pipe");
+
+        Ok(Harness {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout),
+        })
+    }
+
+    /// Send an order (one JSON line) to the engine.
+    pub fn send(&mut self, json: &str) -> std::io::Result<()> {
+        self.stdin.write_all(json.as_bytes())?;
+        self.stdin.write_all(b"\n")?;
+        self.stdin.flush()
+    }
+
+    /// Read the next line from the engine. Blocks until a line is available
+    /// or the engine closes its stdout.
+    pub fn read_line(&mut self) -> Option<EngineLine> {
+        let mut line = String::new();
+        let n = self.stdout.read_line(&mut line).ok()?;
+        if n == 0 {
+            return None; // EOF
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        // Try snapshot first (has "phase" field), then error.
+        if let Ok(snap) = serde_json::from_str::<Snapshot>(trimmed) {
+            return Some(EngineLine::Snapshot(snap));
+        }
+        if let Ok(err) = serde_json::from_str::<ErrorResponse>(trimmed) {
+            return Some(EngineLine::Error(err));
+        }
+        Some(EngineLine::Raw(trimmed.into()))
+    }
+
+    /// Send an order and read the next engine response.
+    pub fn send_and_read(&mut self, json: &str) -> Option<EngineLine> {
+        self.send(json).ok()?;
+        self.read_line()
+    }
+
+    /// Kill the engine subprocess.
+    pub fn kill(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for Harness {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}

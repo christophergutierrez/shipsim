@@ -17,8 +17,8 @@ Play types: `docs/AGENT-PLAY.md`. Architecture: `docs/ARCHITECTURE.md`.
 | **To-hit** | Range-table d20 threshold × target `size / 2`, half-up, clamped to 1..20. Size 2 is neutral. |
 | **Thrust** | Engine power → thrust via hull `thrust_per_power` / `power_per_thrust`. |
 | **Max speed** | Global cap 8; per-hull `max_velocity` may be lower. |
-| **Maneuvers** | `coast` (0), `accel` (1, along facing), `turn` `{facing}` (ring cost 1–3). |
-| **Slide** | Each of 4 cycles: after maneuvers, each ship slides **`speed` hexes** along course. |
+| **Maneuvers** | `coast` (0); `accel` along facing (+1 / −1 / revector cost `speed+1`); `turn` `{facing}` (ring 1–3); `turn_accel` (turn then accel, sum of costs). |
+| **Slide** | Each of 4 cycles: after maneuvers, slide **`speed` hexes** along course. Opposite-course ships may **pass through** the same mid-hex. |
 
 ## CLI
 
@@ -50,13 +50,15 @@ Every order is one JSON object per line with `protocol_version: 3`.
 {"protocol_version":3,"type":"commit_maneuver","ship":1,"maneuver":{"type":"coast"}}
 {"protocol_version":3,"type":"commit_maneuver","ship":1,"maneuver":{"type":"accel"}}
 {"protocol_version":3,"type":"commit_maneuver","ship":1,"maneuver":{"type":"turn","facing":3}}
+{"protocol_version":3,"type":"commit_maneuver","ship":1,"maneuver":{"type":"turn_accel","facing":1}}
 ```
 
 | `maneuver.type` | Effect |
 |---|---|
 | `coast` | No thrust; keep velocity/facing |
-| `accel` | 1 thrust along **facing**: +speed if face=course; −speed if opposite; from stop → course=face, speed 1 |
-| `turn` | Set facing 0..5; cost = hex ring distance (1/2/3) |
+| `accel` | Along **facing**: +1 speed if aligned (cost 1); −1 if reverse (1); from stop → course=face, speed 1 (1); **oblique revector** → course=face, speed 1, cost `speed+1` |
+| `turn` | Set facing 0..5; cost = hex ring distance (1/2/3); course unchanged |
+| `turn_accel` | Turn to facing, then one accel from that nose; cost = turn + accel |
 
 ### `commit_fire` / `ready_fire` / `end_turn`
 

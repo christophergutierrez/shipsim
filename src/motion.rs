@@ -70,10 +70,15 @@ pub fn opposite_dir(dir: u8) -> u8 {
 pub enum Maneuver {
     /// No thrust; keep velocity and facing.
     Coast,
-    /// Spend 1 thrust; accelerate or cancel along current facing.
+    /// Thrust along current facing (see `resolve_maneuver` for costs).
     Accel,
     /// Turn hull to absolute facing 0..=5. Cost = ring distance (1..=3).
     Turn {
+        facing: u8,
+    },
+    /// Turn to `facing`, then apply one Accel from the new facing (one commit).
+    /// Cost = turn cost + accel cost after the turn (same as separate turn then accel).
+    TurnAccel {
         facing: u8,
     },
 }
@@ -97,12 +102,81 @@ pub enum ManeuverError {
     InvalidFacing(u8),
     #[error("turn to same facing is a no-op; use coast")]
     TurnInPlaceNoOp,
-    #[error(
-        "accel only along current course or its reverse (facing {facing}, course {course}); turn first"
-    )]
-    AccelNotAligned { facing: u8, course: u8 },
     #[error("max_speed {0} exceeds global maximum velocity {1}")]
     MaxSpeedExceedsGlobal(u8, u8),
+    #[error("insufficient thrust for revector (need {need}, have context only at apply)")]
+    // Reserved for callers; resolve always reports cost, never this.
+    #[allow(dead_code)]
+    RevectorTooExpensive { need: u32 },
+}
+
+/// Resolve accel along `facing` given current velocity.
+///
+/// - Stopped → speed 1 on facing (cost 1).
+/// - Nose along course → speed +1 (cost 1).
+/// - Nose opposite course → speed −1 (cost 1); at 0, course becomes facing.
+/// - Else (oblique) → **revector**: cost `speed + 1` (same as cancel-all then
+///   start the other way), course = facing, speed = 1.
+fn resolve_accel(
+    velocity: Velocity,
+    facing: u8,
+    max_speed: u8,
+) -> Result<ManeuverResult, ManeuverError> {
+    if velocity.speed == 0 {
+        if max_speed == 0 {
+            return Err(ManeuverError::AlreadyMaxSpeed(0, 0));
+        }
+        return Ok(ManeuverResult {
+            velocity: Velocity {
+                speed: 1,
+                course: facing,
+            },
+            facing,
+            thrust_cost: 1,
+        });
+    }
+    if facing == velocity.course {
+        if velocity.speed >= max_speed {
+            return Err(ManeuverError::AlreadyMaxSpeed(velocity.speed, max_speed));
+        }
+        return Ok(ManeuverResult {
+            velocity: Velocity {
+                speed: velocity.speed + 1,
+                course: velocity.course,
+            },
+            facing,
+            thrust_cost: 1,
+        });
+    }
+    if facing == opposite_dir(velocity.course) {
+        let new_speed = velocity.speed - 1;
+        let new_course = if new_speed == 0 {
+            facing
+        } else {
+            velocity.course
+        };
+        return Ok(ManeuverResult {
+            velocity: Velocity {
+                speed: new_speed,
+                course: new_course,
+            },
+            facing,
+            thrust_cost: 1,
+        });
+    }
+    // Oblique: pay to kill all residual speed, then start on facing (speed 1).
+    // Cost equals S one-step cancels + 1 start when reversing fully.
+    if max_speed == 0 {
+        return Err(ManeuverError::AlreadyMaxSpeed(0, 0));
+    }
+    Ok(ManeuverResult {
+        velocity: Velocity {
+            speed: 1,
+            course: facing,
+        },
+        facing,
+        thrust_cost: u32::from(velocity.speed) + 1,
+    })
 }
 
 /// Resolve a maneuver. Does not consult thrust reserves (caller checks cost).
@@ -140,55 +214,20 @@ pub fn resolve_maneuver(
                 thrust_cost: cost,
             })
         }
-        Maneuver::Accel => {
-            if velocity.speed == 0 {
-                // Leave dock / restart: course becomes facing, speed 1.
-                if max_speed == 0 {
-                    return Err(ManeuverError::AlreadyMaxSpeed(0, 0));
-                }
-                let new_velocity = Velocity {
-                    speed: 1,
-                    course: facing,
-                };
-                return Ok(ManeuverResult {
-                    velocity: new_velocity,
-                    facing,
-                    thrust_cost: 1,
-                });
+        Maneuver::Accel => resolve_accel(velocity, facing, max_speed),
+        Maneuver::TurnAccel { facing: to } => {
+            if to > 5 {
+                return Err(ManeuverError::InvalidFacing(to));
             }
-            if facing == velocity.course {
-                if velocity.speed >= max_speed {
-                    return Err(ManeuverError::AlreadyMaxSpeed(velocity.speed, max_speed));
-                }
-                Ok(ManeuverResult {
-                    velocity: Velocity {
-                        speed: velocity.speed + 1,
-                        course: velocity.course,
-                    },
-                    facing,
-                    thrust_cost: 1,
-                })
-            } else if facing == opposite_dir(velocity.course) {
-                let new_speed = velocity.speed - 1;
-                let new_course = if new_speed == 0 {
-                    facing // stopped facing the cancel direction (ready to go that way)
-                } else {
-                    velocity.course
-                };
-                Ok(ManeuverResult {
-                    velocity: Velocity {
-                        speed: new_speed,
-                        course: new_course,
-                    },
-                    facing,
-                    thrust_cost: 1,
-                })
-            } else {
-                Err(ManeuverError::AccelNotAligned {
-                    facing,
-                    course: velocity.course,
-                })
-            }
+            let turn_cost = facing_turn_cost(facing, to);
+            // Same facing: just accel (no free no-op turn).
+            let after_face = to;
+            let accel = resolve_accel(velocity, after_face, max_speed)?;
+            Ok(ManeuverResult {
+                velocity: accel.velocity,
+                facing: after_face,
+                thrust_cost: turn_cost.saturating_add(accel.thrust_cost),
+            })
         }
     }
 }
@@ -236,10 +275,24 @@ mod tests {
     }
 
     #[test]
-    fn accel_oblique_is_illegal() {
+    fn accel_oblique_revectors_at_speed_plus_one() {
         let v = Velocity::new(2, 0).unwrap();
-        let err = resolve_maneuver(v, 1, 8, Maneuver::Accel).unwrap_err();
-        assert!(matches!(err, ManeuverError::AccelNotAligned { .. }));
+        let r = resolve_maneuver(v, 1, 8, Maneuver::Accel).unwrap();
+        assert_eq!(r.thrust_cost, 3); // 2 cancel + 1 start
+        assert_eq!(r.velocity.speed, 1);
+        assert_eq!(r.velocity.course, 1);
+        assert_eq!(r.facing, 1);
+    }
+
+    #[test]
+    fn turn_accel_combines_costs() {
+        let v = Velocity::new(2, 0).unwrap();
+        // face 0 → turn to 1 (cost 1) then revector accel (cost 3) = 4
+        let r = resolve_maneuver(v, 0, 8, Maneuver::TurnAccel { facing: 1 }).unwrap();
+        assert_eq!(r.facing, 1);
+        assert_eq!(r.velocity.course, 1);
+        assert_eq!(r.velocity.speed, 1);
+        assert_eq!(r.thrust_cost, 4);
     }
 
     #[test]

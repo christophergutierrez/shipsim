@@ -126,11 +126,11 @@ def _inertial_primer() -> str:
     return (
         "  Inertial flight (protocol 3):\n"
         "    • course = travel direction; face = nose (weapons + where thrust applies).\n"
-        "    • coast = free, keep speed. accel = 1 thrust along facing "
-        "(+speed if nose=course; cancel if nose=opposite; from stop starts on facing).\n"
-        "    • turn N | turn port/starboard = change facing only; cost 1/2/3 by ring distance.\n"
-        "    • Each cycle you slide `speed` hexes along course (constant rate, max 8).\n"
-        "    • Flying with nose opposite course = flying backward until you cancel."
+        "    • coast = free. accel along nose: +1 speed if aligned (1 thrust); −1 if reverse (1);\n"
+        "      oblique revector costs speed+1 (same as full stop then go that way).\n"
+        "    • turn N | turn port/starboard: facing only, cost 1/2/3.\n"
+        "      `turn N accel` = turn then accel in one commit (sum of costs).\n"
+        "    • Each cycle slide `speed` hexes on course. Opposite-course ships can pass through."
     )
 
 
@@ -424,8 +424,8 @@ def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
         # and clears weapon charge for the next turn. The delta line above shows
         # what changed; here we just prompt to advance (UX_ANALYSIS.md §7d).
         return (
-            f"turn_end:{foc}  fire resolved — shields/charge reset for next turn. "
-            f"end to advance"
+            f"turn_end:{foc}  fire resolved — shields return to 0 next allocate; "
+            f"weapon charge carries if unspent. end to advance"
         )
     return f"phase={phase}{foc}"
 
@@ -579,11 +579,13 @@ class AllocDraft:
         carried_any = any(int(v) > 0 for v in self.carried_weapons.values())
         if carried_any:
             lines.append(
-                "  note: weapon bars include carried charge; pool `used` only counts "
-                "engine + shields + *new* weapon charge"
+                "  pool math: used = engine + shields + new weapon charge only "
+                "(carried weapon # do not spend the pool)"
             )
         if free > 0:
-            lines.append(f"  ⚠ {free} unspent power — put it toward engine, a weapon, or a shield")
+            lines.append(
+                f"  ⚠ {free} free in pool — spend on engine / shields / topping weapons"
+            )
         return "\n".join(lines)
 
     def to_order(self) -> Optional[dict[str, Any]]:
@@ -1663,9 +1665,12 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
                     f"speed {speed}→{max(speed - 1, 0)} (cancel momentum)"
                 )
             else:
+                # Oblique revector: cost speed+1, snap course to facing, speed 1
+                cost = speed + 1
                 note = (
-                    f"ACCEL illegal: nose {dir_glyph(facing_now)} is neither along course "
-                    f"{dir_glyph(course_now)} nor reverse. Turn first, then accel."
+                    f"ACCEL REVECTOR ({cost} thrust = kill v={speed} + start): "
+                    f"course {dir_glyph(course_now)}→{dir_glyph(facing_now)}, speed →1 "
+                    f"(same cost as full stop then go that way)"
                 )
         elif cmd in ("decel", "decelerate"):
             # Cancel: turn reverse then user must accel — one-shot helper turns reverse.
@@ -1683,34 +1688,48 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
                     "then type accel"
                 )
         else:
-            # turn / course / rotate → Turn { facing }
+            # turn / course / rotate → Turn { facing }; optional trailing "accel"
             target: Optional[int] = None
-            if rest and rest[0].isdigit() and 0 <= int(rest[0]) <= 5:
-                target = int(rest[0])
-            elif rest and rest[0].lower() in ("port", "starboard", "left", "right"):
-                starboard = rest[0].lower() in ("starboard", "right")
+            also_accel = False
+            tokens = list(rest)
+            if tokens and tokens[-1].lower() in ("accel", "accelerate", "go"):
+                also_accel = True
+                tokens = tokens[:-1]
+            if tokens and tokens[0].isdigit() and 0 <= int(tokens[0]) <= 5:
+                target = int(tokens[0])
+            elif tokens and tokens[0].lower() in ("port", "starboard", "left", "right"):
+                starboard = tokens[0].lower() in ("starboard", "right")
                 delta = -1 if starboard else 1
                 target = (facing_now + delta) % 6
             else:
-                print("  usage: turn N | turn port|starboard   (also: course/rotate port|starboard)")
+                print(
+                    "  usage: turn N | turn port|starboard | turn N accel  "
+                    "(also: course/rotate port|starboard)"
+                )
                 return Action(side="empty")
-            if target == facing_now:
+            if target == facing_now and not also_accel:
                 print("  already facing that way; use coast or accel")
                 return Action(side="empty")
-            # Ring cost for note
             d = min((target - facing_now) % 6, (facing_now - target) % 6)
-            maneuver = {"type": "turn", "facing": target}
-            if speed > 0:
-                slide_note = (
-                    f"course stays {dir_glyph(course_now)} — you keep sliding that way "
-                    f"({speed} hex/cycle); only the nose/weapons changed"
+            if also_accel:
+                maneuver = {"type": "turn_accel", "facing": target}
+                note = (
+                    f"TURN+ACCEL: nose →{dir_glyph(target)} (turn cost {d}) then thrust; "
+                    f"total cost = turn + accel/revector from that nose"
                 )
             else:
-                slide_note = "stopped: next accel will start you on the new nose direction"
-            note = (
-                f"TURN (cost {d} thrust): nose {dir_glyph(facing_now)}→{dir_glyph(target)}. "
-                f"{slide_note}"
-            )
+                maneuver = {"type": "turn", "facing": target}
+                if speed > 0:
+                    slide_note = (
+                        f"course stays {dir_glyph(course_now)} — you keep sliding that way "
+                        f"({speed} hex/cycle); only the nose/weapons changed"
+                    )
+                else:
+                    slide_note = "stopped: next accel will start you on the new nose direction"
+                note = (
+                    f"TURN (cost {d} thrust): nose {dir_glyph(facing_now)}→{dir_glyph(target)}. "
+                    f"{slide_note}"
+                )
         return Action(
             orders=[_order("commit_maneuver", ship=sid, maneuver=maneuver)],
             note=note,

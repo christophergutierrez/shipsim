@@ -129,7 +129,7 @@ class UnspentPowerTests(unittest.TestCase):
         d.weapons = {"L1": 0}
         d.shields = [0, 0, 0, 0, 0, 0]
         text = d.summary()
-        self.assertIn("unspent power", text)
+        self.assertTrue("unspent power" in text or "free in pool" in text)
 
     def test_summary_silent_when_power_fully_spent(self):
         from commands import AllocDraft
@@ -142,6 +142,7 @@ class UnspentPowerTests(unittest.TestCase):
         self.assertEqual(0, d.free())
         text = d.summary()
         self.assertNotIn("unspent power", text)
+        self.assertNotIn("free in pool", text)
 
 
 class CallsignInitiativeTests(unittest.TestCase):

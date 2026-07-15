@@ -105,6 +105,20 @@ class Maneuvers(unittest.TestCase):
             action = build_action("turn port", snap, ReplContext(selected=1))
         self.assertEqual(1, action.orders[0]["maneuver"]["facing"])
 
+    def test_turn_accel_combined(self):
+        snap = _snap(_ship(velocity=2, course=0, facing=0), movement_phase=1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            action = build_action("turn 1 accel", snap, ReplContext(selected=1))
+        self.assertEqual("turn_accel", action.orders[0]["maneuver"]["type"])
+        self.assertEqual(1, action.orders[0]["maneuver"]["facing"])
+
+    def test_oblique_accel_notes_revector(self):
+        snap = _snap(_ship(velocity=2, course=0, facing=1), movement_phase=1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            action = build_action("accel", snap, ReplContext(selected=1))
+        self.assertEqual("accel", action.orders[0]["maneuver"]["type"])
+        self.assertIn("REVECTOR", action.note or "")
+
 
 class ShipLine(unittest.TestCase):
     def test_sticky(self):

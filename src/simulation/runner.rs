@@ -394,6 +394,7 @@ fn legal_orders(game: &GameState, ship: u32) -> Vec<Order> {
             let mut candidates = vec![Maneuver::Coast, Maneuver::Accel];
             for facing in 0..6u8 {
                 candidates.push(Maneuver::Turn { facing });
+                candidates.push(Maneuver::TurnAccel { facing });
             }
             candidates
                 .into_iter()

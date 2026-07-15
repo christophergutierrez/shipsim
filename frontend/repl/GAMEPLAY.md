@@ -440,13 +440,14 @@ hint (e.g. wrong phase). Fix the phase or ship and retry.
 python3 frontend/repl/repl.py --tutorial rear-attack
 ```
 
-Strict narrated fight on `scenarios/tutorial_rear_attack.toml`. Teaches:
+Strict narrated fight on `scenarios/tutorial_rear_attack.toml` (~43 steps, 3 turns).
+Teaches an aggressive path that ends in a point-blank all-weapons dump:
 
-- allocate (thrust, weapon charge that **carries**, shields from **zero**),
-- **accel** along the nose, **coast**, **turn N** (facing only; cost 1/2/3),
+- allocate once with full weapons + thrust; charge **carries**, shields rebuild from **zero**,
+- **accel** along the nose to race past, **turn N** (facing only; cost 1/2/3),
 - constant-rate slides (`speed` hexes each cycle),
-- flying past the escort then aiming west for stern volleys,
-- `fire b1 B2` queues + `ready` resolves (hit and miss spend charge).
+- **brake** by thrusting against course, revector west, close to range 1,
+- `fire b1 B2` / `t1` / `p1` queues + `ready` resolves the kill volley.
 
 Wrong gameplay keys are blocked; `status` / `board` / `motion` / `help` / `log` stay free.
 

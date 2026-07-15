@@ -172,12 +172,15 @@ impl BaselinePolicy {
                 (Style::Greedy, Maneuver::Accel) => 80,
                 (_, Maneuver::Accel) => 70,
                 (Style::Defensive, Maneuver::Turn { .. }) => 75,
+                (Style::Mobility, Maneuver::TurnAccel { .. }) => 95,
+                (_, Maneuver::TurnAccel { .. }) => 65,
                 (_, Maneuver::Coast) => 20,
                 (_, Maneuver::Turn { .. }) => 50,
             };
             if let Some(wanted) = desired {
                 match maneuver {
                     Maneuver::Turn { facing } if *facing == wanted => score += 50,
+                    Maneuver::TurnAccel { facing } if *facing == wanted => score += 55,
                     Maneuver::Accel if context.ship.facing == wanted => score += 40,
                     Maneuver::Accel if context.ship.course == wanted => score += 30,
                     _ => {}

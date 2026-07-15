@@ -105,6 +105,48 @@ fn test_soft_reject_missing_protocol_version_without_mutation() {
 }
 
 #[test]
+fn test_p3_smoke_fixture_matches_golden() {
+    let output = shipsim_command()
+        .arg("--scenario")
+        .arg(manifest_path("scenarios/p3_smoke.toml"))
+        .arg("--orders")
+        .arg(manifest_path("tests/fixtures/v3/smoke_orders.jsonl"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected = std::fs::read(manifest_path("tests/fixtures/v3/smoke_out.jsonl")).unwrap();
+    assert_eq!(
+        output.stdout, expected,
+        "p3 smoke golden mismatch — regenerate tests/fixtures/v3/smoke_out.jsonl"
+    );
+}
+
+#[test]
+fn test_p3_revector_fixture_matches_golden() {
+    let output = shipsim_command()
+        .arg("--scenario")
+        .arg(manifest_path("scenarios/p3_smoke.toml"))
+        .arg("--orders")
+        .arg(manifest_path("tests/fixtures/v3/revector_orders.jsonl"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected = std::fs::read(manifest_path("tests/fixtures/v3/revector_out.jsonl")).unwrap();
+    assert_eq!(
+        output.stdout, expected,
+        "p3 revector golden mismatch — regenerate tests/fixtures/v3/revector_out.jsonl"
+    );
+}
+
+#[test]
 fn test_soft_reject_protocol_v2_orders() {
     let orders_path = std::env::temp_dir().join(format!(
         "shipsim-v2-orders-{}.jsonl",

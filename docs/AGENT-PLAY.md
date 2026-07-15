@@ -87,12 +87,8 @@ Logs: `frontend/repl/local/session-*.log`, `orders-*.jsonl`.
 
 ### Secondary: Love2D
 
-```bash
-cargo build -q
-love frontend/love
-```
-
-Graphical; weaker for headless agents. See `frontend/love/README.md`.
+**Not supported on protocol 3 yet** (still v2). Prefer REPL, or the in-progress
+TUI under `frontend/tui/`. Port Love after TUI is solid.
 
 ### Future: ratatui TUI
 

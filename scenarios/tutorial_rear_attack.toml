@@ -3,7 +3,8 @@ height = 10
 seed = 4
 
 # Deterministic tutorial variant of ai.toml. Seed 4 preserves the narrated
-# rear-attack victory after size-adjusted accuracy makes the Escort harder to hit.
+# aggressive rear-attack: race past, brake/revector, point-blank all-weapons
+# dump → Won on turn 3 (see frontend/repl/tutorial.py).
 [terminal]
 type = "destruction"
 target = 2

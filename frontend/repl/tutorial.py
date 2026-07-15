@@ -17,46 +17,47 @@ class TutorialStep:
     movement_phase: int | None = None
 
 
-# Verified against scenarios/tutorial_rear_attack.toml + protocol 3 (seed 4):
-# fly east past the escort, turn west, and pressure it until Won.
+# Verified UI play (pipelined into repl.py --scroll) against
+# scenarios/tutorial_rear_attack.toml + protocol 3 (seed 4):
+# race past the escort, brake/revector west, point-blank dump all three weapons → Won turn 3.
 _REAR_ATTACK_STEPS = (
-    # ── Turn 1: buy speed east ──────────────────────────────────────────
+    # ── Turn 1: arm everything and fly past ─────────────────────────────
     TutorialStep(
-        "mov 8",
-        "Buy thrust, not distance",
+        "mov 10",
+        "Buy a big thrust pool",
         "You start stopped at (0,4), nose east (face 0→). The escort is at (8,4) "
-        "looking west. Engine power becomes a thrust pool for this turn only — "
-        "velocity will persist after end-turn, but thrust does not. Spend 8 power "
-        "on the engine so you can accel and later turn the nose.",
+        "looking west. Engine power is this turn's thrust pool only — velocity "
+        "persists after end-turn, thrust does not. Spend 10 on the engine so you "
+        "can accel hard and still afford a 180° nose turn later.",
         1, "allocate",
     ),
     TutorialStep(
         "w b1 4",
-        "Charge the main battery",
-        "Put 4 charge on beam_1 (its max). Charge carries across turns if you "
-        "do not fire — we will hold this shot until we are behind the escort. "
-        "You cannot later strip this charge to spend elsewhere.",
+        "Charge the beam now",
+        "Put 4 on beam_1 (max). Charge carries across turns if you do not fire — "
+        "we hold the shot until point-blank behind the escort. You cannot strip "
+        "this charge later to spend elsewhere.",
         1, "allocate",
     ),
     TutorialStep(
         "w t1 1",
-        "Arm a one-shot",
-        "Charge torp_1 to 1. Torpedoes are single-charge weapons; we will dump "
-        "them with the beam when the rear arc opens.",
+        "Arm the torp",
+        "Charge torp_1 to 1. One-shot weapon; it rides with the beam into the "
+        "same volley when geometry opens.",
+        1, "allocate",
+    ),
+    TutorialStep(
+        "w p1 1",
+        "Arm plasma too",
+        "Plasma_1 to 1. Full package this turn so the kill shot needs no re-arm "
+        "mid-fight. Budget so far: 10 engine + 4+1+1 weapons = 16 of 22.",
         1, "allocate",
     ),
     TutorialStep(
         "sh 0 6",
         "Shield the nose",
-        "Shields always start at 0 each allocate — no leftover armor. Put 6 on "
-        "face 0:F (forward). The escort will shoot your nose while you close.",
-        1, "allocate",
-    ),
-    TutorialStep(
-        "sh 1 3",
-        "Spend the last power",
-        "3 more on 1:FR. Total: 8 engine + 4 beam + 1 torp + 6 + 3 shields = 22, "
-        "the whole pool. Nothing unspent.",
+        "Shields always start at 0 each allocate. Put the last 6 on face 0:F "
+        "(forward). The escort will shoot your nose on the approach. Total 22.",
         1, "allocate",
     ),
     TutorialStep(
@@ -69,16 +70,15 @@ _REAR_ATTACK_STEPS = (
     TutorialStep(
         "accel",
         "Leave the pier",
-        "Accel spends 1 thrust along your nose (face 0→). From a stop that sets "
-        "course = facing and speed 1. You immediately slide 1 hex east. "
-        "Remember: each cycle you slide `speed` hexes on course — not the old "
-        "sparse schedule.",
+        "Accel spends 1 thrust along your nose. From a stop that sets course = "
+        "facing and speed 1, then you slide 1 hex east. Each cycle you slide "
+        "`speed` hexes on course — constant rate, every cycle.",
         1, "movement", 1,
     ),
     TutorialStep(
         "ready",
         "Do not shoot the bow",
-        "You can bear on the escort, but you would hit its forward shields. "
+        "You can bear on the escort, but forward shields would eat the volley. "
         "Type ready (not e) to leave the fire window without spending charge. "
         "e would end the whole turn.",
         1, "firing", 1,
@@ -87,72 +87,63 @@ _REAR_ATTACK_STEPS = (
         "accel",
         "Speed 2 — bigger slide",
         "Accel again along course: speed 1→2. This cycle you slide 2 hexes east. "
-        "The escort is also charging; range collapses fast under constant-rate motion.",
+        "Range collapses fast under constant-rate motion.",
         1, "movement", 2,
     ),
     TutorialStep(
         "ready",
         "Still not the rear",
-        "Hold fire. We need to get past the escort (higher q than B2) so our "
-        "shots land on its stern, not its nose.",
+        "Hold fire. We need higher q than the escort so stern geometry opens.",
         1, "firing", 2,
     ),
     TutorialStep(
-        "coast",
-        "Keep the vector free",
-        "Coast costs 0 thrust and keeps speed/course. You still slide 2 hexes. "
-        "Use coast when you already have the motion you want.",
+        "accel",
+        "Speed 3 — punch past",
+        "One more accel to speed 3 (slide 3 hexes). You cross their track this "
+        "cycle or the next.",
         1, "movement", 3,
     ),
     TutorialStep(
         "ready",
         "Patience",
-        "Again: ready, do not fire. Charge is for the rear volley.",
+        "Again: ready, do not fire. Charge is for the point-blank volley.",
         1, "firing", 3,
     ),
     TutorialStep(
-        "coast",
-        "Cross their track",
-        "One more coast. After this slide you should be east of the escort "
-        "(higher q) while still facing east — flying past their stern line.",
+        "turn 3",
+        "Nose west while still flying east",
+        "turn changes facing only (0→3 costs 3 thrust). Course stays east — you "
+        "keep sliding that way and finish past their stern. Nose 3← points the "
+        "guns back along the track. That is how you shoot 'backward' while "
+        "flying past.",
         1, "movement", 4,
     ),
     TutorialStep(
         "ready",
         "Close the setup turn",
-        "End fire for cycle 4. Next: end-turn keeps your velocity and course, "
-        "zeros shields, and keeps unfired weapon charge.",
+        "Range is still long. Ready out of fire, then end-turn: velocity and "
+        "course persist, shields zero, unfired weapon charge stays.",
         1, "firing", 4,
     ),
     TutorialStep(
         "e",
         "Advance the clock",
-        "e / end advances the whole turn (confirm if asked). Velocity stays; "
-        "thrust and shields reset; beam/torp charge remain if unused.",
+        "e / end advances the whole turn. Velocity stays; thrust and shields "
+        "reset; beam/torp/plasma charge remain because you never fired.",
         1, "turn_end",
     ),
-    # ── Turn 2: face west and open the stern ───────────────────────────
+    # ── Turn 2: brake the eastbound slide, reverse west ────────────────
     TutorialStep(
-        "mov 6",
-        "Buy thrust; leave weapons alone",
-        "Speed and course persist, but thrust is gone — buy 6 engine power for "
-        "the big facing turn. Beam_1 and torp_1 still hold last turn's charge "
-        "(you never fired). Do not re-enter them; carried charge stays unless "
-        "you fire or the weapon is destroyed.",
-        2, "allocate",
-    ),
-    TutorialStep(
-        "w p1 1",
-        "Only new charge costs power",
-        "Plasma was never charged. Put 1 on plasma_1 — that spends 1 power. "
-        "Beam and torp are already loaded from turn 1, so skip them.",
+        "mov 10",
+        "Thrust to brake — leave weapons alone",
+        "Speed 3 course 0 still carries you east, but thrust is gone. Buy 10 "
+        "engine power. Weapons still hold turn-1 charge — do not re-enter them.",
         2, "allocate",
     ),
     TutorialStep(
         "sh 0 6",
         "Rebuild shields from zero",
-        "Shields do not carry. Every allocate starts faces at 0. Rebuy 0:F "
-        "fully — the AI still has teeth.",
+        "Shields do not carry. Rebuy 0:F fully — the AI still has teeth.",
         2, "allocate",
     ),
     TutorialStep(
@@ -164,303 +155,161 @@ _REAR_ATTACK_STEPS = (
     TutorialStep(
         "sh 5 3",
         "Other shoulder",
-        "3 on 5:FL. Budget: 6 engine + 1 plasma + 6+3+3 shields = 19 of 22. "
-        "Commit when the draft matches.",
+        "3 on 5:FL. Budget: 10 engine + 6+3+3 shields = 22. Commit.",
         2, "allocate",
     ),
     TutorialStep(
         "commit",
-        "Enter the attack turn",
-        "Commit. Carried beam/torp charge is still on the ship. Next: swing "
-        "the nose, then dump the volley.",
+        "Enter the brake turn",
+        "Commit. Carried weapons are still loaded. Next: thrust against the "
+        "slide until you stop, then push west.",
         2, "allocate",
     ),
     TutorialStep(
-        "turn 3",
-        "Point the guns aft of them",
-        "turn changes facing only (cost = hex ring distance: 0→3 costs 3 thrust). "
-        "Course is still east — you keep sliding that way. Nose now 3← (west), "
-        "so weapons look back along the track toward the escort. That is how you "
-        "shoot 'backward' while flying past.",
+        "accel",
+        "Brake: thrust opposite course",
+        "Nose is west (3) while course is still east (0). Accel along facing "
+        "against the vector: speed drops 3→2. You still slide 2 east this cycle.",
         2, "movement", 1,
     ),
     TutorialStep(
-        "fire b1 B2",
-        "Queue the beam",
-        "One-line fire: weapon + target callsign. This queues commit_fire; it "
-        "does not resolve yet. Charge drops only when everyone is ready.",
-        2, "firing", 1,
-    ),
-    TutorialStep(
-        "fire t1 B2",
-        "Queue the torp",
-        "Add torp_1 to the same simultaneous volley.",
-        2, "firing", 1,
-    ),
-    TutorialStep(
-        "fire p1 B2",
-        "Queue plasma",
-        "Third commit. All three resolve together when the last ship readies.",
-        2, "firing", 1,
-    ),
-    TutorialStep(
         "ready",
-        "Resolve the volley",
-        "ready_fire marks you done. When the AI readies too, hits and misses "
-        "both spend charge. Watch the combat log for shield vs hull split.",
+        "Hold the charge",
+        "Still out of kill range. Ready without firing.",
         2, "firing", 1,
     ),
     TutorialStep(
-        "coast",
-        "Hold the vector",
-        "Keep sliding east on course 0 without spending thrust. Nose stays west "
-        "for more stern shots if geometry allows.",
+        "accel",
+        "Keep braking",
+        "Accel again: speed 2→1. Slide 1 hex. Same reverse-thrust idea.",
         2, "movement", 2,
     ),
     TutorialStep(
         "ready",
-        "Skip empty windows",
-        "If nothing legal is left charged, ready cleanly. Do not use e here.",
+        "Still holding",
+        "Ready through this window.",
         2, "firing", 2,
     ),
     TutorialStep(
-        "coast",
-        "Still coasting",
-        "Same idea: free slide, preserve thrust.",
+        "accel",
+        "Kill the eastbound vector",
+        "Accel once more: speed 1→0. Course becomes west (3) at rest — ready "
+        "to push back toward the escort.",
         2, "movement", 3,
     ),
     TutorialStep(
         "ready",
         "Clear fire",
-        "Ready through this window.",
+        "Ready.",
         2, "firing", 3,
     ),
     TutorialStep(
-        "coast",
-        "Finish the turn’s motion",
-        "Last movement cycle of the turn — coast again.",
+        "accel",
+        "Push west",
+        "From a stop, accel along face 3 sets course west and speed 1. You "
+        "slide 1 hex toward the escort.",
         2, "movement", 4,
     ),
     TutorialStep(
         "ready",
         "Into turn end",
-        "Ready, then end-turn when the phase allows.",
+        "Ready, then end-turn. Weapons still charged.",
         2, "firing", 4,
     ),
     TutorialStep(
         "e",
-        "Next turn",
-        "End turn. Reload shields; top weapons; keep hunting from behind.",
+        "Next turn — the kill run",
+        "End turn. Rebuild shields; keep the full weapon load for point blank.",
         2, "turn_end",
     ),
-    # ── Turns 3–5: repeat pressure until destruction ───────────────────
+    # ── Turn 3: close to range 1 and dump everything ───────────────────
     TutorialStep(
-        "mov 6",
-        "Thrust for the grind",
-        "Buy thrust again. You may not need to accel — coasting on residual "
-        "speed is fine while you re-arm.",
-        3, "allocate",
-    ),
-    TutorialStep(
-        "w b1 4",
-        "Recharge the beam — you spent it",
-        "Last turn's ready resolved the volley: hit or miss, charge went to 0. "
-        "Buy beam_1 back to 4 (full cost this time).",
-        3, "allocate",
-    ),
-    TutorialStep(
-        "w t1 1",
-        "Recharge the torp",
-        "Torp was fired too — charge it to 1 again.",
-        3, "allocate",
-    ),
-    TutorialStep(
-        "w p1 1",
-        "Recharge plasma",
-        "Same for plasma_1.",
+        "mov 10",
+        "Thrust for the slam",
+        "Buy 10 engine again. Weapons are still full from turn 1 — skip the "
+        "w commands. Only shields need rebuy.",
         3, "allocate",
     ),
     TutorialStep(
         "sh 0 6",
-        "Shields from zero",
-        "Rebuy forward shields every turn.",
+        "Shields F",
+        "0:F = 6 from zero.",
         3, "allocate",
     ),
     TutorialStep(
         "sh 1 3",
-        "FR cover",
-        "3 on 1:FR.",
+        "Shields FR",
+        "1:FR = 3.",
         3, "allocate",
     ),
     TutorialStep(
-        "sh 5 1",
-        "FL scrap",
-        "Last point on 5:FL, then commit.",
+        "sh 5 3",
+        "Shields FL",
+        "5:FL = 3 (22 total). Commit into the attack run.",
         3, "allocate",
     ),
     TutorialStep(
         "commit",
         "Commit",
-        "Send allocation.",
+        "Movement opens. Close the gap hard.",
         3, "allocate",
     ),
     TutorialStep(
-        "coast",
-        "Stay on the stern line",
-        "Coast. Nose should still look west at the escort.",
+        "accel",
+        "Speed 2 west",
+        "Accel along course: speed 1→2, slide 2 hexes toward the escort.",
         3, "movement", 1,
     ),
     TutorialStep(
-        "fire b1 B2",
-        "Beam again",
-        "Queue beam into the escort.",
+        "ready",
+        "Not yet",
+        "Range is still medium. Hold the full volley for point blank.",
         3, "firing", 1,
+    ),
+    TutorialStep(
+        "accel",
+        "Speed 3 — still closing",
+        "Accel to speed 3, slide 3. Geometry collapses.",
+        3, "movement", 2,
+    ),
+    TutorialStep(
+        "ready",
+        "Almost",
+        "One more accel after this window puts you at range 1.",
+        3, "firing", 2,
+    ),
+    TutorialStep(
+        "accel",
+        "Point blank",
+        "Accel to speed 4 and slide into range 1, nose on the escort from "
+        "behind (higher q, face west). All three weapons should show FIRE READY.",
+        3, "movement", 3,
+    ),
+    TutorialStep(
+        "fire b1 B2",
+        "Queue the beam",
+        "One-line fire: weapon + target callsign. Queues commit_fire; does not "
+        "resolve yet. Charge drops only when everyone is ready.",
+        3, "firing", 3,
     ),
     TutorialStep(
         "fire t1 B2",
-        "Torp again",
-        "Queue torp.",
-        3, "firing", 1,
+        "Queue the torp",
+        "Add torp_1 to the same simultaneous volley.",
+        3, "firing", 3,
     ),
     TutorialStep(
         "fire p1 B2",
-        "Plasma again",
-        "Queue plasma, then ready.",
-        3, "firing", 1,
+        "Queue plasma",
+        "Third commit. Beam + torp + plasma resolve together at range 1.",
+        3, "firing", 3,
     ),
     TutorialStep(
         "ready",
-        "Resolve",
-        "Resolve the triple volley.",
-        3, "firing", 1,
-    ),
-    TutorialStep(
-        "coast", "Coast", "Free slide.", 3, "movement", 2,
-    ),
-    TutorialStep(
-        "ready", "Ready", "Clear the window.", 3, "firing", 2,
-    ),
-    TutorialStep(
-        "coast", "Coast", "Free slide.", 3, "movement", 3,
-    ),
-    TutorialStep(
-        "ready", "Ready", "Clear the window.", 3, "firing", 3,
-    ),
-    TutorialStep(
-        "coast", "Coast", "Last cycle this turn.", 3, "movement", 4,
-    ),
-    TutorialStep(
-        "ready", "Ready", "Then end turn.", 3, "firing", 4,
-    ),
-    TutorialStep(
-        "e", "End turn", "Continue the stern pressure.", 3, "turn_end",
-    ),
-    # Turn 4
-    TutorialStep(
-        "mov 6", "Thrust", "Same reload pattern.", 4, "allocate",
-    ),
-    TutorialStep(
-        "w b1 4", "Recharge beam", "Spent last turn — buy beam_1 to 4 again.", 4, "allocate",
-    ),
-    TutorialStep(
-        "w t1 1", "Recharge torp", "Torp_1 to 1.", 4, "allocate",
-    ),
-    TutorialStep(
-        "w p1 1", "Recharge plasma", "Plasma_1 to 1.", 4, "allocate",
-    ),
-    TutorialStep(
-        "sh 0 6", "Shields F", "0:F = 6.", 4, "allocate",
-    ),
-    TutorialStep(
-        "sh 1 3", "Shields FR", "1:FR = 3.", 4, "allocate",
-    ),
-    TutorialStep(
-        "sh 5 1", "Shields FL", "5:FL = 1, commit.", 4, "allocate",
-    ),
-    TutorialStep(
-        "commit", "Commit", "Into movement.", 4, "allocate",
-    ),
-    TutorialStep(
-        "coast", "Coast", "Hold geometry.", 4, "movement", 1,
-    ),
-    TutorialStep(
-        "fire b1 B2", "Beam", "Queue beam.", 4, "firing", 1,
-    ),
-    TutorialStep(
-        "fire t1 B2", "Torp", "Queue torp.", 4, "firing", 1,
-    ),
-    TutorialStep(
-        "fire p1 B2", "Plasma", "Queue plasma.", 4, "firing", 1,
-    ),
-    TutorialStep(
-        "ready", "Resolve", "Volley.", 4, "firing", 1,
-    ),
-    TutorialStep(
-        "coast", "Coast", "Slide.", 4, "movement", 2,
-    ),
-    TutorialStep(
-        "ready", "Ready", "Clear.", 4, "firing", 2,
-    ),
-    TutorialStep(
-        "coast", "Coast", "Slide.", 4, "movement", 3,
-    ),
-    TutorialStep(
-        "ready", "Ready", "Clear.", 4, "firing", 3,
-    ),
-    TutorialStep(
-        "coast", "Coast", "Last cycle.", 4, "movement", 4,
-    ),
-    TutorialStep(
-        "ready", "Ready", "Then end.", 4, "firing", 4,
-    ),
-    TutorialStep(
-        "e", "End turn", "One more arming pass.", 4, "turn_end",
-    ),
-    # Turn 5 — finishing volley
-    TutorialStep(
-        "mov 6", "Thrust", "Final allocate.", 5, "allocate",
-    ),
-    TutorialStep(
-        "w b1 4", "Recharge beam", "Spent — beam_1 to 4.", 5, "allocate",
-    ),
-    TutorialStep(
-        "w t1 1", "Recharge torp", "Torp_1 to 1.", 5, "allocate",
-    ),
-    TutorialStep(
-        "w p1 1", "Recharge plasma", "Plasma_1 to 1.", 5, "allocate",
-    ),
-    TutorialStep(
-        "sh 0 6", "Shields", "0:F.", 5, "allocate",
-    ),
-    TutorialStep(
-        "sh 1 3", "Shields", "1:FR.", 5, "allocate",
-    ),
-    TutorialStep(
-        "sh 5 1", "Shields", "5:FL, commit.", 5, "allocate",
-    ),
-    TutorialStep(
-        "commit", "Commit", "Finish them.", 5, "allocate",
-    ),
-    TutorialStep(
-        "coast",
-        "Hold and shoot",
-        "Coast into the fire window with nose still on the escort.",
-        5, "movement", 1,
-    ),
-    TutorialStep(
-        "fire b1 B2", "Beam", "Final beam.", 5, "firing", 1,
-    ),
-    TutorialStep(
-        "fire t1 B2", "Torp", "Final torp.", 5, "firing", 1,
-    ),
-    TutorialStep(
-        "fire p1 B2", "Plasma", "Final plasma.", 5, "firing", 1,
-    ),
-    TutorialStep(
-        "ready",
-        "Kill shot",
-        "Resolve. Escort should go down (scenario Won). Type quit when done.",
-        5, "firing", 1,
+        "Resolve the kill shot",
+        "ready_fire marks you done. Hits spend charge and should destroy the "
+        "escort (scenario Won). Type quit when the banner shows victory.",
+        3, "firing", 3,
     ),
 )
 
@@ -471,9 +320,8 @@ class Tutorial:
     name = "rear-attack"
     scenario = "scenarios/tutorial_rear_attack.toml"
     objective = (
-        "Under protocol 3 motion: accelerate east past the escort, turn the nose "
-        "west (facing only — course keeps sliding you east), and destroy it with "
-        "stern-side volleys."
+        "Under protocol 3 motion: race east past the escort, turn the nose west, "
+        "brake and revector, then destroy it with a point-blank all-weapons dump."
     )
     safe_commands = {
         "board", "b", "cls", "redraw", "refresh", "help", "?", "h",
@@ -540,8 +388,9 @@ class Tutorial:
         if self.complete:
             status = snap.get("status")
             return (
-                "Rear-attack lesson complete. You used protocol 3 motion: accel along "
-                f"the nose, turn for facing only, constant-rate slides. Status: {status}. "
+                "Rear-attack lesson complete. You used protocol 3 motion: accel "
+                f"along the nose, turn for facing only, brake by reverse thrust, "
+                f"and a point-blank triple volley. Status: {status}. "
                 "Type quit when ready."
             )
         step = self.step

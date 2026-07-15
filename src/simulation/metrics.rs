@@ -121,7 +121,7 @@ impl MatchMetrics {
             self.thrust_spent += u64::from(result.thrust_cost);
         }
         match maneuver {
-            Maneuver::Turn { .. } => {
+            Maneuver::Turn { .. } | Maneuver::TurnAccel { .. } => {
                 self.course_changes += 1; // facing change (turn-in-place)
                 self.facing_rotations += 1;
             }

@@ -27,7 +27,7 @@ class RearAttackTutorialTests(unittest.TestCase):
         self.assertFalse(tutorial.advances_for("mov 9"))
         self.assertEqual(0, tutorial.index)
         self.assertIn("no choice was applied", tutorial.reject_text("mov 9"))
-        self.assertIn("mov 8", tutorial.reject_text("mov 9"))
+        self.assertIn("mov 10", tutorial.reject_text("mov 9"))
 
     def test_required_choice_advances_but_inspection_does_not(self):
         tutorial = Tutorial()
@@ -35,8 +35,8 @@ class RearAttackTutorialTests(unittest.TestCase):
             self.assertTrue(tutorial.accepts(command))
             self.assertFalse(tutorial.advances_for(command))
         self.assertEqual(0, tutorial.index)
-        self.assertTrue(tutorial.accepts("  MOV   8 "))
-        self.assertTrue(tutorial.advances_for("  MOV   8 "))
+        self.assertTrue(tutorial.accepts("  MOV   10 "))
+        self.assertTrue(tutorial.advances_for("  MOV   10 "))
         tutorial.advance()
         self.assertEqual("w b1 4", tutorial.step.command)
 
@@ -45,12 +45,12 @@ class RearAttackTutorialTests(unittest.TestCase):
         self.assertIn(f"Step 1/{len(Tutorial().steps)}", text)
         self.assertIn("MISSION", text)
         self.assertIn("protocol 3", text.lower())
-        self.assertIn("Type exactly: mov 8", text)
+        self.assertIn("Type exactly: mov 10", text)
 
     def test_live_prompt_repeats_reason_and_exact_choice(self):
         text = Tutorial().prompt_text()
         self.assertIn("TUTORIAL 1/", text)
-        self.assertIn(">>> type: mov 8", text)
+        self.assertIn(">>> type: mov 10", text)
         self.assertIn("thrust", text.lower())
 
     def test_state_guard_checks_turn_phase_and_movement_cycle(self):
@@ -84,7 +84,7 @@ class RearAttackTutorialTests(unittest.TestCase):
             self.assertTrue(tutorial.accepts(step.command), step.command)
             tutorial.advance()
         self.assertTrue(tutorial.complete)
-        text = tutorial.panel_text(_snapshot(turn=5, phase="firing", status="Won"))
+        text = tutorial.panel_text(_snapshot(turn=3, phase="firing", status="Won"))
         self.assertIn("complete", text.lower())
         self.assertIn("Won", text)
 
@@ -92,11 +92,23 @@ class RearAttackTutorialTests(unittest.TestCase):
         tutorial = Tutorial()
         cmds = [s.command for s in tutorial.steps]
         self.assertIn("accel", cmds)
-        self.assertIn("coast", cmds)
         self.assertIn("turn 3", cmds)
+        # Aggressive path brakes with reverse accel; coast is optional pedagogy.
         self.assertNotIn("accel 5", cmds)
         self.assertNotIn("course port", cmds)
         self.assertNotIn("rotate port", cmds)
+        self.assertIn("fire b1 B2", cmds)
+        self.assertIn("fire t1 B2", cmds)
+        self.assertIn("fire p1 B2", cmds)
+        # Short lesson: three turns, weapons armed once.
+        self.assertEqual(3, max(s.turn for s in tutorial.steps))
+        self.assertLessEqual(len(tutorial.steps), 50)
+
+    def test_arms_all_weapons_on_turn_one(self):
+        cmds = [s.command for s in Tutorial().steps if s.turn == 1]
+        self.assertIn("w b1 4", cmds)
+        self.assertIn("w t1 1", cmds)
+        self.assertIn("w p1 1", cmds)
 
 
 if __name__ == "__main__":

@@ -493,6 +493,14 @@ impl GameState {
             active.insert(ship.id);
         }
 
+        // Course lookup for pass-through (opposite courses sharing a hex).
+        let course_of: BTreeMap<u32, u8> = self
+            .ships
+            .iter()
+            .filter(|s| active.contains(&s.id))
+            .map(|s| (s.id, s.velocity.course))
+            .collect();
+
         loop {
             let mut changed = false;
             let mut claims: HashMap<Hex, Vec<u32>> = HashMap::new();
@@ -500,11 +508,21 @@ impl GameState {
                 claims.entry(destination[id]).or_default().push(*id);
             }
             for claimants in claims.values() {
-                if claimants.len() > 1 {
-                    for id in claimants {
-                        if active.remove(id) {
-                            changed = true;
-                        }
+                if claimants.len() <= 1 {
+                    continue;
+                }
+                // Two ships on opposite courses claiming the same hex pass through
+                // (head-on mid-hex meet). Other multi-claims still block everyone.
+                if claimants.len() == 2 {
+                    let c0 = course_of.get(&claimants[0]).copied().unwrap_or(0);
+                    let c1 = course_of.get(&claimants[1]).copied().unwrap_or(0);
+                    if crate::motion::opposite_dir(c0) == c1 {
+                        continue;
+                    }
+                }
+                for id in claimants {
+                    if active.remove(id) {
+                        changed = true;
                     }
                 }
             }

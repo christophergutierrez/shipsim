@@ -21,3 +21,4 @@ The full decision record lives with the client tree:
 - `frontend/tui/README.md` — handoff for implementers  
 - ADR-0017 — Love thin client (same integration pattern)  
 - ADR-0020 — Combat Model v2  
+- ADR-0023 — input model, responsive layout tiers, and verification strategy (refines this ADR's open implementation details)
