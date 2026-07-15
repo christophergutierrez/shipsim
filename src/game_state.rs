@@ -608,7 +608,7 @@ impl GameState {
 
     /// One simultaneous hex of translation for every ship whose speed >= `step`.
     fn resolve_one_hex_translation_step(&mut self, step: u8) {
-        let hard_map = self.board.mode == crate::board::MapMode::Hard;
+        let hard_map = self.board.mode.blocks_edges();
         let mut destination: BTreeMap<u32, Hex> = BTreeMap::new();
         let mut active: HashSet<u32> = HashSet::new();
         for ship in self

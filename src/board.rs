@@ -8,14 +8,25 @@ pub enum MapMode {
     Hard,
     /// Formation may drift; board recenters after movement.
     Floating,
+    /// No edges: negative and large coordinates are legal. No recentering,
+    /// no clamping. Width/height are metadata only (ADR-0022 unbounded world).
+    Unbounded,
 }
 
 impl MapMode {
     pub fn parse(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
             "floating" | "float" => MapMode::Floating,
+            "unbounded" | "infinite" => MapMode::Unbounded,
             _ => MapMode::Hard,
         }
+    }
+
+    /// True iff off-map destinations are illegal (edge exits blocked).
+    /// `Floating` and `Unbounded` both allow movement beyond the nominal box;
+    /// `Floating` recenters afterward, `Unbounded` does not.
+    pub fn blocks_edges(self) -> bool {
+        matches!(self, MapMode::Hard)
     }
 }
 
@@ -81,5 +92,24 @@ mod tests {
         }
         // Relative separation preserved.
         assert_eq!(shifted[1].q - shifted[0].q, 1);
+    }
+
+    #[test]
+    fn parse_recognizes_unbounded() {
+        assert_eq!(MapMode::parse("unbounded"), MapMode::Unbounded);
+        assert_eq!(MapMode::parse("infinite"), MapMode::Unbounded);
+        assert_eq!(MapMode::parse("UNBOUNDED"), MapMode::Unbounded);
+        // Existing modes still parse.
+        assert_eq!(MapMode::parse("hard"), MapMode::Hard);
+        assert_eq!(MapMode::parse("floating"), MapMode::Floating);
+        // Unknown falls back to Hard (default).
+        assert_eq!(MapMode::parse("nonsense"), MapMode::Hard);
+    }
+
+    #[test]
+    fn blocks_edges_only_for_hard() {
+        assert!(MapMode::Hard.blocks_edges());
+        assert!(!MapMode::Floating.blocks_edges());
+        assert!(!MapMode::Unbounded.blocks_edges());
     }
 }

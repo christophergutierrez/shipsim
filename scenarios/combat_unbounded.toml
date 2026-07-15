@@ -1,0 +1,24 @@
+width = 4
+height = 4
+map_mode = "unbounded"
+seed = 4242
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 1
+r = 0
+facing = 3
+controller = "player"
+
+[[ships]]
+id = 2
+class = "escort"
+q = 0
+r = 0
+facing = 0
+controller = "scripted"

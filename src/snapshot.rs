@@ -126,6 +126,7 @@ impl StateSnapshot {
                 mode: match game.board().mode {
                     crate::board::MapMode::Hard => "hard".into(),
                     crate::board::MapMode::Floating => "floating".into(),
+                    crate::board::MapMode::Unbounded => "unbounded".into(),
                 },
             },
             objective: game.objective().map(|objective| HexSnapshot {
