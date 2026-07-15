@@ -477,6 +477,131 @@ impl GameState {
             .map_err(|e| crate::movement::OrderError::PreviewFailed(e.to_string()))
     }
 
+    /// Clamp movement power to what the ship can actually afford (ADR-0022).
+    ///
+    /// Given a draft allocation, returns the movement power after reserving
+    /// weapon top-ups and shield power against the ship's effective power pool.
+    /// Weapons and shields are honored first (they are committed costs); only
+    /// movement — the residual — is clamped down. If weapons + shields alone
+    /// already exceed available power, movement clamps to 0.
+    ///
+    /// This is the live-preview companion to `allocate_v2`'s hard reject: while
+    /// a player drags allocation sliders, the TUI asks for a clamped preview so
+    /// the reachable set shrinks smoothly instead of snapping to an error.
+    ///
+    /// Read-only: takes `&self`, never mutates. Weapon/shield validity is *not*
+    /// re-checked here (the caller may want a preview even with an invalid
+    /// shield facing); only the power budget is clamped.
+    pub fn clamp_movement_power(
+        &self,
+        ship_id: u32,
+        movement: u32,
+        weapons: &BTreeMap<String, u32>,
+        shields: &[u32; 6],
+    ) -> Result<u32, crate::movement::OrderError> {
+        let ship = self
+            .ship(ship_id)
+            .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
+        if ship.destroyed {
+            return Err(crate::movement::OrderError::ShipNotFound(ship_id));
+        }
+
+        // Weapon cost = top-ups only (carried charge does not re-spend).
+        let mut weapon_increases: u32 = 0;
+        for (weapon_id, charge) in weapons {
+            let have = ship
+                .weapon_charges
+                .get(weapon_id)
+                .copied()
+                .unwrap_or(0);
+            // Clamp the top-up at 0: a draft that tries to strip charge still
+            // costs nothing extra (the engine would reject it on allocate, but
+            // the preview should not panic on overflow).
+            weapon_increases = weapon_increases.saturating_add(charge.saturating_sub(have));
+        }
+        let shield_power: u32 = shields.iter().copied().sum();
+        let available = ship.effective_power();
+
+        // Reserve weapons + shields first; movement gets the remainder.
+        let reserved = weapon_increases.saturating_add(shield_power);
+        let movement_budget = available.saturating_sub(reserved);
+        Ok(movement.min(movement_budget))
+    }
+
+    /// Clamped movement preview (ADR-0022).
+    ///
+    /// Like `movement_preview`, but instead of hard-rejecting an over-allocated
+    /// draft, clamps movement power down to the affordable residual and returns
+    /// the reachable set for that clamped thrust. Weapon/shield *validity*
+    /// (charge caps, per-facing caps, no-stripping) is still enforced — only
+    /// the *total* power budget is relaxed. This gives the TUI a smooth preview
+    /// while a player drags the movement slider past the affordable limit.
+    pub fn movement_preview_clamped(
+        &self,
+        ship_id: u32,
+        movement: u32,
+        weapons: BTreeMap<String, u32>,
+        shields: [u32; 6],
+    ) -> Result<crate::movement_preview::PreviewResult, crate::movement::OrderError> {
+        if !matches!(self.phase, Phase::Allocate | Phase::Movement) {
+            return Err(crate::movement::OrderError::WrongPhase {
+                expected: "allocate or movement",
+                actual: self.phase_name(),
+            });
+        }
+
+        let ship = self
+            .ship(ship_id)
+            .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
+        if ship.destroyed {
+            return Err(crate::movement::OrderError::ShipNotFound(ship_id));
+        }
+
+        // Enforce weapon/shield validity (caps, no-stripping) exactly as
+        // allocate_v2 would — only the total budget is relaxed, not field rules.
+        for (weapon_id, charge) in &weapons {
+            let weapon = ship
+                .weapon(weapon_id)
+                .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(weapon_id.clone()))?;
+            if *charge > weapon.max_charge {
+                return Err(crate::movement::OrderError::WeaponChargeTooHigh {
+                    ship: ship_id,
+                    weapon: weapon_id.clone(),
+                    charge: *charge,
+                    max: weapon.max_charge,
+                });
+            }
+            let have = ship
+                .weapon_charges
+                .get(weapon_id)
+                .copied()
+                .unwrap_or(0);
+            if *charge < have {
+                return Err(crate::movement::OrderError::CannotStripWeaponCharge {
+                    ship: ship_id,
+                    weapon: weapon_id.clone(),
+                    have,
+                    want: *charge,
+                });
+            }
+        }
+        for (facing, power) in shields.iter().copied().enumerate() {
+            if power > ship.max_shield_per_facing {
+                return Err(crate::movement::OrderError::ShieldPowerTooHigh {
+                    ship: ship_id,
+                    facing: facing as u8,
+                    power,
+                    max: ship.max_shield_per_facing,
+                });
+            }
+        }
+
+        // Clamp movement to the affordable residual and delegate to the strict
+        // preview (which will now pass the budget check).
+        let clamped = self.clamp_movement_power(ship_id, movement, &weapons, &shields)?;
+        self.movement_preview(ship_id, clamped, weapons, shields)
+    }
+
     fn all_living_allocated(&self) -> bool {
         self.ships
             .iter()

@@ -96,6 +96,7 @@ the client — owns the power→thrust conversion, so the request fields mirror
 | `movement` | Engine **power** allocated to movement (converted to thrust). Defaults to 0. |
 | `weapons` | Desired **total** charge per weapon id, same semantics as `allocate`. |
 | `shields` | Six face powers, same semantics as `allocate`. Missing/short arrays are zero-padded. |
+| `clamp` | Optional bool (default `false`). When `true`, an over-allocated draft does not reject: movement power is clamped down to the affordable residual (after weapons + shields) and the reachable set for that clamped thrust is returned. Weapon/shield *validity* (charge caps, per-facing caps, no-stripping) is still enforced — only the total budget is relaxed. Used by the TUI for live slider-drag previews. |
 
 Legal during `allocate` and `movement` phases only; rejected (`preview_invalid`)
 during firing/turn-end.
@@ -114,6 +115,7 @@ Response envelope (`type: "movement_preview"`, `ok: true`):
 | `endpoints` | Sorted reachable endpoints after four cycles. Two sequences arriving at the same hex with different facing/course/speed are both retained. |
 | `coast` | The single endpoint reached by coasting all four cycles (the do-nothing trajectory). |
 | `occupied` | Endpoints that coincide with another ship's current hex (collisions the client should flag). |
+| `clamped_movement` | Present only when `clamp: true` was requested. The effective movement power after clamping to the affordable residual, so the client can show the actual thrust being previewed. |
 
 The preview is a pure projection: it shares the exact rules of live movement
 (`motion::resolve_maneuver`) but never touches game state. See

@@ -369,6 +369,14 @@ fn handle_movement_preview(
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0) as u32;
 
+    // `clamp: true` relaxes the total power budget: movement is clamped down to
+    // the affordable residual (after weapons + shields) instead of hard-rejecting.
+    // Used by the TUI for live slider-drag previews. Defaults to false (strict).
+    let clamp = order_val
+        .get("clamp")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
     // `weapons` is a map of weapon_id → desired total charge, same as `allocate`.
     let mut weapons: BTreeMap<String, u32> = BTreeMap::new();
     if let Some(map) = order_val.get("weapons").and_then(serde_json::Value::as_object) {
@@ -387,7 +395,31 @@ fn handle_movement_preview(
         }
     }
 
-    let result = match game.movement_preview(ship, movement, weapons, shields) {
+    // Report the clamped movement power so the client can show the effective
+    // thrust even when the draft exceeds the budget.
+    let clamped_movement = if clamp {
+        match game.clamp_movement_power(ship, movement, &weapons, &shields) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                emit_error(
+                    "preview_invalid",
+                    &error.to_string(),
+                    Some(order_val.clone()),
+                    "harness",
+                )?;
+                return Ok(None);
+            }
+        }
+    } else {
+        None
+    };
+
+    let result = if clamp {
+        game.movement_preview_clamped(ship, movement, weapons, shields)
+    } else {
+        game.movement_preview(ship, movement, weapons, shields)
+    };
+    let result = match result {
         Ok(result) => result,
         Err(error) => {
             emit_error(
@@ -431,7 +463,7 @@ fn handle_movement_preview(
         .map(|(q, r)| serde_json::json!({"q": q, "r": r}))
         .collect();
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "type": "movement_preview",
         "protocol_version": PROTOCOL_VERSION,
         "ok": true,
@@ -440,6 +472,9 @@ fn handle_movement_preview(
         "coast": coast,
         "occupied": occupied,
     });
+    if let Some(cm) = clamped_movement {
+        body["clamped_movement"] = serde_json::json!(cm);
+    }
 
     let mut out = io::stdout().lock();
     writeln!(out, "{}", serde_json::to_string(&body).map_err(|error| error.to_string())?)
