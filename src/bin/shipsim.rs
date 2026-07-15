@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -266,6 +267,16 @@ fn apply_order_line(game: &mut GameState, line: &str) -> Result<Option<Order>, S
         )?;
         return Ok(None);
     }
+
+    // Read-only request dispatch (ADR-0022). A line carrying `request:
+    // "movement_preview"` is *not* an order: it never mutates game state, is
+    // excluded from save/replay, and returns a preview envelope instead of a
+    // snapshot. Intercept it before order parsing so an unknown `request`
+    // value is reported clearly rather than mis-parsed as an order.
+    if let Some(request) = order_val.get("request").and_then(serde_json::Value::as_str) {
+        return handle_request(game, request, &order_val);
+    }
+
     let parsed: Result<Order, _> = serde_json::from_str(line);
     let order = match parsed {
         Ok(order) => order,
@@ -298,4 +309,141 @@ fn apply_order_line(game: &mut GameState, line: &str) -> Result<Option<Order>, S
             Ok(None)
         }
     }
+}
+
+/// Read-only request dispatch (ADR-0022).
+///
+/// A `request` line is never an order: it must not mutate game state, is
+/// excluded from save/replay, and returns a request-specific envelope instead
+/// of a snapshot. Today the only supported request is `movement_preview`.
+fn handle_request(
+    game: &GameState,
+    request: &str,
+    order_val: &serde_json::Value,
+) -> Result<Option<Order>, String> {
+    match request {
+        "movement_preview" => handle_movement_preview(game, order_val),
+        other => {
+            emit_error(
+                "unknown_request",
+                &format!("unknown request: {other}"),
+                Some(order_val.clone()),
+                "harness",
+            )?;
+            Ok(None)
+        }
+    }
+}
+
+/// `movement_preview` request (ADR-0022 preview contract).
+///
+/// Request shape (one JSON object per line, `protocol_version: 3`):
+/// ```json
+/// {"protocol_version":3,"request":"movement_preview","ship":1,
+///  "movement":4,"weapons":{"beam_1":2},"shields":[2,0,0,0,0,2]}
+/// ```
+///
+/// The fields mirror the `allocate` order exactly (engine owns the
+/// power→thrust conversion). The response is a `movement_preview` envelope:
+/// `ok: true`, the queried `ship`, the sorted reachable `endpoints`, the
+/// single `coast` endpoint, and the `occupied` endpoint list. State is
+/// unchanged; nothing is appended to the save/replay stream.
+fn handle_movement_preview(
+    game: &GameState,
+    order_val: &serde_json::Value,
+) -> Result<Option<Order>, String> {
+    let ship = match order_val.get("ship").and_then(serde_json::Value::as_u64) {
+        Some(value) => value as u32,
+        None => {
+            emit_error(
+                "preview_invalid",
+                "movement_preview requires integer `ship`",
+                Some(order_val.clone()),
+                "harness",
+            )?;
+            return Ok(None);
+        }
+    };
+    let movement = order_val
+        .get("movement")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
+
+    // `weapons` is a map of weapon_id → desired total charge, same as `allocate`.
+    let mut weapons: BTreeMap<String, u32> = BTreeMap::new();
+    if let Some(map) = order_val.get("weapons").and_then(serde_json::Value::as_object) {
+        for (key, value) in map {
+            let charge = value.as_u64().unwrap_or(0) as u32;
+            weapons.insert(key.clone(), charge);
+        }
+    }
+
+    // `shields` is six face powers, same as `allocate`. Missing or short
+    // arrays are zero-padded; over-long arrays are truncated to six.
+    let mut shields: [u32; 6] = [0; 6];
+    if let Some(array) = order_val.get("shields").and_then(serde_json::Value::as_array) {
+        for (slot, value) in shields.iter_mut().zip(array.iter()) {
+            *slot = value.as_u64().unwrap_or(0) as u32;
+        }
+    }
+
+    let result = match game.movement_preview(ship, movement, weapons, shields) {
+        Ok(result) => result,
+        Err(error) => {
+            emit_error(
+                "preview_invalid",
+                &error.to_string(),
+                Some(order_val.clone()),
+                "harness",
+            )?;
+            return Ok(None);
+        }
+    };
+
+    // `PreviewResult`/`PreviewEndpoint` are not Serialize by design (the
+    // preview is a read-only projection, not a persisted snapshot), so build
+    // the response envelope by hand.
+    let endpoints: Vec<serde_json::Value> = result
+        .endpoints
+        .iter()
+        .map(|endpoint| {
+            serde_json::json!({
+                "q": endpoint.q,
+                "r": endpoint.r,
+                "facing": endpoint.facing,
+                "course": endpoint.course,
+                "speed": endpoint.speed,
+                "thrust_remaining": endpoint.thrust_remaining,
+            })
+        })
+        .collect();
+    let coast = serde_json::json!({
+        "q": result.coast.q,
+        "r": result.coast.r,
+        "facing": result.coast.facing,
+        "course": result.coast.course,
+        "speed": result.coast.speed,
+        "thrust_remaining": result.coast.thrust_remaining,
+    });
+    let occupied: Vec<serde_json::Value> = result
+        .occupied
+        .iter()
+        .map(|(q, r)| serde_json::json!({"q": q, "r": r}))
+        .collect();
+
+    let body = serde_json::json!({
+        "type": "movement_preview",
+        "protocol_version": PROTOCOL_VERSION,
+        "ok": true,
+        "ship": ship,
+        "endpoints": endpoints,
+        "coast": coast,
+        "occupied": occupied,
+    });
+
+    let mut out = io::stdout().lock();
+    writeln!(out, "{}", serde_json::to_string(&body).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+    out.flush().map_err(|error| error.to_string())?;
+    Ok(None)
 }
