@@ -70,17 +70,17 @@ cargo run --release --manifest-path frontend/tui/Cargo.toml
 
 | Key | Action |
 |---|---|
-| `q` | Quit |
-| `Esc` | Return to Normal mode, clear soft error |
-| `Tab` | Cycle focus among living ships (any mode) |
-| `e` | End turn (any non-GameOver mode) |
+| `q` | Request quit; press `y` to confirm (`n`/`Esc` cancels) |
+| `Esc` | Return to Normal mode; in the tutorial, reopen the expected form |
+| `Tab` | Cycle focus in free play; blocked during the tutorial |
+| `e` | Request end turn; press `y` to confirm (`n`/`Esc` cancels) |
 | `a` / `Enter` | Enter Allocate mode (when phase = allocate) |
 | `m` / `Enter` | Enter Movement mode (when phase = movement) |
 | `f` / `Enter` | Enter Fire mode (when phase = fire) |
 
-**Allocate mode** — `Tab` cycles the cursor across movement / weapons / shield
-facings; `←`/`→` decrement/increment the focused field; `Enter` commits the
-`allocate` order.
+**Allocate mode** — `↓`/`↑` cycles movement / weapons / shield facings;
+`←`/`→` decrement/increment the focused field; digits start a fresh value entry;
+`Backspace` clears; `Enter` commits the `allocate` order.
 
 **Movement mode** — `c` coast, `t` accel along facing, `0`–`5` turn to absolute
 facing, `r` turn +1 facing. Each sends one `commit_maneuver`.
@@ -88,9 +88,10 @@ facing, `r` turn +1 facing. Each sends one `commit_maneuver`.
 **Tutorial mode** (`--tutorial`) — narration panel + step gate for the aggressive
 rear-attack (race past → reverse-thrust brake → point-blank beam/torp/plasma).
 Wrong keys are blocked; `↓`/`→` fill the allocate form, `t`/`3`/`Space`/`e` drive
-motion and the kill volley.
+motion and the kill volley. Order-backed steps advance only after engine
+acknowledgment, so a rejected order cannot desynchronize the lesson.
 
-**Fire mode** — `Tab` cycles weapon; `1`–`9` select target by enemy index;
+**Fire mode** — `↓`/`↑` cycles weapon; `1`–`9` select target by enemy index;
 `←`/`→` cycle shield facing; `Enter` commits `commit_fire`. Target auto-selects
 the first enemy if none is chosen.
 
@@ -116,7 +117,8 @@ Port **behavior and vocabulary** from the REPL, not pixel-identical ANSI:
 - Facing 0..5 with **board-aligned** arrows (0 = +q → right on q→/r↓ maps). See `frontend/repl/ASCII-UI.md`.
 - Allocate = **local draft until commit**; bare numbers must not wipe drafts.
 - Fire: optional shots; `ready` / nofire leaves fire phase; `end` is whole turn.
-- HIT/MISS next to fired weapons (combat log includes `weapon`).
+- HIT/MISS, damage, shield absorption, and hull damage persist in the Combat Log,
+  including after game over.
 - Soft errors stay soft; never reimplement hit tables or legality.
 
 ## Protocol (v1) — must not reinvent

@@ -7,7 +7,7 @@
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
-use crate::app::{AllocDraft, App, Mode};
+use crate::app::{AllocDraft, App, Confirmation, Mode};
 use crate::input::{handle_key, KeyResult};
 use crate::protocol::{
     callsign, facing_arrow, shield_label, ErrorResponse, Maneuver, Order, Snapshot,
@@ -169,7 +169,10 @@ fn buffer_contains(buf: &str, needle: &str) -> bool {
 }
 
 fn make_key(c: char) -> crossterm::event::KeyEvent {
-    crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char(c), crossterm::event::KeyModifiers::NONE)
+    crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char(c),
+        crossterm::event::KeyModifiers::NONE,
+    )
 }
 
 fn make_key_code(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
@@ -484,10 +487,128 @@ fn key_tab_cycles_focus() {
 }
 
 #[test]
+fn tutorial_blocks_global_focus_leak() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
+    assert_eq!(app.focused_ship, Some(1));
+    assert!(app
+        .tutorial
+        .as_ref()
+        .and_then(|t| t.error_msg.as_ref())
+        .is_some_and(|m| m.contains("Tab")));
+}
+
+#[test]
+fn tutorial_esc_reopens_player_form() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().movement = 7;
+    app.alloc_draft.as_mut().unwrap().shields[0] = 4;
+    app.alloc_draft.as_mut().unwrap().cursor = 5;
+    app.focused_ship = Some(2);
+    app.mode = Mode::Normal;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+    assert_eq!(app.focused_ship, Some(1));
+    assert_eq!(app.mode, Mode::Allocate);
+    assert_eq!(app.alloc_draft.as_ref().unwrap().movement, 7);
+    assert_eq!(app.alloc_draft.as_ref().unwrap().shields[0], 4);
+    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, 5);
+}
+
+#[test]
+fn tutorial_order_does_not_advance_until_snapshot_ack() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+    while !matches!(
+        app.tutorial
+            .as_ref()
+            .and_then(|t| t.current_step())
+            .map(|s| &s.expected),
+        Some(crate::tutorial::ExpectedAction::CommitAllocate)
+    ) {
+        app.tutorial.as_mut().unwrap().advance();
+    }
+    let before = app.tutorial.as_ref().unwrap().current;
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(matches!(result, KeyResult::SendOrder(_)));
+    assert_eq!(app.tutorial.as_ref().unwrap().current, before);
+    assert!(app.tutorial_order_pending);
+    let err = ErrorResponse {
+        kind: "error".into(),
+        ok: false,
+        code: "REJECTED".into(),
+        message: "not enough power".into(),
+        order: None,
+    };
+    app.record_error(&err);
+    assert_eq!(app.tutorial.as_ref().unwrap().current, before);
+    assert!(!app.tutorial_order_pending);
+}
+
+#[test]
+fn tutorial_cancel_clears_unemitted_order_candidate() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+    app.tutorial_order_candidate = Some(crate::tutorial::ExpectedAction::EndTurn);
+    app.tutorial_order_pending = true;
+    app.confirmation = Some(Confirmation::EndTurn);
+
+    let result = handle_key(&mut app, make_key('n'));
+
+    assert!(matches!(result, KeyResult::Continue));
+    assert!(app.confirmation.is_none());
+    assert!(app.tutorial_order_candidate.is_none());
+    assert!(!app.tutorial_order_pending);
+}
+
+#[test]
+fn digit_entry_clears_on_snapshot_and_commit() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.digit_entry = Some((0, 6));
+    app.update_snapshot(test_snapshot());
+    assert!(app.digit_entry.is_none());
+
+    app.digit_entry = Some((0, 6));
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(matches!(result, KeyResult::SendOrder(_)));
+    assert!(app.digit_entry.is_none());
+}
+
+#[test]
+fn tutorial_allocation_scroll_keeps_last_shield_visible() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(test_snapshot());
+    let draft = app.alloc_draft.as_mut().unwrap();
+    draft.cursor = 8;
+
+    let buf = render_to_string(&mut app, 80, 24);
+
+    assert!(buffer_contains(&buf, "FL:0"));
+    assert!(buffer_contains(&buf, "▶ FL:0"));
+}
+
+#[test]
+fn terminal_floor_blocks_orders_until_resized() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let _ = render_to_string(&mut app, 79, 24);
+    assert!(app.terminal_too_small);
+
+    let result = handle_key(&mut app, make_key('e'));
+
+    assert!(matches!(result, KeyResult::Continue));
+    assert!(app.confirmation.is_none());
+}
+
+#[test]
 fn key_e_sends_end_turn_order() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     let result = handle_key(&mut app, make_key('e'));
+    assert!(matches!(result, KeyResult::Continue));
+    let result = handle_key(&mut app, make_key('y'));
     match result {
         KeyResult::SendOrder(order) => {
             let json = serde_json::to_string(&order).expect("serialize");
@@ -567,7 +688,10 @@ fn render_shows_game_over_screen() {
     let buf = render_to_string(&mut app, 80, 24);
     // Game over should show some indication of the terminal state.
     assert!(
-        buffer_contains(&buf, "over") || buffer_contains(&buf, "Over") || buffer_contains(&buf, "win") || buffer_contains(&buf, "Win"),
+        buffer_contains(&buf, "over")
+            || buffer_contains(&buf, "Over")
+            || buffer_contains(&buf, "win")
+            || buffer_contains(&buf, "Win"),
         "expected game over indicator in buffer"
     );
 }
@@ -593,7 +717,10 @@ fn render_shows_allocate_panel_in_allocate_mode() {
     assert_eq!(app.mode, Mode::Allocate);
     let buf = render_to_string(&mut app, 80, 24);
     assert!(
-        buffer_contains(&buf, "movement") || buffer_contains(&buf, "Movement") || buffer_contains(&buf, "alloc") || buffer_contains(&buf, "Alloc"),
+        buffer_contains(&buf, "movement")
+            || buffer_contains(&buf, "Movement")
+            || buffer_contains(&buf, "alloc")
+            || buffer_contains(&buf, "Alloc"),
         "expected allocate panel content"
     );
 }
@@ -606,7 +733,12 @@ fn render_shows_fire_panel_in_fire_mode() {
     assert_eq!(app.mode, Mode::Fire);
     let buf = render_to_string(&mut app, 80, 24);
     assert!(
-        buffer_contains(&buf, "fire") || buffer_contains(&buf, "Fire") || buffer_contains(&buf, "weapon") || buffer_contains(&buf, "Weapon") || buffer_contains(&buf, "target") || buffer_contains(&buf, "Target"),
+        buffer_contains(&buf, "fire")
+            || buffer_contains(&buf, "Fire")
+            || buffer_contains(&buf, "weapon")
+            || buffer_contains(&buf, "Weapon")
+            || buffer_contains(&buf, "target")
+            || buffer_contains(&buf, "Target"),
         "expected fire panel content"
     );
 }
@@ -618,9 +750,20 @@ fn render_shows_combat_events_in_fire_phase() {
     let buf = render_to_string(&mut app, 80, 24);
     // The combat log has attacker=1 (A1), target=2 (B2), weapon=beam_1, hit for 4
     assert!(
-        buffer_contains(&buf, "beam_1") || buffer_contains(&buf, "HIT") || buffer_contains(&buf, "hit"),
+        buffer_contains(&buf, "beam_1")
+            || buffer_contains(&buf, "HIT")
+            || buffer_contains(&buf, "hit"),
         "expected combat log content in events panel"
     );
+}
+
+#[test]
+fn tutorial_combat_log_keeps_damage_result_visible() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(fire_phase_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+
+    assert!(buffer_contains(&buf, "HIT +4 sh-0 hull-4"));
 }
 
 #[test]
@@ -636,7 +779,7 @@ fn render_does_not_panic_with_small_terminal() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     let buf = render_to_string(&mut app, 40, 12);
-    assert!(!buf.is_empty());
+    assert!(buffer_contains(&buf, "Resize to at least"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -723,6 +866,8 @@ fn full_cycle_snapshot_to_render_to_order() {
 
     // 5. Send end_turn order.
     let result = handle_key(&mut app, make_key('e'));
+    assert!(matches!(result, KeyResult::Continue));
+    let result = handle_key(&mut app, make_key('y'));
     assert!(matches!(result, KeyResult::SendOrder(_)));
 }
 
@@ -798,7 +943,6 @@ fn full_cycle_phase_transition_resets_drafts() {
     assert!(app.alloc_draft.is_none());
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Tutorial: rear-attack key path against live engine
 // ═══════════════════════════════════════════════════════════════════════════
@@ -807,7 +951,9 @@ fn engine_bin() -> Option<std::path::PathBuf> {
     let candidates = [
         std::path::PathBuf::from("../../target/debug/shipsim"),
         std::path::PathBuf::from("target/debug/shipsim"),
-        std::env::var_os("SHIPSIM_BIN").map(std::path::PathBuf::from).unwrap_or_default(),
+        std::env::var_os("SHIPSIM_BIN")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default(),
     ];
     candidates.into_iter().find(|p| p.is_file())
 }
@@ -820,11 +966,7 @@ fn apply_line(app: &mut App, line: crate::harness::EngineLine) {
     }
 }
 
-fn send_key(
-    app: &mut App,
-    harness: &mut crate::harness::Harness,
-    key: crossterm::event::KeyEvent,
-) {
+fn send_key(app: &mut App, harness: &mut crate::harness::Harness, key: crossterm::event::KeyEvent) {
     match handle_key(app, key) {
         KeyResult::SendOrder(order) => {
             harness.send(&order.to_json()).expect("send");
@@ -892,11 +1034,8 @@ fn tutorial_rear_attack_wins_against_engine() {
     send_key(&mut app, &mut harness, make_key('3'));
     send_key(&mut app, &mut harness, space());
     send_key(&mut app, &mut harness, e_key());
-    assert_eq!(
-        app.snap.as_ref().map(|s| s.turn),
-        Some(2),
-        "enter turn 2"
-    );
+    send_key(&mut app, &mut harness, make_key('y'));
+    assert_eq!(app.snap.as_ref().map(|s| s.turn), Some(2), "enter turn 2");
 
     // T2 allocate: mov 10, F6, FR3, FL3
     for _ in 0..10 {
@@ -926,11 +1065,8 @@ fn tutorial_rear_attack_wins_against_engine() {
         send_key(&mut app, &mut harness, space());
     }
     send_key(&mut app, &mut harness, e_key());
-    assert_eq!(
-        app.snap.as_ref().map(|s| s.turn),
-        Some(3),
-        "enter turn 3"
-    );
+    send_key(&mut app, &mut harness, make_key('y'));
+    assert_eq!(app.snap.as_ref().map(|s| s.turn), Some(3), "enter turn 3");
 
     // T3 allocate (same shields pattern)
     for _ in 0..10 {
@@ -978,18 +1114,29 @@ fn tutorial_rear_attack_wins_against_engine() {
     send_key(&mut app, &mut harness, enter());
     send_key(&mut app, &mut harness, space());
 
-    let status = app.snap.as_ref().map(|s| s.status.clone()).unwrap_or_default();
+    let status = app
+        .snap
+        .as_ref()
+        .map(|s| s.status.clone())
+        .unwrap_or_default();
     let turn = app.snap.as_ref().map(|s| s.turn).unwrap_or(0);
     let tut_step = app.tutorial.as_ref().map(|t| t.current).unwrap_or(0);
     eprintln!(
         "tutorial harness: status={status} turn={turn} tut_step={tut_step} err={:?}",
         app.last_error
     );
-    assert_eq!(status, "Won", "tutorial should win; last_error={:?}", app.last_error);
+    assert_eq!(
+        status, "Won",
+        "tutorial should win; last_error={:?}",
+        app.last_error
+    );
     // After the kill ready, the final step is Dismiss — one Enter completes it.
     send_key(&mut app, &mut harness, enter());
     assert!(
-        app.tutorial.as_ref().map(|t| t.is_complete()).unwrap_or(false),
+        app.tutorial
+            .as_ref()
+            .map(|t| t.is_complete())
+            .unwrap_or(false),
         "tutorial should complete after dismiss; step={}",
         app.tutorial.as_ref().map(|t| t.current).unwrap_or(0)
     );

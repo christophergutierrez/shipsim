@@ -2,9 +2,9 @@
 //!
 //! Translates key events into app state changes and pending orders.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{App, Mode};
+use crate::app::{App, Confirmation, Mode};
 use crate::protocol::{Maneuver, Order};
 use crate::tutorial::ExpectedAction;
 
@@ -20,33 +20,69 @@ pub enum KeyResult {
 
 /// Handle a key event.
 pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyResult {
-    // Global keys
-    match key.code {
-        KeyCode::Char('q') => return KeyResult::Quit,
-        KeyCode::Esc => {
-            app.mode = Mode::Normal;
-            app.last_error = None;
-            return KeyResult::Continue;
-        }
-        KeyCode::Tab => {
-            // Ship focus cycle is always available (field nav uses ↓/j).
-            cycle_ship_focus(app);
-            return KeyResult::Continue;
-        }
-        _ => {}
+    if let Some(confirmation) = app.confirmation {
+        return handle_confirmation(app, confirmation, key);
+    }
+    if app.terminal_too_small && key.code != KeyCode::Char('q') {
+        return KeyResult::Continue;
     }
 
-    // Tutorial gating for allocate ReachValue needs special pre-check.
-    if app.tutorial.is_some() {
+    let tutorial_active = app
+        .tutorial
+        .as_ref()
+        .map(|t| !t.is_complete())
+        .unwrap_or(false);
+
+    // Keep the small global escape hatch explicit. Every other key goes
+    // through the lesson gate before mode handlers, so adding a new global
+    // binding cannot silently bypass tutorial validation.
+    if tutorial_active && !matches!(key.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Tab) {
         if let Some(result) = tutorial_gate(app, &key) {
             return result;
         }
     }
 
-    // 'e' (end turn) works in any non-GameOver mode.
+    // Global keys
+    match key.code {
+        KeyCode::Char('q') => {
+            if app.snap.is_none() || app.snap.as_ref().map(|s| s.is_over()).unwrap_or(false) {
+                return KeyResult::Quit;
+            }
+            app.confirmation = Some(Confirmation::Quit);
+            app.log("quit requested — press y to confirm, n/Esc to cancel");
+            return KeyResult::Continue;
+        }
+        KeyCode::Esc => {
+            if tutorial_active {
+                reopen_tutorial_mode(
+                    app,
+                    "Esc does not cancel the lesson; the expected form is open again.",
+                );
+            } else {
+                app.mode = Mode::Normal;
+                app.last_error = None;
+            }
+            return KeyResult::Continue;
+        }
+        KeyCode::Tab => {
+            if tutorial_active {
+                if let Some(t) = app.tutorial.as_mut() {
+                    t.set_error("Tab is disabled during the lesson; use ↓/↑ for the active form.");
+                }
+            } else {
+                cycle_ship_focus(app);
+            }
+            return KeyResult::Continue;
+        }
+        _ => {}
+    }
+
+    // End turn is guarded because it can discard queued fire and skip useful
+    // actions. The engine's end_turn_warning is shown alongside this prompt.
     if key.code == KeyCode::Char('e') && app.mode != Mode::GameOver && app.snap.is_some() {
-        app.log("end_turn");
-        return KeyResult::SendOrder(Order::end_turn());
+        app.confirmation = Some(Confirmation::EndTurn);
+        app.log("end turn requested — press y to confirm, n/Esc to cancel");
+        return KeyResult::Continue;
     }
 
     match app.mode {
@@ -61,6 +97,71 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyResult {
             }
             KeyResult::Continue
         }
+    }
+}
+
+fn handle_confirmation(app: &mut App, confirmation: Confirmation, key: KeyEvent) -> KeyResult {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') => {
+            app.confirmation = None;
+            match confirmation {
+                Confirmation::Quit => KeyResult::Quit,
+                Confirmation::EndTurn => {
+                    let synthetic = KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE);
+                    if app.tutorial.is_some() {
+                        if let Some(result) = tutorial_gate(app, &synthetic) {
+                            return result;
+                        }
+                    }
+                    app.log("end_turn");
+                    emit_order(app, Order::end_turn())
+                }
+            }
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            app.confirmation = None;
+            app.tutorial_order_candidate = None;
+            app.tutorial_order_pending = false;
+            app.log("cancelled");
+            KeyResult::Continue
+        }
+        _ => KeyResult::Continue,
+    }
+}
+
+fn reopen_tutorial_mode(app: &mut App, message: &str) {
+    let Some(snap) = app.snap.clone() else { return };
+    if let Some(player) = snap.player_ship() {
+        app.focused_ship = Some(player.id);
+    }
+    match snap.phase.as_str() {
+        "allocate" => {
+            if app.alloc_draft.is_none() {
+                app.alloc_draft = app
+                    .focused_ship
+                    .map(|sid| crate::app::AllocDraft::from_ship(&snap, sid));
+            }
+            app.fire_draft = None;
+            app.mode = Mode::Allocate;
+        }
+        "movement" => {
+            app.alloc_draft = None;
+            app.fire_draft = None;
+            app.mode = Mode::Movement;
+        }
+        "firing" => {
+            app.alloc_draft = None;
+            if app.fire_draft.is_none() {
+                app.fire_draft = Some(crate::app::FireDraft::default());
+            }
+            app.mode = Mode::Fire;
+        }
+        _ => app.mode = Mode::Normal,
+    }
+    app.digit_entry = None;
+    app.last_error = None;
+    if let Some(t) = app.tutorial.as_mut() {
+        t.set_error(message);
     }
 }
 
@@ -92,7 +193,12 @@ fn cycle_ship_focus(app: &mut App) {
 /// Tutorial gate. Returns `Some(Continue)` if the key is blocked.
 /// Returns `None` if the key is allowed (and tutorial may have advanced).
 fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
-    if app.tutorial.as_ref().map(|t| t.is_complete()).unwrap_or(true) {
+    if app
+        .tutorial
+        .as_ref()
+        .map(|t| t.is_complete())
+        .unwrap_or(true)
+    {
         return None;
     }
 
@@ -105,14 +211,16 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
     } = step_expected
     {
         if app.mode != Mode::Allocate {
-            app.tutorial
-                .as_mut()
-                .unwrap()
-                .set_error("Allocate form should be open — press Enter if it is not.");
+            reopen_tutorial_mode(
+                app,
+                "Allocate form reopened; continue with the highlighted field.",
+            );
             return Some(KeyResult::Continue);
         }
-        let draft = app.alloc_draft.as_ref()?;
-        let field = draft.cursor;
+        let (field, old) = {
+            let draft = app.alloc_draft.as_ref()?;
+            (draft.cursor, draft.field_value())
+        };
 
         // Allow ↓/↑ to recover if the cursor is on the wrong field.
         if field != need_field {
@@ -133,22 +241,22 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
             }
         }
 
-        let old = draft.field_value();
         let new = match key.code {
             KeyCode::Right => old.saturating_add(1),
             KeyCode::Left => old.saturating_sub(1),
             KeyCode::Char(c) if c.is_ascii_digit() => {
                 let d = (c as u8 - b'0') as u32;
-                if old > 0 && old < 10 && old * 10 + d <= 30 {
-                    old * 10 + d
-                } else {
-                    d
-                }
+                digit_entry(app, field, d)
+            }
+            KeyCode::Backspace => {
+                app.digit_entry = None;
+                0
             }
             KeyCode::Down | KeyCode::Char('j') | KeyCode::Up | KeyCode::Char('k') => {
-                app.tutorial.as_mut().unwrap().set_error(
-                    "Stay on this field — use → / ← to set the value (↓ moves away).",
-                );
+                app.tutorial
+                    .as_mut()
+                    .unwrap()
+                    .set_error("Stay on this field — use → / ← to set the value (↓ moves away).");
                 return Some(KeyResult::Continue);
             }
             _ => {
@@ -192,9 +300,26 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
         }
     };
 
-    let ok = app.tutorial.as_mut().unwrap().check_action(&action);
+    let order_backed = matches!(
+        action,
+        ExpectedAction::CommitAllocate
+            | ExpectedAction::Accel
+            | ExpectedAction::TurnTo(_)
+            | ExpectedAction::Coast
+            | ExpectedAction::FireWeapon
+            | ExpectedAction::ReadyFire
+            | ExpectedAction::EndTurn
+    );
+    let ok = if order_backed {
+        app.tutorial.as_mut().unwrap().validate_action(&action)
+    } else {
+        app.tutorial.as_mut().unwrap().check_action(&action)
+    };
     if !ok {
         return Some(KeyResult::Continue);
+    }
+    if order_backed {
+        app.tutorial_order_candidate = Some(action);
     }
     // Allowed — fall through to normal handlers.
     None
@@ -281,14 +406,14 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                 "allocate: mv={} shields={:?}",
                 draft.movement, shields
             ));
-            KeyResult::SendOrder(Order::allocate(
-                sid,
-                draft.movement,
-                weapons_json,
-                shields,
-            ))
+            app.digit_entry = None;
+            emit_order(
+                app,
+                Order::allocate(sid, draft.movement, weapons_json, shields),
+            )
         }
         KeyCode::Down | KeyCode::Char('j') => {
+            app.digit_entry = None;
             if let Some(draft) = &mut app.alloc_draft {
                 let n_fields = 1 + draft.weapons.len() + 6;
                 draft.cursor = (draft.cursor + 1) % n_fields.max(1);
@@ -296,6 +421,7 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyResult::Continue
         }
         KeyCode::Up | KeyCode::Char('k') => {
+            app.digit_entry = None;
             if let Some(draft) = &mut app.alloc_draft {
                 let n_fields = 1 + draft.weapons.len() + 6;
                 draft.cursor = (draft.cursor + n_fields - 1) % n_fields.max(1);
@@ -303,27 +429,34 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyResult::Continue
         }
         KeyCode::Left => {
+            app.digit_entry = None;
             if let Some(draft) = &mut app.alloc_draft {
                 adjust_field(draft, -1);
             }
             KeyResult::Continue
         }
         KeyCode::Right => {
+            app.digit_entry = None;
             if let Some(draft) = &mut app.alloc_draft {
                 adjust_field(draft, 1);
             }
             KeyResult::Continue
         }
         KeyCode::Char(c) if c.is_ascii_digit() => {
-            if let Some(draft) = &mut app.alloc_draft {
+            let cursor = app.alloc_draft.as_ref().map(|d| d.cursor);
+            if let Some(cursor) = cursor {
                 let d = (c as u8 - b'0') as u32;
-                let old = draft.field_value();
-                let new = if old > 0 && old < 10 && old * 10 + d <= 30 {
-                    old * 10 + d
-                } else {
-                    d
-                };
-                draft.set_field_value(new);
+                let new = digit_entry(app, cursor, d);
+                if let Some(draft) = &mut app.alloc_draft {
+                    draft.set_field_value(new);
+                }
+            }
+            KeyResult::Continue
+        }
+        KeyCode::Backspace => {
+            app.digit_entry = None;
+            if let Some(draft) = &mut app.alloc_draft {
+                draft.set_field_value(0);
             }
             KeyResult::Continue
         }
@@ -334,6 +467,17 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
 fn adjust_field(draft: &mut crate::app::AllocDraft, delta: i32) {
     let v = draft.field_value() as i32 + delta;
     draft.set_field_value(v.max(0) as u32);
+}
+
+fn digit_entry(app: &mut App, field: usize, digit: u32) -> u32 {
+    let value = match app.digit_entry {
+        Some((same_field, pending)) if same_field == field => {
+            pending.saturating_mul(10).saturating_add(digit).min(99)
+        }
+        _ => digit,
+    };
+    app.digit_entry = Some((field, value));
+    value
 }
 
 fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
@@ -347,10 +491,7 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
         }
         // `r` = turn +1 facing (short ring step).
         KeyCode::Char('r') => {
-            let facing = app
-                .focused()
-                .map(|s| (s.facing + 1) % 6)
-                .unwrap_or(0);
+            let facing = app.focused().map(|s| (s.facing + 1) % 6).unwrap_or(0);
             send_turn(app, facing)
         }
         _ => KeyResult::Continue,
@@ -363,7 +504,7 @@ fn send_coast(app: &mut App) -> KeyResult {
         None => return KeyResult::Continue,
     };
     app.log("maneuver: coast");
-    KeyResult::SendOrder(Order::commit_maneuver(sid, Maneuver::Coast))
+    emit_order(app, Order::commit_maneuver(sid, Maneuver::Coast))
 }
 
 fn send_accel(app: &mut App) -> KeyResult {
@@ -372,7 +513,7 @@ fn send_accel(app: &mut App) -> KeyResult {
         None => return KeyResult::Continue,
     };
     app.log("maneuver: accel");
-    KeyResult::SendOrder(Order::commit_maneuver(sid, Maneuver::Accel))
+    emit_order(app, Order::commit_maneuver(sid, Maneuver::Accel))
 }
 
 fn send_turn(app: &mut App, facing: u32) -> KeyResult {
@@ -381,10 +522,7 @@ fn send_turn(app: &mut App, facing: u32) -> KeyResult {
         None => return KeyResult::Continue,
     };
     app.log(format!("maneuver: turn facing {facing}"));
-    KeyResult::SendOrder(Order::commit_maneuver(
-        sid,
-        Maneuver::Turn { facing },
-    ))
+    emit_order(app, Order::commit_maneuver(sid, Maneuver::Turn { facing }))
 }
 
 fn send_ready(app: &mut App) -> KeyResult {
@@ -393,8 +531,12 @@ fn send_ready(app: &mut App) -> KeyResult {
         None => return KeyResult::Continue,
     };
     app.log("ready_fire");
-    app.mode = Mode::Normal;
-    KeyResult::SendOrder(Order::ready_fire(sid))
+    emit_order(app, Order::ready_fire(sid))
+}
+
+fn emit_order(app: &mut App, order: Order) -> KeyResult {
+    app.mark_tutorial_order_emitted();
+    KeyResult::SendOrder(order)
 }
 
 fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
@@ -464,12 +606,10 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                 "fire: {} → #{} shield={}",
                 weapon, target, draft.shield_facing
             ));
-            KeyResult::SendOrder(Order::commit_fire(
-                sid,
-                &weapon,
-                target,
-                draft.shield_facing,
-            ))
+            emit_order(
+                app,
+                Order::commit_fire(sid, &weapon, target, draft.shield_facing),
+            )
         }
         KeyCode::Char(' ') => send_ready(app),
         KeyCode::Char(c) if c.is_ascii_digit() && c != '0' => {
@@ -506,9 +646,7 @@ fn map_key_to_action(
         Mode::Normal => match key.code {
             KeyCode::Char('c') if snap.phase == "movement" => Some(ExpectedAction::Coast),
             KeyCode::Char('t') if snap.phase == "movement" => Some(ExpectedAction::Accel),
-            KeyCode::Char(c)
-                if snap.phase == "movement" && c.is_ascii_digit() && c <= '5' =>
-            {
+            KeyCode::Char(c) if snap.phase == "movement" && c.is_ascii_digit() && c <= '5' => {
                 Some(ExpectedAction::TurnTo((c as u8 - b'0') as u32))
             }
             KeyCode::Char(' ') if snap.phase == "firing" => Some(ExpectedAction::ReadyFire),

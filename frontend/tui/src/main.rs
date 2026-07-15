@@ -15,7 +15,9 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -29,8 +31,7 @@ fn main() -> std::io::Result<()> {
     let tutorial_mode = args.iter().any(|a| a == "--tutorial");
     let scenario = args
         .iter()
-        .filter(|a| !a.starts_with("--"))
-        .next()
+        .find(|a| !a.starts_with("--"))
         .cloned()
         .unwrap_or_else(|| {
             if tutorial_mode {
@@ -40,8 +41,8 @@ fn main() -> std::io::Result<()> {
             }
         });
 
-    let engine_path = std::env::var("SHIPSIM_BIN")
-        .unwrap_or_else(|_| "target/debug/shipsim".to_string());
+    let engine_path =
+        std::env::var("SHIPSIM_BIN").unwrap_or_else(|_| "target/debug/shipsim".to_string());
 
     // Spawn the engine and read the initial snapshot.
     let mut harness = match Harness::spawn(&engine_path, &scenario) {

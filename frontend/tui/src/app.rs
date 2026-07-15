@@ -23,6 +23,12 @@ pub enum Mode {
     GameOver,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Confirmation {
+    Quit,
+    EndTurn,
+}
+
 /// A local allocate draft (not yet sent to the engine).
 #[derive(Debug, Clone, Default)]
 pub struct AllocDraft {
@@ -144,6 +150,10 @@ pub struct App {
     pub last_error: Option<String>,
     /// Recent combat events for the events panel.
     pub recent_events: Vec<String>,
+    /// Session combat history, retained after the engine clears turn-scoped
+    /// combat_log at end-turn.
+    pub combat_history: Vec<String>,
+    last_combat_snapshot: Vec<String>,
     /// Pending orders to send (built by input handlers, drained by main loop).
     pub pending_order: Option<Order>,
     /// True if the engine subprocess has exited.
@@ -152,6 +162,16 @@ pub struct App {
     pub log: Vec<String>,
     /// Active tutorial controller (None in free play).
     pub tutorial: Option<crate::tutorial::Tutorial>,
+    /// An order-backed tutorial step is held here until the engine accepts it.
+    pub tutorial_order_pending: bool,
+    /// Validated tutorial action waiting for the input handler to emit its order.
+    pub tutorial_order_candidate: Option<crate::tutorial::ExpectedAction>,
+    /// Confirmation dialog for destructive global actions.
+    pub confirmation: Option<Confirmation>,
+    /// Digits typed into the current allocate field, shown as a fresh entry.
+    pub digit_entry: Option<(usize, u32)>,
+    /// Set by rendering when the terminal is below the Small-tier floor.
+    pub terminal_too_small: bool,
 }
 
 impl App {
@@ -164,10 +184,17 @@ impl App {
             fire_draft: None,
             last_error: None,
             recent_events: Vec::new(),
+            combat_history: Vec::new(),
+            last_combat_snapshot: Vec::new(),
             pending_order: None,
             engine_dead: false,
             log: Vec::new(),
             tutorial: None,
+            tutorial_order_pending: false,
+            tutorial_order_candidate: None,
+            confirmation: None,
+            digit_entry: None,
+            terminal_too_small: false,
         }
     }
 
@@ -180,6 +207,7 @@ impl App {
 
     /// Called when a new snapshot arrives from the engine.
     pub fn update_snapshot(&mut self, snap: Snapshot) {
+        self.digit_entry = None;
         // Auto-focus the player ship on the first snapshot.
         if self.focused_ship.is_none() {
             self.focused_ship = snap.player_ship().map(|s| s.id);
@@ -235,36 +263,77 @@ impl App {
             }
         }
 
-        // Capture combat events for the events panel.
-        if !snap.combat_log.is_empty() {
-            self.recent_events.clear();
-            for e in &snap.combat_log {
-                let atk = snap
-                    .ship(e.attacker)
-                    .map(protocol::callsign)
-                    .unwrap_or_else(|| format!("#{}", e.attacker));
-                let tgt = snap
-                    .ship(e.target)
-                    .map(protocol::callsign)
-                    .unwrap_or_else(|| format!("#{}", e.target));
-                let tag = if e.kind == "hit" { "HIT" } else { "MISS" };
-                let dmg = if e.damage > 0 {
-                    format!(" for {}", e.damage)
-                } else {
-                    String::new()
-                };
-                self.recent_events
-                    .push(format!("{atk} {} → {tgt} {tag}{dmg}", e.weapon));
+        // Keep the complete resolution visible, including the player's own
+        // volley. The old UI only retained the first line in a tiny panel.
+        self.recent_events.clear();
+        let mut current_events = Vec::new();
+        for e in &snap.combat_log {
+            let atk = snap
+                .ship(e.attacker)
+                .map(protocol::callsign)
+                .unwrap_or_else(|| format!("#{}", e.attacker));
+            let tgt = snap
+                .ship(e.target)
+                .map(protocol::callsign)
+                .unwrap_or_else(|| format!("#{}", e.target));
+            let tag = if e.kind == "hit" { "HIT" } else { "MISS" };
+            let result = if e.kind == "hit" {
+                format!(
+                    " +{} sh-{} hull-{}",
+                    e.damage, e.shield_absorbed, e.hull_damage
+                )
+            } else {
+                String::new()
+            };
+            current_events.push(format!("{atk} {}>{tgt} {tag}{result}", e.weapon));
+        }
+        self.recent_events = current_events.clone();
+        if current_events != self.last_combat_snapshot {
+            let common = self
+                .last_combat_snapshot
+                .iter()
+                .zip(&current_events)
+                .take_while(|(old, new)| old == new)
+                .count();
+            self.combat_history
+                .extend(current_events.iter().skip(common).cloned());
+            if self.combat_history.len() > 200 {
+                let drop = self.combat_history.len() - 200;
+                self.combat_history.drain(..drop);
             }
+            self.last_combat_snapshot = current_events;
         }
 
         self.snap = Some(snap);
+        self.confirm_tutorial_order();
     }
 
     /// Record a soft error from the engine.
     pub fn record_error(&mut self, err: &crate::protocol::ErrorResponse) {
         self.last_error = Some(format!("{}: {}", err.code, err.message));
         self.log.push(format!("ERROR: {}", err.message));
+        self.tutorial_order_pending = false;
+        self.tutorial_order_candidate = None;
+        if let Some(t) = self.tutorial.as_mut() {
+            t.set_error(format!("Engine rejected that order: {}", err.message));
+        }
+    }
+
+    /// Commit a tutorial step only after the corresponding order produced a
+    /// snapshot rather than an engine error.
+    pub fn confirm_tutorial_order(&mut self) {
+        if self.tutorial_order_pending {
+            if let Some(t) = self.tutorial.as_mut() {
+                t.advance();
+            }
+            self.tutorial_order_pending = false;
+        }
+    }
+
+    pub fn mark_tutorial_order_emitted(&mut self) {
+        if self.tutorial_order_candidate.take().is_some() {
+            self.tutorial_order_pending = true;
+        }
     }
 
     /// Push a log line.

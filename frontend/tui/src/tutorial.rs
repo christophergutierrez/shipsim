@@ -16,7 +16,10 @@ pub enum ExpectedAction {
     /// 0 = movement, 1..=n = weapons (BTreeMap order), then shields 0..5.
     NavField(usize),
     /// Adjust the current allocate field until it equals `target`.
-    ReachValue { field: usize, target: u32 },
+    ReachValue {
+        field: usize,
+        target: u32,
+    },
     CommitAllocate,
     Accel,
     TurnTo(u32),
@@ -44,6 +47,7 @@ pub struct TutorialStep {
 
 /// The tutorial controller.
 pub struct Tutorial {
+    #[allow(dead_code)]
     pub name: &'static str,
     #[allow(dead_code)]
     pub objective: &'static str,
@@ -98,6 +102,18 @@ impl Tutorial {
             }
             if action_matches(&step.expected, action) {
                 self.advance();
+                return true;
+            }
+            self.set_error(format!("Expected: {}. {}", step.title, step.hint));
+        }
+        false
+    }
+
+    /// Validate an order-backed action without advancing the lesson. The
+    /// caller advances only after the engine returns an accepted snapshot.
+    pub fn validate_action(&mut self, action: &ExpectedAction) -> bool {
+        if let Some(step) = self.current_step() {
+            if action_matches(&step.expected, action) {
                 return true;
             }
             self.set_error(format!("Expected: {}. {}", step.title, step.hint));
@@ -210,18 +226,20 @@ impl Tutorial {
         match self.current_step() {
             Some(step) => {
                 let mut text = format!(
-                    "Step {}/{} — {}\n\n",
+                    "Step {}/{} — {}\n",
                     self.current + 1,
                     self.steps.len(),
                     step.title
                 );
-                text.push_str(step.text);
-                text.push_str("\n\nKeys: ");
-                text.push_str(step.hint);
-                text.push_str("  ·  other keys blocked until this step finishes.");
                 if let Some(ref err) = self.error_msg {
-                    text.push_str(&format!("\n\n⚠ {err}"));
+                    text.push_str(&format!("⚠ {err}\n"));
                 }
+                text.push_str("Keys: ");
+                text.push_str(step.hint);
+                text.push_str("  ·  other keys are blocked until this step finishes.\n\n");
+                // Source narration uses Markdown markers; this terminal
+                // client renders plain text, so keep the lesson readable.
+                text.push_str(&step.text.replace("**", "").replace('`', ""));
                 text
             }
             None => "Tutorial complete!".to_string(),
@@ -818,7 +836,12 @@ mod tests {
             t.advance();
         }
         let line = t.do_now_line(Some(4), Some(2));
-        assert!(line.contains("F") || line.contains("forward") || line.contains("bow") || line.contains("Shield"));
+        assert!(
+            line.contains("F")
+                || line.contains("forward")
+                || line.contains("bow")
+                || line.contains("Shield")
+        );
     }
 
     #[test]
