@@ -1,0 +1,79 @@
+# Falsifiable cost claims A/B/C (docs/BALANCE-COST.md).
+# Bounded hard map + close starts + damage-diff stalemate scoring + closing policies.
+#
+# Claim A: equal-budget swarm (destroyers) vs titan_light (min fill).
+# Claim B: equal-budget destroyers vs titan_heavy (max fill) — forced engagement.
+# Claim C: fixed 8 destroyers vs titan_heavy (count, not pure cost).
+#
+# Asymmetric policies (not only greedy mirrors).
+#
+#   cargo run --release --bin shipsim-sim -- \
+#     --suite simulation/suites/abc_claims.toml \
+#     --output tmp/simulation/reports/abc_claims.json
+
+name = "abc cost claims (holdout seeds 64-191)"
+# 4 engagements × 4 matchups × 63 seeds = 1008 matches (~1k).
+seeds = [
+  64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83,
+  84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,
+  104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123,
+  124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143,
+  144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163,
+  164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183,
+  184, 185, 186, 187, 188, 189, 190, 191,
+]
+max_turns = 60
+max_orders = 60000
+skip_cost_validation = true
+stalemate_scoring = "damage_diff"
+rubrics = [
+  "simulation/rubrics/fleet-safety.toml",
+  "simulation/rubrics/abc-claims.toml",
+]
+
+[map]
+width = 24
+height = 18
+map_mode = "hard"
+
+# Asymmetric policy pairs (best-response style probes).
+[[matchups]]
+player = "greedy"
+opponent = "aggressive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "greedy"
+opponent = "defensive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "greedy"
+
+# Lever #5 costs (destroyer_line=100): titan_light≈762, titan_heavy≈910.
+# Round(cost/100) alone overshot (8 vs light → A 94%; 9 vs heavy → B 100% titan).
+# Tuned counts: A underpays slightly (7×100 < 762); B overpays slightly (10×100 > 910).
+[[engagements]]
+name = "A_swarm_vs_titan_min"
+player = [{ class = "destroyer_line", count = 7 }]
+opponent = [{ class = "titan_light", count = 1 }]
+
+[[engagements]]
+name = "B_swarm_vs_titan_max"
+player = [{ class = "destroyer_line", count = 10 }]
+opponent = [{ class = "titan_heavy", count = 1 }]
+
+[[engagements]]
+name = "C_eight_dd_vs_titan_max"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_heavy", count = 1 }]
+
+
+# Control: destroyer mirror (equal)
+[[engagements]]
+name = "control_destroyer_mirror"
+player = [{ class = "destroyer_line", count = 4 }]
+opponent = [{ class = "destroyer_line", count = 4 }]

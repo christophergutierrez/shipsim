@@ -13,6 +13,8 @@ Regenerate: python3 tools/generate_size_variants.py
 """
 from __future__ import annotations
 
+import argparse
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -288,7 +290,79 @@ def emit_weapon(w: dict) -> str:
     return "\n".join(lines)
 
 
+def check_breakpoints(built: list[dict], *, strict: bool) -> bool:
+    """Warn (stderr) when a hull's shield facing sits at or one off an exact
+    range-1 beam-damage breakpoint: max_shield_per_facing % (2*max_charge).
+
+    r1 beam damage = 2 * max_charge of the hull's best (highest-charge) beam.
+    remainder == 0 means a single beam volley exactly zeroes the facing on the
+    Nth hit with nothing left over (exact breakpoint); remainder == 1 means
+    the facing is one point off from that same exact-kill threshold.
+
+    This does not change any generated values — it only reports. The catalog
+    currently HAS exact breakpoints (titans, dreadnought_heavy) and must keep
+    generating regardless; use --strict to fail the build on exact breakpoints
+    once that's no longer acceptable.
+
+    Returns True if any exact breakpoint (remainder == 0) was found.
+    """
+    rows = []
+    has_exact = False
+    for b in built:
+        t = b["t"]
+        pid = f"{t['key']}_{b['vkey']}"
+        beams = [w for w in b["weps"] if w["kind"] == "beam"]
+        if not beams:
+            continue
+        max_charge = max(w["max_charge"] for w in beams)
+        dmg = 2 * max_charge
+        shield = b["shields"]
+        remainder = shield % dmg if dmg else shield
+        flag = ""
+        if remainder == 0:
+            flag = "BREAKPOINT (exact)"
+            has_exact = True
+        elif remainder == 1:
+            flag = "one point off"
+        rows.append((pid, shield, max_charge, dmg, remainder, flag))
+
+    print("\nBreakpoint guard: shield-facing vs r1 beam damage (2*max_charge)",
+          file=sys.stderr)
+    print(f"{'hull':28} shield charge  dmg  rem  flag", file=sys.stderr)
+    for pid, shield, max_charge, dmg, remainder, flag in rows:
+        print(
+            f"{pid:28} {shield:6} {max_charge:6} {dmg:4} {remainder:4}  {flag}",
+            file=sys.stderr,
+        )
+    flagged = [r for r in rows if r[5]]
+    if flagged:
+        print(
+            f"\n{len(flagged)} hull(s) at or one point off an exact r1 beam breakpoint:",
+            file=sys.stderr,
+        )
+        for pid, shield, max_charge, dmg, remainder, flag in flagged:
+            print(f"  {pid}: shield={shield} 2*max_charge={dmg} remainder={remainder} ({flag})",
+                  file=sys.stderr)
+    else:
+        print("\nno breakpoints found", file=sys.stderr)
+
+    if strict and has_exact:
+        print(
+            "\n--strict: exact r1 beam breakpoint(s) present, failing",
+            file=sys.stderr,
+        )
+    return has_exact
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit nonzero if any hull has an exact r1 beam-damage breakpoint",
+    )
+    args = parser.parse_args()
+
     # First pass: raw costs
     built = []
     for t in TIERS:
@@ -388,6 +462,10 @@ cost = {cost}
     for k in ("titan_light", "titan_line", "titan_heavy"):
         c = by[k][3]
         print(f"  {k}: cost={c}  vs DD = {c/dd:.2f}×  (8 DD budget buys {dd*8//c if c else 0} of these)")
+
+    has_exact = check_breakpoints(built, strict=args.strict)
+    if args.strict and has_exact:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

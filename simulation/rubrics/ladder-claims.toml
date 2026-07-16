@@ -1,0 +1,28 @@
+id = "ladder_claims"
+description = """
+Advisory gates for the size-ladder claims suite (simulation/suites/ladder_claims.toml),
+modeled on abc-claims.toml. Bands are provisional pending the phase-2 ladder campaign:
+current state per BALANCE-CAMPAIGN-SUMMARY.md sec 13.2 is 100% stomps, so this rubric
+is EXPECTED to fail until the ladder is rebalanced.
+
+Target bands (per engagement, informational — see caveat below):
+  - swarm_vs_titan, heavies_vs_swarm, battleships_vs_swarm,
+    dreadnought_screen_vs_heavies (the 4 cost-matched engagements): player WR 0.35-0.65
+  - control_heavy_cruiser_mirror (mid-ladder mirror): player WR 0.40-0.60
+
+Caveat: RubricSpec (src/simulation/rubric.rs) has no per-engagement scoping field —
+only a suite-wide aggregate min_win_rate/max_win_rate and per-matchup (policy pair)
+bounds exist, and matchups are keyed by policy (greedy/aggressive/...), not by
+engagement. The suite-aggregate band below is set to the wider cost-matched range
+(0.35-0.65), which nests the tighter mirror-control range (0.40-0.60); it cannot
+independently enforce the mirror's tighter band. Splitting per-engagement bands
+requires either separate suite+rubric pairs per engagement or an engagement-scoped
+rubric field (out of scope here; src/ is owned by another agent this session).
+"""
+advisory = true
+min_termination_rate = 0.70
+max_stalemate_rate = 0.30
+min_average_turns = 2.0
+max_average_turns = 61.0
+min_win_rate = 0.35
+max_win_rate = 0.65

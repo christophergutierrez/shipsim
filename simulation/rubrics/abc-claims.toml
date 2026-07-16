@@ -2,6 +2,21 @@ id = "abc_claims"
 description = """
 Advisory gates for A/B/C cost claims after engagement instrumentation.
 High termination expected; unkillable-titan (0% swarm WR on B/C) is a red flag.
+
+Claim C re-scoped 2026-07-15: was untestable "track" target. Intent is
+C_eight_dd_vs_titan_max opponent (titan_heavy) WR >= 0.90 (fixed 8 destroyers
+should lose to titan_heavy despite roughly matching count, not cost — see
+docs/BALANCE-COST.md). NO NUMERIC BAND ADDED HERE: RubricSpec
+(src/simulation/rubric.rs) has no per-engagement scoping — only a suite-wide
+aggregate win_rate and per-matchup (policy pair, not engagement) bounds exist,
+and abc_claims.toml runs claims A/B/C plus the control mirror as one suite.
+Adding a suite-wide max_win_rate/min_win_rate as a stand-in for "opponent WR on
+C" would also constrain claims A/B and the control mirror, whose intended win
+rates are very different from claim C's (A high, B near-zero, control ~50%),
+so it would produce a check that fails or passes for reasons unrelated to
+claim C. A true per-engagement band requires either a schema change (out of
+scope; src/ owned by another agent this session) or splitting claim C into its
+own suite+rubric pair — flagged for G1/src owner, not implemented here.
 """
 advisory = true
 min_termination_rate = 0.70

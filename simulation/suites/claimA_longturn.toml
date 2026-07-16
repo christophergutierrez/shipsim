@@ -1,0 +1,60 @@
+# Falsifiable cost claims A/B/C (docs/BALANCE-COST.md).
+# Bounded hard map + close starts + damage-diff stalemate scoring + closing policies.
+#
+# Claim A: equal-budget swarm (destroyers) vs titan_light (min fill).
+# Claim B: equal-budget destroyers vs titan_heavy (max fill) — forced engagement.
+# Claim C: fixed 8 destroyers vs titan_heavy (count, not pure cost).
+#
+# Asymmetric policies (not only greedy mirrors).
+#
+#   cargo run --release --bin shipsim-sim -- \
+#     --suite simulation/suites/abc_claims.toml \
+#     --output tmp/simulation/reports/abc_claims.json
+
+name = "claim A only, max_turns=120"
+# 4 engagements × 4 matchups × 63 seeds = 1008 matches (~1k).
+seeds = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+  21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+  41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
+  61, 62, 63,
+]
+max_turns = 120
+max_orders = 60000
+skip_cost_validation = true
+stalemate_scoring = "damage_diff"
+rubrics = [
+  "simulation/rubrics/fleet-safety.toml",
+  "simulation/rubrics/abc-claims.toml",
+]
+
+[map]
+width = 24
+height = 18
+map_mode = "hard"
+
+# Asymmetric policy pairs (best-response style probes).
+[[matchups]]
+player = "greedy"
+opponent = "aggressive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "greedy"
+opponent = "defensive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "greedy"
+
+# Lever #5 costs (destroyer_line=100): titan_light≈762, titan_heavy≈910.
+# Round(cost/100) alone overshot (8 vs light → A 94%; 9 vs heavy → B 100% titan).
+# Tuned counts: A underpays slightly (7×100 < 762); B overpays slightly (10×100 > 910).
+[[engagements]]
+name = "A_swarm_vs_titan_min"
+player = [{ class = "destroyer_line", count = 7 }]
+opponent = [{ class = "titan_light", count = 1 }]
+

@@ -1,0 +1,84 @@
+# VIRGIN SIGN-OFF SEEDS - RUN ONLY ON A LOCK CANDIDATE, ONE SHOT PER CANDIDATE,
+# NEVER FOR TUNING.
+#
+# Falsifiable cost claims A/B/C (docs/BALANCE-COST.md).
+# Bounded hard map + close starts + damage-diff stalemate scoring + closing policies.
+#
+# Claim A: equal-budget swarm (destroyers) vs titan_light (min fill).
+# Claim B: equal-budget destroyers vs titan_heavy (max fill) — forced engagement.
+# Claim C: fixed 8 destroyers vs titan_heavy (count, not pure cost).
+#
+# Asymmetric policies (not only greedy mirrors).
+#
+# SEED PROTOCOL: seeds 200-263 are held out from all tuning runs
+# (abc_claims.toml uses 1-63, abc_claims_pooled.toml uses 1-191). Spend them
+# ONLY to certify a specific lock candidate, and only once per candidate —
+# re-running after a tuning tweak burns the holdout's validity.
+#
+#   cargo run --release --bin shipsim-sim -- \
+#     --suite simulation/suites/abc_claims_signoff.toml \
+#     --output tmp/simulation/reports/abc_claims_signoff.json
+
+name = "abc cost claims (VIRGIN SIGN-OFF seeds 200-263)"
+# 4 engagements × 4 matchups × 64 seeds = 1024 matches.
+seeds = [
+  200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219,
+  220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239,
+  240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259,
+  260, 261, 262, 263,
+]
+max_turns = 60
+max_orders = 60000
+skip_cost_validation = true
+stalemate_scoring = "damage_diff"
+rubrics = [
+  "simulation/rubrics/fleet-safety.toml",
+  "simulation/rubrics/abc-claims.toml",
+]
+
+[map]
+width = 24
+height = 18
+map_mode = "hard"
+
+# Asymmetric policy pairs (best-response style probes).
+[[matchups]]
+player = "greedy"
+opponent = "aggressive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "greedy"
+opponent = "defensive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "greedy"
+
+# Lever #5 costs (destroyer_line=100): titan_light≈762, titan_heavy≈910.
+# Round(cost/100) alone overshot (8 vs light → A 94%; 9 vs heavy → B 100% titan).
+# Tuned counts: A underpays slightly (7×100 < 762); B overpays slightly (10×100 > 910).
+[[engagements]]
+name = "A_swarm_vs_titan_min"
+player = [{ class = "destroyer_line", count = 7 }]
+opponent = [{ class = "titan_light", count = 1 }]
+
+[[engagements]]
+name = "B_swarm_vs_titan_max"
+player = [{ class = "destroyer_line", count = 10 }]
+opponent = [{ class = "titan_heavy", count = 1 }]
+
+[[engagements]]
+name = "C_eight_dd_vs_titan_max"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_heavy", count = 1 }]
+
+
+# Control: destroyer mirror (equal)
+[[engagements]]
+name = "control_destroyer_mirror"
+player = [{ class = "destroyer_line", count = 4 }]
+opponent = [{ class = "destroyer_line", count = 4 }]

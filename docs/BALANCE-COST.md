@@ -4,6 +4,16 @@ Status: **design target**. The HEAD catalog does **not** implement this model ye
 (see [Catalog gap](#catalog-gap-head)). Simulator win matrices certify balance;
 η only generates candidate catalogs.
 
+### Status (2026-07-15)
+
+**Claim A** holds on held-out seeds (65.6% swarm, n=512; [BALANCE-CAMPAIGN-SUMMARY.md §13.1](../tmp/BALANCE-CAMPAIGN-SUMMARY.md#131-claim-b-does-not-replicate-on-held-out-seeds--fail)).
+
+**Claim B** FAILED holdout (29.7% swarm vs 40–60% band) and is re-opened for retuning or re-scoping; original certification was overfit to seeds 1–63.
+
+**Claim C** re-scoped to `titan >= 90%` band; scenario design track, not a pure cost-vs-cost claim.
+
+The cross-size cost-matched ladder is uncertified and currently shows 100% stomps for concentrated hulls (cruiser/battleship/dreadnought); see [BALANCE-CAMPAIGN-SUMMARY.md §13.2](../tmp/BALANCE-CAMPAIGN-SUMMARY.md#132-cost-matched-size-ladder-is-broken-outside-destroyertitan--fail) — the ladder (18 of 21 hulls) needs its own claims suite before "cost = fair" extends beyond destroyer and titan pairs.
+
 ## Intended economic shape
 
 Frame + fill:

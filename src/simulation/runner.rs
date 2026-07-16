@@ -29,16 +29,17 @@ fn default_max_orders() -> usize {
     20_000
 }
 
-/// Compatibility setting retained for suite files. Capped matches are never
-/// adjudicated into engine outcomes; use `undecided_margin` instead.
+/// How to adjudicate matches the engine leaves `InProgress` (turn cap, order
+/// cap, or mutual disarm). The engine `status` stays authoritative; the
+/// adjudication is reported separately as `adjudicated_status`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StalemateScoring {
-    /// Leave status InProgress (historical default).
+    /// Leave status InProgress with no adjudication (historical default).
     #[default]
     None,
-    /// Retained for backwards-compatible configuration parsing. It has no
-    /// effect on authoritative match status.
+    /// Score undecided matches by hull-damage differential (`undecided_margin`):
+    /// positive → player adjudicated Won, negative → Lost, zero → undecided.
     DamageDiff,
 }
 
@@ -101,6 +102,10 @@ pub struct MatchResult {
     pub opponent_cost: Option<u32>,
     pub status: ScenarioStatus,
     pub terminal_reason: Option<String>,
+    /// Stalemate adjudication of an `InProgress` match (per `stalemate_scoring`).
+    /// The engine `status` above stays authoritative.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adjudicated_status: Option<ScenarioStatus>,
     pub undecided_margin: Option<i64>,
     pub closest_approach: Option<u32>,
     pub turns_in_weapon_range: u32,
@@ -321,6 +326,38 @@ fn undecided_margin(initial: &StateSnapshot, final_snapshot: &StateSnapshot) -> 
     Some(opponent_damage - player_damage)
 }
 
+/// Both sides still have survivors, but no surviving ship on either side has an
+/// operational weapon. Such a match can never resolve by combat (weapon boxes do
+/// not repair), so continuing to the turn cap only burns wall clock.
+fn mutually_disarmed(snapshot: &StateSnapshot) -> bool {
+    let living: Vec<_> = snapshot.ships.iter().filter(|ship| !ship.destroyed).collect();
+    let player_alive = living.iter().any(|ship| ship.controller == "player");
+    let enemy_alive = living.iter().any(|ship| ship.controller != "player");
+    player_alive
+        && enemy_alive
+        && living
+            .iter()
+            .all(|ship| ship.weapons.iter().all(|weapon| !weapon.operational))
+}
+
+/// Score an undecided match from its damage margin per `stalemate_scoring`.
+/// Positive margin (opponent took more hull damage) → player Won; zero stays
+/// undecided.
+fn adjudicate_stalemate(
+    status: ScenarioStatus,
+    scoring: StalemateScoring,
+    margin: Option<i64>,
+) -> Option<ScenarioStatus> {
+    if status != ScenarioStatus::InProgress || scoring != StalemateScoring::DamageDiff {
+        return None;
+    }
+    match margin? {
+        m if m > 0 => Some(ScenarioStatus::Won),
+        m if m < 0 => Some(ScenarioStatus::Lost),
+        _ => None,
+    }
+}
+
 fn run_match_with_policies(
     config: &MatchConfig,
     mut player: Box<dyn Policy>,
@@ -334,6 +371,7 @@ fn run_match_with_policies(
     let initial_snapshot = StateSnapshot::from_game_state(&game);
     let mut closest_approach = None;
     let mut turns_in_weapon_range = BTreeSet::new();
+    let mut mutual_disarm = false;
     observe_diagnostics(
         &initial_snapshot,
         &mut closest_approach,
@@ -474,6 +512,10 @@ fn run_match_with_policies(
             status_after: game.status(),
             prng_state_after: game.prng_state(),
         });
+        if game.status() == ScenarioStatus::InProgress && mutually_disarmed(&after) {
+            mutual_disarm = true;
+            break;
+        }
     }
 
     metrics.turns = game.turn_number();
@@ -487,6 +529,7 @@ fn run_match_with_policies(
         (ScenarioStatus::Won, Some(Terminal::ReachHex(_))) => Some("objective_reached".into()),
         (ScenarioStatus::Won, None) => Some("objective_reached".into()),
         (ScenarioStatus::Lost, _) => Some("player_fleet_destroyed".into()),
+        (ScenarioStatus::InProgress, _) if mutual_disarm => Some("mutual_disarm".into()),
         (ScenarioStatus::InProgress, _) if trace.len() >= config.max_orders => {
             Some("max_orders_reached".into())
         }
@@ -511,6 +554,11 @@ fn run_match_with_policies(
         player_cost: config.player_cost,
         opponent_cost: config.opponent_cost,
         status: game.status(),
+        adjudicated_status: adjudicate_stalemate(
+            game.status(),
+            config.stalemate_scoring,
+            margin,
+        ),
         terminal_reason,
         undecided_margin: margin,
         closest_approach,
@@ -678,12 +726,13 @@ fn legal_orders(game: &GameState, ship: u32) -> Vec<Order> {
         Phase::Firing => {
             let mut orders = Vec::new();
             if let Some(attacker) = game.ship(ship) {
+                let attacker_side = game.controller_label(ship);
                 for weapon in &attacker.weapons {
-                    for target in game
-                        .ships()
-                        .iter()
-                        .filter(|target| !target.destroyed && target.id != ship)
-                    {
+                    for target in game.ships().iter().filter(|target| {
+                        !target.destroyed
+                            && target.id != ship
+                            && game.controller_label(target.id) != attacker_side
+                    }) {
                         for shield_facing in 0..6 {
                             orders.push(Order::CommitFire {
                                 ship,
@@ -729,6 +778,115 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::snapshot::{ShipSnapshot, WeaponSnapshot};
+
+    fn test_ship(id: u32, controller: &str, destroyed: bool, weapon_operational: bool) -> ShipSnapshot {
+        ShipSnapshot {
+            id,
+            class: "Test".into(),
+            size: 2,
+            controller: controller.into(),
+            q: 0,
+            r: 0,
+            facing: 0,
+            speed: 1,
+            power: 10,
+            power_available: 10,
+            movement_allocated: 0,
+            shields_powered: [0; 6],
+            shields_remaining: [0; 6],
+            max_shield_per_facing: 4,
+            structure: if destroyed { 0 } else { 5 },
+            engine: 1,
+            power_sys: 1,
+            bridge: 1,
+            weapon_boxes: vec![u32::from(weapon_operational)],
+            destroyed,
+            weapons: vec![WeaponSnapshot {
+                id: "beam_1".into(),
+                kind: "Beam".into(),
+                arc: "Forward".into(),
+                mount: None,
+                max_range: 10,
+                charge: 0,
+                fired: false,
+                max_charge: 4,
+                operational: weapon_operational,
+            }],
+            max_velocity: 1,
+            thrust_per_power: 1,
+            power_per_thrust: 1,
+            velocity: 0,
+            course: 0,
+            thrust_remaining: 0,
+        }
+    }
+
+    fn test_snapshot(ships: Vec<ShipSnapshot>) -> StateSnapshot {
+        StateSnapshot {
+            protocol_version: 3,
+            turn: 1,
+            status: ScenarioStatus::InProgress,
+            phase: "allocate".into(),
+            movement_phase: 0,
+            ships_committed_this_phase: Vec::new(),
+            ships_ready_fire: Vec::new(),
+            ships_allocated_this_turn: Vec::new(),
+            seed: 1,
+            prng_state: 1,
+            map: crate::snapshot::MapSnapshot {
+                width: 24,
+                height: 18,
+                mode: "hard".into(),
+            },
+            objective: None,
+            ships,
+            fire_commits: Vec::new(),
+            combat_log: Vec::new(),
+            end_turn_warning: false,
+        }
+    }
+
+    #[test]
+    fn mutual_disarm_requires_survivors_on_both_sides_and_no_operational_weapons() {
+        // Both sides alive, all weapons out -> disarmed.
+        assert!(mutually_disarmed(&test_snapshot(vec![
+            test_ship(1, "player", false, false),
+            test_ship(2, "player", true, false),
+            test_ship(3, "scripted", false, false),
+        ])));
+        // Enemy still has a working weapon -> not disarmed.
+        assert!(!mutually_disarmed(&test_snapshot(vec![
+            test_ship(1, "player", false, false),
+            test_ship(3, "scripted", false, true),
+        ])));
+        // Destroyed ships' weapons are ignored.
+        assert!(mutually_disarmed(&test_snapshot(vec![
+            test_ship(1, "player", false, false),
+            test_ship(3, "scripted", false, false),
+            test_ship(4, "scripted", true, true),
+        ])));
+        // One side annihilated -> engine terminal handles it, not disarm.
+        assert!(!mutually_disarmed(&test_snapshot(vec![
+            test_ship(1, "player", false, false),
+            test_ship(3, "scripted", true, false),
+        ])));
+    }
+
+    #[test]
+    fn stalemate_adjudication_follows_margin_sign_under_damage_diff() {
+        use ScenarioStatus::*;
+        let dd = StalemateScoring::DamageDiff;
+        assert_eq!(adjudicate_stalemate(InProgress, dd, Some(12)), Some(Won));
+        assert_eq!(adjudicate_stalemate(InProgress, dd, Some(-3)), Some(Lost));
+        assert_eq!(adjudicate_stalemate(InProgress, dd, Some(0)), None);
+        assert_eq!(adjudicate_stalemate(InProgress, dd, None), None);
+        assert_eq!(
+            adjudicate_stalemate(InProgress, StalemateScoring::None, Some(12)),
+            None
+        );
+        assert_eq!(adjudicate_stalemate(Won, dd, Some(12)), None);
+    }
 
     struct RejectingPolicy;
 
