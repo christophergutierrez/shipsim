@@ -1,0 +1,68 @@
+# Falsifiable cost claims A/B/C (docs/BALANCE-COST.md).
+# Bounded hard map + close starts + damage-diff stalemate scoring + closing policies.
+#
+# Claim A: equal-budget swarm (destroyers) vs titan_light (min fill).
+# Claim B: equal-budget destroyers vs titan_heavy (max fill) — forced engagement.
+# Claim C: fixed 8 destroyers vs titan_heavy (count, not pure cost).
+#
+# Asymmetric policies (not only greedy mirrors).
+#
+#   cargo run --release --bin shipsim-sim -- \
+#     --suite simulation/suites/abc_claims.toml \
+#     --output tmp/simulation/reports/abc_claims.json
+
+name = "abc cost claims"
+seeds = [1, 2, 3, 4, 5, 6, 7, 8]
+max_turns = 60
+max_orders = 60000
+skip_cost_validation = true
+stalemate_scoring = "damage_diff"
+rubrics = [
+  "simulation/rubrics/fleet-safety.toml",
+  "simulation/rubrics/abc-claims.toml",
+]
+
+[map]
+width = 24
+height = 18
+map_mode = "hard"
+
+# Asymmetric policy pairs (best-response style probes).
+[[matchups]]
+player = "greedy"
+opponent = "aggressive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "greedy"
+opponent = "defensive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "greedy"
+
+# Costs after frame/module regen (destroyer_line=100):
+#   titan_light=891 ≈ 9 DD, titan_heavy=957 ≈ 10 DD, 8 DD=800.
+[[engagements]]
+name = "A_swarm_vs_titan_min"
+player = [{ class = "destroyer_line", count = 9 }]
+opponent = [{ class = "titan_light", count = 1 }]
+
+[[engagements]]
+name = "B_swarm_vs_titan_max"
+player = [{ class = "destroyer_line", count = 10 }]
+opponent = [{ class = "titan_heavy", count = 1 }]
+
+[[engagements]]
+name = "C_eight_dd_vs_titan_max"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_heavy", count = 1 }]
+
+# Control: destroyer mirror (equal)
+[[engagements]]
+name = "control_destroyer_mirror"
+player = [{ class = "destroyer_line", count = 4 }]
+opponent = [{ class = "destroyer_line", count = 4 }]

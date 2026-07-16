@@ -23,9 +23,12 @@ and size-derived yard limits remain design candidates.
 size IDs — map scraped ships by STCS class number when present. Combat baseline
 remains size **2** until an explicit retune. See `docs/combat-v2-tables.md`.
 
-**Draft variants:** three hulls per size (`*_light` / `*_line` / `*_heavy`) with
-JSONL-ratioed `cost` (destroyer_line = 100). Methodology: `docs/SIZE-VARIANTS.md`.
-**Suite:** `simulation/suites/cost_matched.toml` (engagements + budget validation).
+**Draft variants:** three hulls per size (`*_light` / `*_line` / `*_heavy`).
+HEAD `cost` is Combat-D ratioed (destroyer_line = 100) — **diseconomies of scale
+vs the intended frame-sunk model**; see `docs/BALANCE-COST.md`.
+**Suite:** `simulation/suites/cost_matched.toml`. **Before regenerating costs:**
+engagement/termination instrumentation (stalemates dominate); then frame/module
+catalog regen; certify A/B/C with asymmetric policies.
 
 ### Goal
 

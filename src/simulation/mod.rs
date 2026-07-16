@@ -11,7 +11,7 @@ pub use metrics::{AggregateMetrics, MatchMetrics};
 pub use policy::{DecisionContext, Policy};
 pub use rubric::{RubricResult, RubricSpec};
 pub use runner::{
-    run_match, run_suite, FailedMatch, MatchConfig, MatchResult, SimulationError, SuiteReport,
-    SuiteSpec,
+    run_match, run_suite, FailedMatch, MatchConfig, MatchResult, SimulationError, StalemateScoring,
+    SuiteReport, SuiteSpec,
 };
 pub use trace::{TraceEvent, TraceOutcome};

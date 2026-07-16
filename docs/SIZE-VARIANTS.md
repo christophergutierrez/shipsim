@@ -26,20 +26,20 @@ existing scenarios.
    power budget:
    - `power ≈ round(stcs_power × 14/34)` (destroyer median power 34 → 14)
    - `structure ≈ round(stcs_ss × 8/14)` (destroyer median SS 14 → 8)
-4. **Cost** uses Combat Efficiency **D** (more fleet-playable than raw
-   power×SS mass). Destroyer line = **100**:
+4. **Cost (historical HEAD, superseded as a design target):** Combat Efficiency
+   **D** medians with destroyer line = **100**:
    - `cost_line = round(100 × D_median / D_destroyer)`
    - light = 0.85× line, heavy = 1.20× line  
-   JSONL median D ratios vs destroyer:  
-   Fighter 0.61 · Destroyer 1.00 · LC 1.62 · HC 2.47 · BB 3.94 · DN 5.68 · Titan 7.98  
+   That forces cost ∝ measured V (η ≈ constant) and **does not** implement
+   frame-sunk + flat modules. **Target model and catalog gap:**
+   [`docs/BALANCE-COST.md`](BALANCE-COST.md).
 5. **Thrust** follows FASA movement-point ratio trend (larger = more power per
    thrust): fighters/destroyers efficient; capitals `power_per_thrust` 2–5.
 6. **Weapons** step up by size and variant (light = few mounts; heavy = fuller
    suite). Kinds stay beam / torp / plasma.
 
-**Not used as primary cost:** power×SS product (titan ~89× destroyer). That is a
-useful *mass* signal but makes equal-cost fleets unwieldy; D-based cost keeps
-“~8 destroyers vs 1 titan” as the top equal-budget sketch.
+**Not used as primary cost:** power×SS product (titan ~89× destroyer). D-based
+totals were a fleet-playable stopgap only.
 
 ## Line costs (budget unit)
 
@@ -72,28 +72,14 @@ useful *mass* signal but makes equal-cost fleets unwieldy; D-based cost keeps
 | **line** | Median JSONL stats; reference for cost-vs-cost |
 | **heavy** | Costlier, thicker, denser weapons; often worse thrust ratio |
 
-## Balance method (start with power)
+## Balance method
 
-1. **Sweep power** on one hull in a fixed equal-cost (or fixed-count) matchup
-   (`[[power_sweeps]]` in a suite — see `docs/SIMULATION.md`).
-2. Expect a curve: **not enough** → dies / never works; **enough** → viable band;
-   **too much** → surplus (WR/turns plateau; energy left idle).
-3. Read **how** the underdog loses before touching other levers:
-   - **Loses quickly** → defense not cutting it (shields max/ratio, structure, power
-     into faces) — not primarily weapon count.
-   - **Loses after many turns** → survives but cannot finish (weapons, charge,
-     damage tables, or power left after defense).
-4. Only after the power band is sane, move to shields / weapons / structure.
+Authoritative economics + claims A/B/C + order of ops:
+**[`docs/BALANCE-COST.md`](BALANCE-COST.md)**.
 
-```bash
-cargo run --release --bin shipsim-sim -- \
-  --suite simulation/suites/titan_power_sweep.toml \
-  --output tmp/simulation/reports/titan_power_sweep.json
-```
-
-## Simulation
-
-Reusable suite (not one-off scenarios):
+Local lever sweeps (power, shields, structure) remain useful **after** games
+decide and the catalog form is frame/module — see that doc’s order of operations
+(engagement instrumentation first; do not retune from Combat-D costs).
 
 ```bash
 cargo run --release --bin shipsim-sim -- \
@@ -106,10 +92,8 @@ cargo run --release --bin shipsim-sim -- \
 - Blocking gate: `simulation/rubrics/fleet-safety.toml` (legal orders, bounded turns).
 - Advisory: `simulation/rubrics/cost-matched.toml` (termination / win-rate band).
 
-Tune power / structure / shields / cost from report breakdowns by `engagement`
-(see `docs/TODO.md`). Early runs often show high stalemate on some pairings and
-lopsided WR on others — that is expected draft signal, not a harness bug.
+High stalemate rates block catalog tuning; treat as instrument debt, not a green
+balance signal.
 
-Plating, shield boosters, and batteries are **not** in these drafts; they remain
-future construction modules that should also carry cost/space so large hulls
-pay for anti-magnet tools.
+Plating, multi-bank shields, boosters, and batteries remain future modules with
+their own space/cost under the frame/module split.

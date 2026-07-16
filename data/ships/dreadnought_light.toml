@@ -1,16 +1,16 @@
-# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
-# See docs/SIZE-VARIANTS.md. Tune after simulation.
+# Frame/module cost model (docs/BALANCE-COST.md).
+# Regenerate: python3 tools/generate_size_variants.py
 id = "dreadnought_light"
 name = "Dreadnought (Light)"
 size = 6
-speed = 5
+speed = 4
 power = 62
 max_shield_per_facing = 7
 structure = 69
-max_velocity = 5
+max_velocity = 4
 thrust_per_power = 1
 power_per_thrust = 3
-cost = 483
+cost = 675
 
 [[weapons]]
 id = "beam_1"

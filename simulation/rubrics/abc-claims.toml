@@ -1,0 +1,10 @@
+id = "abc_claims"
+description = """
+Advisory gates for A/B/C cost claims after engagement instrumentation.
+High termination expected; unkillable-titan (0% swarm WR on B/C) is a red flag.
+"""
+advisory = true
+min_termination_rate = 0.70
+max_stalemate_rate = 0.30
+min_average_turns = 2.0
+max_average_turns = 61.0

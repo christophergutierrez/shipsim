@@ -65,6 +65,7 @@ __all__ = [
     "living_ships",
     "ship_by_id",
     "format_tactical",
+    "format_tactical_blocks",
     "format_engagement",
 ]
 
@@ -509,15 +510,33 @@ def format_tactical(
     hull_max: Optional[dict[int, int]] = None,
 ) -> str:
     """Focus card + enemies with facing-shield info."""
+    return "\n".join(
+        block[1]
+        for block in format_tactical_blocks(snap, selected=selected, hull_max=hull_max)
+    )
+
+
+def format_tactical_blocks(
+    snap: dict[str, Any],
+    *,
+    selected: Optional[int] = None,
+    hull_max: Optional[dict[int, int]] = None,
+) -> list[tuple[str, str]]:
+    """Return the legacy tactical frame as stable, independently renderable blocks.
+
+    Joining these blocks produces the exact output historically returned by
+    ``format_tactical``.  The screen layer uses the roles to choose compact
+    alternatives only when the complete frame cannot fit.
+    """
     hull_max = hull_max or {}
     me = ship_by_id(snap, selected) if selected is not None else None
     if me is None:
         players = living_player_ships(snap)
         me = players[0] if players else None
     if me is None:
-        return format_snapshot(snap, selected=selected, hull_max=hull_max, verbose=False)
+        return [("banner", format_snapshot(snap, selected=selected, hull_max=hull_max, verbose=False))]
 
-    parts = [format_header(snap, selected=selected)]
+    parts: list[tuple[str, str]] = [("banner", format_header(snap, selected=selected))]
     if snap.get("phase") == "movement":
         committed = [
             ship_callsign(ship_by_id(snap, int(sid)) or {"id": sid, "controller": "?"})
@@ -528,15 +547,13 @@ def format_tactical(
             for sid in movement_pending_ids(snap)
         ]
         queue = f"committed={', '.join(committed) or '-'} pending={', '.join(pending) or '-'}"
-        parts.append(
-            muted(f"movement: {queue}")
-        )
+        parts.append(("action", muted(f"movement: {queue}")))
     if snap.get("ships_ready_fire"):
         ready = ", ".join(
             ship_callsign(ship_by_id(snap, int(sid)) or {"id": sid, "controller": "?"})
             for sid in snap.get("ships_ready_fire") or []
         )
-        parts.append(muted(f"fire ready: {ready}"))
+        parts.append(("action", muted(f"fire ready: {ready}")))
 
     you_body = format_ship_card(
         me,
@@ -545,7 +562,7 @@ def format_tactical(
         active=movement_focus_id(snap) == me.get("id"),
         snap=snap,
     )
-    parts.append(panel("YOUR SHIP", you_body))
+    parts.append(("player", panel("YOUR SHIP", you_body)))
 
     # Advisory threat assessment — pure geometry from snapshot fields.
     threats = threats_to_ship(snap, int(me["id"]))
@@ -559,7 +576,7 @@ def format_tactical(
         if s.get("id") != me.get("id")
     ]
     if enemies:
-        parts.append(panel("ENGAGEMENT", format_engagement(me, enemies)))
+        parts.append(("action", panel("ENGAGEMENT", format_engagement(me, enemies))))
         contact_chunks = []
         for e in enemies:
             eid = int(e.get("id") or -1)
@@ -582,7 +599,7 @@ def format_tactical(
                     f"(threat)"
                 )
             contact_chunks.append(chunk)
-        parts.append(panel("CONTACTS", "\n\n".join(contact_chunks)))
+        parts.append(("contacts", panel("CONTACTS", "\n\n".join(contact_chunks))))
 
     board = format_board(
         snap,
@@ -590,11 +607,11 @@ def format_tactical(
         active=movement_focus_id(snap) if snap.get("phase") == "movement" else None,
     )
     if board:
-        parts.append(panel("MAP", board, width=72))
+        parts.append(("map", panel("MAP", board, width=72)))
     commits = format_commits(snap)
     if commits:
-        parts.append(panel("PENDING FIRE", commits))
-    return "\n".join(parts)
+        parts.append(("pending", panel("PENDING FIRE", commits)))
+    return parts
 
 
 def format_terminal_banner(

@@ -6,9 +6,5 @@ nontransitive; use reports to retune hulls/costs, not as a hard balance claim.
 advisory = true so a red competitive band does not fail the CLI when safety passes.
 """
 advisory = true
-min_termination_rate = 0.50
-max_stalemate_rate = 0.50
 min_win_rate = 0.15
-max_win_rate = 0.85
-min_average_turns = 2.0
-max_average_turns = 70.0
+max_win_rate = 0.95

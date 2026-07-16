@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use crate::motion::Maneuver;
+use crate::motion::{self, Maneuver};
 use crate::movement::Order;
-use crate::snapshot::ShipSnapshot;
+use crate::snapshot::{ShipSnapshot, StateSnapshot};
 
 use super::policy::{DecisionContext, Policy};
 
@@ -47,22 +47,114 @@ impl BaselinePolicy {
         value
     }
 
-    fn allocation(&mut self, ship: &ShipSnapshot) -> (u32, BTreeMap<String, u32>, [u32; 6]) {
+    /// Axial hex distance between two ships (same metric as core hex distance).
+    fn range_to(a: &ShipSnapshot, b: &ShipSnapshot) -> i32 {
+        let dq = b.q - a.q;
+        let dr = b.r - a.r;
+        dq.abs().max(dr.abs()).max((dq + dr).abs())
+    }
+
+    fn nearest_enemy<'a>(context: &'a DecisionContext<'_>) -> Option<&'a ShipSnapshot> {
+        context
+            .snapshot
+            .ships
+            .iter()
+            .filter(|ship| {
+                !ship.destroyed
+                    && ship.id != context.ship.id
+                    && ship.controller != context.ship.controller
+            })
+            .min_by_key(|ship| (Self::range_to(context.ship, ship), ship.id))
+    }
+
+    fn holding_velocity(&self, ship: &ShipSnapshot) -> u8 {
+        let holding = match self.style {
+            Style::Mobility => 2,
+            Style::Random => 0,
+            Style::Aggressive | Style::Greedy | Style::Defensive => 1,
+        };
+        holding.min(ship.max_velocity)
+    }
+
+    fn target_velocity(&self, ship: &ShipSnapshot, snapshot: Option<&StateSnapshot>) -> u8 {
+        let holding = self.holding_velocity(ship);
+        let Some(snapshot) = snapshot else {
+            return holding;
+        };
+        let Some(enemy) = snapshot.ships.iter().filter(|candidate| {
+            !candidate.destroyed
+                && candidate.id != ship.id
+                && candidate.controller != ship.controller
+        }).min_by_key(|candidate| (Self::range_to(ship, candidate), candidate.id)) else {
+            return holding;
+        };
+        let range = Self::range_to(ship, enemy).max(0) as u32;
+        let weapon_range = ship
+            .weapons
+            .iter()
+            .filter(|weapon| weapon.operational)
+            .map(|weapon| weapon.max_range)
+            .max()
+            .unwrap_or(0);
+        let closing_distance = range.saturating_sub(weapon_range);
+        let closing_velocity = closing_distance
+            .div_ceil(3)
+            .min(u32::from(ship.max_velocity)) as u8;
+        if Self::desired_course_for(ship, snapshot).is_some_and(|course| course != ship.course) {
+            return holding;
+        }
+        // Keep deterministic policies below the high-speed regime where a
+        // re-vector costs more thrust than a normal turn can buy. Two hexes
+        // per turn still closes a standard engagement in one movement turn.
+        closing_velocity
+            .max(holding)
+            .min(2)
+            .min(ship.max_velocity)
+    }
+
+    fn power_for_thrust(ship: &ShipSnapshot, thrust: u32) -> u32 {
+        if thrust == 0 || ship.thrust_per_power == 0 {
+            return 0;
+        }
+        thrust
+            .saturating_mul(ship.power_per_thrust)
+            .saturating_add(ship.thrust_per_power - 1)
+            / ship.thrust_per_power
+    }
+
+    fn allocation(
+        &mut self,
+        ship: &ShipSnapshot,
+        snapshot: Option<&StateSnapshot>,
+    ) -> (u32, BTreeMap<String, u32>, [u32; 6]) {
         let power = ship.power_available;
         let max_velocity = u32::from(ship.max_velocity);
+        // Random retains its historical allocation stream. The governor is
+        // intentionally limited to deterministic non-random policies.
         let desired_thrust = match self.style {
-            Style::Aggressive => max_velocity.min(2),
-            Style::Defensive | Style::Greedy => u32::from(max_velocity > 0),
-            Style::Mobility => max_velocity,
             Style::Random if max_velocity > 0 => {
                 1 + (self.next_random() % u64::from(max_velocity)) as u32
             }
             Style::Random => 0,
+            _ => {
+                let target = u32::from(self.target_velocity(ship, snapshot));
+                let mut thrust = target.abs_diff(u32::from(ship.velocity));
+                if let Some(snapshot) = snapshot {
+                    if let Some(wanted) = Self::desired_course_for(ship, snapshot) {
+                        let maneuver_thrust = if ship.facing != wanted {
+                            motion::facing_turn_cost(ship.facing, wanted)
+                        } else if ship.course != wanted && ship.velocity > 0 {
+                            u32::from(ship.velocity) + 1
+                        } else {
+                            0
+                        };
+                        thrust = thrust.max(maneuver_thrust);
+                    }
+                }
+                thrust.min(4)
+            }
         };
-        let movement = desired_thrust
-            .saturating_mul(ship.power_per_thrust)
-            .div_ceil(ship.thrust_per_power)
-            .min(power);
+        let movement = Self::power_for_thrust(ship, desired_thrust).min(power);
         let mut remaining = power - movement;
         let mut weapons = BTreeMap::new();
         let defensive_reserve = if matches!(self.style, Style::Defensive) {
@@ -113,20 +205,19 @@ impl BaselinePolicy {
         (movement, weapons, shields)
     }
 
-    fn desired_course(context: &DecisionContext<'_>) -> Option<u8> {
-        let target = context
-            .snapshot
+    fn desired_course_for(ship: &ShipSnapshot, snapshot: &StateSnapshot) -> Option<u8> {
+        let target = snapshot
             .ships
             .iter()
-            .filter(|ship| {
-                !ship.destroyed
-                    && ship.id != context.ship.id
-                    && ship.controller != context.ship.controller
+            .filter(|candidate| {
+                !candidate.destroyed
+                    && candidate.id != ship.id
+                    && candidate.controller != ship.controller
             })
-            .min_by_key(|ship| {
-                let dq = ship.q - context.ship.q;
-                let dr = ship.r - context.ship.r;
-                (dq.abs().max(dr.abs()).max((dq + dr).abs()), ship.id)
+            .min_by_key(|candidate| {
+                let dq = candidate.q - ship.q;
+                let dr = candidate.r - ship.r;
+                (dq.abs().max(dr.abs()).max((dq + dr).abs()), candidate.id)
             })?;
         (0..6).min_by_key(|course| {
             let (dq, dr) = match course {
@@ -137,12 +228,16 @@ impl BaselinePolicy {
                 4 => (-1, 1),
                 _ => (0, 1),
             };
-            let nq = context.ship.q + dq;
-            let nr = context.ship.r + dr;
+            let nq = ship.q + dq;
+            let nr = ship.r + dr;
             let tq = target.q - nq;
             let tr = target.r - nr;
             (tq.abs().max(tr.abs()).max((tq + tr).abs()), *course)
         })
+    }
+
+    fn desired_course(context: &DecisionContext<'_>) -> Option<u8> {
+        Self::desired_course_for(context.ship, context.snapshot)
     }
 
     fn choose_maneuver(&mut self, context: &DecisionContext<'_>) -> Option<Order> {
@@ -161,23 +256,81 @@ impl BaselinePolicy {
                 .cloned();
         }
         let desired = Self::desired_course(context);
-        let current = context.ship.course;
+        let target = Self::nearest_enemy(context);
+        let range = target.map(|enemy| Self::range_to(context.ship, enemy));
+        let target_velocity = self.target_velocity(context.ship, Some(context.snapshot));
         maneuvers.into_iter().max_by_key(|order| {
             let Order::CommitManeuver { maneuver, .. } = order else {
                 return i32::MIN;
             };
-            let mut score = match (self.style, maneuver) {
-                (Style::Mobility, Maneuver::Accel) => 100,
-                (Style::Aggressive, Maneuver::Accel) => 90,
-                (Style::Greedy, Maneuver::Accel) => 80,
-                (_, Maneuver::Accel) => 70,
-                (Style::Defensive, Maneuver::Turn { .. }) => 75,
-                (Style::Mobility, Maneuver::TurnAccel { .. }) => 95,
-                (_, Maneuver::TurnAccel { .. }) => 65,
-                (_, Maneuver::Coast) => 20,
-                (_, Maneuver::Turn { .. }) => 50,
+            let Ok(result) = motion::resolve_maneuver(
+                motion::Velocity {
+                    speed: context.ship.velocity,
+                    course: context.ship.course,
+                },
+                context.ship.facing,
+                context.ship.max_velocity,
+                *maneuver,
+            ) else {
+                return i32::MIN;
             };
+            let speed_error = i32::from(result.velocity.speed.abs_diff(target_velocity));
+            let mut score = -1_000 * speed_error;
+            if context.ship.velocity < target_velocity
+                && result.velocity.speed > context.ship.velocity
+            {
+                score += 250;
+            }
+            if context.ship.velocity > target_velocity
+                && result.velocity.speed < context.ship.velocity
+            {
+                score += 250;
+            }
+            if range.is_some_and(|current| {
+                target.is_some_and(|enemy| {
+                    let delta = crate::hex::Hex::direction(result.velocity.course)
+                        .unwrap_or(crate::hex::Hex::ORIGIN);
+                    let projected = crate::hex::Hex::new(
+                        context.ship.q + delta.q * i32::from(result.velocity.speed),
+                        context.ship.r + delta.r * i32::from(result.velocity.speed),
+                    );
+                    let post = (enemy.q - projected.q)
+                        .abs()
+                        .max((enemy.r - projected.r).abs())
+                        .max((enemy.q - projected.q + enemy.r - projected.r).abs());
+                    current > post
+                })
+            }) {
+                score += 10;
+            }
+            // In weapon range, overspeed is a diagnostic liability rather than
+            // a reason to keep accelerating away from the target.
+            if range.is_some_and(|current| {
+                target.is_some_and(|enemy| {
+                    let weapon_range = context
+                        .ship
+                        .weapons
+                        .iter()
+                        .filter(|weapon| weapon.operational)
+                        .map(|weapon| weapon.max_range)
+                        .max()
+                        .unwrap_or(0) as i32;
+                    current <= weapon_range && result.velocity.speed > target_velocity
+                        && enemy.id != context.ship.id
+                })
+            }) {
+                score -= 300;
+            }
             if let Some(wanted) = desired {
+                if result.velocity.course == wanted
+                    && result.velocity.speed <= target_velocity
+                {
+                    // Re-vectoring is intentionally allowed to cost one
+                    // speed unit when it produces a course toward the target.
+                    // Otherwise the speed-error term keeps selecting Coast
+                    // forever at the holding velocity.
+                    score += 1_500;
+                }
                 match maneuver {
                     Maneuver::Turn { facing } if *facing == wanted => score += 50,
                     Maneuver::TurnAccel { facing } if *facing == wanted => score += 55,
@@ -186,7 +339,11 @@ impl BaselinePolicy {
                     _ => {}
                 }
             }
-            let _ = current;
+            score += match self.style {
+                Style::Mobility if matches!(maneuver, Maneuver::Accel | Maneuver::TurnAccel { .. }) => 20,
+                Style::Defensive if matches!(maneuver, Maneuver::Coast | Maneuver::Turn { .. }) => 10,
+                _ => 0,
+            };
             score
         })
     }
@@ -199,12 +356,28 @@ impl BaselinePolicy {
             .cloned()
             .collect();
         if !commits.is_empty() {
-            let index = match self.style {
-                Style::Random => (self.next_random() as usize) % commits.len(),
-                Style::Defensive => commits.len() - 1,
-                _ => 0,
-            };
-            return commits.get(index).cloned();
+            if matches!(self.style, Style::Random) {
+                let index = (self.next_random() as usize) % commits.len();
+                return commits.get(index).cloned();
+            }
+            return commits.into_iter().min_by_key(|order| {
+                let Order::CommitFire { target, weapon, .. } = order else {
+                    return (u32::MAX, i32::MAX, String::new());
+                };
+                let (structure, range) = context
+                    .snapshot
+                    .ships
+                    .iter()
+                    .find(|candidate| candidate.id == *target)
+                    .map(|candidate| {
+                        (
+                            candidate.structure,
+                            Self::range_to(context.ship, candidate),
+                        )
+                    })
+                    .unwrap_or((u32::MAX, i32::MAX));
+                (structure, range, weapon.clone())
+            });
         }
 
         if matches!(self.style, Style::Random) && !context.legal_orders.is_empty() {
@@ -222,7 +395,17 @@ impl Policy for BaselinePolicy {
     }
 
     fn allocate(&mut self, ship: &ShipSnapshot) -> Order {
-        let (movement, weapons, shields) = self.allocation(ship);
+        let (movement, weapons, shields) = self.allocation(ship, None);
+        Order::Allocate {
+            ship: ship.id,
+            movement,
+            weapons,
+            shields,
+        }
+    }
+
+    fn allocate_with_context(&mut self, ship: &ShipSnapshot, snapshot: &StateSnapshot) -> Order {
+        let (movement, weapons, shields) = self.allocation(ship, Some(snapshot));
         Order::Allocate {
             ship: ship.id,
             movement,

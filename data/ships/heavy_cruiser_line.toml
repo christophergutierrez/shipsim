@@ -1,5 +1,5 @@
-# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
-# See docs/SIZE-VARIANTS.md. Tune after simulation.
+# Frame/module cost model (docs/BALANCE-COST.md).
+# Regenerate: python3 tools/generate_size_variants.py
 id = "heavy_cruiser_line"
 name = "Heavy Cruiser (Line)"
 size = 4
@@ -10,7 +10,7 @@ structure = 19
 max_velocity = 6
 thrust_per_power = 1
 power_per_thrust = 1
-cost = 247
+cost = 327
 
 [[weapons]]
 id = "beam_1"

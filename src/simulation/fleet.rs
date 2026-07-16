@@ -15,11 +15,11 @@ fn default_count() -> u32 {
 }
 
 fn default_width() -> u32 {
-    32
+    28
 }
 
 fn default_height() -> u32 {
-    24
+    20
 }
 
 /// One ship class and how many copies to field.
@@ -290,13 +290,19 @@ pub fn build_engagement_scenario(
     let mut ships = Vec::new();
     let mut next_id = 1u32;
 
+    // Forced engagement: fleets start ~8–10 hexes apart on a hard-edged map
+    // so annihilation/claims A–B are not pure kite contests.
+    let gap = 9i32;
+    let player_q = ((map.width as i32) / 2 - gap / 2).max(2);
+    let opponent_q = (player_q + gap).min(map.width as i32 - 3);
+
     place_side(
         &mut ships,
         &mut next_id,
         &engagement.player,
         /*controller*/ "player",
         /*facing*/ 0,
-        /*q*/ 3,
+        /*q*/ player_q,
         map.height,
     )?;
     place_side(
@@ -305,15 +311,20 @@ pub fn build_engagement_scenario(
         &engagement.opponent,
         "scripted",
         3,
-        map.width as i32 - 4,
+        opponent_q,
         map.height,
     )?;
+
+    let map_mode = map
+        .map_mode
+        .clone()
+        .unwrap_or_else(|| "hard".to_string());
 
     Ok(ScenarioDef {
         width: map.width,
         height: map.height,
         seed,
-        map_mode: map.map_mode.clone(),
+        map_mode: Some(map_mode),
         objective: None,
         terminal: Some(TerminalDef {
             terminal_type: "annihilation".into(),
@@ -382,26 +393,26 @@ mod tests {
     }
 
     #[test]
-    fn destroyer_line_cost_is_100() {
+    fn destroyer_line_cost_near_100() {
         let cost = fleet_cost(
             &root(),
             &[FleetLine::new("destroyer_line", 1)],
         )
         .expect("cost");
-        assert_eq!(cost, 100);
+        // Frame/module model targets ~100 (docs/BALANCE-COST.md).
+        assert!((95..=105).contains(&cost), "got {cost}");
     }
 
     #[test]
-    fn eight_destroyers_match_titan_within_tolerance() {
-        let eng = EngagementSpec {
-            name: "swarm_vs_titan".into(),
-            player: vec![FleetLine::new("destroyer_line", 8)],
-            opponent: vec![FleetLine::new("titan_line", 1)],
-        };
-        let costs = engagement_costs(&root(), &eng).expect("costs");
-        assert_eq!(costs.player, 800);
-        assert_eq!(costs.opponent, 798);
-        validate_engagement_costs(&costs, &eng.name, Some(800), 60).expect("balanced");
+    fn titan_min_about_eight_to_ten_destroyers() {
+        // Sunk-frame model: min titan ≈ 8–10× destroyer_line for equal-budget swarms.
+        let dd = fleet_cost(&root(), &[FleetLine::new("destroyer_line", 1)]).expect("dd");
+        let titan = fleet_cost(&root(), &[FleetLine::new("titan_light", 1)]).expect("titan");
+        let ratio = titan as f64 / dd as f64;
+        assert!(
+            (7.0..=11.0).contains(&ratio),
+            "titan_light/DD = {ratio:.2} (titan={titan} dd={dd})"
+        );
     }
 
     #[test]

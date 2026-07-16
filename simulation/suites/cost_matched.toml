@@ -1,5 +1,5 @@
-# Equal-construction-budget fleet matchups (see docs/SIZE-VARIANTS.md).
-# Fleets are built in-memory from data/ships/* costs; no one-off scenario files.
+# Equal-construction-budget fleet matchups (docs/BALANCE-COST.md, SIZE-VARIANTS.md).
+# Frame/module costs; destroyer_line = 100.
 #
 #   cargo run --release --bin shipsim-sim -- \
 #     --suite simulation/suites/cost_matched.toml \
@@ -7,51 +7,47 @@
 
 name = "cost-matched size fleets"
 seeds = [1, 2, 3, 4, 5, 6, 7, 8]
-max_turns = 80
-max_orders = 80000
-# Target ~800 for most engagements (see comments). Mirror control is 400/side.
-# Sides must match each other within cost_tolerance; budget is optional.
-# budget = 800
-cost_tolerance = 60
+max_turns = 60
+max_orders = 60000
+cost_tolerance = 100
 rubrics = [
   "simulation/rubrics/fleet-safety.toml",
+  "simulation/rubrics/instrument-health.toml",
   "simulation/rubrics/cost-matched.toml",
 ]
 
 [map]
-width = 36
-height = 28
+width = 24
+height = 18
+map_mode = "hard"
 
-# Policy controls (same policies both sides first — isolate fleet shape).
 [[matchups]]
 player = "greedy"
-opponent = "greedy"
+opponent = "aggressive"
 
 [[matchups]]
 player = "aggressive"
-opponent = "aggressive"
+opponent = "defensive"
 
-# --- Engagements (costs validated at load) ---
-
-# 8×100 = 800 vs 798
+# 9×100 = 900 vs titan_line 910
 [[engagements]]
 name = "swarm_vs_titan"
-player = [{ class = "destroyer_line", count = 8 }]
+player = [{ class = "destroyer_line", count = 9 }]
 opponent = [{ class = "titan_line", count = 1 }]
 
-# 3×247 = 741 vs 8×100 = 800
+# 3×327 = 981 vs 10×100 = 1000
 [[engagements]]
 name = "heavies_vs_swarm"
 player = [{ class = "heavy_cruiser_line", count = 3 }]
-opponent = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "destroyer_line", count = 10 }]
 
-# 2×394 = 788 vs 8×100 = 800
+# 2×487 = 974 vs 10×100 = 1000
 [[engagements]]
 name = "battleships_vs_swarm"
 player = [{ class = "battleship_line", count = 2 }]
-opponent = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "destroyer_line", count = 10 }]
 
-# 568+200 = 768 vs 3×247 = 741
+# 689+200 = 889 vs 3×327 = 981 (within tolerance 100)
 [[engagements]]
 name = "dreadnought_screen_vs_heavies"
 player = [
@@ -60,7 +56,7 @@ player = [
 ]
 opponent = [{ class = "heavy_cruiser_line", count = 3 }]
 
-# Control: equal hulls, equal cost (4×100)
+# Control: equal hulls
 [[engagements]]
 name = "destroyer_mirror"
 player = [{ class = "destroyer_line", count = 4 }]

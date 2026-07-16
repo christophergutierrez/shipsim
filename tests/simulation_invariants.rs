@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use shipsim_core::game_state::ScenarioStatus;
 use shipsim_core::simulation::{run_match, MatchConfig};
 
 fn scenario() -> PathBuf {

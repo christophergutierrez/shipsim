@@ -1,16 +1,16 @@
-# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
-# See docs/SIZE-VARIANTS.md. Tune after simulation.
+# Frame/module cost model (docs/BALANCE-COST.md).
+# Regenerate: python3 tools/generate_size_variants.py
 id = "battleship_light"
 name = "Battleship (Light)"
 size = 5
-speed = 6
+speed = 5
 power = 37
 max_shield_per_facing = 6
 structure = 30
-max_velocity = 6
+max_velocity = 5
 thrust_per_power = 1
 power_per_thrust = 2
-cost = 335
+cost = 458
 
 [[weapons]]
 id = "beam_1"

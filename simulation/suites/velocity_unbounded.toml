@@ -1,0 +1,22 @@
+name = "unbounded velocity governor diagnostic"
+seeds = [1, 2, 3, 4, 5, 6, 7, 8]
+max_turns = 60
+max_orders = 60000
+skip_cost_validation = true
+rubrics = [
+  "simulation/rubrics/fleet-safety.toml",
+]
+
+[map]
+width = 24
+height = 18
+map_mode = "unbounded"
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[engagements]]
+name = "heavy_cruiser_screen_vs_destroyers"
+player = [{ class = "heavy_cruiser_line", count = 3 }]
+opponent = [{ class = "destroyer_line", count = 10 }]

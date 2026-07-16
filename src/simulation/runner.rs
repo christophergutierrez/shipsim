@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,19 @@ fn default_max_orders() -> usize {
     20_000
 }
 
+/// Compatibility setting retained for suite files. Capped matches are never
+/// adjudicated into engine outcomes; use `undecided_margin` instead.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StalemateScoring {
+    /// Leave status InProgress (historical default).
+    #[default]
+    None,
+    /// Retained for backwards-compatible configuration parsing. It has no
+    /// effect on authoritative match status.
+    DamageDiff,
+}
+
 #[derive(Debug, Clone)]
 pub struct MatchConfig {
     pub scenario: PathBuf,
@@ -45,6 +58,7 @@ pub struct MatchConfig {
     pub engagement: Option<String>,
     pub player_cost: Option<u32>,
     pub opponent_cost: Option<u32>,
+    pub stalemate_scoring: StalemateScoring,
 }
 
 impl MatchConfig {
@@ -68,6 +82,7 @@ impl MatchConfig {
             engagement: None,
             player_cost: None,
             opponent_cost: None,
+            stalemate_scoring: StalemateScoring::None,
         }
     }
 }
@@ -86,6 +101,9 @@ pub struct MatchResult {
     pub opponent_cost: Option<u32>,
     pub status: ScenarioStatus,
     pub terminal_reason: Option<String>,
+    pub undecided_margin: Option<i64>,
+    pub closest_approach: Option<u32>,
+    pub turns_in_weapon_range: u32,
     pub final_snapshot: StateSnapshot,
     pub metrics: MatchMetrics,
     pub trace: Vec<TraceEvent>,
@@ -148,6 +166,9 @@ pub struct SuiteSpec {
     /// When true, skip cost balance checks (typical for pure stat sweeps).
     #[serde(default)]
     pub skip_cost_validation: bool,
+    /// Resolve turn-cap stalemates via damage/hull differential (balance suites).
+    #[serde(default)]
+    pub stalemate_scoring: StalemateScoring,
     /// Repository root for `data/ships` (defaults to cwd).
     #[serde(default)]
     pub data_root: Option<PathBuf>,
@@ -227,6 +248,79 @@ fn load_match_game(config: &MatchConfig) -> Result<GameState, SimulationError> {
     }
 }
 
+fn axial_distance(a: &crate::snapshot::ShipSnapshot, b: &crate::snapshot::ShipSnapshot) -> u32 {
+    let dq = b.q - a.q;
+    let dr = b.r - a.r;
+    dq.abs().max(dr.abs()).max((dq + dr).abs()) as u32
+}
+
+/// Update geometry diagnostics while the runner still has the live snapshot.
+/// This deliberately does not inspect the trace or the turn-scoped combat log.
+fn observe_diagnostics(
+    snapshot: &StateSnapshot,
+    closest_approach: &mut Option<u32>,
+    turns_in_weapon_range: &mut BTreeSet<u32>,
+) {
+    let living: Vec<_> = snapshot.ships.iter().filter(|ship| !ship.destroyed).collect();
+    let mut closest = None;
+    let mut in_weapon_range = false;
+    for ship in &living {
+        for enemy in &living {
+            if ship.controller == enemy.controller {
+                continue;
+            }
+            let distance = axial_distance(ship, enemy);
+            closest = Some(closest.map_or(distance, |current: u32| current.min(distance)));
+            if ship
+                .weapons
+                .iter()
+                .any(|weapon| weapon.operational && weapon.max_range >= distance)
+            {
+                in_weapon_range = true;
+            }
+        }
+    }
+    if let Some(distance) = closest {
+        *closest_approach = Some(closest_approach.map_or(distance, |current| current.min(distance)));
+    }
+    if in_weapon_range {
+        turns_in_weapon_range.insert(snapshot.turn);
+    }
+}
+
+fn effective_damage_by_side(initial: &StateSnapshot, final_snapshot: &StateSnapshot) -> (i64, i64) {
+    let mut player_damage = 0i64;
+    let mut opponent_damage = 0i64;
+    for initial_ship in &initial.ships {
+        let Some(final_ship) = final_snapshot
+            .ships
+            .iter()
+            .find(|ship| ship.id == initial_ship.id)
+        else {
+            continue;
+        };
+        let damage = if final_ship.destroyed {
+            initial_ship.structure
+        } else {
+            initial_ship.structure.saturating_sub(final_ship.structure)
+        } as i64;
+        if initial_ship.controller == "player" {
+            player_damage += damage;
+        } else {
+            opponent_damage += damage;
+        }
+    }
+    (player_damage, opponent_damage)
+}
+
+fn undecided_margin(initial: &StateSnapshot, final_snapshot: &StateSnapshot) -> Option<i64> {
+    if final_snapshot.status != ScenarioStatus::InProgress {
+        return None;
+    }
+    let (player_damage, opponent_damage) = effective_damage_by_side(initial, final_snapshot);
+    Some(opponent_damage - player_damage)
+}
+
 fn run_match_with_policies(
     config: &MatchConfig,
     mut player: Box<dyn Policy>,
@@ -237,6 +331,14 @@ fn run_match_with_policies(
     let mut trace = Vec::new();
     let mut metrics = MatchMetrics::default();
     let mut pending_maneuvers = BTreeMap::new();
+    let initial_snapshot = StateSnapshot::from_game_state(&game);
+    let mut closest_approach = None;
+    let mut turns_in_weapon_range = BTreeSet::new();
+    observe_diagnostics(
+        &initial_snapshot,
+        &mut closest_approach,
+        &mut turns_in_weapon_range,
+    );
 
     while game.status() == ScenarioStatus::InProgress
         && game.turn_number() <= config.max_turns
@@ -255,7 +357,7 @@ fn run_match_with_policies(
                 .iter()
                 .find(|ship| ship.id == actor.expect("allocation actor"))
                 .expect("snapshot actor");
-            policy.allocate(ship)
+            policy.allocate_with_context(ship, &snapshot)
         } else if game.phase() == Phase::TurnEnd {
             Order::EndTurn
         } else {
@@ -345,6 +447,11 @@ fn run_match_with_policies(
             metrics.damage += u64::from(event.damage);
         }
         let after = StateSnapshot::from_game_state(&game);
+        observe_diagnostics(
+            &after,
+            &mut closest_approach,
+            &mut turns_in_weapon_range,
+        );
         if before.phase == "movement"
             && (after.phase != "movement" || after.movement_phase != before.movement_phase)
         {
@@ -370,6 +477,30 @@ fn run_match_with_policies(
     }
 
     metrics.turns = game.turn_number();
+    let terminal_reason = match (game.status(), game.terminal()) {
+        (ScenarioStatus::Won, Some(Terminal::DestroyShip(_))) => {
+            Some("destruction_target_reached".into())
+        }
+        (ScenarioStatus::Won, Some(Terminal::AnnihilateEnemies)) => {
+            Some("enemy_fleet_annihilated".into())
+        }
+        (ScenarioStatus::Won, Some(Terminal::ReachHex(_))) => Some("objective_reached".into()),
+        (ScenarioStatus::Won, None) => Some("objective_reached".into()),
+        (ScenarioStatus::Lost, _) => Some("player_fleet_destroyed".into()),
+        (ScenarioStatus::InProgress, _) if trace.len() >= config.max_orders => {
+            Some("max_orders_reached".into())
+        }
+        (ScenarioStatus::InProgress, _) if game.turn_number() > config.max_turns => {
+            Some("max_turns_reached".into())
+        }
+        (ScenarioStatus::InProgress, _) => Some("in_progress".into()),
+    };
+
+    let final_snapshot = StateSnapshot::from_game_state(&game);
+    let margin = undecided_margin(&initial_snapshot, &final_snapshot);
+    metrics.undecided_margin = margin;
+    metrics.closest_approach = closest_approach;
+    metrics.turns_in_weapon_range = turns_in_weapon_range.len() as u32;
     metrics.terminated = game.status() != ScenarioStatus::InProgress;
     Ok(MatchResult {
         scenario: config.scenario.clone(),
@@ -380,25 +511,11 @@ fn run_match_with_policies(
         player_cost: config.player_cost,
         opponent_cost: config.opponent_cost,
         status: game.status(),
-        terminal_reason: match (game.status(), game.terminal()) {
-            (ScenarioStatus::Won, Some(Terminal::DestroyShip(_))) => {
-                Some("destruction_target_reached".into())
-            }
-            (ScenarioStatus::Won, Some(Terminal::AnnihilateEnemies)) => {
-                Some("enemy_fleet_annihilated".into())
-            }
-            (ScenarioStatus::Won, Some(Terminal::ReachHex(_))) => Some("objective_reached".into()),
-            (ScenarioStatus::Won, None) => Some("objective_reached".into()),
-            (ScenarioStatus::Lost, _) => Some("player_fleet_destroyed".into()),
-            (ScenarioStatus::InProgress, _) if trace.len() >= config.max_orders => {
-                Some("max_orders_reached".into())
-            }
-            (ScenarioStatus::InProgress, _) if game.turn_number() > config.max_turns => {
-                Some("max_turns_reached".into())
-            }
-            (ScenarioStatus::InProgress, _) => Some("in_progress".into()),
-        },
-        final_snapshot: StateSnapshot::from_game_state(&game),
+        terminal_reason,
+        undecided_margin: margin,
+        closest_approach,
+        turns_in_weapon_range: turns_in_weapon_range.len() as u32,
+        final_snapshot,
         metrics,
         trace,
     })
@@ -419,14 +536,16 @@ pub fn run_suite(spec: &SuiteSpec) -> Result<SuiteReport, SimulationError> {
             .ok_or(SimulationError::MissingScenario)?;
         for matchup in &spec.matchups {
             for seed in &spec.seeds {
-                matches.push(run_match(&MatchConfig::from_scenario(
+                let mut cfg = MatchConfig::from_scenario(
                     scenario.clone(),
                     *seed,
                     matchup.player.clone(),
                     matchup.opponent.clone(),
                     spec.max_turns,
                     spec.max_orders,
-                ))?);
+                );
+                cfg.stalemate_scoring = spec.stalemate_scoring;
+                matches.push(run_match(&cfg)?);
             }
         }
     } else {
@@ -468,6 +587,7 @@ pub fn run_suite(spec: &SuiteSpec) -> Result<SuiteReport, SimulationError> {
                         engagement: Some(engagement.name.clone()),
                         player_cost: Some(costs.player),
                         opponent_cost: Some(costs.opponent),
+                        stalemate_scoring: spec.stalemate_scoring,
                     })?);
                 }
             }
@@ -577,6 +697,21 @@ fn legal_orders(game: &GameState, ship: u32) -> Vec<Order> {
             }
             orders.push(Order::ReadyFire { ship });
             orders
+                .into_iter()
+                .filter(|order| {
+                    if let Order::CommitFire { target, .. } = order {
+                        let Some(attacker) = game.ship(ship) else {
+                            return false;
+                        };
+                        let Some(target_ship) = game.ship(*target) else {
+                            return false;
+                        };
+                        attacker.pos.distance(target_ship.pos) > 0
+                    } else {
+                        true
+                    }
+                })
+                .collect()
         }
         _ => Vec::new(),
     };

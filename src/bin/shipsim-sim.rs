@@ -62,9 +62,11 @@ fn run() -> Result<bool, String> {
         println!("{}", String::from_utf8(json).expect("JSON is UTF-8"));
     }
     println!(
-        "matches={} termination_rate={:.3} win_rate={:.3} average_turns={:.2}",
+        "matches={} termination_rate={:.3} decided_equivalent_rate={:.3} capped_matches={} win_rate={:.3} average_turns={:.2}",
         report.aggregate.matches,
         report.aggregate.termination_rate,
+        report.aggregate.decided_equivalent_rate,
+        report.aggregate.capped_matches,
         report.aggregate.win_rate,
         report.aggregate.average_turns
     );

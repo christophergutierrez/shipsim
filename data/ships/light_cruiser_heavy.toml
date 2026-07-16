@@ -1,5 +1,5 @@
-# Auto-derived draft from tmp/sfb/ships.jsonl size bucket + Combat-D cost ratio.
-# See docs/SIZE-VARIANTS.md. Tune after simulation.
+# Frame/module cost model (docs/BALANCE-COST.md).
+# Regenerate: python3 tools/generate_size_variants.py
 id = "light_cruiser_heavy"
 name = "Light Cruiser (Heavy)"
 size = 3
@@ -10,7 +10,7 @@ structure = 17
 max_velocity = 7
 thrust_per_power = 1
 power_per_thrust = 2
-cost = 194
+cost = 221
 
 [[weapons]]
 id = "beam_1"

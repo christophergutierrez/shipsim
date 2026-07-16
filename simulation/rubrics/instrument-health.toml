@@ -1,0 +1,5 @@
+id = "instrument_health"
+description = "Blocking simulation instrumentation and engine-completion gate."
+min_termination_rate = 0.50
+max_average_turns = 61.0
+max_rejected_orders = 0

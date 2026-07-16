@@ -40,6 +40,15 @@ pub struct MatchMetrics {
     pub reversals: u64,
     pub velocity_observations: u64,
     pub hull_efficiency: BTreeMap<String, HullEfficiencyMetrics>,
+    /// Match diagnostics are copied to `MatchResult` and remain out of the
+    /// serialized metrics object. Keeping them here lets aggregate metrics use
+    /// the existing `from_matches` input shape.
+    #[serde(skip)]
+    pub undecided_margin: Option<i64>,
+    #[serde(skip)]
+    pub closest_approach: Option<u32>,
+    #[serde(skip)]
+    pub turns_in_weapon_range: u32,
     #[serde(skip)]
     last_velocity: BTreeMap<u32, (u8, u8)>,
     #[serde(skip)]
@@ -186,6 +195,9 @@ pub struct AggregateMetrics {
     pub wins: u64,
     pub losses: u64,
     pub stalemates: u64,
+    pub capped_matches: u64,
+    pub decided_equivalent_matches: u64,
+    pub decided_equivalent_rate: f64,
     pub termination_rate: f64,
     pub win_rate: f64,
     pub average_turns: f64,
@@ -201,6 +213,8 @@ pub struct AggregateMetrics {
     pub zero_translation_observations: u64,
     pub reversals: u64,
     pub velocity_observations: u64,
+    pub closest_approach_distribution: BTreeMap<u32, u64>,
+    pub turns_in_weapon_range_distribution: BTreeMap<u32, u64>,
     pub hull_efficiency: BTreeMap<String, HullEfficiencyMetrics>,
 }
 
@@ -225,6 +239,16 @@ impl AggregateMetrics {
             aggregate.zero_translation_observations += metrics.zero_translation_observations;
             aggregate.reversals += metrics.reversals;
             aggregate.velocity_observations += metrics.velocity_observations;
+            if let Some(closest) = metrics.closest_approach {
+                *aggregate
+                    .closest_approach_distribution
+                    .entry(closest)
+                    .or_default() += 1;
+            }
+            *aggregate
+                .turns_in_weapon_range_distribution
+                .entry(metrics.turns_in_weapon_range)
+                .or_default() += 1;
             for (velocity, count) in &metrics.velocity_distribution {
                 *aggregate
                     .velocity_distribution
@@ -246,12 +270,22 @@ impl AggregateMetrics {
             match status {
                 ScenarioStatus::Won => aggregate.wins += 1,
                 ScenarioStatus::Lost => aggregate.losses += 1,
-                ScenarioStatus::InProgress => aggregate.stalemates += 1,
+                ScenarioStatus::InProgress => {
+                    aggregate.stalemates += 1;
+                    aggregate.capped_matches += 1;
+                }
+            }
+            if !matches!(status, ScenarioStatus::InProgress)
+                || metrics.undecided_margin.is_some_and(|margin| margin != 0)
+            {
+                aggregate.decided_equivalent_matches += 1;
             }
         }
         if aggregate.matches > 0 {
             let count = aggregate.matches as f64;
             aggregate.termination_rate = (aggregate.wins + aggregate.losses) as f64 / count;
+            aggregate.decided_equivalent_rate =
+                aggregate.decided_equivalent_matches as f64 / count;
             aggregate.win_rate = aggregate.wins as f64 / count;
             aggregate.average_turns = turns as f64 / count;
             aggregate.average_damage = damage as f64 / count;

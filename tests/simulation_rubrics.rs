@@ -52,6 +52,7 @@ fn missing_hull_class_fails_through_toml_rubric_path() {
         budget: None,
         cost_tolerance: 60,
         skip_cost_validation: false,
+        stalemate_scoring: shipsim_core::simulation::StalemateScoring::None,
         data_root: Some(root.to_path_buf()),
     })
     .unwrap();
