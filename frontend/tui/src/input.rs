@@ -9,6 +9,7 @@ use crate::protocol::{Maneuver, Order};
 use crate::tutorial::ExpectedAction;
 
 /// Result of handling a key.
+#[derive(Debug)]
 pub enum KeyResult {
     /// Continue running.
     Continue,
@@ -187,7 +188,11 @@ fn reopen_tutorial_mode(app: &mut App, message: &str) {
         "firing" => {
             app.alloc_draft = None;
             if app.fire_draft.is_none() {
-                app.fire_draft = Some(crate::app::FireDraft::default());
+                app.fire_draft = app.focused().map(crate::app::FireDraft::for_ship);
+            } else if let Some(ship) = app.focused().cloned() {
+                if let Some(draft) = app.fire_draft.as_mut() {
+                    draft.snap_to_operational(&ship);
+                }
             }
             app.mode = Mode::Fire;
         }
@@ -496,8 +501,12 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                 Some(d) => d.clone(),
                 None => return KeyResult::Continue,
             };
+            let Some(ship) = app.focused().cloned() else {
+                return KeyResult::Continue;
+            };
 
-            let weapons_json = draft.weapons_json();
+            // Omit offline weapons so the engine never sees dead ids.
+            let weapons_json = draft.weapons_json(&ship);
             let shields = draft.shields.to_vec();
 
             app.log(format!(
@@ -528,30 +537,54 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
         }
         KeyCode::Left => {
             app.digit_entry = None;
-            adjust_field(app, -1);
-            app.request_movement_preview();
+            if cursor_on_dead_weapon(app) {
+                notice_dead_weapon_edit(app);
+            } else {
+                adjust_field(app, -1);
+                if cursor_affects_movement_or_shields(app) {
+                    app.request_movement_preview();
+                }
+            }
             KeyResult::Continue
         }
         KeyCode::Right => {
             app.digit_entry = None;
-            adjust_field(app, 1);
-            app.request_movement_preview();
+            if cursor_on_dead_weapon(app) {
+                notice_dead_weapon_edit(app);
+            } else {
+                adjust_field(app, 1);
+                if cursor_affects_movement_or_shields(app) {
+                    app.request_movement_preview();
+                }
+            }
             KeyResult::Continue
         }
         KeyCode::Char(c) if c.is_ascii_digit() => {
             let cursor = app.alloc_draft.as_ref().map(|d| d.cursor);
             if let Some(cursor) = cursor {
-                let d = (c as u8 - b'0') as u32;
-                let new = digit_entry(app, cursor, d);
-                set_allocate_field(app, new);
+                if cursor_on_dead_weapon(app) {
+                    notice_dead_weapon_edit(app);
+                } else {
+                    let d = (c as u8 - b'0') as u32;
+                    let new = digit_entry(app, cursor, d);
+                    set_allocate_field(app, new);
+                    if cursor_affects_movement_or_shields(app) {
+                        app.request_movement_preview();
+                    }
+                }
             }
-            app.request_movement_preview();
             KeyResult::Continue
         }
         KeyCode::Backspace => {
             app.digit_entry = None;
-            set_allocate_field(app, 0);
-            app.request_movement_preview();
+            if cursor_on_dead_weapon(app) {
+                notice_dead_weapon_edit(app);
+            } else {
+                set_allocate_field(app, 0);
+                if cursor_affects_movement_or_shields(app) {
+                    app.request_movement_preview();
+                }
+            }
             KeyResult::Continue
         }
         _ => KeyResult::Continue,
@@ -591,6 +624,55 @@ fn set_allocate_field(app: &mut App, value: u32) {
         app.digit_entry = Some((field, value));
     }
     draft.set_field_value(value);
+}
+
+/// True when the allocate cursor sits on a non-operational weapon row.
+/// Such rows are display-only: ←/→/digits/backspace must not edit them
+/// (the engine rejects allocate for destroyed weapon ids → `not found` spam).
+fn cursor_on_dead_weapon(app: &App) -> bool {
+    dead_weapon_id_under_cursor(app).is_some()
+}
+
+/// Weapon id under the allocate cursor when that weapon is offline.
+fn dead_weapon_id_under_cursor(app: &App) -> Option<String> {
+    let draft = app.alloc_draft.as_ref()?;
+    let ship = app.focused()?;
+    let weapon_count = draft.weapons.len();
+    if draft.cursor == 0 || draft.cursor > weapon_count {
+        return None; // movement or shield — not a weapon row
+    }
+    let index = draft.cursor - 1;
+    let (weapon_id, _) = draft.weapons.get(index)?;
+    let offline = ship
+        .weapons
+        .iter()
+        .find(|w| &w.id == weapon_id)
+        .map(|w| !w.operational)
+        .unwrap_or(false);
+    if offline {
+        Some(weapon_id.clone())
+    } else {
+        None
+    }
+}
+
+/// Soft notice when the player tries to charge an offline gun (mirrors fire path).
+fn notice_dead_weapon_edit(app: &mut App) {
+    if let Some(id) = dead_weapon_id_under_cursor(app) {
+        app.log(format!("allocate: {id} OFFLINE — cannot charge"));
+    }
+}
+
+/// True when the field under the allocate cursor affects the coast envelope
+/// (movement or shields). Weapon-charge edits do not, so they should not
+/// trigger a movement preview request (M9: quiet allocate previews).
+fn cursor_affects_movement_or_shields(app: &App) -> bool {
+    let Some(draft) = &app.alloc_draft else {
+        return false;
+    };
+    let weapon_count = draft.weapons.len();
+    // cursor 0 = movement; cursor > weapon_count = shield facing.
+    draft.cursor == 0 || draft.cursor > weapon_count
 }
 
 fn allocation_field_bounds(
@@ -725,16 +807,40 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
         KeyCode::Down | KeyCode::Char('j') => {
             if let Some(draft) = &mut app.fire_draft {
                 let ship = snap.ship(sid);
-                let n_weapons = ship.map(|s| s.weapons.len()).unwrap_or(1);
-                draft.weapon_idx = (draft.weapon_idx + 1) % n_weapons.max(1);
+                let n_weapons = ship.map(|s| s.weapons.len()).unwrap_or(1).max(1);
+                // Skip non-operational weapons when cycling (M2).
+                let mut next = draft.weapon_idx;
+                for _ in 0..n_weapons {
+                    next = (next + 1) % n_weapons;
+                    let op = ship
+                        .and_then(|s| s.weapons.get(next))
+                        .map(|w| w.operational)
+                        .unwrap_or(true);
+                    if op {
+                        break;
+                    }
+                }
+                draft.weapon_idx = next;
             }
             KeyResult::Continue
         }
         KeyCode::Up | KeyCode::Char('k') => {
             if let Some(draft) = &mut app.fire_draft {
                 let ship = snap.ship(sid);
-                let n_weapons = ship.map(|s| s.weapons.len()).unwrap_or(1);
-                draft.weapon_idx = (draft.weapon_idx + n_weapons - 1) % n_weapons.max(1);
+                let n_weapons = ship.map(|s| s.weapons.len()).unwrap_or(1).max(1);
+                // Skip non-operational weapons when cycling (M2).
+                let mut prev = draft.weapon_idx;
+                for _ in 0..n_weapons {
+                    prev = (prev + n_weapons - 1) % n_weapons;
+                    let op = ship
+                        .and_then(|s| s.weapons.get(prev))
+                        .map(|w| w.operational)
+                        .unwrap_or(true);
+                    if op {
+                        break;
+                    }
+                }
+                draft.weapon_idx = prev;
             }
             KeyResult::Continue
         }
@@ -760,9 +866,16 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                 None => return KeyResult::Continue,
             };
             let weapon = match ship.weapons.get(draft.weapon_idx) {
-                Some(w) => w.id.clone(),
+                Some(w) => w,
                 None => return KeyResult::Continue,
             };
+            // Do not queue fire on a non-operational weapon (M2): the engine
+            // would reject it and the player gains nothing. Soft-notice instead.
+            if !weapon.operational {
+                app.log(format!("fire: {} OFFLINE — cannot queue", weapon.id));
+                return KeyResult::Continue;
+            }
+            let weapon = weapon.id.clone();
             let target = match draft.target {
                 Some(t) => t,
                 None => {

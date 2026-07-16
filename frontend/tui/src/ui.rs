@@ -76,12 +76,15 @@ pub fn render(f: &mut Frame, app: &mut App) {
         render_events_log(f, app, right[0]);
         render_tutorial_panel(f, app, right[1]);
     } else {
+        // Input panel grows with terminal height (Min) so the fire/allocate
+        // forms are fully visible on tall terminals; the map shares the
+        // remaining space. At 80×24 both compress to ~7 rows each.
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(header_h),
                 Constraint::Min(10),
-                Constraint::Length(10),
+                Constraint::Min(10),
                 Constraint::Length(6),
             ])
             .split(size);
@@ -134,7 +137,18 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     } else {
         Color::Green
     };
-    let queued = snap.fire_commits.len();
+    // M5: header `queued=N` must agree with the fire panel's `Queued:` count.
+    // Both count fire_commits for the *focused* ship (not all ships), so the
+    // player always knows what *their* ship will fire on Space.
+    let focused_id = app.focused().map(|s| s.id);
+    let queued = match focused_id {
+        Some(id) => snap
+            .fire_commits
+            .iter()
+            .filter(|c| c.ship == id)
+            .count(),
+        None => 0,
+    };
     let phase = phase_label(&snap.phase, snap.movement_phase);
 
     let mut status_spans = vec![
@@ -413,12 +427,13 @@ struct MapMetrics {
     zoom: i8,
 }
 
-fn map_metrics(app: &App, area: Rect) -> MapMetrics {
+fn map_metrics(app: &App, area: Rect, footer_lines: usize) -> MapMetrics {
     let inner_width = area.width.saturating_sub(2) as usize;
     let inner_height = area.height.saturating_sub(2) as usize;
     let base_columns = ((inner_width.saturating_sub(3)) / 6).max(1);
-    // One row for coordinate headers and two for the legend/footer.
-    let rows = inner_height.saturating_sub(3).max(1);
+    // One row for coordinate headers plus `footer_lines` for legend/off-map.
+    let reserve = 1 + footer_lines.max(2);
+    let rows = inner_height.saturating_sub(reserve).max(1);
     let zoom = app.effective_map_zoom(base_columns as i32, rows as i32);
     let cell_width = 6 * (usize::try_from(zoom.max(0)).unwrap_or(0) + 1);
     let columns = ((inner_width.saturating_sub(3)) / cell_width).max(1);
@@ -448,14 +463,52 @@ fn pad_cell(text: String, width: usize) -> String {
 }
 
 fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
-    let metrics = map_metrics(app, area);
-    let shade = selected_weapon_shade(app);
-
-    // Viewport origin (top-left visible hex). Auto-centers on the focused ship
-    // unless the player has panned manually. In the unbounded world this keeps
-    // ships that drift to negative coordinates on-screen.
+    // Two-pass metrics: first assume no off-map strip (legend only), then if
+    // any living ship falls outside the viewport reserve one more footer line
+    // so the off-map strip is not clipped at small terminal sizes.
+    let mut metrics = map_metrics(app, area, 2);
     let (oq, or_) =
         app.map_origin_for_view(metrics.columns as i32, metrics.rows as i32, metrics.scale);
+    let off_map = off_map_contacts(
+        app,
+        snap,
+        oq,
+        or_,
+        metrics.columns as i32,
+        metrics.rows as i32,
+        metrics.scale,
+    );
+    if !off_map.is_empty() {
+        // Reserve footer space, then re-evaluate — a re-fit may pull contacts
+        // back on-map; if so, drop the reserved strip line.
+        metrics = map_metrics(app, area, 3);
+        let (oq2, or2) =
+            app.map_origin_for_view(metrics.columns as i32, metrics.rows as i32, metrics.scale);
+        let off_map2 = off_map_contacts(
+            app,
+            snap,
+            oq2,
+            or2,
+            metrics.columns as i32,
+            metrics.rows as i32,
+            metrics.scale,
+        );
+        if off_map2.is_empty() {
+            metrics = map_metrics(app, area, 2);
+        }
+    }
+    let (oq, or_) =
+        app.map_origin_for_view(metrics.columns as i32, metrics.rows as i32, metrics.scale);
+    let off_map = off_map_contacts(
+        app,
+        snap,
+        oq,
+        or_,
+        metrics.columns as i32,
+        metrics.rows as i32,
+        metrics.scale,
+    );
+    let shade = selected_weapon_shade(app);
 
     // Collect movement-preview endpoint coordinates for the focused ship.
     // These are the reachable hexes after the four movement cycles.
@@ -469,20 +522,31 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         .as_ref()
         .map(|p| (p.coast.q, p.coast.r));
 
+    // Range readout: axial distance from the focused ship to the nearest
+    // living enemy (pure geometry from snapshot q,r — not a combat rule).
+    let range_readout = focused_range_to_nearest_enemy(app, snap);
+
+    // Scale label: only when zoomed out (scale > 1 hex/cell).
+    let scale_label = if metrics.scale > 1 {
+        format!(" · {} hex/cell", metrics.scale)
+    } else {
+        String::new()
+    };
+
     let title = if let Some(ref s) = shade {
         format!(
-            "Map @({},{}) z={} · {} arc ≤{} · green=you red=ai",
-            oq, or_, metrics.zoom, s.mount_label, s.max_range
+            "Map @({},{}) z={}{} · {} arc ≤{}{} · green=you red=ai",
+            oq, or_, metrics.zoom, scale_label, s.mount_label, s.max_range, range_readout
         )
     } else if !preview_endpoints.is_empty() {
         format!(
-            "Map @({},{}) z={} · ◆ coast ◇ reachable · green=you red=ai",
-            oq, or_, metrics.zoom
+            "Map @({},{}) z={}{} · ◆ coast ◇ reachable{} · green=you red=ai",
+            oq, or_, metrics.zoom, scale_label, range_readout
         )
     } else {
         format!(
-            "Map @({},{}) z={} · green=you red=ai",
-            oq, or_, metrics.zoom
+            "Map @({},{}) z={}{}{} · green=you red=ai",
+            oq, or_, metrics.zoom, scale_label, range_readout
         )
     };
 
@@ -597,6 +661,16 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         legend,
         Style::default().fg(Color::DarkGray),
     )));
+
+    // Off-map contacts strip: living non-focused ships outside the viewport.
+    // `off_map` is computed in the two-pass metrics block at the top of
+    // render_map so the footer row is reserved before the hex grid is laid out.
+    if !off_map.is_empty() {
+        lines.push(Line::from(Span::styled(
+            off_map,
+            Style::default().fg(Color::Yellow),
+        )));
+    }
 
     let p = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(title));
     f.render_widget(p, area);
@@ -872,9 +946,29 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
         inner
     };
 
-    // Power gauge on allocate (top of form).
+    // Fixed headers (top of form) that never scroll out of view.
+    // Allocate: budget line + power gauge (Phase 3 / 3.1).
+    // Fire: queue summary line (Phase 4 / 4.1) — the `Queued:` count must stay
+    // visible even when the weapon list scrolls, and must agree with the
+    // header `queued=N`.
     let mut body_area = content_area;
     if matches!(app.mode, Mode::Allocate) {
+        // Budget line: fixed header so it never scrolls out of view (3.1).
+        if let Some(budget) = allocate_budget_line(app) {
+            if body_area.height > 2 {
+                f.render_widget(
+                    Paragraph::new(budget),
+                    Rect {
+                        x: body_area.x,
+                        y: body_area.y,
+                        width: body_area.width,
+                        height: 1,
+                    },
+                );
+                body_area.y = body_area.y.saturating_add(1);
+                body_area.height = body_area.height.saturating_sub(1);
+            }
+        }
         if let (Some(draft), Some(ship)) = (&app.alloc_draft, app.focused()) {
             if body_area.height > 2 {
                 let cost = draft.power_cost(ship);
@@ -906,6 +1000,24 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                 body_area.height = body_area.height.saturating_sub(1);
             }
         }
+    } else if matches!(app.mode, Mode::Fire) {
+        // Queue line: fixed header so the pending shot count stays visible
+        // when the weapon list scrolls (4.1). Mirrors allocate_budget_line.
+        if let Some(queue) = fire_queue_line(app) {
+            if body_area.height > 2 {
+                f.render_widget(
+                    Paragraph::new(queue),
+                    Rect {
+                        x: body_area.x,
+                        y: body_area.y,
+                        width: body_area.width,
+                        height: 1,
+                    },
+                );
+                body_area.y = body_area.y.saturating_add(1);
+                body_area.height = body_area.height.saturating_sub(1);
+            }
+        }
     }
 
     let scroll = match app.mode {
@@ -926,7 +1038,9 @@ fn allocate_scroll(app: &App, area: Rect) -> u16 {
     let Some(draft) = &app.alloc_draft else {
         return 0;
     };
-    // Lines: budget(0), movement(1), weapons header(2), weapons…, shields header, faces, diagram, footer
+    // Scrolled body line layout (budget is a fixed header, not counted here):
+    //   hull(0), movement(1), weapons header(2), weapons…, shields header,
+    //   faces, diagram, footer
     let n_weapons = draft.weapons.len();
     let line: u16 = match draft.cursor {
         0 => 1,
@@ -936,7 +1050,10 @@ fn allocate_scroll(app: &App, area: Rect) -> u16 {
             (4 + n_weapons + face) as u16
         }
     };
-    let visible = area.height.saturating_sub(2).max(1);
+    let visible = area.height.max(1);
+    // Keep the selected line in view. The budget line is a fixed header now,
+    // so the whole body may scroll freely — we only need to keep the cursor
+    // row visible. (Phase 3 / criterion 3.1.)
     line.saturating_sub(visible.saturating_sub(1))
 }
 
@@ -952,8 +1069,28 @@ fn fire_scroll(app: &App, area: Rect) -> u16 {
         .iter()
         .filter(|ship| ship.controller != "player" && !ship.destroyed)
         .count();
-    // Controls, queue, targets header/list, then weapons header/list.
-    let selected_line = 7 + enemy_count + draft.weapon_idx;
+    let ship = match app.focused() {
+        Some(s) => s,
+        None => return 0,
+    };
+    // Mirror render_fire_panel's line layout so the selected weapon stays in
+    // view: 3 control lines (↑↓, Space, Cycle coach), one line per pending
+    // commit for this ship, an optional "No charge" coach line, blank, Targets
+    // header, one line per enemy, blank, Weapons header, then the weapon rows.
+    // (The `Queued:` summary is a fixed header rendered by render_input_panel,
+    //  not part of the scrollable body — do not count it here.)
+    let mine_count = snap
+        .fire_commits
+        .iter()
+        .filter(|c| c.ship == ship.id)
+        .count();
+    let has_charge = ship
+        .weapons
+        .iter()
+        .any(|w| w.operational && w.charge > 0);
+    let no_charge = if !has_charge && snap.phase == "firing" { 1 } else { 0 };
+    let selected_line = 3 + mine_count + no_charge + 1 + 1 + enemy_count + 1 + 1
+        + draft.weapon_idx;
     let visible = area.height.max(1) as usize;
     selected_line
         .saturating_sub(visible.saturating_sub(1))
@@ -996,6 +1133,58 @@ fn selected_style() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
+/// The budget line for the allocate panel, rendered as a fixed header so it
+/// never scrolls out of view (Phase 3 / criterion 3.1). Returns `None` when
+/// there is no focused ship or draft.
+fn allocate_budget_line(app: &App) -> Option<Line<'static>> {
+    let ship = app.focused()?;
+    let draft = app.alloc_draft.as_ref()?;
+    let cost = draft.power_cost(ship);
+    let pool = ship.power_available;
+    let balance = pool as i64 - cost as i64;
+    let budget_style = if balance < 0 {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Green)
+    };
+    Some(Line::from(vec![
+        Span::raw(format!(" Budget {cost}/{pool} (")),
+        Span::styled(
+            if balance < 0 {
+                format!("{} over", -balance)
+            } else {
+                format!("{balance} free")
+            },
+            budget_style,
+        ),
+        Span::raw(") · engine power → thrust this turn only"),
+    ]))
+}
+
+/// The fire-queue summary line, rendered as a fixed header so the pending
+/// shot count stays visible even when the weapon list scrolls (Phase 4 /
+/// criterion 4.1). Returns `None` when there is no focused ship or snapshot.
+fn fire_queue_line(app: &App) -> Option<Line<'static>> {
+    let snap = app.snap.as_ref()?;
+    let ship = app.focused()?;
+    let mine_count = snap
+        .fire_commits
+        .iter()
+        .filter(|c| c.ship == ship.id)
+        .count();
+    let style = if mine_count == 0 {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    };
+    Some(Line::from(Span::styled(
+        format!(" Queued: {mine_count} shot(s) pending"),
+        style,
+    )))
+}
+
 fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     let ship = match app.focused() {
         Some(s) => s,
@@ -1007,27 +1196,12 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         None => return ("Allocate", vec![Line::from(" (no draft)")]),
     };
 
-    let cost = draft.power_cost(ship);
-    let pool = ship.power_available;
-    let balance = pool as i64 - cost as i64;
-    let budget_style = if balance < 0 {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Green)
-    };
-
-    let mut lines = vec![Line::from(vec![
-        Span::raw(format!(" Budget {cost}/{pool} (")),
-        Span::styled(
-            if balance < 0 {
-                format!("{} over", -balance)
-            } else {
-                format!("{balance} free")
-            },
-            budget_style,
-        ),
-        Span::raw(") · engine power → thrust this turn only"),
-    ])];
+    // Hull line (B2 / criterion 3.3): show current structure only — no fake
+    // max. The protocol does not carry max structure, so `N/N` would lie.
+    let mut lines = vec![Line::from(Span::styled(
+        format!(" hull {}  (structure boxes)", ship.structure),
+        Style::default().fg(Color::DarkGray),
+    ))];
 
     // Movement row
     let mov_selected = draft.cursor == 0;
@@ -1074,10 +1248,24 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             .find(|w| &w.id == id)
             .map(|w| w.kind.as_str())
             .unwrap_or("?");
+        let operational = ship
+            .weapons
+            .iter()
+            .find(|w| &w.id == id)
+            .map(|w| w.operational)
+            .unwrap_or(true);
+        let row = if operational {
+            format!("{mark}{id} ({kind}) charge {chg}/{max}{carried}")
+        } else {
+            // Non-operational weapon: display-only, no editable charge prompt (M2/2.6).
+            format!("{mark}{id} ({kind}) OFFLINE")
+        };
         lines.push(Line::from(Span::styled(
-            format!("{mark}{id} ({kind}) charge {chg}/{max}{carried}"),
+            row,
             if selected {
                 selected_style()
+            } else if !operational {
+                Style::default().fg(Color::DarkGray)
             } else {
                 Style::default()
             },
@@ -1160,6 +1348,12 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         Some(s) => s,
         None => return ("Movement", vec![Line::from(" (no ship focused)")]),
     };
+    // Cycle coach needs the current movement_phase (0 in allocate/turn_end).
+    let cycle = app
+        .snap
+        .as_ref()
+        .map(|s| s.movement_phase.min(4))
+        .unwrap_or(0);
 
     let lines = vec![
         Line::from(format!(
@@ -1173,6 +1367,13 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             facing_arrow(ship.course),
             ship.velocity,
             ship.thrust_remaining
+        )),
+        // M6: cycle coach — where the player is in the 4-cycle move/fire loop.
+        Line::from(Span::styled(
+            format!(
+                " Cycle {cycle}/4 · commit maneuver (c/t/0–5) · e ends the whole turn"
+            ),
+            Style::default().fg(Color::Cyan),
         )),
         Line::from(Span::styled(
             " Accel spends thrust along facing (cost often 1; reverse/revector vary).",
@@ -1215,23 +1416,49 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             " Space ready · ←→ shield · Esc cancel",
             Style::default().fg(Color::Yellow),
         )),
+        // M6: cycle coach — charge only refills on allocate, so once guns are
+        // empty mid-turn the player must pass fire with Space.
+        Line::from(Span::styled(
+            format!(
+                " Cycle {}/4 · queue shots then Space (ready); charge refills on allocate",
+                snap.movement_phase.min(4)
+            ),
+            Style::default().fg(Color::Cyan),
+        )),
     ];
 
-    let mine_count = snap
+    // M5: list the pending commits for the focused ship so the player can see
+    // exactly what will fire on Space (weapon → target face F). The `Queued:`
+    // summary count is rendered as a fixed header by `fire_queue_line` (see
+    // render_input_panel) so it stays visible when the weapon list scrolls.
+    for c in snap
         .fire_commits
         .iter()
         .filter(|c| c.ship == ship.id)
-        .count();
-    lines.push(Line::from(Span::styled(
-        format!(" Queued: {mine_count} shot(s) pending"),
-        if mine_count == 0 {
-            Style::default().fg(Color::DarkGray)
-        } else {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        },
-    )));
+    {
+        let target_cs = snap
+            .ships
+            .iter()
+            .find(|s| s.id == c.target)
+            .map(callsign)
+            .unwrap_or_else(|| format!("#{}", c.target));
+        lines.push(Line::from(Span::styled(
+            format!("   {} → {} face {}", c.weapon, target_cs, c.shield_facing),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    // "No charge" coach (4.2): if every operational weapon is out of charge
+    // mid-fire-phase, tell the player Space passes instead of firing.
+    let has_charge = ship
+        .weapons
+        .iter()
+        .any(|w| w.operational && w.charge > 0);
+    if !has_charge && snap.phase == "firing" {
+        lines.push(Line::from(Span::styled(
+            " No charge left this turn — Space to pass fire",
+            Style::default().fg(Color::Yellow),
+        )));
+    }
     lines.push(Line::from(""));
     lines.push(Line::from(" Targets (digit = target):"));
     for (i, s) in snap
@@ -1272,13 +1499,17 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             .iter()
             .any(|c| c.ship == ship.id && c.weapon == w.id);
         let queued_str = if queued { " [QUEUED]" } else { "" };
-        let charge_str = if w.charge > 0 {
+        let charge_str = if !w.operational {
+            "OFFLINE".to_string()
+        } else if w.charge > 0 {
             format!("chg={}", w.charge)
         } else {
             "UNCHARGED".to_string()
         };
         let style = if selected {
             selected_style()
+        } else if !w.operational {
+            Style::default().fg(Color::DarkGray)
         } else {
             Style::default()
         };
@@ -1359,6 +1590,92 @@ fn hex_dist(q1: i32, r1: i32, q2: i32, r2: i32) -> u32 {
     let dr = (r1 - r2).abs();
     let ds = (q1 + r1 - q2 - r2).abs();
     ((dq + dr + ds) / 2) as u32
+}
+
+/// Range readout for the map title: axial distance from the focused ship to
+/// the nearest living enemy, formatted as ` · → B2 d=6`. Pure geometry from
+/// snapshot q,r — not a combat rule. Empty string if no focused ship or enemy.
+fn focused_range_to_nearest_enemy(app: &App, snap: &Snapshot) -> String {
+    let Some(me) = app.focused() else {
+        return String::new();
+    };
+    let nearest = snap
+        .ships
+        .iter()
+        .filter(|s| s.id != me.id && !s.destroyed && s.controller != me.controller)
+        .min_by_key(|s| hex_dist(me.q, me.r, s.q, s.r));
+    match nearest {
+        Some(enemy) => {
+            let d = hex_dist(me.q, me.r, enemy.q, enemy.r);
+            format!(" · → {} d={}", callsign(enemy), d)
+        }
+        None => String::new(),
+    }
+}
+
+/// Compass bearing from `from` to `to` as a hex-neighbor direction name.
+/// Uses the same HEX_DIRS ordering as the map (0=E, 1=NE, 2=NW, 3=W, 4=SW, 5=SE).
+fn hex_bearing_name(from_q: i32, from_r: i32, to_q: i32, to_r: i32) -> &'static str {
+    if from_q == to_q && from_r == to_r {
+        return "here";
+    }
+    let bearings = nearest_bearings(from_q, from_r, to_q, to_r);
+    let abs = bearings.first().copied().unwrap_or(0);
+    match abs {
+        0 => "east",
+        1 => "northeast",
+        2 => "northwest",
+        3 => "west",
+        4 => "southwest",
+        5 => "southeast",
+        _ => "?",
+    }
+}
+
+/// One-line strip listing living non-focused ships that fall outside the map
+/// viewport, with bearing and range from the focused ship. Empty if all fit.
+fn off_map_contacts(
+    app: &App,
+    snap: &Snapshot,
+    oq: i32,
+    or_: i32,
+    columns: i32,
+    rows: i32,
+    scale: i32,
+) -> String {
+    let Some(me) = app.focused() else {
+        return String::new();
+    };
+    let mut off_map: Vec<(&crate::protocol::Ship, u32)> = snap
+        .ships
+        .iter()
+        .filter(|s| {
+            s.id != me.id && !s.destroyed
+        })
+        .filter(|s| {
+            // A ship is off-map if its q or r falls outside the viewport.
+            let q_idx = (s.q - oq).div_euclid(scale);
+            let r_idx = (s.r - or_).div_euclid(scale);
+            q_idx < 0 || q_idx >= columns || r_idx < 0 || r_idx >= rows
+        })
+        .map(|s| (s, hex_dist(me.q, me.r, s.q, s.r)))
+        .collect();
+    if off_map.is_empty() {
+        return String::new();
+    }
+    off_map.sort_by_key(|(_, d)| *d);
+    let parts: Vec<String> = off_map
+        .iter()
+        .map(|(s, d)| {
+            format!(
+                "{} off-map · {} · d={}",
+                callsign(s),
+                hex_bearing_name(me.q, me.r, s.q, s.r),
+                d
+            )
+        })
+        .collect();
+    parts.join("  ")
 }
 
 fn render_tutorial_panel(f: &mut Frame, app: &App, area: Rect) {

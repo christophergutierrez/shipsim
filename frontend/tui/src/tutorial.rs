@@ -12,8 +12,9 @@ use crate::protocol::Snapshot;
 /// What kind of keypress/action a tutorial step expects.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpectedAction {
-    /// Tab/Down until the allocate cursor is on this field index.
+    /// Down until the allocate cursor is on this field index.
     /// 0 = movement, 1..=n = weapons (**ship order**), then shields 0..5.
+    /// (Tab is disabled during the lesson — use ↓/↑.)
     NavField(usize),
     /// Adjust the current allocate field until it equals `target`.
     ReachValue {
@@ -357,18 +358,13 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         },
     },
     TutorialStep {
-        title: "Select the beam",
+        title: "Charge the beam",
         text: "Weapons are separate power sinks. **beam_1** is your main gun: \
                multi-charge, solid damage, long range. Charge **carries** across \
-               turns if you don't fire — we load it now and hold for the stern shot.",
-        why: "Move to beam_1 — main gun (charge carries until fired)",
-        hint: "↓ to beam_1",
-        expected: ExpectedAction::NavField(1),
-    },
-    TutorialStep {
-        title: "Charge the beam",
-        text: "Desired charge on beam_1 (max 4). More charge = more beam damage. \
-               Full charge now; we will not shoot until we are behind the escort.",
+               turns if you don't fire — we load it now and hold for the stern shot.\n\n\
+               The form auto-selects beam_1 (▶). ↓/↑ move between fields; →/← set \
+               the value. Charge to 4 (max) — more charge = more beam damage. We \
+               will not shoot until we are behind the escort.",
         why: "beam_1 charge = damage budget for later volley",
         hint: "→ until beam charge = 4",
         expected: ExpectedAction::ReachValue {
@@ -377,17 +373,11 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         },
     },
     TutorialStep {
-        title: "Select torpedo",
+        title: "Charge torpedo",
         text: "torp_1 is a single-charge, fixed-damage shot. It fires in the \
                same volley as beam and plasma. Weapon rows follow ship order \
-               (same list you will see in fire mode).",
-        why: "Move to torp_1 — one-shot hull punch",
-        hint: "↓ to torp_1",
-        expected: ExpectedAction::NavField(2),
-    },
-    TutorialStep {
-        title: "Charge torpedo",
-        text: "Charge to 1 (max). Leave it loaded for the rear volley.",
+               (same list you will see in fire mode). Charge to 1 (max) and leave \
+               it loaded for the rear volley.",
         why: "Arm torp for the same volley as beam + plasma",
         hint: "→ once (charge 1)",
         expected: ExpectedAction::ReachValue {
@@ -396,16 +386,10 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         },
     },
     TutorialStep {
-        title: "Select plasma",
-        text: "plasma_1 is a short-range hammer (max charge 1). Huge damage at \
-               close range — the finisher of the rear-arc dump.",
-        why: "Move to plasma_1 — short-range heavy punch",
-        hint: "↓ to plasma_1",
-        expected: ExpectedAction::NavField(3),
-    },
-    TutorialStep {
         title: "Charge plasma",
-        text: "One point arms the plasma. It stays charged until you fire it.",
+        text: "plasma_1 is a short-range hammer (max charge 1). Huge damage at \
+               close range — the finisher of the rear-arc dump. One point arms \
+               it; the charge stays until you fire.",
         why: "Arm plasma for the close rear-arc dump",
         hint: "→ once (charge 1)",
         expected: ExpectedAction::ReachValue {

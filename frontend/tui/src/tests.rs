@@ -10,7 +10,7 @@ use ratatui::Terminal;
 use crate::app::{AllocDraft, App, Confirmation, Mode};
 use crate::input::{handle_key, KeyResult};
 use crate::protocol::{
-    callsign, facing_arrow, shield_label, ErrorResponse, Maneuver, Order, Snapshot,
+    callsign, facing_arrow, shield_label, ErrorResponse, FireCommit, Maneuver, Order, Snapshot,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1297,7 +1297,12 @@ fn tutorial_rear_attack_wins_against_engine() {
 }
 
 #[test]
-fn tutorial_can_power_beam_after_select_step() {
+fn tutorial_can_power_beam_after_movement_step() {
+    // Phase 6 collapsed the separate "Select beam" (NavField) step into the
+    // "Charge the beam" (ReachValue) step: the form auto-selects beam_1 (▶)
+    // when the charge step begins. This test verifies → can still raise beam
+    // charge after movement completes — the original bug being that → was
+    // blocked after the auto-cursor move.
     let mut app = App::new_with_tutorial();
     app.update_snapshot(test_snapshot());
 
@@ -1307,24 +1312,8 @@ fn tutorial_can_power_beam_after_select_step() {
         d.cursor = 0;
         d.set_field_value(10);
     }
-    app.tutorial.as_mut().unwrap().advance(); // skip to NavField beam
-                                              // Step should be NavField(1)
-    assert!(matches!(
-        app.tutorial
-            .as_ref()
-            .unwrap()
-            .current_step()
-            .unwrap()
-            .expected,
-        crate::tutorial::ExpectedAction::NavField(1)
-    ));
-
-    // Cursor still on 0 — ↓ to beam should work.
-    app.alloc_draft.as_mut().unwrap().cursor = 0;
-    let r = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
-    assert!(matches!(r, KeyResult::Continue));
-    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, 1);
-    // NavField completed → now ReachValue beam charge.
+    app.tutorial.as_mut().unwrap().advance(); // skip to Charge the beam
+    // Step should now be ReachValue { field: 1, target: 4 } (no NavField step).
     assert!(matches!(
         app.tutorial
             .as_ref()
@@ -1338,7 +1327,8 @@ fn tutorial_can_power_beam_after_select_step() {
         }
     ));
 
-    // → must raise beam charge (the bug: blocked after auto-cursor on NavField).
+    // The tutorial gate auto-moves the cursor to field 1 (beam_1) on the first
+    // → keypress. → must raise beam charge (the bug: blocked after auto-cursor).
     for _ in 0..4 {
         let r = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
         assert!(
@@ -1763,5 +1753,496 @@ fn movement_preview_clears_on_phase_change() {
     assert!(
         app.movement_preview.is_none(),
         "movement_preview must be cleared after leaving allocate phase"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 1 — Map truth: range readout, scale label, off-map contacts
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Snapshot where the player and enemy are at axial distance 8 (criterion 1.1).
+fn distant_enemy_snapshot() -> Snapshot {
+    let mut snap = test_snapshot();
+    // Player at (0,4), enemy at (8,4): axial distance = 8.
+    snap.ships[0].q = 0;
+    snap.ships[0].r = 4;
+    snap.ships[1].q = 8;
+    snap.ships[1].r = 4;
+    snap
+}
+
+#[test]
+fn map_title_shows_range_to_nearest_enemy() {
+    // 1.1: two ships at axial distance 8 → buffer shows d=8 in chrome.
+    let mut app = App::new();
+    app.update_snapshot(distant_enemy_snapshot());
+    app.mode = Mode::Map;
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        buffer_contains(&buf, "d=8"),
+        "map title should show range d=8; got title line: {}",
+        buf.lines().next().unwrap_or("")
+    );
+}
+
+#[test]
+fn map_title_shows_enemy_callsign_in_range_readout() {
+    let mut app = App::new();
+    app.update_snapshot(distant_enemy_snapshot());
+    app.mode = Mode::Map;
+    let buf = render_to_string(&mut app, 100, 30);
+    // The enemy escort is callsign B2.
+    assert!(
+        buffer_contains(&buf, "→ B2 d=8"),
+        "range readout should name the enemy callsign"
+    );
+}
+
+/// Snapshot with an enemy far off the map viewport (criterion 1.3).
+fn off_map_enemy_snapshot() -> Snapshot {
+    let mut snap = test_snapshot();
+    // Player at origin, enemy far to the east at (50, 0).
+    snap.ships[0].q = 0;
+    snap.ships[0].r = 0;
+    snap.ships[1].q = 50;
+    snap.ships[1].r = 0;
+    snap
+}
+
+#[test]
+fn off_map_enemy_shows_in_contacts_strip() {
+    // 1.3: enemy outside viewport rect → buffer contains "off-map" and callsign.
+    let mut app = App::new();
+    app.update_snapshot(off_map_enemy_snapshot());
+    app.mode = Mode::Map;
+    // Pin the viewport to a small window at origin so the enemy at (50,0)
+    // is genuinely off-map (auto-fit would otherwise zoom out to include it).
+    app.map_pan = Some((0, 0));
+    app.map_zoom = Some(0); // scale 1, no auto-fit
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        buffer_contains(&buf, "off-map"),
+        "off-map enemy should produce an off-map strip"
+    );
+    assert!(
+        buffer_contains(&buf, "B2"),
+        "off-map strip should name the enemy callsign"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 2 — Weapon health: dead weapons uneditable, no fire, quiet previews
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Snapshot where the player's beam_1 is non-operational (damaged).
+fn damaged_weapon_snapshot() -> Snapshot {
+    let mut snap = test_snapshot();
+    snap.ships[0].weapons[0].operational = false;
+    snap
+}
+
+#[test]
+fn allocate_right_on_dead_weapon_does_not_change_charge() {
+    // 2.1: cursor on a !operational weapon → Right leaves draft charge unchanged.
+    let mut app = App::new();
+    app.update_snapshot(damaged_weapon_snapshot());
+    app.mode = Mode::Allocate;
+    // Cursor 1 = beam_1 (the damaged weapon).
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    let before = app.alloc_draft.as_ref().unwrap().weapons[0].1;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    let after = app.alloc_draft.as_ref().unwrap().weapons[0].1;
+    assert_eq!(
+        before, after,
+        "Right on a dead weapon must not change its charge"
+    );
+}
+
+#[test]
+fn allocate_digit_on_dead_weapon_does_not_change_charge() {
+    // 2.1: digit on a !operational weapon → draft charge unchanged.
+    let mut app = App::new();
+    app.update_snapshot(damaged_weapon_snapshot());
+    app.mode = Mode::Allocate;
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    let before = app.alloc_draft.as_ref().unwrap().weapons[0].1;
+    handle_key(&mut app, make_key('4'));
+    let after = app.alloc_draft.as_ref().unwrap().weapons[0].1;
+    assert_eq!(before, after, "digit on a dead weapon must not change charge");
+}
+
+#[test]
+fn allocate_weapon_digit_does_not_request_preview() {
+    // 2.3: weapon-only digit entry → pending_preview stays None.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    // Cursor 1 = beam_1 (operational in test_snapshot).
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    app.pending_preview = None;
+    handle_key(&mut app, make_key('4'));
+    assert!(
+        app.pending_preview.is_none(),
+        "weapon-charge digit must not request a movement preview"
+    );
+}
+
+#[test]
+fn allocate_movement_right_requests_preview() {
+    // 2.4: movement field Right → pending_preview is Some.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    // Cursor 0 = movement.
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    app.pending_preview = None;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    assert!(
+        app.pending_preview.is_some(),
+        "movement field edit must request a movement preview"
+    );
+}
+
+#[test]
+fn allocate_shield_right_requests_preview() {
+    // 2.4 (shields): shield field Right → pending_preview is Some.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    let n_w = app.alloc_draft.as_ref().unwrap().weapons.len();
+    // First shield face = cursor 1 + n_w.
+    app.alloc_draft.as_mut().unwrap().cursor = 1 + n_w;
+    app.pending_preview = None;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    assert!(
+        app.pending_preview.is_some(),
+        "shield field edit must request a movement preview"
+    );
+}
+
+#[test]
+fn fire_enter_on_dead_weapon_does_not_emit_commit_fire() {
+    // 2.5: Enter on a damaged weapon does not emit commit_fire.
+    let mut app = App::new();
+    app.update_snapshot(damaged_weapon_snapshot());
+    // Force into firing phase so fire_draft is populated.
+    app.snap.as_mut().unwrap().phase = "firing".into();
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::default());
+    // weapon_idx 0 = beam_1 (damaged). Set a target so we reach the emit path.
+    app.fire_draft.as_mut().unwrap().weapon_idx = 0;
+    app.fire_draft.as_mut().unwrap().target = Some(2);
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(
+        matches!(result, KeyResult::Continue),
+        "Enter on a dead weapon must not emit commit_fire"
+    );
+    assert!(
+        app.log.iter().any(|line| line.contains("OFFLINE")),
+        "dead-weapon Enter should soft-log OFFLINE; log={:?}",
+        app.log
+    );
+}
+
+#[test]
+fn fire_enter_on_operational_weapon_emits_commit_fire() {
+    // Regression guard: Enter on a working weapon still emits commit_fire.
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.ships[0].weapons[0].operational = true;
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::default());
+    app.fire_draft.as_mut().unwrap().weapon_idx = 0;
+    app.fire_draft.as_mut().unwrap().target = Some(2);
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    match result {
+        KeyResult::SendOrder(order) => match order.body {
+            crate::protocol::OrderBody::CommitFire { weapon, target, .. } => {
+                assert_eq!(weapon, "beam_1");
+                assert_eq!(target, 2);
+            }
+            other => panic!("expected commit_fire, got {other:?}"),
+        },
+        other => panic!("Enter on an operational weapon must emit commit_fire; got {other:?}"),
+    }
+}
+
+#[test]
+fn allocate_panel_shows_offline_for_damaged_weapon() {
+    // 2.6: buffer contains OFFLINE and no editable charge prompt for that row.
+    let mut app = App::new();
+    app.update_snapshot(damaged_weapon_snapshot());
+    app.mode = Mode::Allocate;
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(
+        buffer_contains(&buf, "OFFLINE"),
+        "allocate panel should mark damaged weapons OFFLINE"
+    );
+    // The damaged beam row must not show an editable charge N/M prompt.
+    let beam_line = buf
+        .lines()
+        .find(|line| line.contains("beam_1") && line.contains("OFFLINE"))
+        .unwrap_or("");
+    assert!(
+        !beam_line.is_empty(),
+        "expected an OFFLINE beam_1 row; got:\n{buf}"
+    );
+    assert!(
+        !beam_line.to_lowercase().contains("charge"),
+        "offline beam row must not show editable charge; got: {beam_line}"
+    );
+}
+
+#[test]
+fn fire_panel_shows_offline_for_damaged_weapon() {
+    // 2.6 (fire mode): damaged weapon shows OFFLINE in the fire panel.
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.ships[0].weapons[0].operational = false;
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::default());
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(
+        buffer_contains(&buf, "OFFLINE"),
+        "fire panel should mark damaged weapons OFFLINE"
+    );
+    let beam_line = buf
+        .lines()
+        .find(|line| line.contains("beam_1") && line.contains("OFFLINE"))
+        .unwrap_or("");
+    assert!(
+        !beam_line.is_empty(),
+        "expected OFFLINE beam_1 in fire panel; got:\n{buf}"
+    );
+    assert!(
+        !beam_line.to_lowercase().contains("chg="),
+        "offline fire row should not show charge; got: {beam_line}"
+    );
+}
+
+#[test]
+fn allocate_commit_omits_offline_weapons_from_order() {
+    // 2.2: Enter with a damaged beam yields allocate JSON without that id.
+    let mut app = App::new();
+    app.update_snapshot(damaged_weapon_snapshot());
+    app.mode = Mode::Allocate;
+    // Leave beam offline in draft; still set movement so the order is non-empty.
+    app.alloc_draft.as_mut().unwrap().movement = 2;
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    match result {
+        KeyResult::SendOrder(order) => match order.body {
+            crate::protocol::OrderBody::Allocate { weapons, .. } => {
+                let weapons = weapons.expect("weapons map present");
+                assert!(
+                    weapons.get("beam_1").is_none(),
+                    "offline beam_1 must be omitted from allocate JSON; got {weapons}"
+                );
+                // Operational second weapon (torp) still included when present.
+                // test_snapshot has beam_1 + torp_1 only if heavy cruiser test has 2 weapons.
+            }
+            other => panic!("expected allocate order, got {other:?}"),
+        },
+        other => panic!("allocate Enter must emit SendOrder; got {other:?}"),
+    }
+}
+
+#[test]
+fn fire_draft_for_ship_skips_offline_first_weapon() {
+    let mut snap = fire_phase_snapshot();
+    snap.ships[0].weapons[0].operational = false;
+    let draft = crate::app::FireDraft::for_ship(&snap.ships[0]);
+    assert_ne!(
+        draft.weapon_idx, 0,
+        "for_ship must not land on offline weapon 0"
+    );
+    assert!(
+        snap.ships[0].weapons[draft.weapon_idx].operational,
+        "selected weapon must be operational"
+    );
+}
+
+#[test]
+fn allocate_edit_dead_weapon_logs_soft_notice() {
+    let mut app = App::new();
+    app.update_snapshot(damaged_weapon_snapshot());
+    app.mode = Mode::Allocate;
+    app.alloc_draft.as_mut().unwrap().cursor = 1; // dead beam
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    assert!(
+        app.log
+            .iter()
+            .any(|line| line.contains("OFFLINE") && line.contains("cannot charge")),
+        "blocked allocate edit should soft-log; log={:?}",
+        app.log
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3 — Allocate as a form: sticky budget, selected-row marker, hull truth
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn allocate_budget_stays_visible_when_cursor_on_last_shield() {
+    // 3.1: cursor on the last shield field → buffer still contains the Budget
+    // line. The budget is a fixed header, so it must not scroll out of view.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    // test_snapshot player ship: 2 weapons → cursor 0=mov, 1..2=weapons,
+    // 3..8 = 6 shields. Last shield = cursor 8.
+    let n_w = app.alloc_draft.as_ref().unwrap().weapons.len();
+    app.alloc_draft.as_mut().unwrap().cursor = 1 + n_w + 5;
+    // Render at the small floor so the form must scroll.
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "Budget"),
+        "budget line must stay visible when cursor is on the last shield"
+    );
+}
+
+#[test]
+fn allocate_selected_field_shows_marker_on_same_row() {
+    // 3.2: the selected field shows ▶ on the same row as the field name.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    // Cursor 0 = movement field.
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    let buf = render_to_string(&mut app, 80, 40);
+    // The movement row should carry the ▶ marker.
+    assert!(
+        buf.lines().any(|line| line.contains("▶") && line.contains("Movement")),
+        "selected movement row should show ▶ on the same line as the field name"
+    );
+}
+
+#[test]
+fn allocate_hull_line_shows_structure_without_fake_max() {
+    // 3.3: hull line matches `hull \d+` without a `\d+/\d+` fake max.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    let buf = render_to_string(&mut app, 80, 40);
+    // Ship 1 has structure 12. The hull line should contain "hull 12".
+    assert!(
+        buffer_contains(&buf, "hull 12"),
+        "allocate panel should show hull with current structure"
+    );
+    // And it must NOT show a fake N/N max on the hull line.
+    let hull_line = buf
+        .lines()
+        .find(|line| line.contains("hull 12"))
+        .unwrap_or("");
+    assert!(
+        !hull_line.contains("/"),
+        "hull line must not show a fake N/N max; got: {hull_line}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 4 — Fire queue + cycle coach: header/panel agree, no-charge, cycle n/4
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn fire_queue_header_and_panel_agree() {
+    // 4.1: with fire_commits for the focused ship, the header `queued=N` and
+    // the fire panel `Queued: N shot(s) pending` must show the same count.
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    // Two pending commits for the player ship (id 1) targeting the escort (id 2).
+    snap.fire_commits = vec![
+        FireCommit {
+            ship: 1,
+            weapon: "beam_1".into(),
+            target: 2,
+            shield_facing: 0,
+        },
+        FireCommit {
+            ship: 1,
+            weapon: "torp_1".into(),
+            target: 2,
+            shield_facing: 1,
+        },
+    ];
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::default());
+    // Render tall enough that the whole fire panel (controls, queue, commits,
+    // targets, weapons) fits without scrolling.
+    let buf = render_to_string(&mut app, 80, 80);
+    // Header shows queued=2.
+    assert!(
+        buffer_contains(&buf, "queued=2"),
+        "header must show queued=2 for the focused ship's commits; got:\n{buf}"
+    );
+    // Fire panel shows Queued: 2 shot(s) pending.
+    assert!(
+        buffer_contains(&buf, "Queued: 2 shot(s) pending"),
+        "fire panel must show Queued: 2; got:\n{buf}"
+    );
+    // And the pending commits are listed (weapon → target face F).
+    assert!(
+        buffer_contains(&buf, "beam_1 →"),
+        "fire panel must list the pending beam_1 commit"
+    );
+}
+
+#[test]
+fn fire_panel_shows_no_charge_coach() {
+    // 4.2: every operational weapon out of charge mid-fire-phase → buffer
+    // contains the "No charge" / "Space to pass" coach.
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    // Drain both player weapons to 0 charge.
+    for w in snap.ships[0].weapons.iter_mut() {
+        w.charge = 0;
+    }
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::default());
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(
+        buffer_contains(&buf, "No charge"),
+        "fire panel must show No charge coach when all weapons are empty"
+    );
+    assert!(
+        buffer_contains(&buf, "Space to pass"),
+        "fire panel must tell the player to Space to pass fire"
+    );
+}
+
+#[test]
+fn cycle_coach_shows_movement_phase_out_of_four() {
+    // 4.3: phase `movement` with movement_phase=3 → coach line `Cycle 3/4`
+    // (not only the header `Move 3/4`).
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.phase = "movement".into();
+    snap.movement_phase = 3;
+    app.update_snapshot(snap);
+    app.mode = Mode::Movement;
+    app.fire_draft = None;
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(
+        buffer_contains(&buf, "Cycle 3/4"),
+        "movement panel coach must show Cycle 3/4; got:\n{buf}"
+    );
+}
+
+#[test]
+fn cycle_coach_shows_fire_phase_out_of_four() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.phase = "firing".into();
+    snap.movement_phase = 2;
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::for_ship(&app.focused().unwrap().clone()));
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(
+        buffer_contains(&buf, "Cycle 2/4"),
+        "fire panel coach must show Cycle 2/4; got:\n{buf}"
     );
 }

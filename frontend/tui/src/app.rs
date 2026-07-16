@@ -85,10 +85,22 @@ impl AllocDraft {
     }
 
     /// Weapons map for the allocate order JSON.
-    pub fn weapons_json(&self) -> serde_json::Value {
+    ///
+    /// Omits non-operational weapons: the engine rejects unknown/destroyed
+    /// weapon ids with `weapon … not found`. Dead rows stay in the draft for
+    /// display only (OFFLINE).
+    pub fn weapons_json(&self, ship: &protocol::Ship) -> serde_json::Value {
         let mut map = serde_json::Map::new();
         for (id, chg) in &self.weapons {
-            map.insert(id.clone(), serde_json::json!(chg));
+            let operational = ship
+                .weapons
+                .iter()
+                .find(|w| &w.id == id)
+                .map(|w| w.operational)
+                .unwrap_or(false);
+            if operational {
+                map.insert(id.clone(), serde_json::json!(chg));
+            }
         }
         serde_json::Value::Object(map)
     }
@@ -167,6 +179,32 @@ pub struct FireDraft {
     pub target: Option<i64>,
     /// Shield facing to hit (0..5).
     pub shield_facing: u32,
+}
+
+impl FireDraft {
+    /// New draft with `weapon_idx` snapped to the first operational weapon
+    /// (if any). Avoids opening fire mode on an OFFLINE gun (Phase 2).
+    pub fn for_ship(ship: &protocol::Ship) -> Self {
+        let mut draft = Self::default();
+        draft.snap_to_operational(ship);
+        draft
+    }
+
+    /// If the selected weapon is missing or offline, move to the first
+    /// operational weapon. No-op when every weapon is offline.
+    pub fn snap_to_operational(&mut self, ship: &protocol::Ship) {
+        let still_ok = ship
+            .weapons
+            .get(self.weapon_idx)
+            .map(|w| w.operational)
+            .unwrap_or(false);
+        if still_ok {
+            return;
+        }
+        if let Some(idx) = ship.weapons.iter().position(|w| w.operational) {
+            self.weapon_idx = idx;
+        }
+    }
 }
 
 /// The full application state.
@@ -300,12 +338,29 @@ impl App {
                             self.mode = Mode::Allocate;
                         }
                     } else if snap.phase == "firing" {
-                        self.fire_draft = Some(FireDraft::default());
+                        self.fire_draft = snap
+                            .player_ship()
+                            .or_else(|| {
+                                self.focused_ship
+                                    .and_then(|id| snap.ship(id))
+                            })
+                            .map(FireDraft::for_ship)
+                            .or_else(|| Some(FireDraft::default()));
                         self.mode = Mode::Fire;
                     } else if snap.phase == "movement" {
                         self.mode = Mode::Movement;
                     } else {
                         self.mode = Mode::Normal;
+                    }
+                } else if snap.phase == "firing" {
+                    // Same phase: keep selection valid if a weapon went offline.
+                    if let Some(draft) = self.fire_draft.as_mut() {
+                        if let Some(ship) = self
+                            .focused_ship
+                            .and_then(|id| snap.ship(id))
+                        {
+                            draft.snap_to_operational(ship);
+                        }
                     }
                 }
             } else {
@@ -316,7 +371,14 @@ impl App {
                         self.mode = Mode::Allocate;
                     }
                 } else if snap.phase == "firing" {
-                    self.fire_draft = Some(FireDraft::default());
+                    self.fire_draft = snap
+                        .player_ship()
+                        .or_else(|| {
+                            self.focused_ship
+                                .and_then(|id| snap.ship(id))
+                        })
+                        .map(FireDraft::for_ship)
+                        .or_else(|| Some(FireDraft::default()));
                     self.mode = Mode::Fire;
                 } else if snap.phase == "movement" {
                     self.mode = Mode::Movement;
@@ -453,12 +515,11 @@ impl App {
             Some(d) => d,
             None => return,
         };
-        // Build the weapons map.
-        let weapons: serde_json::Value = draft
-            .weapons
-            .iter()
-            .map(|(name, power)| (name.clone(), serde_json::json!(power)))
-            .collect();
+        let Some(ship) = snap.ship(ship_id) else {
+            return;
+        };
+        // Same filter as allocate commit: never send offline weapon ids.
+        let weapons = draft.weapons_json(ship);
         let shields: serde_json::Value =
             draft.shields.iter().map(|s| serde_json::json!(s)).collect();
         let req = serde_json::json!({
@@ -663,11 +724,20 @@ impl App {
         let Some(ship_id) = self.focused_ship else {
             return;
         };
-        self.fire_draft = self
+        let ship = self.snap.as_ref().and_then(|s| s.ship(ship_id)).cloned();
+        let mut draft = self
             .fire_draft
             .take()
             .or_else(|| self.fire_drafts.remove(&ship_id))
-            .or_else(|| Some(FireDraft::default()));
+            .unwrap_or_else(|| {
+                ship.as_ref()
+                    .map(FireDraft::for_ship)
+                    .unwrap_or_default()
+            });
+        if let Some(ship) = ship.as_ref() {
+            draft.snap_to_operational(ship);
+        }
+        self.fire_draft = Some(draft);
         self.mode = Mode::Fire;
     }
 
