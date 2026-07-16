@@ -4,15 +4,15 @@ id = "dreadnought_heavy"
 name = "Dreadnought (Heavy)"
 size = 6
 speed = 4
-power = 74
-max_shield_per_facing = 9
-structure = 88
+power = 80
+max_shield_per_facing = 10
+structure = 97
 power_sys = 4
 engine_boxes = 4
 max_velocity = 4
 thrust_per_power = 1
 power_per_thrust = 4
-cost = 718
+cost = 682
 
 [[weapons]]
 id = "beam_1"
@@ -20,7 +20,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "beam_2"
@@ -28,7 +28,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward_starboard"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "beam_3"
@@ -36,7 +36,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward_port"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "torp_1"
@@ -55,9 +55,25 @@ max_range = 6
 max_charge = 1
 
 [[weapons]]
+id = "beam_4"
+kind = "beam"
+arc = "rear"
+mount = "aft"
+max_range = 10
+max_charge = 5
+
+[[weapons]]
 id = "torp_2"
 kind = "torp"
 arc = "forward"
 mount = "forward"
 max_range = 12
+max_charge = 1
+
+[[weapons]]
+id = "plasma_2"
+kind = "plasma"
+arc = "forward"
+mount = "forward"
+max_range = 6
 max_charge = 1

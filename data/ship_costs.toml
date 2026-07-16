@@ -7,37 +7,37 @@
 class = "fighter_light"
 size = 1
 variant = "light"
-cost = 40
+cost = 43
 power = 5
 structure = 2
-c_frame = 13.7
+c_frame = 15.0
 
 [[ships]]
 class = "fighter_line"
 size = 1
 variant = "line"
-cost = 45
+cost = 47
 power = 6
 structure = 2
-c_frame = 13.7
+c_frame = 15.0
 
 [[ships]]
 class = "fighter_heavy"
 size = 1
 variant = "heavy"
-cost = 70
+cost = 73
 power = 8
 structure = 5
-c_frame = 13.7
+c_frame = 15.0
 
 [[ships]]
 class = "destroyer_light"
 size = 2
 variant = "light"
-cost = 92
+cost = 93
 power = 11
 structure = 6
-c_frame = 54.9
+c_frame = 54.2
 
 [[ships]]
 class = "destroyer_line"
@@ -46,148 +46,148 @@ variant = "line"
 cost = 100
 power = 14
 structure = 8
-c_frame = 54.9
+c_frame = 54.2
 
 [[ships]]
 class = "destroyer_heavy"
 size = 2
 variant = "heavy"
-cost = 125
+cost = 126
 power = 16
 structure = 10
-c_frame = 54.9
+c_frame = 54.2
 
 [[ships]]
 class = "light_cruiser_light"
 size = 3
 variant = "light"
-cost = 171
+cost = 162
 power = 16
 structure = 10
-c_frame = 123.6
+c_frame = 114.7
 
 [[ships]]
 class = "light_cruiser_line"
 size = 3
 variant = "line"
-cost = 197
+cost = 190
 power = 18
 structure = 14
-c_frame = 123.6
+c_frame = 114.7
 
 [[ships]]
 class = "light_cruiser_heavy"
 size = 3
 variant = "heavy"
-cost = 221
+cost = 213
 power = 21
 structure = 17
-c_frame = 123.6
+c_frame = 114.7
 
 [[ships]]
 class = "heavy_cruiser_light"
 size = 4
 variant = "light"
-cost = 302
+cost = 279
 power = 25
 structure = 17
-c_frame = 219.8
+c_frame = 195.3
 
 [[ships]]
 class = "heavy_cruiser_line"
 size = 4
 variant = "line"
-cost = 327
+cost = 304
 power = 29
 structure = 19
-c_frame = 219.8
+c_frame = 195.3
 
 [[ships]]
 class = "heavy_cruiser_heavy"
 size = 4
 variant = "heavy"
-cost = 349
+cost = 327
 power = 33
 structure = 25
-c_frame = 219.8
+c_frame = 195.3
 
 [[ships]]
 class = "battleship_light"
 size = 5
 variant = "light"
-cost = 458
+cost = 413
 power = 37
 structure = 30
-c_frame = 343.4
+c_frame = 295.1
 
 [[ships]]
 class = "battleship_line"
 size = 5
 variant = "line"
-cost = 487
+cost = 441
 power = 44
 structure = 41
-c_frame = 343.4
+c_frame = 295.1
 
 [[ships]]
 class = "battleship_heavy"
 size = 5
 variant = "heavy"
-cost = 516
-power = 54
-structure = 51
-c_frame = 343.4
+cost = 501
+power = 58
+structure = 57
+c_frame = 295.1
 
 [[ships]]
 class = "dreadnought_light"
 size = 6
 variant = "light"
-cost = 675
+cost = 597
 power = 62
 structure = 69
-c_frame = 494.5
+c_frame = 413.4
 
 [[ships]]
 class = "dreadnought_line"
 size = 6
 variant = "line"
-cost = 689
+cost = 625
 power = 70
 structure = 74
-c_frame = 494.5
+c_frame = 413.4
 
 [[ships]]
 class = "dreadnought_heavy"
 size = 6
 variant = "heavy"
-cost = 718
-power = 74
-structure = 88
-c_frame = 494.5
+cost = 682
+power = 80
+structure = 97
+c_frame = 413.4
 
 [[ships]]
 class = "titan_light"
 size = 7
 variant = "light"
-cost = 891
-power = 88
-structure = 103
-c_frame = 673.1
+cost = 762
+power = 82
+structure = 97
+c_frame = 549.9
 
 [[ships]]
 class = "titan_line"
 size = 7
 variant = "line"
-cost = 910
-power = 90
+cost = 822
+power = 95
 structure = 120
-c_frame = 673.1
+c_frame = 549.9
 
 [[ships]]
 class = "titan_heavy"
 size = 7
 variant = "heavy"
-cost = 957
-power = 93
-structure = 137
-c_frame = 673.1
+cost = 910
+power = 107
+structure = 160
+c_frame = 549.9

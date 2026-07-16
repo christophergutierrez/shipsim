@@ -21,10 +21,20 @@ adjusted threshold = round_half_up(table threshold × target size / 2)
 adjusted threshold = clamp(adjusted threshold, 1, 20)
 ```
 
-Consequently, size 1 (Fighter) has half the listed chance, size 2 (Destroyer)
-uses the table as-is, size 4 (Heavy Cruiser) has twice the listed chance, and
-larger tiers scale further up to 100% after clamp. Target size changes accuracy,
-not damage. Named tiers: `data/sizes.toml`.
+Lever #6 trials (softer mults for titans) capital-stomped abc claims A/B at
+n=1k; **classic `size/2` is the locked curve** after levers #1–#5.
+
+| Size | Name | mult |
+|---:|---|---:|
+| 1 | Fighter | ×0.5 |
+| 2 | Destroyer | ×1 (baseline) |
+| 3 | Light Cruiser | ×1.5 |
+| 4 | Heavy Cruiser | ×2 |
+| 5 | Battleship | ×2.5 |
+| 6 | Dreadnought | ×3 |
+| 7 | Titan | ×3.5 |
+
+Target size changes accuracy, not damage. Named tiers: `data/sizes.toml`.
 
 | Range | Beam | Plasma | Torp |
 |------:|-----:|-------:|-----:|

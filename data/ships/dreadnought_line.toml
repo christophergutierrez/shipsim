@@ -12,7 +12,7 @@ engine_boxes = 3
 max_velocity = 4
 thrust_per_power = 1
 power_per_thrust = 4
-cost = 689
+cost = 625
 
 [[weapons]]
 id = "beam_1"
@@ -20,7 +20,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "beam_2"
@@ -28,7 +28,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward_starboard"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "beam_3"
@@ -36,7 +36,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward_port"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "torp_1"
@@ -53,3 +53,11 @@ arc = "forward"
 mount = "forward"
 max_range = 6
 max_charge = 1
+
+[[weapons]]
+id = "beam_4"
+kind = "beam"
+arc = "rear"
+mount = "aft"
+max_range = 10
+max_charge = 5

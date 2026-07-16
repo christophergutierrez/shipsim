@@ -61,9 +61,12 @@ pub fn to_hit_threshold(kind: WeaponKind, range: u32) -> Option<u8> {
 
 /// Scale the range-table d20 threshold by target silhouette.
 ///
-/// The result is rounded half-up and clamped to the meaningful d20 range.
-/// Thus size 1 has half the baseline chance, size 2 is unchanged, and size 4
-/// has twice the baseline chance (up to an automatic threshold of 20).
+/// ```text
+/// mult = target_size / BASELINE_TARGET_SIZE   // size 2 → 1.0, size 7 → 3.5
+/// adjusted = round_half_up(table × mult), clamp 1..=20
+/// ```
+/// Lever #6 trials (soft ×2.25, medium ×2.67, mild capital ×3.0) all shifted
+/// abc claim B to capital stomps at n=1k; keep classic size/2 for the #1–#5 lock.
 pub fn size_adjusted_to_hit_threshold(
     kind: WeaponKind,
     range: u32,
@@ -128,6 +131,7 @@ mod tests {
 
     #[test]
     fn target_size_scales_threshold_from_size_two_baseline() {
+        // mult = size/2 (classic). Beam r3 base 15.
         assert_eq!(
             size_adjusted_to_hit_threshold(WeaponKind::Beam, 3, 1),
             Some(8)
@@ -143,6 +147,10 @@ mod tests {
         assert_eq!(
             size_adjusted_to_hit_threshold(WeaponKind::Beam, 10, 1),
             Some(2)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 10, 7),
+            Some(14) // half_up(4 * 3.5)
         );
         assert_eq!(size_adjusted_to_hit_threshold(WeaponKind::Beam, 1, 0), None);
     }

@@ -4,15 +4,15 @@ id = "titan_light"
 name = "Titan (Light)"
 size = 7
 speed = 3
-power = 88
+power = 82
 max_shield_per_facing = 8
-structure = 103
-power_sys = 4
-engine_boxes = 4
+structure = 97
+power_sys = 5
+engine_boxes = 5
 max_velocity = 3
 thrust_per_power = 1
 power_per_thrust = 4
-cost = 891
+cost = 762
 
 [[weapons]]
 id = "beam_1"

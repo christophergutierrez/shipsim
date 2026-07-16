@@ -4,15 +4,15 @@ id = "battleship_heavy"
 name = "Battleship (Heavy)"
 size = 5
 speed = 5
-power = 54
-max_shield_per_facing = 8
-structure = 51
+power = 58
+max_shield_per_facing = 9
+structure = 57
 power_sys = 4
 engine_boxes = 4
 max_velocity = 5
 thrust_per_power = 1
 power_per_thrust = 3
-cost = 516
+cost = 501
 
 [[weapons]]
 id = "beam_1"
@@ -20,7 +20,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "beam_2"
@@ -28,7 +28,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward_starboard"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "torp_1"
@@ -52,4 +52,12 @@ kind = "beam"
 arc = "forward"
 mount = "forward_port"
 max_range = 10
-max_charge = 4
+max_charge = 5
+
+[[weapons]]
+id = "torp_2"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1

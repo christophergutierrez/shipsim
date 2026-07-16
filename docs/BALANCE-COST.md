@@ -145,8 +145,13 @@ not Combat-D medians as total cost.
 ```bash
 cargo run --release --bin shipsim-sim -- \
   --suite simulation/suites/abc_claims.toml \
-  --output tmp/simulation/reports/abc_claims.json
+  --output tmp/simulation/reports/abc_claims_1k.json
 ```
+
+**Lever #5 (cost) lock (n≈1k):** `C_frame ∝ s^1.85`, weapons slightly dearer;
+`destroyer_line=100`; titan_light≈762, titan_heavy≈910. Suite counts:
+A=**7** DD vs light, B=**10** DD vs heavy, C=**8** DD fixed. Typical WR:
+A ~67% swarm, B ~41/52, C ~1/99.
 
 Power / shield / structure **sweeps** remain useful for local levers once games
 decide; they do not replace catalog form or engagement rules.

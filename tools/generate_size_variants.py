@@ -25,6 +25,9 @@ KS = 8 / 14
 
 TIERS = [
     # size, key, name, stcs power p25/med/p75, ss p25/med/p75, thrust triples, vmax, shields
+    # Lever #3 — max_shield_per_facing only on capital heavy face max.
+    # DD+ broad buffs overshot (A→97%, B swarm~13% + high IP). Final #3:
+    # restore pre-#3 DD/mid shields; titan_heavy 13→12 only (fill weapons stay).
     dict(
         size=1,
         key="fighter",
@@ -43,7 +46,7 @@ TIERS = [
         ss=(10, 14, 18),
         thrust=((3, 1), (2, 1), (1, 1)),
         vmax=8,
-        shields=(3, 4, 5),
+        shields=(3, 4, 5),  # same as post-#2 (do not buff swarm faces)
     ),
     dict(
         size=3,
@@ -69,48 +72,51 @@ TIERS = [
         size=5,
         key="battleship",
         name="Battleship",
-        power=(90, 108, 130),
-        ss=(52, 72, 90),
+        power=(90, 108, 140),
+        ss=(52, 72, 100),
         thrust=((1, 2), (1, 3), (1, 3)),
         vmax=5,
-        shields=(6, 7, 8),
+        shields=(6, 7, 9),
     ),
     dict(
         size=6,
         key="dreadnought",
         name="Dreadnought",
-        power=(150, 170, 180),
-        ss=(120, 130, 154),
+        power=(150, 170, 195),
+        ss=(120, 130, 170),
         thrust=((1, 3), (1, 4), (1, 4)),
         vmax=4,
-        shields=(7, 8, 9),
+        shields=(7, 8, 10),
     ),
     dict(
         size=7,
         key="titan",
         name="Titan",
-        power=(213, 219, 225),
-        ss=(180, 210, 240),  # fill buys hull now (was flat 210)
+        power=(200, 230, 260),
+        ss=(170, 210, 280),
         thrust=((1, 4), (1, 4), (1, 5)),
         vmax=3,
-        shields=(8, 9, 11),
+        # post-#2 was (8,10,13); only heavy face-max −1
+        shields=(8, 10, 12),
     ),
 ]
 
 # Flat module / marginal prices (shipsim construction points).
-# Tuned so destroyer_line ≈ 100.
-C_POWER = 1.2  # design power is capability → marginal, not pure sunk engine
-C_SHIELD_FACE = 3.0  # per max_shield_per_facing point (one face cap)
-WEAPON_COST = {"beam": 12, "torp": 18, "plasma": 15}
+# Lever #5 — cost ratios: slightly higher weapon prices so capital *fill* is
+# expensive; slightly softer frame exponent so min titan is not ~9× DD (A used
+# 9 DD and stomped). Normalize still forces destroyer_line == 100.
+C_POWER = 1.25
+C_SHIELD_FACE = 3.0
+WEAPON_COST = {"beam": 14, "torp": 20, "plasma": 16}
 
 
 def c_frame(size: int) -> float:
-    """Large positive fixed intercept; α=2 so capitals carry heavy sunk hull cost.
+    """Large positive fixed intercept; α≈1.85 (was 2.0).
 
-    Relative scale: size 7 frame ≈ 12× size 2 frame. Absolute scale is applied
-    after assembly so destroyer_line == 100 (see normalize in main).
+    Softer capital sink → after DD=100 normalize, titan_light closer to ~8× DD
+    (claim A equal-budget swarm size). Heavy still pays via modules.
     """
-    return 50.0 * ((size / 2.0) ** 2.0)
+    return 52.0 * ((size / 2.0) ** 1.85)
 
 
 def spower(stcs: float) -> int:
@@ -122,6 +128,11 @@ def sstruct(stcs: float) -> int:
 
 
 def weapons(size: int, vi: int) -> list[dict]:
+    """Lever #2 — capital fill: size≥5 line/heavy get deeper batteries + charge.
+
+    Light capital fits stay thinner so claim A (min titan) stays swarm-favored.
+    """
+
     def beam(i, mount="forward", arc="forward", ch=4):
         return {
             "id": f"beam_{i}",
@@ -152,14 +163,31 @@ def weapons(size: int, vi: int) -> list[dict]:
             "max_charge": 1,
         }
 
+    # Beam charge scales with capital fill (not destroyers).
+    if size >= 7 and vi >= 2:
+        bch = 6
+    elif size >= 6 and vi >= 1:
+        bch = 5
+    elif size >= 5 and vi >= 2:
+        bch = 5
+    else:
+        bch = 4
+
     if size == 1:
         w = [beam(1, ch=3 if vi == 0 else 4)]
         if vi == 2:
             w.append(torp(1))
     elif size == 2:
-        w = [beam(1)]
+        # Lever #4 tested at n=1k and rejected for this operating point:
+        #   beam charge 3 → A~20% swarm, B/C 100% titan (swarm dead)
+        #   max_range 9, charge 4 → B~44/49 nicer but A~89% (A worse)
+        # Keep charge 4 / range 10 (post-#3). Next soft-swarm work is #5 cost counts.
+        w = [beam(1, ch=4)]
         if vi == 2:
             w.append(torp(1))
+
+
+
     elif size == 3:
         w = [beam(1)]
         if vi >= 1:
@@ -175,37 +203,45 @@ def weapons(size: int, vi: int) -> list[dict]:
             w.append(beam(2, mount="forward_starboard"))
     elif size == 5:
         w = [
-            beam(1),
-            beam(2, mount="forward_starboard"),
+            beam(1, ch=bch),
+            beam(2, mount="forward_starboard", ch=bch),
             torp(1),
         ]
         if vi >= 1:
             w.append(plasma(1))
         if vi == 2:
-            w.append(beam(3, mount="forward_port"))
+            w.append(beam(3, mount="forward_port", ch=bch))
+            w.append(torp(2))
     elif size == 6:
         w = [
-            beam(1),
-            beam(2, mount="forward_starboard"),
-            beam(3, mount="forward_port"),
-            torp(1),
-            plasma(1),
-        ]
-        if vi == 2:
-            w.append(torp(2))
-    else:
-        w = [
-            beam(1),
-            beam(2, mount="forward_starboard"),
-            beam(3, mount="forward_port"),
+            beam(1, ch=bch),
+            beam(2, mount="forward_starboard", ch=bch),
+            beam(3, mount="forward_port", ch=bch),
             torp(1),
             plasma(1),
         ]
         if vi >= 1:
-            w.append(beam(4, mount="aft", arc="rear"))
+            w.append(beam(4, mount="aft", arc="rear", ch=bch))
         if vi == 2:
             w.append(torp(2))
             w.append(plasma(2))
+    else:
+        # Titan: light stays moderate; line/heavy denser + higher charge.
+        w = [
+            beam(1, ch=bch if vi > 0 else 4),
+            beam(2, mount="forward_starboard", ch=bch if vi > 0 else 4),
+            beam(3, mount="forward_port", ch=bch if vi > 0 else 4),
+            torp(1),
+            plasma(1),
+        ]
+        if vi >= 1:
+            w.append(beam(4, mount="aft", arc="rear", ch=bch))
+            w.append(torp(2))
+        if vi == 2:
+            w.append(plasma(2))
+            w.append(beam(5, mount="aft_starboard", arc="rear", ch=bch))
+            w.append(beam(6, mount="aft_port", arc="rear", ch=bch))
+            w.append(torp(3))
     return w
 
 
@@ -226,9 +262,12 @@ def power_sys_boxes(size: int, vi: int) -> int:
       destroyer_line → 3; titan_light → 4; titan_heavy → 5
     """
     # +1 per 3 sizes above 1; +0/1 from variant (vi//2).
-    # Empirically (abc_claims): titan_heavy=5 keeps B competitive; 6+ capital-stomps.
+    # n≈128: light=4/heavy=5 → A swarm ~88%, B ~62/25. Nudge: floor 5 on
+    # size≥7 so min titan is less glass (A softer) while heavy stays 5 (not 6).
     depth = 2 + max(0, size - 1) // 3 + vi // 2
     floor = 3 if size >= 2 else 2
+    if size >= 7:
+        floor = 5
     return max(floor, depth)
 
 
@@ -236,6 +275,8 @@ def engine_boxes(size: int, vmax: int, vi: int) -> int:
     """SSD engine boxes — same depth family as power_sys."""
     depth = 2 + max(0, size - 1) // 3 + vi // 2
     floor = 3 if size >= 2 else 2
+    if size >= 7:
+        floor = 5
     return max(floor, depth)
 
 

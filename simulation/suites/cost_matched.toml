@@ -1,5 +1,5 @@
-# Equal-construction-budget fleet matchups (docs/BALANCE-COST.md, SIZE-VARIANTS.md).
-# Frame/module costs; destroyer_line = 100.
+# Equal-construction-budget fleet matchups (docs/BALANCE-COST.md).
+# Frame/module costs after lever #5; destroyer_line = 100.
 #
 #   cargo run --release --bin shipsim-sim -- \
 #     --suite simulation/suites/cost_matched.toml \
@@ -10,9 +10,9 @@ seeds = [1, 2, 3, 4, 5, 6, 7, 8]
 max_turns = 60
 max_orders = 60000
 cost_tolerance = 100
+stalemate_scoring = "damage_diff"
 rubrics = [
   "simulation/rubrics/fleet-safety.toml",
-  "simulation/rubrics/instrument-health.toml",
   "simulation/rubrics/cost-matched.toml",
 ]
 
@@ -29,25 +29,25 @@ opponent = "aggressive"
 player = "aggressive"
 opponent = "defensive"
 
-# 9×100 = 900 vs titan_line 910
+# 8×100 = 800 vs titan_line ~822
 [[engagements]]
 name = "swarm_vs_titan"
-player = [{ class = "destroyer_line", count = 9 }]
+player = [{ class = "destroyer_line", count = 8 }]
 opponent = [{ class = "titan_line", count = 1 }]
 
-# 3×327 = 981 vs 10×100 = 1000
+# 3×304 = 912 vs 9×100 = 900
 [[engagements]]
 name = "heavies_vs_swarm"
 player = [{ class = "heavy_cruiser_line", count = 3 }]
-opponent = [{ class = "destroyer_line", count = 10 }]
+opponent = [{ class = "destroyer_line", count = 9 }]
 
-# 2×487 = 974 vs 10×100 = 1000
+# 2×441 = 882 vs 9×100 = 900
 [[engagements]]
 name = "battleships_vs_swarm"
 player = [{ class = "battleship_line", count = 2 }]
-opponent = [{ class = "destroyer_line", count = 10 }]
+opponent = [{ class = "destroyer_line", count = 9 }]
 
-# 689+200 = 889 vs 3×327 = 981 (within tolerance 100)
+# 625+200 = 825 vs 3×304 = 912
 [[engagements]]
 name = "dreadnought_screen_vs_heavies"
 player = [
@@ -56,7 +56,6 @@ player = [
 ]
 opponent = [{ class = "heavy_cruiser_line", count = 3 }]
 
-# Control: equal hulls
 [[engagements]]
 name = "destroyer_mirror"
 player = [{ class = "destroyer_line", count = 4 }]

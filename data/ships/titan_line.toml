@@ -4,15 +4,15 @@ id = "titan_line"
 name = "Titan (Line)"
 size = 7
 speed = 3
-power = 90
-max_shield_per_facing = 9
+power = 95
+max_shield_per_facing = 10
 structure = 120
-power_sys = 4
-engine_boxes = 4
+power_sys = 5
+engine_boxes = 5
 max_velocity = 3
 thrust_per_power = 1
 power_per_thrust = 4
-cost = 910
+cost = 822
 
 [[weapons]]
 id = "beam_1"
@@ -20,7 +20,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "beam_2"
@@ -28,7 +28,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward_starboard"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "beam_3"
@@ -36,7 +36,7 @@ kind = "beam"
 arc = "forward"
 mount = "forward_port"
 max_range = 10
-max_charge = 4
+max_charge = 5
 
 [[weapons]]
 id = "torp_1"
@@ -60,4 +60,12 @@ kind = "beam"
 arc = "rear"
 mount = "aft"
 max_range = 10
-max_charge = 4
+max_charge = 5
+
+[[weapons]]
+id = "torp_2"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1

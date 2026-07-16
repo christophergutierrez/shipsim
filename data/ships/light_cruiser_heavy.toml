@@ -12,7 +12,7 @@ engine_boxes = 3
 max_velocity = 7
 thrust_per_power = 1
 power_per_thrust = 2
-cost = 221
+cost = 213
 
 [[weapons]]
 id = "beam_1"
