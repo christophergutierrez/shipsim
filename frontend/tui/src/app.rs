@@ -402,7 +402,7 @@ impl App {
             let tag = if e.kind == "hit" { "HIT" } else { "MISS" };
             let result = if e.kind == "hit" {
                 format!(
-                    " +{} sh-{} hull-{}",
+                    " +{} sh-{} int-{}",
                     e.damage, e.shield_absorbed, e.hull_damage
                 )
             } else {

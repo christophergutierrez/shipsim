@@ -916,6 +916,13 @@ impl GameState {
         }
         let kind = weapon.kind;
         let range = attacker.pos.distance(target.pos);
+        if range == 0 {
+            return Err(crate::movement::OrderError::TooClose {
+                weapon: commit.weapon.clone(),
+                range,
+                min_range: 1,
+            });
+        }
         let max_range = self.effective_weapon_max_range(weapon);
         if range > max_range {
             return Err(crate::movement::OrderError::OutOfRange {
@@ -1085,6 +1092,9 @@ impl GameState {
             return None;
         }
         let range = attacker.pos.distance(target.pos);
+        if range == 0 {
+            return None;
+        }
         if range > self.effective_weapon_max_range(weapon) {
             return None;
         }
@@ -1171,6 +1181,13 @@ impl GameState {
         }
         let kind = weapon.kind;
         let range = attacker.pos.distance(target.pos);
+        if range == 0 {
+            return Err(crate::movement::OrderError::TooClose {
+                weapon: commit.weapon.clone(),
+                range,
+                min_range: 1,
+            });
+        }
         let max_range = self.effective_weapon_max_range(weapon);
         if range > max_range {
             return Err(crate::movement::OrderError::OutOfRange {

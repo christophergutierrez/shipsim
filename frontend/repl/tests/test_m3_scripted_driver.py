@@ -74,6 +74,30 @@ class AllocatePhaseTests(unittest.TestCase):
         self.assertTrue(all(int(v) == 0 for v in (order.get("weapons") or {}).values()))
         self.assertTrue(all(int(v) == 0 for v in (order.get("shields") or [0] * 6)))
 
+    def test_destroyed_weapons_are_omitted_from_passive_allocate(self):
+        destroyed = _weapon(id="beam_1", operational=False)
+        snap = _snap(
+            [_ship(1, "player"), _ship(2, "scripted", weapons=[destroyed])],
+            phase="allocate",
+            ships_allocated_this_turn=[1],
+        )
+
+        sent = _drive(FakeSession(snap))
+
+        self.assertEqual({}, sent[0]["weapons"])
+
+    def test_pump_stops_when_passive_order_makes_no_progress(self):
+        snap = _snap(
+            [_ship(1, "player"), _ship(2, "scripted")],
+            phase="allocate",
+            ships_allocated_this_turn=[1],
+        )
+        session = FakeSession(snap)
+
+        repl.pump_scripted(FakeUI(), session, ReplContext(), 0, max_steps=10)
+
+        self.assertEqual(1, len(session.sent))
+
 
 class MovementPhaseTests(unittest.TestCase):
     """Active ship is the scripted one -> client sends a v2 coast maneuver."""

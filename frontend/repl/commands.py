@@ -319,6 +319,13 @@ class ReplContext:
         ship = ship_by_id(snap, ship_id)
         if ship is None:
             return f"  no ship #{ship_id}"
+        if (
+            snap.get("phase") == "allocate"
+            and ship.get("controller") == "player"
+            and not ship.get("destroyed")
+            and ship_id not in set(snap.get("ships_allocated_this_turn") or [])
+        ):
+            return self.open_alloc_draft(snap, ship_id)
         # Re-selecting the already-focused ship is a clean no-op (UX_ANALYSIS.md
         # §3b): no warning, no draft re-open, just confirm current focus.
         if self.selected == ship_id and self.draft is None:
@@ -1140,7 +1147,9 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
         reasons = []
         for target in enemies:
             rng = distance(int(ship["q"]), int(ship["r"]), int(target["q"]), int(target["r"]))
-            if rng > int(weapon.get("max_range") or 0):
+            if rng == 0:
+                reasons.append("TOO CLOSE")
+            elif rng > int(weapon.get("max_range") or 0):
                 reasons.append("OUT OF RANGE")
             elif not weapon_in_arc(weapon, int(ship.get("q") or 0), int(ship.get("r") or 0), int(ship.get("facing") or 0), int(target.get("q") or 0), int(target.get("r") or 0)):
                 reasons.append("OUT OF ARC")
@@ -1247,7 +1256,9 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
         )
         labs = ",".join(f"{x}:{SHIELD_LABELS[x]}" for x in legal)
         # Advisory legality flag from snapshot + geometry only.
-        if rng > max_range:
+        if rng == 0:
+            flag = "TOO CLOSE"
+        elif rng > max_range:
             flag = "OUT OF RANGE"
         elif not in_arc:
             flag = "OUT OF ARC"
@@ -1278,7 +1289,7 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
         print("  no targets in range and arc for this weapon")
         return None
     legal_enemies = [enemies[i] for i in legal_indices]
-    if len(legal_enemies) == 1:
+    if len(enemies) == 1 and len(legal_enemies) == 1:
         target = legal_enemies[0]
         rng = distance(
             int(ship["q"]), int(ship["r"]), int(target["q"]), int(target["r"])
@@ -1409,6 +1420,9 @@ def direct_fire(snap: dict[str, Any], ship_id: int, weapon_token: str, target_to
     rng = distance(int(attacker["q"]), int(attacker["r"]), int(target["q"]), int(target["r"]))
     if int(weapon.get("charge") or 0) <= 0:
         print(f"  {weapon_token} is not charged; allocate weapon power first")
+        return None
+    if rng == 0:
+        print(f"  {weapon_token} cannot fire at range 0; overlapping ships are too close to target")
         return None
     if rng > int(weapon.get("max_range") or 0):
         print(f"  {weapon_token} cannot reach {ship_callsign(target)}: range {rng} > max {weapon.get('max_range')}")
@@ -1782,7 +1796,7 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         # refreshes the snapshot).
         return Action(side="fire_loop")
 
-    if cmd in ("ready", "r", "ready_fire", "nofire", "no-fire", "skipfire", "skip", "done"):
+    if cmd in ("ready", "r", "ready_fire", "nofire", "no-fire", "skipfire", "skip", "done", "-1"):
         sid = ctx.ensure_selected(snap)
         if rest and rest[0].isdigit():
             sid = int(rest[0])
@@ -1849,10 +1863,6 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
                 print("  cancelled")
                 return Action(side="empty")
         return Action(orders=[_order("end_turn")])
-
-    if cmd == "-1" and phase == "firing":
-        print("  -1 means done in the weapon picker; at the firing prompt use ready/r to finish.")
-        return Action(orders=[_order("ready_fire", ship=ctx.ensure_selected(snap))])
 
     if cmd == "order":
         import json

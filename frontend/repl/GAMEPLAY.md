@@ -191,8 +191,9 @@ and weapons point. Rotating facing does not change course; turning course does n
 rotate the hull.
 
 The movement ring follows the map: `0→ 1↗ 2↖ 3← 4↙ 5↘`. Thus from `0→`,
-`port` turns toward `1↗` and `starboard` turns toward `5↘`. An `accel 0` from
-rest sets course `0→`; at speed 1 it first translates in movement phase 4/4.
+`port` turns toward `1↗` and `starboard` turns toward `5↘`. An `accel` from
+rest sets course to the current facing, raises speed to 1, and immediately
+slides one hex. Every later cycle also slides the ship's post-maneuver speed.
 
 ### Commands
 
@@ -200,38 +201,36 @@ rest sets course `0→`; at speed 1 it first translates in movement phase 4/4.
 |---|---|
 | `motion` / `m` | Full flight help (status + course≠face rule + speed→slide table) |
 | `coast` / `p` / `pass` | Keep velocity and course; spend 0 thrust |
-| `accel [0..5]` | Increase speed by 1; choose a course only while stopped |
-| `decel` | Decrease speed by 1 |
-| `course port` / `course starboard` | Turn travel course 60 degrees; cost is current speed, minimum 1 |
-| `rotate port` / `rotate starboard` | Rotate hull facing 60 degrees without changing course; cost 1 |
+| `accel` | Apply thrust along facing: accelerate, brake, or revector depending on course |
+| `turn N` / `turn port` / `turn starboard` | Rotate facing without changing course; costs 1–3 by ring distance |
+| `turn N accel` | Rotate, then apply acceleration in the same maneuver |
 | `m accel`, `m decel`, etc. | Equivalent prefixed forms |
-| `help motion` / `help accel` | Same inertial primer (course vs face, slide schedule) |
+| `help motion` / `help accel` | Same inertial primer (course vs face and constant-rate slides) |
 
 The movement **hint** and **YOUR SHIP** line always show a sticky status:
 `v=… course=… face=… thrust=… slides=[…]`, and warn when sliding direction
-differs from the nose. The hint spells out `POSITION HOLDS` when the current
-cycle has no translation. At speed 1, your ship moves one hex only after your
-movement cycle 4/4 maneuver resolves; quitting before that maneuver means it
-does not move. When translation resolves, RECENT reports the old and new
-coordinates as `MOVED (q,r)→(q,r)`.
+differs from the nose. The hint spells out `POSITION HOLDS` at speed 0. At any
+nonzero speed, the ship slides that many hexes after every cycle's maneuver.
+When translation resolves, RECENT reports the old and new coordinates as
+`MOVED (q,r)→(q,r)`.
 
-Ships translate automatically according to their **post-maneuver speed**:
+Ships translate automatically after every maneuver commitment resolves:
 
-| Speed | Translation phases |
-|---:|---|
-| 0 | none |
-| 1 | 4 |
-| 2 | 2, 4 |
-| 3 | 1, 2, 4 |
-| 4 | 1, 2, 3, 4 |
+| Post-maneuver speed | Translation that cycle |
+|---:|---:|
+| 0 | 0 hexes |
+| 1 | 1 hex |
+| 2 | 2 hexes |
+| N | N hexes |
 
 ### Maneuver costs
 
 - Coast: **0** thrust.
-- Accelerate/decelerate: **1** thrust.
-- Turn course: thrust equal to current speed, minimum **1**.
-- Rotate facing: **1** thrust.
-- Reversal requires decelerating to speed 0, then accelerating on the opposite course.
+- Aligned acceleration or reverse braking: **1** thrust.
+- Oblique revector: current speed + **1** thrust; course becomes facing at speed 1.
+- Turn facing: **1–3** thrust by ring distance; course is unchanged.
+- Turn plus accel: the sum of both costs.
+- Direct reversal requires braking to speed 0, then accelerating on the opposite facing.
 - If you lack thrust, the order soft-fails and state is unchanged.
 
 ### After you act

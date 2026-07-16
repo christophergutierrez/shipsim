@@ -65,6 +65,12 @@ pub enum OrderError {
     TargetNotFound(u32),
     #[error("ship {0} cannot fire at itself")]
     FireAtSelf(u32),
+    #[error("weapon {weapon} cannot fire at range {range}; minimum range is {min_range}")]
+    TooClose {
+        weapon: String,
+        range: u32,
+        min_range: u32,
+    },
     #[error("weapon {weapon} is out of range {range} > {max_range}")]
     OutOfRange {
         weapon: String,

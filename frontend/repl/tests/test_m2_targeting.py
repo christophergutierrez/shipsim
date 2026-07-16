@@ -196,6 +196,21 @@ class FirePickerOutputTests(unittest.TestCase):
         text = ANSI.sub("", buf.getvalue())
         self.assertIn("[OUT OF RANGE]", text)
 
+    def test_overlapping_target_is_reported_too_close(self):
+        from commands import interactive_fire
+
+        ship = _ship(1, 0, 0, 0, "player", [_weapon("forward", id="L1")])
+        enemy = _ship(2, 0, 0, 3, "ai")
+        snap = {"ships": [ship, enemy], "phase": "firing", "status": "Playing",
+                "turn": 1, "active_ship": 1, "combat_log": []}
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            order = interactive_fire(snap, 1)
+
+        self.assertIsNone(order)
+        self.assertIn("[TOO CLOSE]", ANSI.sub("", buf.getvalue()))
+
     def test_target_picker_displays_size_adjusted_odds(self):
         from commands import interactive_fire
 

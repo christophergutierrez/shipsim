@@ -324,7 +324,7 @@ def format_weapons(
                 indent
                 + f"  {wid} → #{e.get('target')} {tag} "
                 f"raw={e.get('damage')} shield face={face}:{face_label} "
-                f"absorbed={e.get('shield_absorbed', '?')} hull={e.get('hull_damage', '?')}"
+                f"absorbed={e.get('shield_absorbed', '?')} internal={e.get('hull_damage', '?')}"
             )
     return "\n".join(lines) if lines else f"{indent}(no weapons)"
 
@@ -418,11 +418,18 @@ def format_ship_card(
         face_labels = ", ".join(
             f"{i}:{SHIELD_LABELS[i]}" for i in highlight
         ) or "?"
-        parts.append(
-            f"    facing {ship_callsign(vs)}: range={dist}  "
-            f"shields facing them: {face_labels}  "
-            f"(rel bearing from this ship: {rel})"
-        )
+        if dist == 0:
+            highlight = []
+            parts.append(
+                f"    facing {ship_callsign(vs)}: range=0  "
+                "OVERLAPPING — no shield facing applies"
+            )
+        else:
+            parts.append(
+                f"    facing {ship_callsign(vs)}: range={dist}  "
+                f"shields facing them: {face_labels}  "
+                f"(rel bearing from this ship: {rel})"
+            )
 
     if redacted:
         # No full shield matrix, no weapon charge/queue — that is internal state.
@@ -465,17 +472,25 @@ def format_engagement(me: dict[str, Any], contacts: list[dict[str, Any]]) -> str
         exposed_text = ", ".join(
             f"{face}:{SHIELD_LABELS[face]}" for face in exposed
         ) or "?"
-        lines.append(
-            f"  {ship_callsign(contact)}  size={int(contact.get('size') or 2)}  "
-            f"range={rng}  bearing={bearing}:{SHIELD_LABELS[bearing]} "
-            f"(from your nose)  shield exposed={exposed_text}"
-        )
+        if rng == 0:
+            lines.append(
+                f"  {ship_callsign(contact)}  size={int(contact.get('size') or 2)}  "
+                "range=0  OVERLAPPING — no bearing or shield facing applies"
+            )
+        else:
+            lines.append(
+                f"  {ship_callsign(contact)}  size={int(contact.get('size') or 2)}  "
+                f"range={rng}  bearing={bearing}:{SHIELD_LABELS[bearing]} "
+                f"(from your nose)  shield exposed={exposed_text}"
+            )
         for weapon in me.get("weapons") or []:
             if not weapon.get("operational", True):
                 continue
             max_range = int(weapon.get("max_range") or 0)
             mount = str(weapon.get("mount") or weapon.get("arc") or "?")
-            if rng > max_range:
+            if rng == 0:
+                status = sty_warn("TOO CLOSE")
+            elif rng > max_range:
                 status = sty_warn("OUT OF RANGE")
             elif weapon_in_arc(weapon, mq, mr, mf, cq, cr):
                 status = sty_available(
@@ -571,15 +586,15 @@ def format_tactical_blocks(
     for t in threats:
         threat_by_ship[int(t["ship"].get("id") or -1)] = t
 
-    enemies = [
+    opponents = [
         s
         for s in living_ships(snap)
-        if s.get("id") != me.get("id")
+        if (s.get("controller") == "player") != (me.get("controller") == "player")
     ]
-    if enemies:
-        parts.append(("action", panel("ENGAGEMENT", format_engagement(me, enemies))))
+    if opponents:
+        parts.append(("action", panel("ENGAGEMENT", format_engagement(me, opponents))))
         contact_chunks = []
-        for e in enemies:
+        for e in opponents:
             eid = int(e.get("id") or -1)
             t = threat_by_ship.get(eid)
             # Enemy contacts are sensor-limited: hide internal state (power,
@@ -741,6 +756,7 @@ def _cell_glyph(
     *,
     selected: Optional[int],
     active: Optional[int],
+    overlap_count: int = 0,
 ) -> str:
     """Map cell: callsign + facing arrow (e.g. A1→). Empty sea is muted dots."""
     if ship is None:
@@ -749,7 +765,7 @@ def _cell_glyph(
     face = FACING_GLYPH.get(face_i, "?")
     sid = int(ship.get("id") or 0)
     cs = ship_callsign(ship)
-    raw = f"{cs}{face}"
+    raw = f"{cs}+{overlap_count}" if overlap_count else f"{cs}{face}"
     # pad to 4 cols for rough alignment
     raw = f"{raw:<4}"[:4]
     if ship.get("destroyed"):
@@ -779,15 +795,37 @@ def format_board(
     m = snap.get("map") or {}
     width = int(m.get("width") or 0)
     height = int(m.get("height") or 0)
-    ships: dict[tuple[int, int], dict[str, Any]] = {}
-    # Keep one wreck as battlefield history, but never let it cover a living ship.
+    mode = str(m.get("mode") or "unbounded").lower()
+    ships: dict[tuple[int, int], list[dict[str, Any]]] = {}
     for ship in snap.get("ships") or []:
         coord = (int(ship["q"]), int(ship["r"]))
-        previous = ships.get(coord)
-        if previous is None or (previous.get("destroyed") and not ship.get("destroyed")):
-            ships[coord] = ship
+        ships.setdefault(coord, []).append(ship)
 
-    if width <= 0 or height <= 0 or width * height > 600:
+    # Put the focused/active living ship first. A stacked cell displays its
+    # callsign plus the number of additional ships instead of hiding a contact.
+    for coord, occupants in ships.items():
+        living = [ship for ship in occupants if not ship.get("destroyed")]
+        occupants = living or occupants[:1]
+        ships[coord] = occupants
+        occupants.sort(
+            key=lambda ship: (
+                bool(ship.get("destroyed")),
+                int(ship.get("id") or 0) != selected,
+                int(ship.get("id") or 0) != active,
+            )
+        )
+
+    min_q, max_q = 0, width - 1
+    min_r, max_r = 0, height - 1
+    if mode == "unbounded" and ships:
+        min_q = min(min_q, *(q for q, _ in ships))
+        max_q = max(max_q, *(q for q, _ in ships))
+        min_r = min(min_r, *(r for _, r in ships))
+        max_r = max(max_r, *(r for _, r in ships))
+    board_width = max_q - min_q + 1
+    board_height = max_r - min_r + 1
+
+    if board_width <= 0 or board_height <= 0 or board_width * board_height > 600:
         rows = []
         for ship in snap.get("ships") or []:
             face_i = int(ship.get("facing", 0))
@@ -800,20 +838,31 @@ def format_board(
         return "positions:\n" + ("\n".join(rows) if rows else "  (none)")
 
     legend = muted(FACING_LEGEND)
-    sides = muted("callsign: A#=player  B#=ai  C#=scripted   cell=callsign+fwd arrow  x=destroyed")
+    sides = muted(
+        "callsign: A#=player  B#=ai  C#=scripted   "
+        "cell=callsign+fwd arrow  +N=additional ships  x=destroyed"
+    )
     # Column ruler (q) — 4 chars per cell
-    q_labels = "".join(f"{q % 10}   " for q in range(width))
+    q_labels = "".join(f"{q % 10}   " for q in range(min_q, max_q + 1))
     lines = [legend, sides, "     " + q_labels]
 
-    for r in range(height):
+    for r in range(min_r, max_r + 1):
         # Odd-r horizontal offset (~ half cell) for hex adjacency feel.
         indent = "  " if (r % 2) else ""
         cells = []
-        for q in range(width):
-            cells.append(_cell_glyph(ships.get((q, r)), selected=selected, active=active))
+        for q in range(min_q, max_q + 1):
+            occupants = ships.get((q, r)) or []
+            cells.append(
+                _cell_glyph(
+                    occupants[0] if occupants else None,
+                    selected=selected,
+                    active=active,
+                    overlap_count=max(0, len(occupants) - 1),
+                )
+            )
         lines.append(f" r{r:02d} {indent}{''.join(cells)}")
 
-    lines.append(muted("     " + "".join(f"{q % 10}   " for q in range(width))))
+    lines.append(muted("     " + "".join(f"{q % 10}   " for q in range(min_q, max_q + 1))))
     return "\n".join(lines)
 
 
@@ -907,7 +956,7 @@ def format_combat_events(
             # current shield state remains visible below, but avoid inventing
             # an absorption split for those logs.
             if "shield_absorbed" in e or "hull_damage" in e:
-                effect = f"; shield absorbed {absorbed}, hull took {hull_damage}"
+                effect = f"; shield absorbed {absorbed}, internal damage {hull_damage}"
         # Only mention the shield face on a HIT — a MISS struck no shield, so
         # printing "on shield {face}" there is misleading.
         shield_clause = f"  on shield {face}:{lab}" if kind == "hit" else ""
@@ -950,7 +999,7 @@ def format_combat_log(snap: dict[str, Any], *, last_n: int = 8) -> str:
         lines.append(
             f"  {atk_cs} {wpn} → {tgt_cs} "
             f"{kind}{roll} raw={e.get('damage')} shield={face}:{lab} "
-            f"absorbed={e.get('shield_absorbed', '?')} hull={e.get('hull_damage', '?')}"
+            f"absorbed={e.get('shield_absorbed', '?')} internal={e.get('hull_damage', '?')}"
         )
     return "\n".join(lines)
 

@@ -39,6 +39,28 @@ class M1ViewTests(unittest.TestCase):
         self.assertIn("A1→ ", text)
         self.assertNotIn(" x  ", text)
 
+    def test_unbounded_board_expands_to_negative_ship_coordinates(self):
+        snap = {
+            "map": {"width": 3, "height": 1, "mode": "unbounded"},
+            "ships": [
+                {"id": 1, "controller": "player", "q": -2, "r": 0, "facing": 0}
+            ],
+        }
+
+        text = ANSI.sub("", format_board(snap))
+
+        self.assertIn("A1→ ", text)
+
+    def test_board_marks_overlapping_living_ships(self):
+        snap = board_snapshot([
+            {"id": 1, "controller": "player", "q": 0, "r": 0, "facing": 0},
+            {"id": 2, "controller": "ai", "q": 0, "r": 0, "facing": 3},
+        ])
+
+        text = ANSI.sub("", format_board(snap, selected=1))
+
+        self.assertIn("A1+1", text)
+
 
 if __name__ == "__main__":
     unittest.main()

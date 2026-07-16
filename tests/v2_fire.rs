@@ -220,6 +220,43 @@ controller = "scripted"
 }
 
 #[test]
+fn range_zero_fire_is_rejected_before_it_can_block_resolution() {
+    let mut game = load_combat();
+    game.set_ship_pos(1, Hex::new(0, 0)).unwrap();
+    game.set_ship_pos(2, Hex::new(0, 0)).unwrap();
+    allocate(&mut game, 1, 0, &[("plasma_1", 1)], [0; 6]);
+    allocate(&mut game, 2, 0, &[("beam_1", 1)], [0; 6]);
+    enter_firing(&mut game);
+
+    let error = apply_order(
+        &mut game,
+        Order::CommitFire {
+            ship: 1,
+            weapon: "plasma_1".into(),
+            target: 2,
+            shield_facing: 0,
+        },
+    )
+    .expect_err("same-hex fire must be rejected when committed");
+
+    assert!(matches!(
+        error,
+        OrderError::TooClose {
+            range: 0,
+            min_range: 1,
+            ..
+        }
+    ));
+    assert!(StateSnapshot::from_game_state(&game)
+        .fire_commits
+        .is_empty());
+    assert!(shipsim_core::ai::v2_fire_commits(&game, 2).is_empty());
+
+    ready_all(&mut game, &[1, 2]);
+    assert_eq!(StateSnapshot::from_game_state(&game).phase, "movement");
+}
+
+#[test]
 fn test_v2_ready_fire_resolves_and_consumes_weapon() {
     let mut game = load_combat();
     game.set_ship_pos(1, Hex::new(1, 0)).unwrap();

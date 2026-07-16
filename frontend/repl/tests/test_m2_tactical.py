@@ -96,6 +96,16 @@ class EngagementPanelTests(unittest.TestCase):
         out = ANSI.sub("", format_engagement(me, [enemy]))
         self.assertIn("FIRE READY", out)
 
+    def test_overlapping_contact_is_too_close_not_out_of_arc(self):
+        me = _ship(1, 0, 0, 0, "player", [_weapon("forward", id="L1")])
+        enemy = _ship(2, 0, 0, 3, "ai")
+
+        out = ANSI.sub("", format_engagement(me, [enemy]))
+
+        self.assertIn("OVERLAPPING", out)
+        self.assertIn("TOO CLOSE", out)
+        self.assertNotIn("OUT OF ARC", out)
+
     def test_tactical_frame_includes_engagement_panel(self):
         snap = _snap([
             _ship(1, 0, 0, 0, "player", [_weapon("forward", id="L1")]),
@@ -103,6 +113,19 @@ class EngagementPanelTests(unittest.TestCase):
         ])
         out = ANSI.sub("", format_tactical(snap, selected=1))
         self.assertIn("ENGAGEMENT", out)
+
+    def test_tactical_engagement_excludes_friendly_ships(self):
+        snap = _snap([
+            _ship(1, 0, 0, 0, "player", [_weapon("forward", id="L1")]),
+            _ship(2, 1, 0, 0, "player"),
+            _ship(3, 3, 0, 3, "ai"),
+        ])
+
+        out = ANSI.sub("", format_tactical(snap, selected=1))
+        engagement = out.split("┌─ ENGAGEMENT", 1)[1].split("└", 1)[0]
+
+        self.assertNotIn("A2", engagement)
+        self.assertIn("B3", engagement)
 
     def test_engagement_shows_target_size_adjusted_hit_chance(self):
         me = _ship(

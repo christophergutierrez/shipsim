@@ -205,7 +205,7 @@ class InterfaceGoldenTests(unittest.TestCase):
             "attacker": 2, "target": 1, "weapon": "beam_1", "kind": "hit",
             "damage": 6, "shield": 0, "shield_absorbed": 4, "hull_damage": 2,
         }], snap)
-        self.assertIn("shield absorbed 4, hull took 2", text)
+        self.assertIn("shield absorbed 4, internal damage 2", text)
 
     def test_persistent_weapon_summary_labels_shield_as_a_facing(self):
         ship = {
@@ -321,6 +321,24 @@ class EngineCommandOpensAllocateDraft(unittest.TestCase):
         text = out.getvalue()
         self.assertNotIn("unknown command", text)
         self.assertIn("draft", text.lower())
+
+    def test_bare_focused_ship_id_opens_its_allocate_draft(self):
+        snap = self._two_ship_snap()
+        ctx = ReplContext(selected=1)
+
+        build_action("1", snap, ctx)
+
+        self.assertIsNotNone(ctx.draft)
+        self.assertEqual(1, ctx.draft.ship_id)
+
+    def test_bare_destroyed_ship_id_does_not_open_allocate_draft(self):
+        snap = self._two_ship_snap()
+        snap["ships"][0]["destroyed"] = True
+        ctx = ReplContext(selected=2)
+
+        build_action("1", snap, ctx)
+
+        self.assertIsNone(ctx.draft)
 
     def test_engine_with_multiple_pending_prompts_for_ship_not_unknown(self):
         snap = self._two_ship_snap()

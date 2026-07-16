@@ -860,7 +860,7 @@ fn tutorial_combat_log_keeps_damage_result_visible() {
     app.update_snapshot(fire_phase_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
 
-    assert!(buffer_contains(&buf, "HIT +4 sh-0 hull-4"));
+    assert!(buffer_contains(&buf, "HIT +4 sh-0 int-4"));
 }
 
 #[test]
@@ -903,13 +903,13 @@ fn session_log_contains_snapshot_combat_and_command_context() {
     let mut app = App::new();
     app.update_snapshot(fire_phase_snapshot());
     app.combat_history
-        .push("A1 beam_1>B2 HIT +4 sh-0 hull-4".into());
+        .push("A1 beam_1>B2 HIT +4 sh-0 int-4".into());
     app.log("ready_fire");
 
     let contents = crate::session_log_contents(&app);
 
     assert!(contents.contains("turn=2 phase=firing status=InProgress"));
-    assert!(contents.contains("A1 beam_1>B2 HIT +4 sh-0 hull-4"));
+    assert!(contents.contains("A1 beam_1>B2 HIT +4 sh-0 int-4"));
     assert!(contents.contains("ready_fire"));
 }
 

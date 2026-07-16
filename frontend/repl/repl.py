@@ -705,7 +705,9 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
                     "ship": int(ship["id"]),
                     "movement": 0,
                     "weapons": {
-                        str(w["id"]): 0 for w in (ship.get("weapons") or [])
+                        str(w["id"]): 0
+                        for w in (ship.get("weapons") or [])
+                        if w.get("operational", True)
                     },
                     "shields": [0] * 6,
                 }
@@ -791,11 +793,16 @@ def pump_scripted(
         orders = plan_scripted_orders(session.snapshot)
         if not orders:
             break
+        before = session.snapshot
         for order in orders:
             ui.log(
                 f"  (scripted auto) {order.get('type')} ship=#{order.get('ship')}"
             )
         log_len = send_orders(ui, session, ctx, orders, prev_log_len=log_len)
+        # A rejected passive order leaves the snapshot unchanged. Stop here so
+        # one bad scripted order cannot flood the terminal until max_steps.
+        if session.snapshot == before:
+            break
         status = (session.snapshot or {}).get("status")
         if status in ("Won", "Lost"):
             break
