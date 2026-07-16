@@ -24,6 +24,13 @@ pub struct ShipDef {
     pub max_shield_per_facing: u32,
     #[serde(default)]
     pub structure: u32,
+    /// SSD power-system boxes. Defaults to 2 (legacy). Capitals need more so a
+    /// few DAC Power hits cannot zero effective_power forever.
+    #[serde(default)]
+    pub power_sys: Option<u32>,
+    /// SSD engine boxes. Defaults to `speed.max(1)` (legacy).
+    #[serde(default)]
+    pub engine_boxes: Option<u32>,
     #[serde(default)]
     pub weapons: Vec<WeaponDef>,
     /// Design maximum velocity in hexes per turn (ADR-0022 §1). When omitted,
@@ -40,7 +47,7 @@ pub struct ShipDef {
     #[serde(default = "default_power_per_thrust")]
     pub power_per_thrust: u32,
     /// Construction / fleet-budget cost (catalog). Not consumed by combat rules yet.
-    /// Size-variant drafts use destroyer_line = 100, ratioed from JSONL Combat D.
+    /// Frame/module model: destroyer_line = 100 (docs/BALANCE-COST.md).
     #[serde(default)]
     pub cost: u32,
 }

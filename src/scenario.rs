@@ -169,7 +169,13 @@ pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameStat
             .into_iter()
             .map(parse_weapon)
             .collect::<Result<Vec<_>, LoadError>>()?;
-        let ssd = crate::ssd::Ssd::new(structure, ship_def.speed.max(1), 2, weapons.len());
+        // Subsystem box counts are frame properties (docs/BALANCE-COST.md). Legacy
+        // ship TOMLs omit them → engine = speed, power_sys = 2.
+        let engine_boxes = ship_def
+            .engine_boxes
+            .unwrap_or_else(|| ship_def.speed.max(1));
+        let power_sys_boxes = ship_def.power_sys.unwrap_or(2).max(1);
+        let ssd = crate::ssd::Ssd::new(structure, engine_boxes, power_sys_boxes, weapons.len());
 
         // Inertial movement: resolve the hull's design maximum velocity
         // (ADR-0022 §1). An explicit `max_velocity` overrides the legacy `speed`

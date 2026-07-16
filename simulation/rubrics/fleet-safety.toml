@@ -1,8 +1,10 @@
 id = "fleet_safety"
 description = """
 Legal-order and bounded-run gate for multi-ship cost-matched fleets.
-Allows longer matches than the 1v1 safety rubric (higher max_turns suites).
+Also instrument-health: any hull class with allocates must keep power
+utilization (spent/available) above ~0.3 — catches power-dead reactors.
 """
 max_rejected_orders = 0
 max_stalemate_rate = 1.0
 max_average_turns = 85.0
+min_class_power_utilization = 0.30

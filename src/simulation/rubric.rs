@@ -159,6 +159,11 @@ pub struct RubricSpec {
     pub max_hull_zero_velocity_rate: Option<f64>,
     #[serde(default)]
     pub max_hull_broad_resource_rate: Option<f64>,
+    /// Every hull class with allocation observations must keep power utilization
+    /// (spent / available) at or above this. Catches power-dead reactors (e.g.
+    /// titan with power_sys zeroed by DAC).
+    #[serde(default)]
+    pub min_class_power_utilization: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -311,6 +316,18 @@ pub fn evaluate_rubric(
             checks.push(maximum(
                 &format!("hull_zero_velocity_rate[{class}]"),
                 actual,
+                expected,
+            ));
+        }
+    }
+    if let Some(expected) = spec.min_class_power_utilization {
+        for (class, values) in &metrics.hull_efficiency {
+            if values.allocation_observations == 0 {
+                continue;
+            }
+            checks.push(minimum(
+                &format!("power_utilization[{class}]"),
+                values.power_utilization(),
                 expected,
             ));
         }

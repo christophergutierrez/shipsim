@@ -216,6 +216,29 @@ def compute_cost(size: int, power: int, shields: int, weps: list[dict]) -> int:
     return max(1, int(round(total)))
 
 
+def power_sys_boxes(size: int, vi: int) -> int:
+    """SSD power boxes — frame depth (same lever as engine_boxes).
+
+    Floor 3 from destroyer up (swarms must re-allocate); capitals add slowly
+    so equal-budget focus can still strip a titan reactor over a fight, without
+    the size+vi=9 stomp or the global-2 hulk bug.
+
+      destroyer_line → 3; titan_light → 4; titan_heavy → 5
+    """
+    # +1 per 3 sizes above 1; +0/1 from variant (vi//2).
+    # Empirically (abc_claims): titan_heavy=5 keeps B competitive; 6+ capital-stomps.
+    depth = 2 + max(0, size - 1) // 3 + vi // 2
+    floor = 3 if size >= 2 else 2
+    return max(floor, depth)
+
+
+def engine_boxes(size: int, vmax: int, vi: int) -> int:
+    """SSD engine boxes — same depth family as power_sys."""
+    depth = 2 + max(0, size - 1) // 3 + vi // 2
+    floor = 3 if size >= 2 else 2
+    return max(floor, depth)
+
+
 def emit_weapon(w: dict) -> str:
     lines = ["[[weapons]]"]
     for k in ("id", "kind", "arc", "mount", "max_range", "max_charge"):
@@ -235,6 +258,8 @@ def main() -> None:
             shields = t["shields"][vi]
             weps = weapons(t["size"], vi)
             raw = compute_cost(t["size"], power, shields, weps)
+            p_sys = power_sys_boxes(t["size"], vi)
+            e_boxes = engine_boxes(t["size"], t["vmax"], vi)
             built.append(
                 dict(
                     t=t,
@@ -247,6 +272,8 @@ def main() -> None:
                     shields=shields,
                     weps=weps,
                     raw=raw,
+                    power_sys=p_sys,
+                    engine_boxes=e_boxes,
                 )
             )
 
@@ -282,6 +309,8 @@ speed = {speed}
 power = {b["power"]}
 max_shield_per_facing = {b["shields"]}
 structure = {b["structure"]}
+power_sys = {b["power_sys"]}
+engine_boxes = {b["engine_boxes"]}
 max_velocity = {vmax}
 thrust_per_power = {b["tpp"]}
 power_per_thrust = {b["ppt"]}

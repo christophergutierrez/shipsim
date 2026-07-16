@@ -64,10 +64,30 @@ pub struct HullEfficiencyMetrics {
     /// Allocations where all three resource buckets are nonzero. This is a
     /// breadth signal, not a claim of excessive combined effectiveness.
     pub broad_resource_allocations: u64,
+    /// Sum of (engine+weapon+shield) power actually assigned across allocates.
+    pub power_spent_total: u64,
+    /// Sum of `power_available` at each allocate (0 if reactor dead).
+    pub power_available_total: u64,
+    /// Allocates where power_available was 0 (power-dead hull).
+    pub zero_power_allocations: u64,
     pub velocity_observations: u64,
     pub zero_velocity_observations: u64,
     pub scheduled_translations: u64,
     pub zero_translation_observations: u64,
+}
+
+impl HullEfficiencyMetrics {
+    /// power_spent / power_available across allocates. 0 if never had power.
+    pub fn power_utilization(&self) -> f64 {
+        if self.power_available_total == 0 {
+            return if self.allocation_observations > 0 {
+                0.0
+            } else {
+                1.0
+            };
+        }
+        self.power_spent_total as f64 / self.power_available_total as f64
+    }
 }
 
 impl MatchMetrics {
@@ -108,10 +128,17 @@ impl MatchMetrics {
         let entry = self.hull_efficiency.entry(ship.class.clone()).or_default();
         let weapon_power = weapons.values().copied().map(u64::from).sum::<u64>();
         let shield_power = shields.iter().copied().map(u64::from).sum::<u64>();
+        let spent = u64::from(*movement) + weapon_power + shield_power;
+        let available = u64::from(ship.power_available);
         entry.allocation_observations += 1;
         entry.engine_power_allocated += u64::from(*movement);
         entry.weapon_power_allocated += weapon_power;
         entry.shield_power_allocated += shield_power;
+        entry.power_spent_total += spent;
+        entry.power_available_total += available;
+        if available == 0 {
+            entry.zero_power_allocations += 1;
+        }
         if *movement > 0 && weapon_power > 0 && shield_power > 0 {
             entry.broad_resource_allocations += 1;
         }
@@ -262,6 +289,9 @@ impl AggregateMetrics {
                 entry.weapon_power_allocated += values.weapon_power_allocated;
                 entry.shield_power_allocated += values.shield_power_allocated;
                 entry.broad_resource_allocations += values.broad_resource_allocations;
+                entry.power_spent_total += values.power_spent_total;
+                entry.power_available_total += values.power_available_total;
+                entry.zero_power_allocations += values.zero_power_allocations;
                 entry.velocity_observations += values.velocity_observations;
                 entry.zero_velocity_observations += values.zero_velocity_observations;
                 entry.scheduled_translations += values.scheduled_translations;

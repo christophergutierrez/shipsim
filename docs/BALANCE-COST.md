@@ -126,13 +126,21 @@ not Combat-D medians as total cost.
 
 ## Order of operations
 
+0. **Diagnose mechanism from match records before picking a lever.** Win rates
+   alone mislead (e.g. B “titan too weak” was power_sys=2 → reactor dead after
+   two DAC Power hits). Read traces / B2 geometry metrics / per-class
+   `power_utilization`. Instrument: `min_class_power_utilization` on
+   `fleet-safety` (blocking).
 1. **Engagement / termination instrumentation** — policy velocity governor
    (close when far); `stalemate_scoring = "damage_diff"` on suites.
 2. **Forced engagement** — fleet scenarios use **hard** maps and ~9-hex start
    gap (`build_engagement_scenario`).
 3. **Catalog regeneration** — `tools/generate_size_variants.py` emits
-   frame-sunk + flat module costs (normalized `destroyer_line = 100`).
+   frame-sunk + flat module costs (normalized `destroyer_line = 100`) and
+   scaled `power_sys` / `engine_boxes` (not a global literal 2).
 4. **Certify** — `simulation/suites/abc_claims.toml` (A/B/C + asymmetric policies).
+   Prefer **≥100 matches per claim cell** and a **held-out seed set** for final
+   sign-off (binomial noise at n=32 is ~±17pp).
 
 ```bash
 cargo run --release --bin shipsim-sim -- \
