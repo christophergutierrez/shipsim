@@ -1819,6 +1819,52 @@ fn auto_zoom_prefers_finest_scale_that_fits() {
 }
 
 #[test]
+fn auto_zoom_ignores_preview_endpoint_cloud() {
+    // Play review 3: allocate preview with hundreds of endpoints forced
+    // z=-3 / 8 hex/cell and re-stacked A1/B2. Camera must frame ships only.
+    let mut app = App::new();
+    app.update_snapshot(distant_enemy_snapshot());
+    app.focused_ship = Some(1);
+    // Fabricate a huge preview envelope far beyond the duel.
+    app.movement_preview = Some(crate::protocol::MovementPreview {
+        kind: "movement_preview".into(),
+        ok: true,
+        ship: 1,
+        endpoints: (0..200)
+            .map(|i| crate::protocol::PreviewEndpoint {
+                q: i * 3,
+                r: 4,
+                facing: 0,
+                course: 0,
+                speed: 0,
+                thrust_remaining: 0,
+            })
+            .collect(),
+        coast: crate::protocol::PreviewEndpoint {
+            q: 0,
+            r: 4,
+            facing: 0,
+            course: 0,
+            speed: 0,
+            thrust_remaining: 0,
+        },
+        occupied: vec![],
+        clamped_movement: None,
+    });
+    let z = app.effective_map_zoom(20, 10);
+    assert_eq!(
+        z, 0,
+        "preview cloud must not force coarse auto-zoom; got z={z}"
+    );
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        !buffer_contains(&buf, "8 hex/cell"),
+        "allocate with preview must not jump to 8 hex/cell; title:\n{}",
+        buf.lines().find(|l| l.contains("Map")).unwrap_or("")
+    );
+}
+
+#[test]
 fn map_at_play_size_does_not_use_coarsest_zoom_for_duel() {
     // At the free-play panel size (~100×30), d=8 ships must not force 8 hex/cell.
     let mut app = App::new();

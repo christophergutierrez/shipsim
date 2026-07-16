@@ -213,10 +213,10 @@ pub struct App {
     pub mode: Mode,
     pub focused_ship: Option<i64>,
     /// Map viewport pan offset (q, r) of the top-left visible hex. `None`
-    /// means auto-fit all living ships plus the active preview envelope.
+    /// means auto-fit living ships only (not the preview endpoint cloud).
     pub map_pan: Option<(i32, i32)>,
-    /// Manual zoom override. `None` means choose the clearest zoom that keeps
-    /// all ships and preview endpoints visible.
+    /// Manual zoom override. `None` means finest scale that still frames all
+    /// living ships.
     pub map_zoom: Option<i8>,
     pub alloc_draft: Option<AllocDraft>,
     pub fire_draft: Option<FireDraft>,
@@ -786,22 +786,23 @@ impl App {
             .filter(|preview| self.focused_ship == Some(preview.ship))
     }
 
+    /// World AABB used for auto-zoom and auto-pan.
+    ///
+    /// **Ships only** — never the full movement-preview endpoint cloud.
+    /// Including hundreds of reachable hexes forced coarsest zoom (e.g. 8
+    /// hex/cell) during allocate and made d=8 contacts look adjacent again.
+    /// Preview diamonds still draw when they fall inside the ship-framed view;
+    /// the player can zoom out manually (`-`) to inspect the full envelope.
     fn map_content_bounds(&self) -> Option<(i32, i32, i32, i32)> {
         let snap = self.snap.as_ref()?;
-        let mut points: Vec<(i32, i32)> = snap
+        let points: Vec<(i32, i32)> = snap
             .ships
             .iter()
             .filter(|ship| !ship.destroyed)
             .map(|ship| (ship.q, ship.r))
             .collect();
-        if let Some(preview) = self.active_preview() {
-            points.extend(
-                preview
-                    .endpoints
-                    .iter()
-                    .map(|endpoint| (endpoint.q, endpoint.r)),
-            );
-            points.push((preview.coast.q, preview.coast.r));
+        if points.is_empty() {
+            return None;
         }
         let min_q = points.iter().map(|(q, _)| *q).min()?;
         let max_q = points.iter().map(|(q, _)| *q).max()?;
