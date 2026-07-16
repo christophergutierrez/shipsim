@@ -31,6 +31,9 @@ pub struct ShipSnapshot {
     pub facing: u8,
     pub speed: u32,
     pub power: u32,
+    /// Catalog fire-control modifier against exact size-2 targets.
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub attack_accuracy_bonus: u8,
     /// Effective power after power_sys damage.
     pub power_available: u32,
     pub movement_allocated: u32,
@@ -146,6 +149,7 @@ impl StateSnapshot {
                     facing: ship.facing,
                     speed: ship.speed,
                     power: ship.power,
+                    attack_accuracy_bonus: ship.attack_accuracy_bonus,
                     power_available: ship.effective_power(),
                     movement_allocated: ship.movement_allocated,
                     shields_powered: ship.shields_powered,
@@ -207,6 +211,10 @@ fn weapon_kind_name(weapon: &Weapon) -> &'static str {
         combat_tables::WeaponKind::Plasma => "Plasma",
         combat_tables::WeaponKind::Torp => "Torp",
     }
+}
+
+fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
 }
 
 fn arc_name(arc: &Arc) -> &'static str {

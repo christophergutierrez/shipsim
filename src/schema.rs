@@ -31,6 +31,12 @@ pub struct ShipDef {
     /// SSD engine boxes. Defaults to `speed.max(1)` (legacy).
     #[serde(default)]
     pub engine_boxes: Option<u32>,
+    /// SSD boxes per weapon. Defaults to one box per weapon.
+    #[serde(default = "default_weapon_boxes")]
+    pub weapon_boxes: u32,
+    /// Additional fire-control accuracy bonus for this hull. Defaults to zero.
+    #[serde(default)]
+    pub attack_accuracy_bonus: u8,
     #[serde(default)]
     pub weapons: Vec<WeaponDef>,
     /// Design maximum velocity in hexes per turn (ADR-0022 §1). When omitted,
@@ -61,6 +67,10 @@ fn default_thrust_per_power() -> u32 {
 }
 
 fn default_power_per_thrust() -> u32 {
+    1
+}
+
+fn default_weapon_boxes() -> u32 {
     1
 }
 

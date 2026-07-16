@@ -59,14 +59,30 @@ pub fn to_hit_threshold(kind: WeaponKind, range: u32) -> Option<u8> {
     }
 }
 
+/// Upper clamp for a size-adjusted threshold at a specific range.
+///
+/// A d20 roll can never exceed 20, so any threshold ≥ 20 is a guaranteed hit.
+/// With the size-2 base table (r1 beam = 18) and `mult = size/2`, every hull
+/// size 3+ hits threshold ≥ 27 at range 1 → clamped to 20 → auto-hit. That
+/// voids the to-hit table's granularity for 6 of 7 size tiers and is the
+/// structural root cause of the post-FF-fix swarm dominance.
+///
+/// The ceiling is never lower than the size-2 range-table threshold, so a
+/// larger target cannot become harder to hit. At lower base chances the floor
+/// of 15 still limits the size multiplier without flattening the range table.
+pub fn to_hit_threshold_max(base_threshold: u8) -> u8 {
+    base_threshold.max(15).min(19)
+}
+
 /// Scale the range-table d20 threshold by target silhouette.
 ///
 /// ```text
 /// mult = target_size / BASELINE_TARGET_SIZE   // size 2 → 1.0, size 7 → 3.5
-/// adjusted = round_half_up(table × mult), clamp 1..=20
+/// adjusted = round_half_up(table × mult)
+/// adjusted = clamp(adjusted, 1, to_hit_threshold_max(table threshold))
 /// ```
-/// Lever #6 trials (soft ×2.25, medium ×2.67, mild capital ×3.0) all shifted
-/// abc claim B to capital stomps at n=1k; keep classic size/2 for the #1–#5 lock.
+/// The upper clamp is monotonic (`to_hit_threshold_max`): larger targets retain
+/// their silhouette advantage without becoming automatic hits.
 pub fn size_adjusted_to_hit_threshold(
     kind: WeaponKind,
     range: u32,
@@ -80,7 +96,28 @@ pub fn size_adjusted_to_hit_threshold(
         .saturating_mul(target_size)
         .saturating_add(BASELINE_TARGET_SIZE / 2)
         / BASELINE_TARGET_SIZE;
-    Some(scaled.clamp(1, 20) as u8)
+    let max = u32::from(to_hit_threshold_max(base as u8));
+    Some(scaled.clamp(1, max) as u8)
+}
+
+/// Resolve the final d20 threshold, including catalog fire control.
+///
+/// Fire-control bonuses are intentionally limited to the size-2 baseline. This
+/// keeps them from changing fighter or capital engagements unless a future rule
+/// explicitly broadens their scope.
+pub fn final_to_hit_threshold(
+    kind: WeaponKind,
+    range: u32,
+    target_size: u32,
+    attack_accuracy_bonus: u8,
+) -> Option<u8> {
+    let threshold = size_adjusted_to_hit_threshold(kind, range, target_size)?;
+    let bonus = if target_size == BASELINE_TARGET_SIZE {
+        attack_accuracy_bonus
+    } else {
+        0
+    };
+    Some(threshold.saturating_add(bonus).min(19))
 }
 
 fn table_value<T: Copy>(values: &[T], range: u32) -> Option<T> {
@@ -140,9 +177,10 @@ mod tests {
             size_adjusted_to_hit_threshold(WeaponKind::Beam, 3, 2),
             Some(15)
         );
+        // size 4 → 15 × 2 = 30, clamped to max(base 15, floor 15).
         assert_eq!(
             size_adjusted_to_hit_threshold(WeaponKind::Beam, 3, 4),
-            Some(20)
+            Some(15)
         );
         assert_eq!(
             size_adjusted_to_hit_threshold(WeaponKind::Beam, 10, 1),
@@ -150,8 +188,82 @@ mod tests {
         );
         assert_eq!(
             size_adjusted_to_hit_threshold(WeaponKind::Beam, 10, 7),
-            Some(14) // half_up(4 * 3.5)
+            Some(14) // half_up(4 * 3.5) = 14, under the cap
         );
         assert_eq!(size_adjusted_to_hit_threshold(WeaponKind::Beam, 1, 0), None);
+    }
+
+    #[test]
+    fn to_hit_threshold_cap_is_monotonic_and_never_guarantees_hits() {
+        // At range 1, larger targets retain the size-2 table chance without
+        // becoming guaranteed hits.
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 1, 2),
+            Some(18)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 1, 3),
+            Some(18)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 1, 4),
+            Some(18)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 1, 5),
+            Some(18)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 1, 7),
+            Some(18)
+        );
+        // At range 4, size scaling can improve on the base 13, but only to 15.
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 4, 2),
+            Some(13)
+        );
+        assert_eq!(
+            size_adjusted_to_hit_threshold(WeaponKind::Beam, 4, 3),
+            Some(15)
+        );
+    }
+
+    #[test]
+    fn target_size_never_reduces_hit_threshold() {
+        for kind in [WeaponKind::Beam, WeaponKind::Plasma, WeaponKind::Torp] {
+            for range in 1..=max_range(kind) {
+                let mut previous = 0;
+                for size in 1..=7 {
+                    let threshold = size_adjusted_to_hit_threshold(kind, range, size).unwrap();
+                    assert!(
+                        threshold >= previous,
+                        "{kind:?} range {range}: size {size} threshold {threshold} < {previous}"
+                    );
+                    assert!(threshold < 20);
+                    previous = threshold;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn catalog_accuracy_applies_only_to_size_two_and_preserves_miss_chance() {
+        assert_eq!(
+            final_to_hit_threshold(WeaponKind::Beam, 10, 2, 10),
+            Some(14)
+        );
+        assert_eq!(final_to_hit_threshold(WeaponKind::Beam, 1, 2, 10), Some(19));
+        assert_eq!(final_to_hit_threshold(WeaponKind::Beam, 10, 1, 10), Some(2));
+        assert_eq!(final_to_hit_threshold(WeaponKind::Beam, 10, 3, 10), Some(6));
+    }
+
+    #[test]
+    fn partial_catalog_accuracy_preserves_each_weapon_range_curve() {
+        for kind in [WeaponKind::Beam, WeaponKind::Plasma, WeaponKind::Torp] {
+            let short = final_to_hit_threshold(kind, 1, 2, 10).unwrap();
+            let long = final_to_hit_threshold(kind, max_range(kind), 2, 10).unwrap();
+            assert_eq!(short, 19);
+            assert!(long < short, "{kind:?} range curve was flattened");
+        }
     }
 }

@@ -964,13 +964,17 @@ impl GameState {
             })?;
             let kind = weapon.kind;
             let range = attacker.pos.distance(target.pos);
-            let threshold =
-                crate::combat_tables::size_adjusted_to_hit_threshold(kind, range, target.size)
-                    .ok_or_else(|| crate::movement::OrderError::OutOfRange {
-                        weapon: commit.weapon.clone(),
-                        range,
-                        max_range: crate::combat_tables::max_range(kind),
-                    })?;
+            let threshold = crate::combat_tables::final_to_hit_threshold(
+                kind,
+                range,
+                target.size,
+                attacker.attack_accuracy_bonus,
+            )
+            .ok_or_else(|| crate::movement::OrderError::OutOfRange {
+                weapon: commit.weapon.clone(),
+                range,
+                max_range: crate::combat_tables::max_range(kind),
+            })?;
             let roll = self.prng.roll(20);
             let hit = roll <= threshold as u32;
             let damage = if hit {

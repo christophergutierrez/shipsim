@@ -51,6 +51,16 @@ pub struct Ssd {
 
 impl Ssd {
     pub fn new(hull: u32, engine: u32, power_sys: u32, weapon_count: usize) -> Self {
+        Self::with_weapon_boxes(hull, engine, power_sys, weapon_count, 1)
+    }
+
+    pub fn with_weapon_boxes(
+        hull: u32,
+        engine: u32,
+        power_sys: u32,
+        weapon_count: usize,
+        weapon_boxes: u32,
+    ) -> Self {
         let engine = engine.max(1);
         let power_sys = power_sys.max(1);
         Self {
@@ -60,7 +70,7 @@ impl Ssd {
             power_sys,
             power_sys_max: power_sys,
             bridge: 1,
-            weapon_boxes: vec![1; weapon_count],
+            weapon_boxes: vec![weapon_boxes.max(1); weapon_count],
             dac_cursor: 0,
         }
     }
@@ -170,5 +180,11 @@ mod tests {
             }
         }
         assert!(s.weapon_boxes.contains(&0) || s.is_destroyed());
+    }
+
+    #[test]
+    fn configurable_weapon_boxes_apply_to_each_weapon() {
+        let s = Ssd::with_weapon_boxes(20, 4, 2, 3, 2);
+        assert_eq!(s.weapon_boxes, vec![2, 2, 2]);
     }
 }

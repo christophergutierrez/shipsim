@@ -18,7 +18,9 @@ use super::fleet::{
 use super::metrics::{AggregateMetrics, MatchMetrics};
 use super::policies::build_policy;
 use super::policy::{DecisionContext, Policy};
-use super::rubric::{evaluate_rubric, MatchupBreakdown, RubricResult, RubricSpec};
+use super::rubric::{
+    evaluate_rubric, EngagementBreakdown, MatchupBreakdown, RubricResult, RubricSpec,
+};
 use super::trace::{TraceEvent, TraceOutcome};
 
 fn default_max_turns() -> u32 {
@@ -188,6 +190,7 @@ pub struct SuiteReport {
     pub name: String,
     pub aggregate: AggregateMetrics,
     pub matchup_breakdown: MatchupBreakdown,
+    pub engagement_breakdown: EngagementBreakdown,
     pub rubrics: Vec<RubricResult>,
     pub matches: Vec<MatchResult>,
 }
@@ -653,6 +656,11 @@ pub fn run_suite(spec: &SuiteSpec) -> Result<SuiteReport, SimulationError> {
             result.status,
         )
     }));
+    let engagement_breakdown = EngagementBreakdown::from_results(
+        matches
+            .iter()
+            .map(|result| (result.engagement.clone(), result.status)),
+    );
     let mut rubrics = Vec::new();
     for path in &spec.rubrics {
         let text = std::fs::read_to_string(path).map_err(|source| SimulationError::RubricRead {
@@ -664,12 +672,18 @@ pub fn run_suite(spec: &SuiteSpec) -> Result<SuiteReport, SimulationError> {
                 path: path.clone(),
                 source,
             })?;
-        rubrics.push(evaluate_rubric(&rubric, &aggregate, &matchup_breakdown));
+        rubrics.push(evaluate_rubric(
+            &rubric,
+            &aggregate,
+            &matchup_breakdown,
+            &engagement_breakdown,
+        ));
     }
     Ok(SuiteReport {
         name: spec.name.clone(),
         aggregate,
         matchup_breakdown,
+        engagement_breakdown,
         rubrics,
         matches,
     })
@@ -791,6 +805,7 @@ mod tests {
             facing: 0,
             speed: 1,
             power: 10,
+            attack_accuracy_bonus: 0,
             power_available: 10,
             movement_allocated: 0,
             shields_powered: [0; 6],

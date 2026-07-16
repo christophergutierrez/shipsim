@@ -1,0 +1,64 @@
+# FAST TUNING SUITE — seeds 1-32 only, for rapid lever iteration.
+# Same engagements/matchups/map as abc_claims_pooled.toml.
+# 4 engagements × 4 matchups × 32 seeds = 512 matches (~35s).
+# NOT a sign-off gate. Use abc_claims_pooled.toml (1-191) for accept/reject,
+# abc_claims_signoff.toml (264-327) for final lock only.
+#
+#   cargo run --release --bin shipsim-sim -- \
+#     --suite simulation/suites/abc_claims_fast.toml \
+#     --output tmp/simulation/reports/fast.json
+
+name = "abc cost claims (fast tuning seeds 1-32)"
+seeds = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+  17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+]
+max_turns = 60
+max_orders = 60000
+skip_cost_validation = true
+stalemate_scoring = "damage_diff"
+rubrics = [
+  "simulation/rubrics/fleet-safety.toml",
+  "simulation/rubrics/abc-claims.toml",
+]
+
+[map]
+width = 24
+height = 18
+map_mode = "hard"
+
+[[matchups]]
+player = "greedy"
+opponent = "aggressive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "greedy"
+opponent = "defensive"
+
+[[matchups]]
+player = "aggressive"
+opponent = "greedy"
+
+[[engagements]]
+name = "A_swarm_vs_titan_min"
+player = [{ class = "destroyer_line", count = 7 }]
+opponent = [{ class = "titan_light", count = 1 }]
+
+[[engagements]]
+name = "B_swarm_vs_titan_max"
+player = [{ class = "destroyer_line", count = 10 }]
+opponent = [{ class = "titan_heavy", count = 1 }]
+
+[[engagements]]
+name = "C_eight_dd_vs_titan_max"
+player = [{ class = "destroyer_line", count = 8 }]
+opponent = [{ class = "titan_heavy", count = 1 }]
+
+[[engagements]]
+name = "control_destroyer_mirror"
+player = [{ class = "destroyer_line", count = 4 }]
+opponent = [{ class = "destroyer_line", count = 4 }]

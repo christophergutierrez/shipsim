@@ -137,6 +137,11 @@ combat_log, etc. See `src/snapshot.rs`.
 range-table d20 hit threshold by `size / 2`; clients should use it when showing
 hit previews rather than inferring size from class, structure, or drive ratio.
 
+`ships[].attack_accuracy_bonus`, when present, is the catalog fire-control
+modifier applied against exact size-2 targets. It is omitted when zero. Clients
+can combine it with `docs/combat-v2-tables.md` when showing hit previews; the
+final d20 threshold is capped at 19.
+
 ## Errors
 
 Soft errors: `type: "error"`, `ok: false`, `code`, `message` — state unchanged.

@@ -12,6 +12,8 @@
 # Local scratch / caches (not part of the project)
 /tmp
 .fastembed_cache/
+__pycache__/
+*.py[cod]
 ideas.txt
 
 # LibreOffice lock files

@@ -1,0 +1,37 @@
+# Tutorial-only copy of heavy_cruiser. Its accuracy bonus and fixed scenario
+# seed preserve the narrated winning volley without changing normal hulls.
+id = "tutorial_heavy_cruiser"
+name = "Heavy Cruiser"
+size = 2
+speed = 4
+power = 22
+attack_accuracy_bonus = 20
+max_shield_per_facing = 6
+structure = 12
+max_velocity = 8
+thrust_per_power = 1
+power_per_thrust = 1
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "torp_1"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1
+
+[[weapons]]
+id = "plasma_1"
+kind = "plasma"
+arc = "forward"
+mount = "forward"
+max_range = 6
+max_charge = 1

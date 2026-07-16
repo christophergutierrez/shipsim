@@ -9,7 +9,7 @@ pub mod trace;
 pub use fleet::{EngagementSpec, FleetLine, FleetMapSpec, PowerSweepSpec};
 pub use metrics::{AggregateMetrics, MatchMetrics};
 pub use policy::{DecisionContext, Policy};
-pub use rubric::{RubricResult, RubricSpec};
+pub use rubric::{EngagementBreakdown, RubricResult, RubricSpec};
 pub use runner::{
     run_match, run_suite, FailedMatch, MatchConfig, MatchResult, SimulationError, StalemateScoring,
     SuiteReport, SuiteSpec,

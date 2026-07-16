@@ -1,25 +1,28 @@
 id = "abc_claims"
 description = """
-Advisory gates for A/B/C cost claims after engagement instrumentation.
-High termination expected; unkillable-titan (0% swarm WR on B/C) is a red flag.
-
-Claim C re-scoped 2026-07-15: was untestable "track" target. Intent is
-C_eight_dd_vs_titan_max opponent (titan_heavy) WR >= 0.90 (fixed 8 destroyers
-should lose to titan_heavy despite roughly matching count, not cost — see
-docs/BALANCE-COST.md). NO NUMERIC BAND ADDED HERE: RubricSpec
-(src/simulation/rubric.rs) has no per-engagement scoping — only a suite-wide
-aggregate win_rate and per-matchup (policy pair, not engagement) bounds exist,
-and abc_claims.toml runs claims A/B/C plus the control mirror as one suite.
-Adding a suite-wide max_win_rate/min_win_rate as a stand-in for "opponent WR on
-C" would also constrain claims A/B and the control mirror, whose intended win
-rates are very different from claim C's (A high, B near-zero, control ~50%),
-so it would produce a check that fails or passes for reasons unrelated to
-claim C. A true per-engagement band requires either a schema change (out of
-scope; src/ owned by another agent this session) or splitting claim C into its
-own suite+rubric pair — flagged for G1/src owner, not implemented here.
+Blocking per-engagement gates for the A/B/C cost claims and destroyer control.
+Win rates are raw engine outcomes; capped InProgress matches remain non-wins.
 """
-advisory = true
 min_termination_rate = 0.70
 max_stalemate_rate = 0.30
 min_average_turns = 2.0
 max_average_turns = 61.0
+
+[[engagement_win_rates]]
+engagement = "A_swarm_vs_titan_min"
+min_win_rate = 0.60
+max_win_rate = 0.80
+
+[[engagement_win_rates]]
+engagement = "B_swarm_vs_titan_max"
+min_win_rate = 0.40
+max_win_rate = 0.60
+
+[[engagement_win_rates]]
+engagement = "C_eight_dd_vs_titan_max"
+max_win_rate = 0.10
+
+[[engagement_win_rates]]
+engagement = "control_destroyer_mirror"
+min_win_rate = 0.35
+max_win_rate = 0.65

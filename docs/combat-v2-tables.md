@@ -18,11 +18,19 @@ explicit size before rolling:
 
 ```text
 adjusted threshold = round_half_up(table threshold × target size / 2)
-adjusted threshold = clamp(adjusted threshold, 1, 20)
+range ceiling = min(19, max(table threshold, 15))
+adjusted threshold = clamp(adjusted threshold, 1, range ceiling)
 ```
 
-Lever #6 trials (softer mults for titans) capital-stomped abc claims A/B at
-n=1k; **classic `size/2` is the locked curve** after levers #1–#5.
+The range-aware ceiling is never below the size-2 table value, so increasing
+target size can raise or retain the threshold but never lower it. At lower
+base chances, the ceiling of 15 limits the size multiplier without flattening
+the original range curve. No unmodified attack can become an automatic hit.
+
+Catalog fire-control bonuses apply only against exact size-2 targets, after the
+target-size adjustment. `titan_light` has +10 and `titan_heavy` has +8. The
+final threshold is capped at 19. Other hulls, size-1 fighters, and size-3+
+targets receive no implicit attacker-size bonus.
 
 | Size | Name | mult |
 |---:|---|---:|

@@ -63,6 +63,8 @@ pub struct Ship {
     #[serde(default)]
     pub power: u32,
     #[serde(default)]
+    pub attack_accuracy_bonus: u32,
+    #[serde(default)]
     pub power_available: u32,
     #[serde(default)]
     pub movement_allocated: u32,

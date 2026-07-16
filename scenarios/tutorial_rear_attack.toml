@@ -3,16 +3,16 @@ height = 10
 map_mode = "hard"
 seed = 4
 
-# Deterministic tutorial variant of ai.toml. Seed 4 preserves the narrated
-# turn-one rear attack: race past, turn west, and fire all weapons from the
-# escort's unshielded stern arc.
+# Deterministic tutorial variant of ai.toml. Tutorial-only hull definitions
+# guarantee the narrated turn-one rear volley while normal combat keeps d20
+# accuracy.
 [terminal]
 type = "destruction"
 target = 2
 
 [[ships]]
 id = 1
-class = "heavy_cruiser"
+class = "tutorial_heavy_cruiser"
 q = 0
 r = 4
 facing = 0
@@ -20,7 +20,7 @@ controller = "player"
 
 [[ships]]
 id = 2
-class = "escort"
+class = "tutorial_escort"
 q = 8
 r = 4
 facing = 3

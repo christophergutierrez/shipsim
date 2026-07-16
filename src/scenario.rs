@@ -175,7 +175,13 @@ pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameStat
             .engine_boxes
             .unwrap_or_else(|| ship_def.speed.max(1));
         let power_sys_boxes = ship_def.power_sys.unwrap_or(2).max(1);
-        let ssd = crate::ssd::Ssd::new(structure, engine_boxes, power_sys_boxes, weapons.len());
+        let ssd = crate::ssd::Ssd::with_weapon_boxes(
+            structure,
+            engine_boxes,
+            power_sys_boxes,
+            weapons.len(),
+            ship_def.weapon_boxes,
+        );
 
         // Inertial movement: resolve the hull's design maximum velocity
         // (ADR-0022 §1). An explicit `max_velocity` overrides the legacy `speed`
@@ -244,6 +250,7 @@ pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameStat
             facing: placement.facing,
             speed: ship_def.speed,
             power,
+            attack_accuracy_bonus: ship_def.attack_accuracy_bonus,
             weapons,
             shields_powered: [0; 6],
             shields_remaining: [0; 6],

@@ -105,6 +105,62 @@ impl MatchupBreakdown {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct EngagementMetrics {
+    pub engagement: String,
+    pub matches: u64,
+    pub wins: u64,
+    pub win_rate: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct EngagementBreakdown {
+    pub engagements: Vec<EngagementMetrics>,
+}
+
+impl EngagementBreakdown {
+    pub fn from_results(
+        results: impl IntoIterator<Item = (Option<String>, ScenarioStatus)>,
+    ) -> Self {
+        let mut counts: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+        for (engagement, status) in results {
+            let Some(engagement) = engagement else {
+                continue;
+            };
+            let entry = counts.entry(engagement).or_default();
+            entry.0 += 1;
+            if matches!(status, ScenarioStatus::Won) {
+                entry.1 += 1;
+            }
+        }
+        Self {
+            engagements: counts
+                .into_iter()
+                .map(|(engagement, (matches, wins))| EngagementMetrics {
+                    engagement,
+                    matches,
+                    wins,
+                    win_rate: if matches == 0 {
+                        0.0
+                    } else {
+                        wins as f64 / matches as f64
+                    },
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EngagementWinRateSpec {
+    pub engagement: String,
+    #[serde(default)]
+    pub min_win_rate: Option<f64>,
+    #[serde(default)]
+    pub max_win_rate: Option<f64>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RubricSpec {
@@ -164,6 +220,9 @@ pub struct RubricSpec {
     /// titan with power_sys zeroed by DAC).
     #[serde(default)]
     pub min_class_power_utilization: Option<f64>,
+    /// Win-rate bounds for named fleet engagements.
+    #[serde(default)]
+    pub engagement_win_rates: Vec<EngagementWinRateSpec>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -187,6 +246,7 @@ pub fn evaluate_rubric(
     spec: &RubricSpec,
     metrics: &AggregateMetrics,
     breakdown: &MatchupBreakdown,
+    engagement_breakdown: &EngagementBreakdown,
 ) -> RubricResult {
     let mut checks = Vec::new();
     if let Some(expected) = spec.min_termination_rate {
@@ -329,6 +389,35 @@ pub fn evaluate_rubric(
                 &format!("power_utilization[{class}]"),
                 values.power_utilization(),
                 expected,
+            ));
+        }
+    }
+    for expected in &spec.engagement_win_rates {
+        let observed = engagement_breakdown
+            .engagements
+            .iter()
+            .find(|metrics| metrics.engagement == expected.engagement);
+        let Some(observed) = observed else {
+            checks.push(RubricCheck {
+                metric: format!("engagement_present[{}]", expected.engagement),
+                actual: 0.0,
+                expectation: "engagement has observations".into(),
+                passed: false,
+            });
+            continue;
+        };
+        if let Some(min) = expected.min_win_rate {
+            checks.push(minimum(
+                &format!("win_rate[{}]", expected.engagement),
+                observed.win_rate,
+                min,
+            ));
+        }
+        if let Some(max) = expected.max_win_rate {
+            checks.push(maximum(
+                &format!("win_rate[{}]", expected.engagement),
+                observed.win_rate,
+                max,
             ));
         }
     }
@@ -487,7 +576,7 @@ mod tests {
             ..Default::default()
         };
         let metrics = AggregateMetrics::default();
-        let result = evaluate_rubric(&spec, &metrics, &b);
+        let result = evaluate_rubric(&spec, &metrics, &b, &EngagementBreakdown::default());
         assert!(!result.passed, "should fail: A/B win rate 1.0 exceeds 0.75");
         let ab_max = result
             .checks
@@ -522,6 +611,7 @@ mod tests {
             },
             &metrics,
             &MatchupBreakdown::default(),
+            &EngagementBreakdown::default(),
         );
         assert!(!result.passed);
         assert!(result.blocking);
@@ -550,6 +640,7 @@ mod tests {
             },
             &metrics,
             &MatchupBreakdown::default(),
+            &EngagementBreakdown::default(),
         );
         assert!(!result.passed);
         assert!(!result.blocking);
@@ -571,7 +662,7 @@ mod tests {
             ..Default::default()
         };
         let metrics = AggregateMetrics::default();
-        let result = evaluate_rubric(&spec, &metrics, &b);
+        let result = evaluate_rubric(&spec, &metrics, &b, &EngagementBreakdown::default());
         assert!(!result.passed, "should fail: side bias 1.0 exceeds 0.50");
     }
 
@@ -591,7 +682,66 @@ mod tests {
             ..Default::default()
         };
         let metrics = AggregateMetrics::default();
-        let result = evaluate_rubric(&spec, &metrics, &b);
+        let result = evaluate_rubric(&spec, &metrics, &b, &EngagementBreakdown::default());
         assert!(!result.passed, "should fail: dominance 1.0 exceeds 0.50");
+    }
+
+    #[test]
+    fn engagement_win_rate_bounds_are_enforced() {
+        let engagements = EngagementBreakdown::from_results([
+            (Some("claim_a".into()), ScenarioStatus::Won),
+            (Some("claim_a".into()), ScenarioStatus::Lost),
+            (Some("claim_b".into()), ScenarioStatus::Won),
+        ]);
+        let spec = RubricSpec {
+            id: "claims".into(),
+            description: "engagement bands".into(),
+            engagement_win_rates: vec![
+                EngagementWinRateSpec {
+                    engagement: "claim_a".into(),
+                    min_win_rate: Some(0.4),
+                    max_win_rate: Some(0.6),
+                },
+                EngagementWinRateSpec {
+                    engagement: "claim_b".into(),
+                    min_win_rate: None,
+                    max_win_rate: Some(0.9),
+                },
+            ],
+            ..Default::default()
+        };
+        let result = evaluate_rubric(
+            &spec,
+            &AggregateMetrics::default(),
+            &MatchupBreakdown::default(),
+            &engagements,
+        );
+        assert!(!result.passed);
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| { check.metric == "win_rate[claim_b]" && !check.passed }));
+    }
+
+    #[test]
+    fn missing_engagement_fails_named_band() {
+        let spec = RubricSpec {
+            id: "claims".into(),
+            description: "engagement bands".into(),
+            engagement_win_rates: vec![EngagementWinRateSpec {
+                engagement: "missing".into(),
+                min_win_rate: Some(0.4),
+                max_win_rate: Some(0.6),
+            }],
+            ..Default::default()
+        };
+        let result = evaluate_rubric(
+            &spec,
+            &AggregateMetrics::default(),
+            &MatchupBreakdown::default(),
+            &EngagementBreakdown::default(),
+        );
+        assert!(!result.passed);
+        assert_eq!(result.checks[0].metric, "engagement_present[missing]");
     }
 }

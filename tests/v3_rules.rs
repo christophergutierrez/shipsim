@@ -96,6 +96,23 @@ fn snapshot_exposes_explicit_target_sizes() {
 }
 
 #[test]
+fn snapshot_exposes_nonzero_catalog_accuracy_and_omits_zero() {
+    let game = load_scenario(&manifest_path("scenarios/tutorial_rear_attack.toml")).expect("load");
+    let snapshot = StateSnapshot::from_game_state(&game);
+    let player = snapshot.ships.iter().find(|ship| ship.id == 1).unwrap();
+    let target = snapshot.ships.iter().find(|ship| ship.id == 2).unwrap();
+    assert_eq!(player.attack_accuracy_bonus, 20);
+    assert_eq!(target.attack_accuracy_bonus, 0);
+
+    let json = serde_json::to_value(snapshot).unwrap();
+    let ships = json["ships"].as_array().unwrap();
+    let player_json = ships.iter().find(|ship| ship["id"] == 1).unwrap();
+    let target_json = ships.iter().find(|ship| ship["id"] == 2).unwrap();
+    assert_eq!(player_json["attack_accuracy_bonus"], 20);
+    assert!(target_json.get("attack_accuracy_bonus").is_none());
+}
+
+#[test]
 fn shields_start_zero_each_allocate_and_unpowered_are_zero() {
     let mut game = load_duel();
     allocate(

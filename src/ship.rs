@@ -18,6 +18,8 @@ pub struct Ship {
     pub speed: u32,
     /// Design energy generated each turn (before power_sys damage).
     pub power: u32,
+    /// Catalog fire-control bonus applied after target-size accuracy.
+    pub attack_accuracy_bonus: u8,
     pub weapons: Vec<Weapon>,
     /// Combat v2: per-facing shield power bought during allocation.
     pub shields_powered: [u32; 6],

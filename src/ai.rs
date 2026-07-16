@@ -186,6 +186,7 @@ mod tests {
             facing: 0,
             speed: 4,
             power: 8,
+            attack_accuracy_bonus: 0,
             weapons: vec![],
             shields_powered: [0; 6],
             shields_remaining: [0; 6],

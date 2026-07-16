@@ -1,0 +1,20 @@
+# Tutorial-only target. Size 2 lets the scripted player's tutorial fire-control
+# bonus guarantee the narrated rear-volley result.
+id = "tutorial_escort"
+name = "Escort"
+size = 2
+speed = 3
+power = 14
+max_shield_per_facing = 6
+structure = 6
+max_velocity = 8
+thrust_per_power = 4
+power_per_thrust = 1
+
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 4

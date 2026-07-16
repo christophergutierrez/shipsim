@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use shipsim_core::hex::Hex;
 use shipsim_core::motion::Maneuver;
 use shipsim_core::movement::{apply_order, Order, OrderError};
-use shipsim_core::scenario::load_scenario;
+use shipsim_core::scenario::{load_scenario, load_scenario_def};
+use shipsim_core::schema::ScenarioDef;
 use shipsim_core::snapshot::StateSnapshot;
 
 fn manifest_path(relative: &str) -> PathBuf {
@@ -21,6 +22,38 @@ fn load_size_hit() -> shipsim_core::game_state::GameState {
 
 fn load_fleet() -> shipsim_core::game_state::GameState {
     load_scenario(&manifest_path("scenarios/fleet.toml")).expect("fleet loads")
+}
+
+fn load_titan_accuracy_target(target_class: &str) -> shipsim_core::game_state::GameState {
+    let definition: ScenarioDef = toml::from_str(&format!(
+        r#"
+width = 12
+height = 4
+seed = 4242
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "titan_light"
+q = 8
+r = 0
+facing = 3
+controller = "player"
+
+[[ships]]
+id = 2
+class = "{target_class}"
+q = 0
+r = 0
+facing = 0
+controller = "scripted"
+"#
+    ))
+    .expect("accuracy scenario parses");
+    load_scenario_def(&definition, &manifest_path("")).expect("accuracy scenario loads")
 }
 
 fn charges(entries: &[(&str, u32)]) -> BTreeMap<String, u32> {
@@ -237,6 +270,35 @@ fn test_v2_miss_consumes_weapon_without_damage() {
     let target = snapshot.ships.iter().find(|ship| ship.id == 2).unwrap();
     assert_eq!(target.shields_remaining[0], 3);
     assert_eq!(target.structure, 12);
+}
+
+#[test]
+fn test_catalog_accuracy_is_applied_during_resolution_only_to_size_two() {
+    fn resolve(target_class: &str) -> String {
+        let mut game = load_titan_accuracy_target(target_class);
+        allocate(&mut game, 1, 0, &[("beam_1", 1)], [0; 6]);
+        allocate(&mut game, 2, 0, &[], [0; 6]);
+        enter_firing(&mut game);
+        apply_order(
+            &mut game,
+            Order::CommitFire {
+                ship: 1,
+                weapon: "beam_1".into(),
+                target: 2,
+                shield_facing: 0,
+            },
+        )
+        .expect("fire commits");
+        ready_all(&mut game, &[1, 2]);
+        StateSnapshot::from_game_state(&game).combat_log[0]
+            .kind
+            .clone()
+    }
+
+    // Seed 4242 rolls 16. At range 8, titan_light's +10 raises the size-2
+    // threshold from 7 to 17, but is ignored for size 1 (threshold 4).
+    assert_eq!(resolve("destroyer_line"), "hit");
+    assert_eq!(resolve("escort"), "miss");
 }
 
 #[test]

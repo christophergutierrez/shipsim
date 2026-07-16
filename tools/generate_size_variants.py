@@ -282,6 +282,24 @@ def engine_boxes(size: int, vmax: int, vi: int) -> int:
     return max(floor, depth)
 
 
+def weapon_boxes(size: int, vi: int) -> int:
+    """SSD boxes per weapon; Phase 3 titan survival lever."""
+    if size == 7 and vi == 0:
+        return 5
+    if size == 7 and vi == 2:
+        return 3
+    return 1
+
+
+def attack_accuracy_bonus(size: int, vi: int) -> int:
+    """Catalog fire control against exact size-2 targets."""
+    if size == 7 and vi == 0:
+        return 10
+    if size == 7 and vi == 2:
+        return 8
+    return 0
+
+
 def emit_weapon(w: dict) -> str:
     lines = ["[[weapons]]"]
     for k in ("id", "kind", "arc", "mount", "max_range", "max_charge"):
@@ -375,6 +393,8 @@ def main() -> None:
             raw = compute_cost(t["size"], power, shields, weps)
             p_sys = power_sys_boxes(t["size"], vi)
             e_boxes = engine_boxes(t["size"], t["vmax"], vi)
+            w_boxes = weapon_boxes(t["size"], vi)
+            accuracy = attack_accuracy_bonus(t["size"], vi)
             built.append(
                 dict(
                     t=t,
@@ -389,6 +409,8 @@ def main() -> None:
                     raw=raw,
                     power_sys=p_sys,
                     engine_boxes=e_boxes,
+                    weapon_boxes=w_boxes,
+                    attack_accuracy_bonus=accuracy,
                 )
             )
 
@@ -415,6 +437,13 @@ def main() -> None:
         vmax = t["vmax"]
         speed = max(1, vmax)
         name = f"{t['name']} ({b['vkey'].title()})"
+        phase3_fields = ""
+        if b["weapon_boxes"] != 1:
+            phase3_fields += f'weapon_boxes = {b["weapon_boxes"]}\n'
+        if b["attack_accuracy_bonus"] != 0:
+            phase3_fields += (
+                f'attack_accuracy_bonus = {b["attack_accuracy_bonus"]}\n'
+            )
         text = f'''# Frame/module cost model (docs/BALANCE-COST.md).
 # Regenerate: python3 tools/generate_size_variants.py
 id = "{pid}"
@@ -426,6 +455,7 @@ max_shield_per_facing = {b["shields"]}
 structure = {b["structure"]}
 power_sys = {b["power_sys"]}
 engine_boxes = {b["engine_boxes"]}
+{phase3_fields}\
 max_velocity = {vmax}
 thrust_per_power = {b["tpp"]}
 power_per_thrust = {b["ppt"]}
