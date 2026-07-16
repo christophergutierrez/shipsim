@@ -6,7 +6,9 @@ use shipsim_core::game_state::GameState;
 use shipsim_core::motion::Maneuver;
 use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::protocol::PROTOCOL_VERSION;
-use shipsim_core::scenario::load_scenario;
+use shipsim_core::rules::Ruleset;
+use shipsim_core::scenario::{load_scenario, load_scenario_def_with_rules};
+use shipsim_core::schema::ScenarioDef;
 use shipsim_core::snapshot::StateSnapshot;
 
 fn manifest_path(rel: &str) -> PathBuf {
@@ -112,23 +114,82 @@ fn snapshot_exposes_nonzero_catalog_accuracy_and_omits_zero() {
     assert!(target_json.get("attack_accuracy_bonus").is_none());
 }
 
+fn one_ship_def(class: &str) -> ScenarioDef {
+    toml::from_str(&format!(
+        r#"
+width = 6
+height = 6
+seed = 1
+
+[terminal]
+type = "destruction"
+target = 999
+
+[[ships]]
+id = 1
+class = "{class}"
+q = 0
+r = 0
+facing = 0
+controller = "player"
+"#
+    ))
+    .expect("scenario parses")
+}
+
+#[test]
+fn scenario_loaded_games_report_the_disk_rules_fingerprint() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let disk_rules = Ruleset::load(&root).expect("repository rules load from disk");
+    let game = load_duel();
+    assert_eq!(game.rules_fingerprint(), disk_rules.fingerprint());
+    assert_eq!(game.rules_id(), disk_rules.id());
+}
+
+#[test]
+fn distinct_injected_rulesets_report_distinct_fingerprints_without_leakage() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let default_text =
+        std::fs::read_to_string(root.join("data/rules/default.toml")).expect("read default rules");
+    let modified_text = default_text.replace("ceiling_max = 19", "ceiling_max = 18");
+    assert_ne!(default_text, modified_text, "fixture must actually differ");
+
+    let default_rules = std::sync::Arc::new(
+        Ruleset::from_text(&root.join("data/rules/default.toml"), &default_text)
+            .expect("default rules parse"),
+    );
+    let modified_rules = std::sync::Arc::new(
+        Ruleset::from_text(&root.join("data/rules/default.toml"), &modified_text)
+            .expect("modified rules parse"),
+    );
+    assert_ne!(default_rules.fingerprint(), modified_rules.fingerprint());
+
+    let def = one_ship_def("destroyer_line");
+    let game_a = load_scenario_def_with_rules(&def, &root, default_rules.clone())
+        .expect("game with default rules");
+    let game_b = load_scenario_def_with_rules(&def, &root, modified_rules.clone())
+        .expect("game with modified rules");
+
+    // Each game reports its own rules identity; constructing one does not leak
+    // into or overwrite the other's.
+    assert_eq!(game_a.rules_fingerprint(), default_rules.fingerprint());
+    assert_eq!(game_b.rules_fingerprint(), modified_rules.fingerprint());
+    assert_ne!(game_a.rules_fingerprint(), game_b.rules_fingerprint());
+}
+
+#[test]
+fn snapshot_rules_identity_matches_game_state_identity() {
+    let game = load_duel();
+    let snapshot = StateSnapshot::from_game_state(&game);
+    assert_eq!(snapshot.rules_id, game.rules_id());
+    assert_eq!(snapshot.rules_fingerprint, game.rules_fingerprint());
+}
+
 #[test]
 fn shields_start_zero_each_allocate_and_unpowered_are_zero() {
     let mut game = load_duel();
-    allocate(
-        &mut game,
-        1,
-        4,
-        BTreeMap::new(),
-        [2, 0, 0, 0, 0, 0],
-    );
-    allocate(
-        &mut game,
-        2,
-        2,
-        BTreeMap::new(),
-        [0, 0, 0, 0, 0, 0],
-    );
+    allocate(&mut game, 1, 4, BTreeMap::new(), [2, 0, 0, 0, 0, 0]);
+    allocate(&mut game, 2, 2, BTreeMap::new(), [0, 0, 0, 0, 0, 0]);
     assert_eq!(game.ship(1).unwrap().shields_remaining[0], 2);
     assert_eq!(game.ship(2).unwrap().shields_remaining, [0; 6]);
     // Finish turn
@@ -177,7 +238,9 @@ fn weapon_charge_carries_and_cannot_strip() {
         },
     )
     .unwrap_err();
-    assert!(err.to_string().contains("cannot strip") || err.to_string().contains("already has charge"));
+    assert!(
+        err.to_string().contains("cannot strip") || err.to_string().contains("already has charge")
+    );
     // Top-up costs only the increase (2 → 4 costs 2).
     let mut top = BTreeMap::new();
     top.insert("beam_1".into(), 4);
@@ -204,7 +267,7 @@ fn accel_then_coast_slides_one_hex_each_cycle() {
         },
     )
     .ok(); // may no-op if already 0 or resolve with 2
-    // Ensure ship 1 faces 0 for accel
+           // Ensure ship 1 faces 0 for accel
     if game.phase_name() == "movement" && !game.has_committed_this_phase(1) {
         let f = game.ship(1).unwrap().facing;
         if f != 0 {
@@ -336,9 +399,11 @@ fn accel_oblique_revectors_with_speed_plus_one_cost() {
 fn opposite_course_ships_pass_through_shared_hex() {
     let mut game = load_scenario(&manifest_path("scenarios/p3_smoke.toml")).expect("load");
     // Place ships one hex apart, head-on, same speed so mid-step claims collide.
-    game.set_ship_pos(1, shipsim_core::hex::Hex::new(5, 10)).unwrap();
+    game.set_ship_pos(1, shipsim_core::hex::Hex::new(5, 10))
+        .unwrap();
     game.set_ship_facing(1, 0).unwrap();
-    game.set_ship_pos(2, shipsim_core::hex::Hex::new(7, 10)).unwrap();
+    game.set_ship_pos(2, shipsim_core::hex::Hex::new(7, 10))
+        .unwrap();
     game.set_ship_facing(2, 3).unwrap();
     // Seed velocity by allocating and accelerating... easier: allocate, accel both
     // until v=2, positioned so they meet.

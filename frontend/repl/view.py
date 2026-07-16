@@ -489,6 +489,7 @@ def format_engagement(me: dict[str, Any], contacts: list[dict[str, Any]]) -> str
                 str(weapon.get("kind") or ""),
                 rng,
                 int(contact.get("size") or 2),
+                int(me.get("attack_accuracy_bonus") or 0),
             )
             odds = (
                 f", to-hit≤{preview[0]} ({preview[1]}%)"
@@ -848,6 +849,7 @@ def format_commits(snap: dict[str, Any]) -> str:
                 str(weapon.get("kind") or ""),
                 rng,
                 int(target.get("size") or 2),
+                int(atk.get("attack_accuracy_bonus") or 0),
             )
             damage = damage_preview(str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng)
             if to_hit:

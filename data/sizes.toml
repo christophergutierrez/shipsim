@@ -2,7 +2,8 @@
 #
 # Ship class TOMLs use integer `size` = `id` below (1..=7).
 # Combat to-hit still uses size-2 as the neutral baseline
-# (`docs/combat-v2-tables.md`, `BASELINE_TARGET_SIZE` in code).
+# (`docs/combat-v2-tables.md`; `combat.accuracy.baseline_target_size` in
+# `data/rules/default.toml`, ADR-0024 — not a Rust constant).
 #
 # FASA STCS "Class I–XX" from recognition manuals maps into these
 # seven buckets (~3 source classes per tier). Role labels in source

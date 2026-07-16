@@ -7,6 +7,8 @@ speed = 3
 power = 120
 max_shield_per_facing = 8
 structure = 120
+power_sys = 2
+engine_boxes = 3
 max_velocity = 3
 thrust_per_power = 1
 power_per_thrust = 4
@@ -107,4 +109,3 @@ arc = "rear"
 mount = "aft"
 max_range = 10
 max_charge = 4
-

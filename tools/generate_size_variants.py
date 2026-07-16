@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data" / "ships"
 COST_OUT = ROOT / "data" / "ship_costs.toml"
+GENERATED_MARKER = "# Regenerate: python3 tools/generate_size_variants.py"
 
 # --- Combat capacity anchors (JSONL-scaled, destroyer line power≈14) ---
 KP = 14 / 34
@@ -294,9 +295,9 @@ def weapon_boxes(size: int, vi: int) -> int:
 def attack_accuracy_bonus(size: int, vi: int) -> int:
     """Catalog fire control against exact size-2 targets."""
     if size == 7 and vi == 0:
-        return 10
+        return 12
     if size == 7 and vi == 2:
-        return 8
+        return 10
     return 0
 
 
@@ -372,14 +373,15 @@ def check_breakpoints(built: list[dict], *, strict: bool) -> bool:
     return has_exact
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--strict",
-        action="store_true",
-        help="exit nonzero if any hull has an exact r1 beam-damage breakpoint",
-    )
-    args = parser.parse_args()
+def build_catalog(output_root: Path = ROOT) -> tuple[list[dict], dict[Path, str]]:
+    """Compute the full generated catalog in memory.
+
+    Returns the raw per-hull `built` records (for the breakpoint guard/summary
+    printing) and a mapping of every generated file path to its expected text,
+    without writing anything to disk.
+    """
+    out = output_root / "data" / "ships"
+    cost_out = output_root / "data" / "ship_costs.toml"
 
     # First pass: raw costs
     built = []
@@ -429,6 +431,7 @@ def main() -> None:
         "# Regenerate: python3 tools/generate_size_variants.py",
         "",
     ]
+    outputs: dict[Path, str] = {}
     rows = []
     for b in built:
         t = b["t"]
@@ -463,7 +466,7 @@ cost = {cost}
 
 '''
         text += "\n\n".join(emit_weapon(w) for w in b["weps"]) + "\n"
-        (OUT / f"{pid}.toml").write_text(text)
+        outputs[out / f"{pid}.toml"] = text
         catalog += [
             "[[ships]]",
             f'class = "{pid}"',
@@ -479,8 +482,42 @@ cost = {cost}
             (pid, t["size"], b["vkey"], cost, b["power"], b["structure"], len(b["weps"]))
         )
 
-    COST_OUT.write_text("\n".join(catalog))
-    print(f"wrote {len(rows)} ships under {OUT} and {COST_OUT}")
+    outputs[cost_out] = "\n".join(catalog)
+    return built, outputs
+
+
+def catalog_mismatches(
+    outputs: dict[Path, str], output_root: Path = ROOT
+) -> list[Path]:
+    """Return missing, changed, and obsolete generated catalog paths."""
+    mismatches = {
+        path
+        for path, expected in outputs.items()
+        if not path.exists() or path.read_text() != expected
+    }
+    expected_paths = set(outputs)
+    ships_dir = output_root / "data" / "ships"
+    if ships_dir.exists():
+        for path in ships_dir.glob("*.toml"):
+            if path not in expected_paths and GENERATED_MARKER in path.read_text():
+                mismatches.add(path)
+    return sorted(mismatches)
+
+
+def print_summary(
+    built: list[dict], outputs: dict[Path, str], output_root: Path = ROOT
+) -> None:
+    out = output_root / "data" / "ships"
+    cost_out = output_root / "data" / "ship_costs.toml"
+    rows = []
+    for b in built:
+        t = b["t"]
+        pid = f"{t['key']}_{b['vkey']}"
+        text = outputs[out / f"{pid}.toml"]
+        cost = int(next(line for line in text.splitlines() if line.startswith("cost = ")).split()[-1])
+        rows.append((pid, t["size"], b["vkey"], cost, b["power"], b["structure"], len(b["weps"])))
+
+    print(f"wrote {len(rows)} ships under {out} and {cost_out}")
     print(f"{'class':28} sz var   cost  pwr  str  #w  $/pwr")
     for pid, size, vkey, cost, power, structure, nw in rows:
         print(
@@ -492,6 +529,42 @@ cost = {cost}
     for k in ("titan_light", "titan_line", "titan_heavy"):
         c = by[k][3]
         print(f"  {k}: cost={c}  vs DD = {c/dd:.2f}×  (8 DD budget buys {dd*8//c if c else 0} of these)")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit nonzero if any hull has an exact r1 beam-damage breakpoint",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="non-destructive: compare generated output against tracked files "
+        "and exit nonzero on any mismatch, without writing anything",
+    )
+    args = parser.parse_args()
+
+    built, outputs = build_catalog()
+
+    if args.check:
+        mismatches = catalog_mismatches(outputs)
+        if mismatches:
+            print("generator --check: mismatched files:", file=sys.stderr)
+            for path in mismatches:
+                print(f"  {path.relative_to(ROOT)}", file=sys.stderr)
+            print(
+                f"\n{len(mismatches)} file(s) differ from `python3 tools/generate_size_variants.py` output. "
+                "Regenerate and commit, or fix the generator.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"generator --check: {len(outputs)} file(s) match tracked output")
+    else:
+        for path, text in outputs.items():
+            path.write_text(text)
+        print_summary(built, outputs)
 
     has_exact = check_breakpoints(built, strict=args.strict)
     if args.strict and has_exact:

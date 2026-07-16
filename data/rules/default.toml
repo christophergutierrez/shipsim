@@ -1,0 +1,35 @@
+schema_version = 1
+id = "default"
+
+[combat]
+die_sides = 20
+
+[combat.accuracy]
+baseline_target_size = 2
+size_multiplier = "target_over_baseline"
+ceiling_floor = 15
+ceiling_max = 19
+fire_control_target_size = 2
+
+[combat.weapons.beam]
+to_hit = [18, 17, 15, 13, 11, 10, 8, 7, 5, 4]
+damage_model = "charge_times_range_factor"
+range_factors = [2.0, 1.9, 1.7, 1.6, 1.4, 1.3, 1.2, 1.1, 1.0, 1.0]
+
+[combat.weapons.plasma]
+to_hit = [16, 14, 12, 10, 8, 6, 5, 4, 3, 2, 2, 2, 1, 1]
+damage_model = "range_table"
+damage = [8, 6, 5, 4, 3, 3, 2, 2, 1, 1, 1, 1, 1, 1]
+
+[combat.weapons.torp]
+to_hit = [14, 13, 12, 11, 10, 9, 7, 6, 5, 4, 3, 3]
+damage_model = "flat"
+flat_damage = 4
+
+[ssd]
+dac = [
+  "hull", "hull", "engine", "weapon",
+  "hull", "power", "weapon", "hull",
+  "hull", "engine", "hull", "weapon",
+  "power", "hull", "hull", "engine",
+]

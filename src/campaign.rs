@@ -17,9 +17,15 @@ pub enum CampaignError {
     #[error("campaign has no scenarios")]
     Empty,
     #[error("scenario load: {0}")]
-    Scenario(#[from] LoadError),
+    Scenario(#[source] Box<LoadError>),
     #[error("campaign complete")]
     Complete,
+}
+
+impl From<LoadError> for CampaignError {
+    fn from(error: LoadError) -> Self {
+        CampaignError::Scenario(Box::new(error))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -99,5 +105,16 @@ impl Campaign {
             return Err(CampaignError::Complete);
         }
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scenario_error_preserves_its_source_chain() {
+        let error = CampaignError::from(LoadError::InvalidFacing { facing: 9 });
+        assert!(std::error::Error::source(&error).is_some());
     }
 }

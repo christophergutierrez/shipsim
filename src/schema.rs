@@ -13,24 +13,21 @@ pub struct ShipDef {
     pub name: String,
     /// Relative target silhouette. Canonical tiers are 1..=7 in
     /// `data/sizes.toml` (Fighter … Titan). Size 2 is the neutral to-hit
-    /// baseline; smaller ships are harder to hit and larger ships easier.
-    #[serde(default = "default_ship_size")]
+    /// baseline (`combat.accuracy.baseline_target_size` in
+    /// `data/rules/default.toml`); smaller ships are harder to hit and larger
+    /// ships easier.
     pub size: u32,
     pub speed: u32,
     /// Energy per turn; defaults to `speed` when omitted (full movement available).
     #[serde(default)]
     pub power: Option<u32>,
-    #[serde(default = "default_max_shield_per_facing")]
     pub max_shield_per_facing: u32,
     #[serde(default)]
     pub structure: u32,
-    /// SSD power-system boxes. Defaults to 2 (legacy). Capitals need more so a
-    /// few DAC Power hits cannot zero effective_power forever.
-    #[serde(default)]
-    pub power_sys: Option<u32>,
-    /// SSD engine boxes. Defaults to `speed.max(1)` (legacy).
-    #[serde(default)]
-    pub engine_boxes: Option<u32>,
+    /// SSD power-system boxes.
+    pub power_sys: u32,
+    /// SSD engine boxes.
+    pub engine_boxes: u32,
     /// SSD boxes per weapon. Defaults to one box per weapon.
     #[serde(default = "default_weapon_boxes")]
     pub weapon_boxes: u32,
@@ -56,10 +53,6 @@ pub struct ShipDef {
     /// Frame/module model: destroyer_line = 100 (docs/BALANCE-COST.md).
     #[serde(default)]
     pub cost: u32,
-}
-
-fn default_ship_size() -> u32 {
-    crate::combat_tables::BASELINE_TARGET_SIZE
 }
 
 fn default_thrust_per_power() -> u32 {
@@ -139,14 +132,5 @@ pub struct WeaponDef {
     pub mount: Option<String>,
     pub arc: String,
     pub max_range: u32,
-    #[serde(default = "default_max_charge")]
     pub max_charge: u32,
-}
-
-fn default_max_charge() -> u32 {
-    4
-}
-
-fn default_max_shield_per_facing() -> u32 {
-    6
 }

@@ -11,27 +11,6 @@ pub enum DacSlot {
     Weapon,
 }
 
-/// Fixed chart (cycles). Hull-heavy early so light internals still mostly hull.
-/// Bridge is not on the chart: ships are destroyed only when hull reaches 0.
-pub const DAC: &[DacSlot] = &[
-    DacSlot::Hull,
-    DacSlot::Hull,
-    DacSlot::Engine,
-    DacSlot::Weapon,
-    DacSlot::Hull,
-    DacSlot::Power,
-    DacSlot::Weapon,
-    DacSlot::Hull,
-    DacSlot::Hull,
-    DacSlot::Engine,
-    DacSlot::Hull,
-    DacSlot::Weapon,
-    DacSlot::Power,
-    DacSlot::Hull,
-    DacSlot::Hull,
-    DacSlot::Engine,
-];
-
 /// Itemized internals. `hull` is seeded from ship TOML `structure`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Ssd {
@@ -44,7 +23,7 @@ pub struct Ssd {
     pub bridge: u32,
     /// Parallel to ship.weapons by index: remaining boxes (0 = destroyed).
     pub weapon_boxes: Vec<u32>,
-    /// Cursor into [`DAC`] for the next internal hit.
+    /// Cursor into the ruleset DAC for the next internal hit.
     #[serde(skip)]
     pub dac_cursor: usize,
 }
@@ -101,18 +80,26 @@ impl Ssd {
     }
 
     /// Apply `points` of internal damage via the DAC. Returns boxes actually scored.
-    pub fn apply_internal(&mut self, points: u32) {
+    ///
+    /// An empty `dac` (rules loading rejects this in normal operation, but a
+    /// caller can still construct an `Ssd` directly) is a defensive fallback,
+    /// not a silent no-op: damage still lands, straight to hull.
+    pub fn apply_internal(&mut self, points: u32, dac: &[DacSlot]) {
+        if dac.is_empty() {
+            self.hull = self.hull.saturating_sub(points);
+            return;
+        }
         for _ in 0..points {
-            self.apply_one_box();
+            self.apply_one_box(dac);
             if self.is_destroyed() {
                 break;
             }
         }
     }
 
-    fn apply_one_box(&mut self) {
-        for _ in 0..DAC.len() {
-            let slot = DAC[self.dac_cursor % DAC.len()];
+    fn apply_one_box(&mut self, dac: &[DacSlot]) {
+        for _ in 0..dac.len() {
+            let slot = dac[self.dac_cursor % dac.len()];
             self.dac_cursor = self.dac_cursor.wrapping_add(1);
             if self.damage_slot(slot) {
                 return;
@@ -156,7 +143,8 @@ mod tests {
     #[test]
     fn test_hull_zero_destroys() {
         let mut s = Ssd::new(2, 2, 2, 1);
-        s.apply_internal(2);
+        let dac = [DacSlot::Hull];
+        s.apply_internal(2, &dac);
         assert_eq!(s.hull, 0);
         assert!(s.is_destroyed());
     }
@@ -172,9 +160,10 @@ mod tests {
     #[test]
     fn test_weapon_box_can_die() {
         let mut s = Ssd::new(20, 4, 2, 2);
+        let dac = [DacSlot::Weapon];
         // Force many weapon slots by walking chart
         for _ in 0..40 {
-            s.apply_one_box();
+            s.apply_one_box(&dac);
             if s.weapon_boxes.iter().all(|&b| b == 0) {
                 break;
             }
@@ -186,5 +175,23 @@ mod tests {
     fn configurable_weapon_boxes_apply_to_each_weapon() {
         let s = Ssd::with_weapon_boxes(20, 4, 2, 3, 2);
         assert_eq!(s.weapon_boxes, vec![2, 2, 2]);
+    }
+
+    #[test]
+    fn empty_dac_still_applies_damage_to_hull_instead_of_discarding_it() {
+        let mut s = Ssd::new(10, 4, 2, 1);
+        s.apply_internal(3, &[]);
+        assert_eq!(
+            s.hull, 7,
+            "damage must land on hull, not vanish, with no DAC configured"
+        );
+    }
+
+    #[test]
+    fn empty_dac_saturates_hull_at_zero_rather_than_underflowing() {
+        let mut s = Ssd::new(2, 4, 2, 1);
+        s.apply_internal(5, &[]);
+        assert_eq!(s.hull, 0);
+        assert!(s.is_destroyed());
     }
 }

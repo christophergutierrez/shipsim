@@ -1255,7 +1255,12 @@ def interactive_fire(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
             flag = "in arc"
             legal_indices.add(i)
         target_size = int(t.get("size") or 2)
-        preview = hit_preview(str(chosen.get("kind") or ""), rng, target_size)
+        preview = hit_preview(
+            str(chosen.get("kind") or ""),
+            rng,
+            target_size,
+            int(ship.get("attack_accuracy_bonus") or 0),
+        )
         damage = damage_preview(str(chosen.get("kind") or ""), int(chosen.get("charge") or 0), rng)
         # Sensor-limited: show position + facing + which shields bear on you,
         # but NOT the enemy's hull value or shield strength (internal state the
@@ -1416,7 +1421,12 @@ def direct_fire(snap: dict[str, Any], ship_id: int, weapon_token: str, target_to
         print(f"  no legal shield facing on {ship_callsign(target)}")
         return None
     target_size = int(target.get("size") or 2)
-    preview = hit_preview(str(weapon.get("kind") or ""), rng, target_size)
+    preview = hit_preview(
+        str(weapon.get("kind") or ""),
+        rng,
+        target_size,
+        int(attacker.get("attack_accuracy_bonus") or 0),
+    )
     if preview:
         damage = damage_preview(str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng)
         damage_text = f", damage≈{damage}" if damage is not None else ""

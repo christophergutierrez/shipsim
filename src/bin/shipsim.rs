@@ -97,7 +97,7 @@ fn run() -> Result<(), String> {
             document
                 .orders
                 .extend(apply_orders(&mut game, &args.orders)?);
-            document.prng_state = game.prng_state();
+            document.update_from_checkpoint(&game);
             let save_path = args.save.unwrap_or(path);
             document
                 .write(&save_path)
@@ -111,8 +111,12 @@ fn run() -> Result<(), String> {
 fn emit_snapshot(game: &GameState) -> Result<(), String> {
     let snapshot = StateSnapshot::from_game_state(game);
     let mut out = io::stdout().lock();
-    writeln!(out, "{}", serde_json::to_string(&snapshot).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
+    writeln!(
+        out,
+        "{}",
+        serde_json::to_string(&snapshot).map_err(|error| error.to_string())?
+    )
+    .map_err(|error| error.to_string())?;
     out.flush().map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -136,8 +140,12 @@ fn emit_error(
         body["order"] = order;
     }
     let mut out = io::stdout().lock();
-    writeln!(out, "{}", serde_json::to_string(&body).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
+    writeln!(
+        out,
+        "{}",
+        serde_json::to_string(&body).map_err(|error| error.to_string())?
+    )
+    .map_err(|error| error.to_string())?;
     out.flush().map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -379,7 +387,10 @@ fn handle_movement_preview(
 
     // `weapons` is a map of weapon_id → desired total charge, same as `allocate`.
     let mut weapons: BTreeMap<String, u32> = BTreeMap::new();
-    if let Some(map) = order_val.get("weapons").and_then(serde_json::Value::as_object) {
+    if let Some(map) = order_val
+        .get("weapons")
+        .and_then(serde_json::Value::as_object)
+    {
         for (key, value) in map {
             let charge = value.as_u64().unwrap_or(0) as u32;
             weapons.insert(key.clone(), charge);
@@ -389,7 +400,10 @@ fn handle_movement_preview(
     // `shields` is six face powers, same as `allocate`. Missing or short
     // arrays are zero-padded; over-long arrays are truncated to six.
     let mut shields: [u32; 6] = [0; 6];
-    if let Some(array) = order_val.get("shields").and_then(serde_json::Value::as_array) {
+    if let Some(array) = order_val
+        .get("shields")
+        .and_then(serde_json::Value::as_array)
+    {
         for (slot, value) in shields.iter_mut().zip(array.iter()) {
             *slot = value.as_u64().unwrap_or(0) as u32;
         }
@@ -477,8 +491,12 @@ fn handle_movement_preview(
     }
 
     let mut out = io::stdout().lock();
-    writeln!(out, "{}", serde_json::to_string(&body).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
+    writeln!(
+        out,
+        "{}",
+        serde_json::to_string(&body).map_err(|error| error.to_string())?
+    )
+    .map_err(|error| error.to_string())?;
     out.flush().map_err(|error| error.to_string())?;
     Ok(None)
 }

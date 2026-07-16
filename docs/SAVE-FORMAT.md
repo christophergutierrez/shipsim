@@ -1,10 +1,10 @@
-# Save and Resume Format v2
+# Save and Resume Format v3
 
 Save files are deterministic replay documents. They preserve scenario identity, every accepted order, and the PRNG checkpoint reached after replay. They do not serialize private `GameState` fields.
 
 ```json
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "scenario": "scenarios/combat.toml",
   "orders": [
     {
@@ -15,7 +15,8 @@ Save files are deterministic replay documents. They preserve scenario identity, 
       "shields": [2, 1, 0, 0, 0, 1]
     }
   ],
-  "prng_state": 4242
+  "prng_state": 4242,
+  "rules_fingerprint": "fnv1a-..."
 }
 ```
 
@@ -44,8 +45,14 @@ Resume loads the saved scenario, replays stored orders without emitting intermed
 
 ## Validation and limits
 
-- Unsupported document versions (including v1) fail **before** order deserialization or scenario load — the version is probed first so an incompatible order shape yields `UnsupportedVersion`, not `Parse`.
+- Unsupported document versions (anything other than 3) fail **before** order deserialization or scenario load — the version is probed first so an incompatible order shape yields `UnsupportedVersion`, not `Parse`.
 - Illegal saved orders and PRNG mismatches fail rather than loading ambiguous state.
+- New saves record the semantic fingerprint of `data/rules/default.toml` (ADR-0024);
+  replay rejects a mismatched fingerprint before applying orders. The field is
+  optional when reading older protocol-v3 saves created before rules
+  fingerprints were added (`SaveDocument::rules_fingerprint: None`) — those
+  remain readable, and resuming and rewriting one (`SaveDocument::update_from_checkpoint`)
+  upgrades it to carry a fingerprint from then on.
 - Scenario and ship data must still be available and compatible with the recorded order stream.
-- Campaign save/resume is not supported in v2.
+- Campaign save/resume is not supported in protocol v3.
 - Replay time grows with order history; checkpointed aggregate serialization can be added in a future version if profiling justifies it.

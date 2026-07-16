@@ -13,6 +13,7 @@ The current product rules are Combat Model v2 as accepted in ADR-0020. Earlier i
 `shipsim_core` is both an `rlib` and `cdylib`. It owns:
 
 - scenario and ship-data loading from TOML;
+- ruleset loading, fingerprinting, and per-game rules ownership;
 - board, hex, facing, arc, and movement validation;
 - turn phases, power allocation, inertial movement, and maneuver resolution;
 - weapon legality, deterministic hit resolution, shields, and hull damage;
@@ -65,7 +66,7 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 |---|---|---|
 | Aggregate and protocol | `game_state`, `movement`, `snapshot` | State machine, orders, validation, serialized views |
 | Geometry | `hex`, `board`, `arc`, `momentum` | Coordinates, occupancy, facings, firing arcs, movement cost |
-| Combat | `combat`, `combat_tables`, `ssd`, `prng` | Weapon data, hit/damage rules, damage application, determinism |
+| Combat | `combat`, `combat_tables`, `rules`, `ssd`, `prng` | Typed evaluators, configured tables, damage application, determinism |
 | Content | `schema`, `scenario`, `ship`, `campaign` | TOML schemas, loading, ship instances, campaign setup |
 | Orchestration | `turn`, `ai` | Turn counter and NPC actions |
 | Simulation | `simulation` | Policies, match runner, traces, metrics, and rubric evaluation |
@@ -84,6 +85,7 @@ Movement cost depends on momentum. Weapon charge and firing are limited per turn
 
 | Path | Role |
 |---|---|
+| `data/rules/default.toml` | Canonical versioned combat and SSD rules data |
 | `data/ships/*.toml` | Shipped ship classes (`ShipDef`); loaded by the scenario loader |
 | `data/ships/*_{light,line,heavy}.toml` | Draft size variants (21 hulls); see `docs/SIZE-VARIANTS.md` |
 | `data/ship_costs.toml` | Fleet-budget index (`cost`; destroyer_line = 100) |
@@ -143,5 +145,6 @@ Architecture decisions and supersession history live in `docs/adr/`.
 
 Gameplay simulation uses validated production orders as defined by ADR-0021. See `docs/SIMULATION.md` and `docs/GAMEPLAY-RUBRICS.md`.
 
-Combat constants: `docs/combat-v2-tables.md`. Play guide: `docs/PLAY-V2.md`.
+Combat values: `data/rules/default.toml`; interpretation: `docs/combat-v2-tables.md`.
+Rules ownership and fingerprinting: ADR-0024. Play guide: `docs/PLAY-V2.md`.
 Play types (UI / API / sim): `docs/AGENT-PLAY.md`.

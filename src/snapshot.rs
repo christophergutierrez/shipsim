@@ -96,6 +96,13 @@ pub struct StateSnapshot {
     pub combat_log: Vec<CombatLogEntry>,
     /// Advisory (never blocks EndTurn): some living ship could still move or fire legally.
     pub end_turn_warning: bool,
+    /// Identity of the ruleset this game was loaded with (diagnostics only;
+    /// clients do not load rules TOML or decide legality themselves).
+    pub rules_id: String,
+    /// Content fingerprint of the loaded ruleset (see `data/rules/default.toml`,
+    /// ADR-0024). Two snapshots/saves/reports with different fingerprints used
+    /// different combat data and are not directly comparable.
+    pub rules_fingerprint: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -201,6 +208,8 @@ impl StateSnapshot {
                 })
                 .collect(),
             end_turn_warning: game.end_turn_warning(),
+            rules_id: game.rules_id().to_string(),
+            rules_fingerprint: game.rules_fingerprint().to_string(),
         }
     }
 }

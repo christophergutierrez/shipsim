@@ -1,7 +1,8 @@
 # Combat Model v2 — Working Tables
 
-Authoritative for implementation (ADR-0020 / `docs/PRD.md`).
-Tune only with an explicit doc change.
+The authoritative values are in `data/rules/default.toml` (ADR-0024). This
+document explains the typed algorithms and provides a readable projection of
+the current default values. Tune the TOML and update this projection together.
 
 ## Max range
 
@@ -11,6 +12,10 @@ Tune only with an explicit doc change.
 | Plasma | 14 |
 | Torp | 12 |
 
+Individual weapon definitions may declare a shorter `max_range`; that value is
+the effective range enforced by the engine. A definition cannot exceed the
+kind's rules table max.
+
 ## To-hit (d20, success if roll ≤ N)
 
 The table is the **size-2 baseline**. Scale its threshold by the target ship's
@@ -18,7 +23,8 @@ explicit size before rolling:
 
 ```text
 adjusted threshold = round_half_up(table threshold × target size / 2)
-range ceiling = min(19, max(table threshold, 15))
+range ceiling = min(`combat.accuracy.ceiling_max`,
+                    max(table threshold, `combat.accuracy.ceiling_floor`))
 adjusted threshold = clamp(adjusted threshold, 1, range ceiling)
 ```
 
@@ -28,8 +34,8 @@ base chances, the ceiling of 15 limits the size multiplier without flattening
 the original range curve. No unmodified attack can become an automatic hit.
 
 Catalog fire-control bonuses apply only against exact size-2 targets, after the
-target-size adjustment. `titan_light` has +10 and `titan_heavy` has +8. The
-final threshold is capped at 19. Other hulls, size-1 fighters, and size-3+
+target-size adjustment. `titan_light` currently has +12 and `titan_heavy` +10. The
+final threshold is capped below the configured die maximum. Other hulls, size-1 fighters, and size-3+
 targets receive no implicit attacker-size bonus.
 
 | Size | Name | mult |
@@ -127,3 +133,27 @@ only relative facing 0.
 
 A committed shot that **misses** the d20 still **consumes** that weapon's charge
 and marks the weapon **fired for the turn**.
+
+## Provenance
+
+Simulation match records include `rules_fingerprint`. Save documents include an
+optional `rules_fingerprint` and refuse replay when it does not match the
+scenario's loaded rules. Live snapshots include `rules_id` and
+`rules_fingerprint` too (`docs/PROTOCOL.md`). This prevents balance reports and
+deterministic replays from silently using different combat data.
+
+The fingerprint (`src/rules.rs`, FNV-1a over the parsed rules data as
+canonical JSON) is a content hash of *data*, not of engine code: it changes
+when `data/rules/default.toml`'s values change, and is stable across
+whitespace/comment/formatting edits to that file. It does **not** change when
+`src/combat_tables.rs`'s formulas change with the data held fixed — engine
+version or commit identity is a separate provenance concern from rules
+identity, and this fingerprint answers only "was the same rules *data* used?".
+
+`Ruleset::builtin()` (the compiled-in copy of `data/rules/default.toml`, used
+by tests and by any in-process helper that has no scenario data root) and
+`Ruleset::load(data_root)` (the disk copy, used by production scenario
+loading) must be the same file in-repo, so both report the same id and
+fingerprint in a normal build (`src/rules.rs` tests assert this). Only
+scenario loading — never a bare `GameState` constructor — decides which one a
+running game actually uses.

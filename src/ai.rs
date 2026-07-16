@@ -68,11 +68,7 @@ pub fn v2_allocation(
         if ship.weapon(&weapon.id).is_none() {
             continue; // SSD-destroyed
         }
-        let have = ship
-            .weapon_charges
-            .get(&weapon.id)
-            .copied()
-            .unwrap_or(0);
+        let have = ship.weapon_charges.get(&weapon.id).copied().unwrap_or(0);
         let kind = weapon.kind;
         let want = match kind {
             V2Kind::Beam => weapon.max_charge,
@@ -181,7 +177,10 @@ mod tests {
         Ship {
             id,
             class: "t".into(),
-            size: crate::combat_tables::BASELINE_TARGET_SIZE,
+            size: crate::rules::Ruleset::builtin()
+                .combat()
+                .accuracy()
+                .baseline_target_size(),
             pos: Hex::new(q, r),
             facing: 0,
             speed: 4,
@@ -213,6 +212,7 @@ mod tests {
             Some(crate::game_state::Terminal::ReachHex(Hex::new(9, 9))),
             npcs,
             1,
+            crate::rules::Ruleset::builtin(),
         );
         assert_eq!(seek_target(&game, 2), Some(1));
     }

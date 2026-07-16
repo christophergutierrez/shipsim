@@ -26,7 +26,7 @@ Exit codes:
 - `1`: configuration, loading, policy, or runtime failure;
 - `2`: simulation completed but at least one rubric failed.
 
-The report contains aggregate metrics plus each match's final snapshot and complete order trace. Generated reports belong under ignored `tmp/simulation/`.
+The report contains aggregate metrics plus each match's final snapshot and complete order trace. Each match also records `rules_fingerprint`, identifying the exact semantic rules data used. Generated reports belong under ignored `tmp/simulation/`.
 
 ## Components
 
@@ -168,6 +168,9 @@ cargo run --release --bin shipsim-sim -- \
   metric or initiative ordering in M7; simultaneous commitment removes that
   obsolete correlation.
 - Reports retain full traces and can become large.
+- The canonical rules data is loaded with each scenario; clients and policies do
+  not load it or decide legality. Compare `rules_fingerprint` before comparing
+  balance reports from different runs.
 - Statistical confidence intervals, paired mirrored scenarios, parameter sweeps, and visual screenshot evaluation are next-layer capabilities.
 
 ## Interpretation

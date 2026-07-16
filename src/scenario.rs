@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc as SharedArc;
 
 use thiserror::Error;
 
@@ -9,6 +10,7 @@ use crate::combat::{Arc, Weapon};
 use crate::combat_tables::WeaponKind;
 use crate::game_state::{GameState, NpcController, Terminal};
 use crate::hex::Hex;
+use crate::rules::{RulesError, Ruleset};
 use crate::schema::{ScenarioDef, ShipDef, WeaponDef};
 use crate::ship::Ship;
 
@@ -24,6 +26,8 @@ pub enum LoadError {
         path: PathBuf,
         source: toml::de::Error,
     },
+    #[error("cannot load rules: {0}")]
+    Rules(#[from] RulesError),
     #[error("ship class {class:?} is missing at {path:?}")]
     MissingShipClass { class: String, path: PathBuf },
     #[error("hex ({q},{r}) is outside the scenario map")]
@@ -32,6 +36,12 @@ pub enum LoadError {
     InvalidFacing { facing: u8 },
     #[error("ship class {class:?} has size 0; size must be at least 1")]
     InvalidShipSize { class: String },
+    #[error("ship class {class:?} has engine_boxes 0; engine_boxes must be at least 1")]
+    InvalidEngineBoxes { class: String },
+    #[error("ship class {class:?} has power_sys 0; power_sys must be at least 1")]
+    InvalidPowerSys { class: String },
+    #[error("ship class {class:?} has weapon_boxes 0; weapon_boxes must be at least 1")]
+    InvalidWeaponBoxes { class: String },
     #[error("ships {a} and {b} both placed on hex ({q},{r})")]
     OverlappingPlacement { a: u32, b: u32, q: i32, r: i32 },
     #[error("scenario defines conflicting terminals (objective / destruction / annihilation)")]
@@ -44,6 +54,17 @@ pub enum LoadError {
     UnknownWeaponKind { kind: String, weapon_id: String },
     #[error("unknown weapon arc {arc:?} on weapon {weapon_id}")]
     UnknownWeaponArc { arc: String, weapon_id: String },
+    #[error(
+        "ship class {class:?} weapon {weapon:?} max_range {configured} exceeds rules maximum {supported}"
+    )]
+    WeaponRangeExceedsRules {
+        class: String,
+        weapon: String,
+        configured: u32,
+        supported: u32,
+    },
+    #[error("ship class {class:?} weapon {weapon:?} must have max_range greater than zero")]
+    InvalidWeaponRange { class: String, weapon: String },
     #[error("ship class {class:?} has invalid thrust conversion: {source}")]
     InvalidThrustConversion {
         class: String,
@@ -81,12 +102,25 @@ pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
         .parent()
         .and_then(Path::parent)
         .unwrap_or_else(|| Path::new("."));
-    load_scenario_def(&def, data_root)
+    let rules = Ruleset::load(data_root)?;
+    load_scenario_def_with_rules(&def, data_root, rules)
 }
 
 /// Load a scenario from an in-memory definition.
 /// `data_root` is the repository root containing `data/ships/`.
 pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameState, LoadError> {
+    let rules = Ruleset::load(data_root)?;
+    load_scenario_def_with_rules(def, data_root, rules)
+}
+
+/// Load a scenario with an already validated ruleset. Keeping the ruleset on
+/// the resulting game makes simulations and replays deterministic even when
+/// multiple content roots are used in one process.
+pub fn load_scenario_def_with_rules(
+    def: &ScenarioDef,
+    data_root: &Path,
+    rules: SharedArc<Ruleset>,
+) -> Result<GameState, LoadError> {
     let mode = def
         .map_mode
         .as_deref()
@@ -98,9 +132,8 @@ pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameStat
     let terminal_kind = def.terminal.as_ref().map(|t| t.terminal_type.as_str());
     let has_destruction = terminal_kind == Some("destruction");
     let has_annihilation = terminal_kind == Some("annihilation");
-    let terminal_count = usize::from(has_objective)
-        + usize::from(has_destruction)
-        + usize::from(has_annihilation);
+    let terminal_count =
+        usize::from(has_objective) + usize::from(has_destruction) + usize::from(has_annihilation);
     if terminal_count > 1 {
         return Err(LoadError::ConflictingTerminals);
     }
@@ -156,10 +189,7 @@ pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameStat
         let is_ai = matches!(ctrl.as_str(), "ai" | "greedy");
         let is_scripted = !is_ai && ctrl == "scripted";
 
-        let power = placement
-            .power
-            .or(ship_def.power)
-            .unwrap_or(ship_def.speed);
+        let power = placement.power.or(ship_def.power).unwrap_or(ship_def.speed);
         let structure = placement.structure.unwrap_or(ship_def.structure);
         let max_shield_per_facing = placement
             .max_shield_per_facing
@@ -167,14 +197,46 @@ pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameStat
         let weapons: Vec<_> = ship_def
             .weapons
             .into_iter()
-            .map(parse_weapon)
+            .map(|weapon_def| {
+                let weapon_id = weapon_def.id.clone();
+                let weapon = parse_weapon(weapon_def)?;
+                if weapon.max_range == 0 {
+                    return Err(LoadError::InvalidWeaponRange {
+                        class: placement.class.clone(),
+                        weapon: weapon_id,
+                    });
+                }
+                let supported = rules.max_range(weapon.kind);
+                if weapon.max_range > supported {
+                    return Err(LoadError::WeaponRangeExceedsRules {
+                        class: placement.class.clone(),
+                        weapon: weapon_id,
+                        configured: weapon.max_range,
+                        supported,
+                    });
+                }
+                Ok(weapon)
+            })
             .collect::<Result<Vec<_>, LoadError>>()?;
-        // Subsystem box counts are frame properties (docs/BALANCE-COST.md). Legacy
-        // ship TOMLs omit them → engine = speed, power_sys = 2.
-        let engine_boxes = ship_def
-            .engine_boxes
-            .unwrap_or_else(|| ship_def.speed.max(1));
-        let power_sys_boxes = ship_def.power_sys.unwrap_or(2).max(1);
+        // Subsystem box counts are explicit frame properties; reject invalid
+        // configured values rather than silently clamping them to 1.
+        if ship_def.engine_boxes == 0 {
+            return Err(LoadError::InvalidEngineBoxes {
+                class: placement.class.clone(),
+            });
+        }
+        if ship_def.power_sys == 0 {
+            return Err(LoadError::InvalidPowerSys {
+                class: placement.class.clone(),
+            });
+        }
+        if ship_def.weapon_boxes == 0 {
+            return Err(LoadError::InvalidWeaponBoxes {
+                class: placement.class.clone(),
+            });
+        }
+        let engine_boxes = ship_def.engine_boxes;
+        let power_sys_boxes = ship_def.power_sys;
         let ssd = crate::ssd::Ssd::with_weapon_boxes(
             structure,
             engine_boxes,
@@ -272,7 +334,7 @@ pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameStat
     }
 
     Ok(GameState::new_with_options(
-        board, ships, terminal, npcs, seed,
+        board, ships, terminal, npcs, seed, rules,
     ))
 }
 
@@ -364,4 +426,179 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
         max_range: def.max_range,
         max_charge: def.max_charge,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shipped_catalog_requires_explicit_combat_fields() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let entries = std::fs::read_dir(root.join("data/ships")).expect("ship catalog");
+        let mut count = 0;
+        for entry in entries {
+            let path = entry.expect("catalog entry").path();
+            if path.extension().and_then(|value| value.to_str()) != Some("toml") {
+                continue;
+            }
+            let class = path.file_stem().unwrap().to_str().unwrap();
+            let ship = load_ship_def(root, class).expect("strict ship definition");
+            assert!(ship.power_sys > 0, "{class} power_sys");
+            assert!(ship.engine_boxes > 0, "{class} engine_boxes");
+            assert!(ship.max_shield_per_facing > 0, "{class} shield cap");
+            for weapon in ship.weapons {
+                assert!(weapon.max_range > 0, "{class}/{} max_range", weapon.id);
+                assert!(weapon.max_charge > 0, "{class}/{} max_charge", weapon.id);
+            }
+            count += 1;
+        }
+        assert!(count > 0);
+    }
+
+    fn write_ship(dir: &std::path::Path, class: &str, body: &str) {
+        let ships_dir = dir.join("data").join("ships");
+        std::fs::create_dir_all(&ships_dir).expect("create data/ships");
+        std::fs::write(ships_dir.join(format!("{class}.toml")), body).expect("write ship def");
+    }
+
+    fn one_ship_scenario(class: &str) -> ScenarioDef {
+        toml::from_str(&format!(
+            r#"
+width = 6
+height = 6
+seed = 1
+
+[terminal]
+type = "destruction"
+target = 999
+
+[[ships]]
+id = 1
+class = "{class}"
+q = 0
+r = 0
+facing = 0
+controller = "player"
+"#
+        ))
+        .expect("scenario parses")
+    }
+
+    #[test]
+    fn zero_engine_boxes_is_rejected_at_load_time() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_ship(
+            dir.path(),
+            "bad_engine",
+            r#"
+name = "Bad Engine"
+size = 2
+speed = 1
+max_shield_per_facing = 1
+structure = 1
+power_sys = 1
+engine_boxes = 0
+"#,
+        );
+        let def = one_ship_scenario("bad_engine");
+        let error = load_scenario_def_with_rules(&def, dir.path(), Ruleset::builtin())
+            .expect_err("zero engine_boxes must be rejected");
+        assert!(
+            matches!(error, LoadError::InvalidEngineBoxes { .. }),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn zero_power_sys_is_rejected_at_load_time() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_ship(
+            dir.path(),
+            "bad_power",
+            r#"
+name = "Bad Power"
+size = 2
+speed = 1
+max_shield_per_facing = 1
+structure = 1
+power_sys = 0
+engine_boxes = 1
+"#,
+        );
+        let def = one_ship_scenario("bad_power");
+        let error = load_scenario_def_with_rules(&def, dir.path(), Ruleset::builtin())
+            .expect_err("zero power_sys must be rejected");
+        assert!(
+            matches!(error, LoadError::InvalidPowerSys { .. }),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn zero_explicit_weapon_boxes_is_rejected_at_load_time() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_ship(
+            dir.path(),
+            "bad_weapon_boxes",
+            r#"
+name = "Bad Weapon Boxes"
+size = 2
+speed = 1
+max_shield_per_facing = 1
+structure = 1
+power_sys = 1
+engine_boxes = 1
+weapon_boxes = 0
+"#,
+        );
+        let def = one_ship_scenario("bad_weapon_boxes");
+        let error = load_scenario_def_with_rules(&def, dir.path(), Ruleset::builtin())
+            .expect_err("zero weapon_boxes must be rejected");
+        assert!(
+            matches!(error, LoadError::InvalidWeaponBoxes { .. }),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn omitted_weapon_boxes_still_defaults_to_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_ship(
+            dir.path(),
+            "default_weapon_boxes",
+            r#"
+name = "Default Weapon Boxes"
+size = 2
+speed = 1
+max_shield_per_facing = 1
+structure = 1
+power_sys = 1
+engine_boxes = 1
+"#,
+        );
+        let def = one_ship_scenario("default_weapon_boxes");
+        load_scenario_def_with_rules(&def, dir.path(), Ruleset::builtin())
+            .expect("omitted weapon_boxes should default to one, not be rejected");
+    }
+
+    #[test]
+    fn missing_size_fails_ship_deserialization() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_ship(
+            dir.path(),
+            "no_size",
+            r#"
+name = "No Size"
+speed = 1
+max_shield_per_facing = 1
+structure = 1
+power_sys = 1
+engine_boxes = 1
+"#,
+        );
+        let error =
+            load_ship_def(dir.path(), "no_size").expect_err("missing size must fail to parse");
+        assert!(matches!(error, LoadError::Parse { .. }), "{error}");
+    }
 }

@@ -77,23 +77,52 @@ def next_translation_note(speed: int, movement_phase: int) -> str:
 
 # Presentation-only preview of the engine's documented d20 threshold tables.
 # The engine remains authoritative; this lets the picker explain a result
-# before the irreversible fire commit.
+# before the irreversible fire commit. Values here are a copy of
+# `data/rules/default.toml` (ADR-0024, schema version 1, d20 only); a parity
+# test (tests/test_rules_parity.py) reads that TOML at test time and fails if
+# this copy drifts. The REPL runtime itself never loads rules TOML.
 _TO_HIT = {
     "beam": (18, 17, 15, 13, 11, 10, 8, 7, 5, 4),
     "plasma": (16, 14, 12, 10, 8, 6, 5, 4, 3, 2, 2, 2, 1, 1),
     "torp": (14, 13, 12, 11, 10, 9, 7, 6, 5, 4, 3, 3),
 }
 
+# combat.accuracy / combat.die_sides in data/rules/default.toml.
+DIE_SIDES = 20
+BASELINE_TARGET_SIZE = 2
+CEILING_FLOOR = 15
+CEILING_MAX = 19
+FIRE_CONTROL_TARGET_SIZE = 2
 
-def hit_preview(kind: str, range_: int, target_size: int = 2) -> tuple[int, int] | None:
-    """Return the engine's size-adjusted (d20 threshold, percent)."""
+
+def hit_preview(
+    kind: str,
+    range_: int,
+    target_size: int = 2,
+    attack_accuracy_bonus: int = 0,
+) -> tuple[int, int] | None:
+    """Return the engine's final (d20 threshold, percent), including the
+    range-aware accuracy ceiling and catalog fire control.
+
+    Mirrors `size_adjusted_to_hit_threshold` + `final_to_hit_threshold` in
+    `src/combat_tables.rs` exactly: same size scaling, same per-range ceiling
+    (never below the size-2 table value, capped at `CEILING_MAX`), same
+    fire-control gate (only at `FIRE_CONTROL_TARGET_SIZE`), same final cap
+    (`min(CEILING_MAX, DIE_SIDES - 1)` — no attack, modified or not, is ever a
+    guaranteed hit).
+    """
     values = _TO_HIT.get(str(kind).lower())
     if not values or range_ < 1 or range_ > len(values) or target_size < 1:
         return None
     base = values[range_ - 1]
-    # Size 2 is neutral. Match the engine's positive half-up integer scaling.
-    threshold = min(20, max(1, (base * target_size + 1) // 2))
-    return threshold, threshold * 5
+    scaled = (base * target_size + BASELINE_TARGET_SIZE // 2) // BASELINE_TARGET_SIZE
+    ceiling = min(CEILING_MAX, max(base, CEILING_FLOOR))
+    threshold = min(ceiling, max(1, scaled))
+    bonus = attack_accuracy_bonus if target_size == FIRE_CONTROL_TARGET_SIZE else 0
+    final_cap = min(CEILING_MAX, DIE_SIDES - 1)
+    threshold = min(final_cap, threshold + bonus)
+    percent = round(threshold * 100 / DIE_SIDES)
+    return threshold, percent
 
 
 def damage_preview(kind: str, charge: int, range_: int) -> int | None:

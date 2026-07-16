@@ -40,13 +40,26 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None, destroyed=Fals
 
 
 class TargetSizeHitPreviewTests(unittest.TestCase):
-    def test_size_one_halves_and_size_four_doubles_baseline_chance(self):
+    def test_size_one_halves_baseline_and_size_four_hits_the_accuracy_ceiling(self):
+        # Range 3 beam base threshold is 15 (size-2 baseline, unchanged).
         self.assertEqual((8, 40), hit_preview("beam", 3, 1))
         self.assertEqual((15, 75), hit_preview("beam", 3, 2))
-        self.assertEqual((20, 100), hit_preview("beam", 3, 4))
+        # Size 4 scales to 30, but the range-aware accuracy ceiling caps it at
+        # 15 here (never below the size-2 table value, never a guaranteed hit)
+        # instead of the old flat 1..=20 clamp that made this an auto-hit.
+        self.assertEqual((15, 75), hit_preview("beam", 3, 4))
 
     def test_invalid_size_has_no_preview(self):
         self.assertIsNone(hit_preview("beam", 3, 0))
+
+    def test_fire_control_bonus_applies_only_at_the_size_two_baseline(self):
+        # Range 8 beam base threshold is 7.
+        self.assertEqual((19, 95), hit_preview("beam", 8, 2, 12))
+        self.assertEqual((4, 20), hit_preview("beam", 8, 1, 12))
+
+    def test_fire_control_bonus_cannot_exceed_the_accuracy_ceiling(self):
+        # Range 1 beam base threshold is 18; a huge bonus still caps at 19.
+        self.assertEqual((19, 95), hit_preview("beam", 1, 2, 200))
 
 
 class WeaponInArcTests(unittest.TestCase):

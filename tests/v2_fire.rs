@@ -176,6 +176,50 @@ fn test_v2_fire_illegal_before_closing_then_commit_legal_after_move() {
 }
 
 #[test]
+fn weapon_instance_range_is_stricter_than_kind_table() {
+    let definition: ScenarioDef = toml::from_str(
+        r#"
+width = 12
+height = 4
+seed = 4242
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 7
+r = 0
+facing = 3
+controller = "player"
+
+[[ships]]
+id = 2
+class = "escort"
+q = 0
+r = 0
+facing = 0
+controller = "scripted"
+"#,
+    )
+    .expect("range scenario parses");
+    let mut game =
+        load_scenario_def(&definition, &manifest_path("")).expect("range scenario loads");
+    allocate(&mut game, 1, 0, &[("plasma_1", 1)], [0; 6]);
+    allocate(&mut game, 2, 0, &[], [0; 6]);
+    enter_firing(&mut game);
+    let error = apply_order(
+        &mut game,
+        Order::CommitFire {
+            ship: 1,
+            weapon: "plasma_1".into(),
+            target: 2,
+            shield_facing: 0,
+        },
+    )
+    .expect_err("plasma max_range=6 must reject range 7");
+    assert!(matches!(error, OrderError::OutOfRange { max_range: 6, .. }));
+}
+
+#[test]
 fn test_v2_ready_fire_resolves_and_consumes_weapon() {
     let mut game = load_combat();
     game.set_ship_pos(1, Hex::new(1, 0)).unwrap();
@@ -295,10 +339,46 @@ fn test_catalog_accuracy_is_applied_during_resolution_only_to_size_two() {
             .clone()
     }
 
-    // Seed 4242 rolls 16. At range 8, titan_light's +10 raises the size-2
-    // threshold from 7 to 17, but is ignored for size 1 (threshold 4).
+    let titan = load_ship_def_for_test("titan_light");
+    assert_eq!(
+        titan.attack_accuracy_bonus, 12,
+        "this test's threshold math is pinned to titan_light's catalog bonus"
+    );
+
+    // Range 8, beam base threshold (size-2 table) = 7.
+    let rules = shipsim_core::rules::Ruleset::builtin();
+    let against_destroyer = shipsim_core::combat_tables::final_to_hit_threshold(
+        rules.combat(),
+        shipsim_core::combat_tables::WeaponKind::Beam,
+        8,
+        2,
+        titan.attack_accuracy_bonus,
+    )
+    .unwrap();
+    assert_eq!(
+        against_destroyer, 19,
+        "size-2 threshold 7 + bonus 12 = 19, at the configured accuracy ceiling"
+    );
+    let against_escort = shipsim_core::combat_tables::final_to_hit_threshold(
+        rules.combat(),
+        shipsim_core::combat_tables::WeaponKind::Beam,
+        8,
+        1,
+        titan.attack_accuracy_bonus,
+    )
+    .unwrap();
+    assert_eq!(
+        against_escort, 4,
+        "size-1 target ignores catalog fire control entirely"
+    );
+
+    // Seed 4242 rolls 16: hits at threshold 19 (destroyer), misses at 4 (escort).
     assert_eq!(resolve("destroyer_line"), "hit");
     assert_eq!(resolve("escort"), "miss");
+}
+
+fn load_ship_def_for_test(class: &str) -> shipsim_core::schema::ShipDef {
+    shipsim_core::scenario::load_ship_def(&manifest_path(""), class).expect("ship def loads")
 }
 
 #[test]

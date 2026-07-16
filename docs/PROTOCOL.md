@@ -14,7 +14,7 @@ Play types: `docs/AGENT-PLAY.md`. Architecture: `docs/ARCHITECTURE.md`.
 |---|---|
 | **Shields** | Re-bought every allocate from **0**. Unpowered facings give **no** protection. |
 | **Weapons** | Charge **carries** across turns. Allocate pays only for **increases**; cannot strip carried charge. Hit or miss spends charge. |
-| **To-hit** | Range-table d20 threshold × target `size / 2`, half-up, clamped to 1..20. Size 2 is neutral. |
+| **To-hit** | Rules-table d20 threshold × target `size / 2`, half-up, clamped by the configured accuracy ceiling below the die maximum. Size 2 is neutral. |
 | **Thrust** | Engine power → thrust via hull `thrust_per_power` / `power_per_thrust`. |
 | **Max speed** | Global cap 8; per-hull `max_velocity` may be lower. |
 | **Maneuvers** | `coast` (0); `accel` along facing (+1 / −1 / revector cost `speed+1`); `turn` `{facing}` (ring 1–3); `turn_accel` (turn then accel, sum of costs). |
@@ -140,7 +140,22 @@ hit previews rather than inferring size from class, structure, or drive ratio.
 `ships[].attack_accuracy_bonus`, when present, is the catalog fire-control
 modifier applied against exact size-2 targets. It is omitted when zero. Clients
 can combine it with `docs/combat-v2-tables.md` when showing hit previews; the
-final d20 threshold is capped at 19.
+final threshold is capped at the configured `combat.accuracy.ceiling_max`
+(`data/rules/default.toml`, ADR-0024), itself always kept below the die
+maximum — no attack, modified or not, is ever a guaranteed hit. Schema version
+1 (the only version this protocol currently supports) requires a d20
+(`combat.die_sides = 20`); alternate dice systems are a future schema version.
+
+Each snapshot weapon's `max_range` is its effective instance range. The engine
+also validates it against the configured kind table, so clients must not infer
+that every weapon of a kind shares the table maximum.
+
+Top-level `rules_id` and `rules_fingerprint` identify the canonical ruleset
+(`data/rules/default.toml`, ADR-0024) the game was loaded with. These are
+diagnostic-only: two snapshots, saves, or simulation reports with different
+fingerprints used different combat data and should not be compared as if they
+were equivalent. Clients do not load rules TOML themselves and never decide
+order legality from these fields — the engine remains authoritative.
 
 ## Errors
 

@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::schema::{ScenarioDef, ShipPlacementDef, TerminalDef};
 use crate::scenario::{load_ship_def, LoadError};
+use crate::schema::{ScenarioDef, ShipPlacementDef, TerminalDef};
 
 fn default_count() -> u32 {
     1
@@ -157,7 +157,7 @@ pub struct FleetCosts {
 #[derive(Debug, thiserror::Error)]
 pub enum FleetError {
     #[error(transparent)]
-    Load(#[from] LoadError),
+    Load(Box<LoadError>),
     #[error("engagement {engagement:?}: fleet line count must be >= 1 (class {class:?})")]
     ZeroCount { engagement: String, class: String },
     #[error(
@@ -200,6 +200,12 @@ pub enum FleetError {
     },
 }
 
+impl From<LoadError> for FleetError {
+    fn from(error: LoadError) -> Self {
+        FleetError::Load(Box::new(error))
+    }
+}
+
 /// Sum `cost × count` for a fleet using ship class TOMLs under `data_root`.
 pub fn fleet_cost(data_root: &Path, lines: &[FleetLine]) -> Result<u32, FleetError> {
     let mut total = 0u32;
@@ -221,7 +227,8 @@ pub fn engagement_costs(
     engagement: &EngagementSpec,
 ) -> Result<FleetCosts, FleetError> {
     Ok(FleetCosts {
-        player: fleet_cost(data_root, &engagement.player).map_err(|e| annotate(e, &engagement.name))?,
+        player: fleet_cost(data_root, &engagement.player)
+            .map_err(|e| annotate(e, &engagement.name))?,
         opponent: fleet_cost(data_root, &engagement.opponent)
             .map_err(|e| annotate(e, &engagement.name))?,
     })
@@ -315,10 +322,7 @@ pub fn build_engagement_scenario(
         map.height,
     )?;
 
-    let map_mode = map
-        .map_mode
-        .clone()
-        .unwrap_or_else(|| "hard".to_string());
+    let map_mode = map.map_mode.clone().unwrap_or_else(|| "hard".to_string());
 
     Ok(ScenarioDef {
         width: map.width,
@@ -394,11 +398,7 @@ mod tests {
 
     #[test]
     fn destroyer_line_cost_near_100() {
-        let cost = fleet_cost(
-            &root(),
-            &[FleetLine::new("destroyer_line", 1)],
-        )
-        .expect("cost");
+        let cost = fleet_cost(&root(), &[FleetLine::new("destroyer_line", 1)]).expect("cost");
         // Frame/module model targets ~100 (docs/BALANCE-COST.md).
         assert!((95..=105).contains(&cost), "got {cost}");
     }

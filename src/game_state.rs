@@ -1,6 +1,7 @@
 //! Game aggregate for Combat v2 (ADR-0020).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -8,6 +9,7 @@ use crate::board::Board;
 use crate::combat;
 use crate::hex::Hex;
 use crate::prng::Prng;
+use crate::rules::Ruleset;
 use crate::ship::Ship;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -122,6 +124,7 @@ pub struct GameState {
     /// true only when the ship actually moved; this survives floating-map
     /// recentering without relying on absolute snapshot coordinates.
     last_translation_outcomes: BTreeMap<u32, bool>,
+    rules: Arc<Ruleset>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,22 +142,19 @@ pub struct CombatLogEvent {
 }
 
 impl GameState {
-    pub fn new(board: Board, ships: Vec<Ship>, objective: Hex) -> Self {
-        Self::new_with_options(
-            board,
-            ships,
-            Some(Terminal::ReachHex(objective)),
-            BTreeMap::new(),
-            1,
-        )
-    }
-
+    /// The one production constructor. Rules ownership is explicit: no
+    /// constructor silently falls back to `Ruleset::builtin()`. Scenario
+    /// loading (`scenario::load_scenario`/`load_scenario_def`) is the normal
+    /// production entry point and loads `data/rules/default.toml` from its
+    /// data root; tests and helpers that need a game without going through a
+    /// scenario file pass `Ruleset::builtin()` explicitly.
     pub(crate) fn new_with_options(
         board: Board,
         ships: Vec<Ship>,
         terminal: Option<Terminal>,
         npcs: BTreeMap<u32, NpcController>,
         seed: u64,
+        rules: Arc<Ruleset>,
     ) -> Self {
         let mut state = Self {
             board,
@@ -174,6 +174,7 @@ impl GameState {
             combat_log: Vec::new(),
             npcs,
             last_translation_outcomes: BTreeMap::new(),
+            rules,
         };
         state.reset_all_power();
         state.refresh_status();
@@ -184,6 +185,14 @@ impl GameState {
 
     pub fn status(&self) -> ScenarioStatus {
         self.status
+    }
+
+    pub fn rules_fingerprint(&self) -> &str {
+        self.rules.fingerprint()
+    }
+
+    pub fn rules_id(&self) -> &str {
+        self.rules.id()
     }
 
     pub fn phase(&self) -> Phase {
@@ -907,7 +916,7 @@ impl GameState {
         }
         let kind = weapon.kind;
         let range = attacker.pos.distance(target.pos);
-        let max_range = crate::combat_tables::max_range(kind);
+        let max_range = self.effective_weapon_max_range(weapon);
         if range > max_range {
             return Err(crate::movement::OrderError::OutOfRange {
                 weapon: commit.weapon.clone(),
@@ -916,7 +925,7 @@ impl GameState {
             });
         }
         if kind == crate::combat_tables::WeaponKind::Beam
-            && crate::combat_tables::beam_damage(charge, range).is_none()
+            && crate::combat_tables::beam_damage(self.rules.combat(), charge, range).is_none()
         {
             return Err(crate::movement::OrderError::NoDamage {
                 weapon: commit.weapon.clone(),
@@ -965,6 +974,7 @@ impl GameState {
             let kind = weapon.kind;
             let range = attacker.pos.distance(target.pos);
             let threshold = crate::combat_tables::final_to_hit_threshold(
+                self.rules.combat(),
                 kind,
                 range,
                 target.size,
@@ -973,9 +983,9 @@ impl GameState {
             .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                 weapon: commit.weapon.clone(),
                 range,
-                max_range: crate::combat_tables::max_range(kind),
+                max_range: self.effective_weapon_max_range(weapon),
             })?;
-            let roll = self.prng.roll(20);
+            let roll = self.prng.roll(u32::from(self.rules.combat().die_sides()));
             let hit = roll <= threshold as u32;
             let damage = if hit {
                 self.v2_projected_damage(attacker, &commit.weapon, kind, range)?
@@ -1075,11 +1085,11 @@ impl GameState {
             return None;
         }
         let range = attacker.pos.distance(target.pos);
-        if range > crate::combat_tables::max_range(kind) {
+        if range > self.effective_weapon_max_range(weapon) {
             return None;
         }
         if kind == crate::combat_tables::WeaponKind::Beam
-            && crate::combat_tables::beam_damage(charge, range).is_none()
+            && crate::combat_tables::beam_damage(self.rules.combat(), charge, range).is_none()
         {
             return None;
         }
@@ -1161,7 +1171,7 @@ impl GameState {
         }
         let kind = weapon.kind;
         let range = attacker.pos.distance(target.pos);
-        let max_range = crate::combat_tables::max_range(kind);
+        let max_range = self.effective_weapon_max_range(weapon);
         if range > max_range {
             return Err(crate::movement::OrderError::OutOfRange {
                 weapon: commit.weapon.clone(),
@@ -1170,7 +1180,7 @@ impl GameState {
             });
         }
         if kind == crate::combat_tables::WeaponKind::Beam
-            && crate::combat_tables::beam_damage(charge, range).is_none()
+            && crate::combat_tables::beam_damage(self.rules.combat(), charge, range).is_none()
         {
             return Err(crate::movement::OrderError::NoDamage {
                 weapon: commit.weapon.clone(),
@@ -1207,30 +1217,45 @@ impl GameState {
         let charge = attacker.weapon_charges.get(weapon_id).copied().unwrap_or(0);
         match kind {
             crate::combat_tables::WeaponKind::Beam => {
-                crate::combat_tables::beam_damage(charge, range).ok_or_else(|| {
-                    crate::movement::OrderError::NoDamage {
+                crate::combat_tables::beam_damage(self.rules.combat(), charge, range).ok_or_else(
+                    || crate::movement::OrderError::NoDamage {
                         weapon: weapon_id.to_string(),
                         range,
                         charge,
+                    },
+                )
+            }
+            crate::combat_tables::WeaponKind::Plasma => {
+                crate::combat_tables::plasma_damage(self.rules.combat(), range).ok_or_else(|| {
+                    crate::movement::OrderError::OutOfRange {
+                        weapon: weapon_id.to_string(),
+                        range,
+                        max_range: attacker.weapon(weapon_id).map_or_else(
+                            || self.rules.max_range(kind),
+                            |weapon| self.effective_weapon_max_range(weapon),
+                        ),
                     }
                 })
             }
-            crate::combat_tables::WeaponKind::Plasma => crate::combat_tables::plasma_damage(range)
-                .ok_or_else(|| crate::movement::OrderError::OutOfRange {
-                    weapon: weapon_id.to_string(),
-                    range,
-                    max_range: crate::combat_tables::max_range(kind),
-                }),
-            crate::combat_tables::WeaponKind::Torp => crate::combat_tables::torp_damage(range)
-                .ok_or_else(|| crate::movement::OrderError::OutOfRange {
-                    weapon: weapon_id.to_string(),
-                    range,
-                    max_range: crate::combat_tables::max_range(kind),
-                }),
+            crate::combat_tables::WeaponKind::Torp => {
+                crate::combat_tables::torp_damage(self.rules.combat(), range).ok_or_else(|| {
+                    crate::movement::OrderError::OutOfRange {
+                        weapon: weapon_id.to_string(),
+                        range,
+                        max_range: attacker.weapon(weapon_id).map_or_else(
+                            || self.rules.max_range(kind),
+                            |weapon| self.effective_weapon_max_range(weapon),
+                        ),
+                    }
+                })
+            }
         }
     }
 
     fn apply_v2_damage(&mut self, target: u32, shield_facing: u8, damage: u32) -> (u32, u32) {
+        // Clone the (cheap, Arc-shared) ruleset before borrowing the target ship
+        // mutably, instead of allocating a fresh DAC Vec on every hit.
+        let rules = self.rules.clone();
         let Some(ship) = self.ship_mut(target) else {
             return (0, 0);
         };
@@ -1239,10 +1264,14 @@ impl GameState {
         ship.shields_remaining[facing] -= absorbed;
         let overflow = damage - absorbed;
         if overflow > 0 {
-            ship.ssd.apply_internal(overflow);
+            ship.ssd.apply_internal(overflow, rules.dac());
             ship.destroyed = ship.ssd.is_destroyed();
         }
         (absorbed, overflow)
+    }
+
+    fn effective_weapon_max_range(&self, weapon: &combat::Weapon) -> u32 {
+        self.rules.max_range(weapon.kind).min(weapon.max_range)
     }
 
     pub fn phase_name(&self) -> &'static str {

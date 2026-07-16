@@ -11,6 +11,7 @@ pub mod movement;
 pub mod movement_preview;
 pub mod prng;
 pub mod protocol;
+pub mod rules;
 pub mod save;
 pub mod scenario;
 pub mod schema;

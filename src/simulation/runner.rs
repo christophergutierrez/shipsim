@@ -96,6 +96,7 @@ pub struct MatchResult {
     pub seed: u64,
     pub player_policy: String,
     pub opponent_policy: String,
+    pub rules_fingerprint: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub engagement: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -125,6 +126,7 @@ pub struct FailedMatch {
     pub seed: u64,
     pub player_policy: String,
     pub opponent_policy: String,
+    pub rules_fingerprint: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub engagement: Option<String>,
     pub status: ScenarioStatus,
@@ -198,9 +200,9 @@ pub struct SuiteReport {
 #[derive(Debug, Error)]
 pub enum SimulationError {
     #[error("cannot load scenario: {0}")]
-    Scenario(#[from] LoadError),
+    Scenario(#[source] Box<LoadError>),
     #[error("fleet composition: {0}")]
-    Fleet(#[from] FleetError),
+    Fleet(#[source] Box<FleetError>),
     #[error("suite requires `scenario` when `engagements` is empty")]
     MissingScenario,
     #[error("unknown policy {0:?}")]
@@ -233,6 +235,18 @@ impl SimulationError {
             Self::IllegalPolicyOrder { failure, .. } => Some(failure),
             _ => None,
         }
+    }
+}
+
+impl From<LoadError> for SimulationError {
+    fn from(error: LoadError) -> Self {
+        SimulationError::Scenario(Box::new(error))
+    }
+}
+
+impl From<FleetError> for SimulationError {
+    fn from(error: FleetError) -> Self {
+        SimulationError::Fleet(Box::new(error))
     }
 }
 
@@ -269,7 +283,11 @@ fn observe_diagnostics(
     closest_approach: &mut Option<u32>,
     turns_in_weapon_range: &mut BTreeSet<u32>,
 ) {
-    let living: Vec<_> = snapshot.ships.iter().filter(|ship| !ship.destroyed).collect();
+    let living: Vec<_> = snapshot
+        .ships
+        .iter()
+        .filter(|ship| !ship.destroyed)
+        .collect();
     let mut closest = None;
     let mut in_weapon_range = false;
     for ship in &living {
@@ -289,7 +307,8 @@ fn observe_diagnostics(
         }
     }
     if let Some(distance) = closest {
-        *closest_approach = Some(closest_approach.map_or(distance, |current| current.min(distance)));
+        *closest_approach =
+            Some(closest_approach.map_or(distance, |current| current.min(distance)));
     }
     if in_weapon_range {
         turns_in_weapon_range.insert(snapshot.turn);
@@ -333,7 +352,11 @@ fn undecided_margin(initial: &StateSnapshot, final_snapshot: &StateSnapshot) -> 
 /// operational weapon. Such a match can never resolve by combat (weapon boxes do
 /// not repair), so continuing to the turn cap only burns wall clock.
 fn mutually_disarmed(snapshot: &StateSnapshot) -> bool {
-    let living: Vec<_> = snapshot.ships.iter().filter(|ship| !ship.destroyed).collect();
+    let living: Vec<_> = snapshot
+        .ships
+        .iter()
+        .filter(|ship| !ship.destroyed)
+        .collect();
     let player_alive = living.iter().any(|ship| ship.controller == "player");
     let enemy_alive = living.iter().any(|ship| ship.controller != "player");
     player_alive
@@ -454,6 +477,7 @@ fn run_match_with_policies(
                     seed: config.seed,
                     player_policy: config.player_policy.clone(),
                     opponent_policy: config.opponent_policy.clone(),
+                    rules_fingerprint: game.rules_fingerprint().to_string(),
                     engagement: config.engagement.clone(),
                     status: game.status(),
                     terminal_reason: "policy_order_rejected".into(),
@@ -488,11 +512,7 @@ fn run_match_with_policies(
             metrics.damage += u64::from(event.damage);
         }
         let after = StateSnapshot::from_game_state(&game);
-        observe_diagnostics(
-            &after,
-            &mut closest_approach,
-            &mut turns_in_weapon_range,
-        );
+        observe_diagnostics(&after, &mut closest_approach, &mut turns_in_weapon_range);
         if before.phase == "movement"
             && (after.phase != "movement" || after.movement_phase != before.movement_phase)
         {
@@ -553,15 +573,12 @@ fn run_match_with_policies(
         seed: config.seed,
         player_policy: config.player_policy.clone(),
         opponent_policy: config.opponent_policy.clone(),
+        rules_fingerprint: game.rules_fingerprint().to_string(),
         engagement: config.engagement.clone(),
         player_cost: config.player_cost,
         opponent_cost: config.opponent_cost,
         status: game.status(),
-        adjudicated_status: adjudicate_stalemate(
-            game.status(),
-            config.stalemate_scoring,
-            margin,
-        ),
+        adjudicated_status: adjudicate_stalemate(game.status(), config.stalemate_scoring, margin),
         terminal_reason,
         undecided_margin: margin,
         closest_approach,
@@ -573,10 +590,7 @@ fn run_match_with_policies(
 }
 
 pub fn run_suite(spec: &SuiteSpec) -> Result<SuiteReport, SimulationError> {
-    let data_root = spec
-        .data_root
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("."));
+    let data_root = spec.data_root.clone().unwrap_or_else(|| PathBuf::from("."));
     let mut matches = Vec::new();
 
     let has_fleet = !spec.engagements.is_empty() || !spec.power_sweeps.is_empty();
@@ -794,7 +808,12 @@ mod tests {
     use super::*;
     use crate::snapshot::{ShipSnapshot, WeaponSnapshot};
 
-    fn test_ship(id: u32, controller: &str, destroyed: bool, weapon_operational: bool) -> ShipSnapshot {
+    fn test_ship(
+        id: u32,
+        controller: &str,
+        destroyed: bool,
+        weapon_operational: bool,
+    ) -> ShipSnapshot {
         ShipSnapshot {
             id,
             class: "Test".into(),
@@ -859,6 +878,8 @@ mod tests {
             fire_commits: Vec::new(),
             combat_log: Vec::new(),
             end_turn_warning: false,
+            rules_id: "default".into(),
+            rules_fingerprint: "fnv1a-test".into(),
         }
     }
 
@@ -901,6 +922,18 @@ mod tests {
             None
         );
         assert_eq!(adjudicate_stalemate(Won, dd, Some(12)), None);
+    }
+
+    #[test]
+    fn boxed_loading_errors_preserve_their_source_chains() {
+        let scenario = SimulationError::from(LoadError::InvalidFacing { facing: 9 });
+        assert!(std::error::Error::source(&scenario).is_some());
+
+        let fleet = SimulationError::from(FleetError::ZeroCount {
+            engagement: "test".into(),
+            class: "destroyer_line".into(),
+        });
+        assert!(std::error::Error::source(&fleet).is_some());
     }
 
     struct RejectingPolicy;
