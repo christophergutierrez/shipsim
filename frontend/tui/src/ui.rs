@@ -76,16 +76,16 @@ pub fn render(f: &mut Frame, app: &mut App) {
         render_events_log(f, app, right[0]);
         render_tutorial_panel(f, app, right[1]);
     } else {
-        // Input panel grows with terminal height (Min) so the fire/allocate
-        // forms are fully visible on tall terminals; the map shares the
-        // remaining space. At 80×24 both compress to ~7 rows each.
+        // Header is Length so ENGINE soft-errors never get crushed when the
+        // form/map compete for space. Map and form share the middle via Fill
+        // (form bias slightly higher). Log is short but fixed.
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(header_h),
-                Constraint::Min(10),
-                Constraint::Min(10),
-                Constraint::Length(6),
+                Constraint::Fill(5), // map
+                Constraint::Fill(6), // phase form (allocate / fire / movement)
+                Constraint::Length(4), // combat log
             ])
             .split(size);
         render_header(f, app, snap, chunks[0]);
@@ -522,33 +522,20 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         .as_ref()
         .map(|p| (p.coast.q, p.coast.r));
 
-    // Range readout: axial distance from the focused ship to the nearest
-    // living enemy (pure geometry from snapshot q,r — not a combat rule).
-    let range_readout = focused_range_to_nearest_enemy(app, snap);
-
-    // Scale label: only when zoomed out (scale > 1 hex/cell).
-    let scale_label = if metrics.scale > 1 {
-        format!(" · {} hex/cell", metrics.scale)
-    } else {
-        String::new()
-    };
-
-    let title = if let Some(ref s) = shade {
-        format!(
-            "Map @({},{}) z={}{} · {} arc ≤{}{} · green=you red=ai",
-            oq, or_, metrics.zoom, scale_label, s.mount_label, s.max_range, range_readout
-        )
-    } else if !preview_endpoints.is_empty() {
-        format!(
-            "Map @({},{}) z={}{} · ◆ coast ◇ reachable{} · green=you red=ai",
-            oq, or_, metrics.zoom, scale_label, range_readout
-        )
-    } else {
-        format!(
-            "Map @({},{}) z={}{}{} · green=you red=ai",
-            oq, or_, metrics.zoom, scale_label, range_readout
-        )
-    };
+    // Title: always keep `→ callsign d=N` when present; drop optional chrome
+    // first so range is not clipped off the Block title.
+    let title = build_map_title(
+        area.width as usize,
+        oq,
+        or_,
+        metrics.zoom,
+        metrics.scale,
+        &focused_range_to_nearest_enemy(app, snap),
+        shade
+            .as_ref()
+            .map(|s| (s.mount_label.as_str(), s.max_range)),
+        !preview_endpoints.is_empty(),
+    );
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -574,13 +561,19 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             let wr = or_ + r as i32 * metrics.scale;
             let in_arc_range = shade.as_ref().map(|s| s.covers(wq, wr)).unwrap_or(false);
 
-            let ship = snap
+            let ships_here: Vec<&Ship> = snap
                 .ships
                 .iter()
                 .filter(|s| {
                     in_cell(s.q, oq, metrics.scale, q) && in_cell(s.r, or_, metrics.scale, r)
                 })
+                .collect();
+            // Prefer focused living ship as the primary glyph when several share a cell.
+            let ship = ships_here
+                .iter()
+                .copied()
                 .max_by_key(|s| (app.focused_ship == Some(s.id), !s.destroyed));
+            let multipin = ships_here.len() > 1;
 
             let is_preview_endpoint = preview_endpoints.iter().any(|(q0, r0)| {
                 in_cell(*q0, oq, metrics.scale, q) && in_cell(*r0, or_, metrics.scale, r)
@@ -595,6 +588,10 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 let short_cs: String = cs.chars().take(2).collect();
                 let cell = if s.destroyed {
                     format!("x{}  ", short_cs.chars().next().unwrap_or('?'))
+                } else if multipin {
+                    // Coarse zoom can pack distinct ships into one cell — mark it.
+                    let extra = ships_here.len().saturating_sub(1);
+                    pad_cell(format!("{short_cs}+{extra}"), metrics.cell_width)
                 } else {
                     let arrow = facing_arrow(s.facing);
                     if s.velocity > 0 && s.course != s.facing {
@@ -653,9 +650,9 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A1>3: callsign, facing, speed; second arrow = course. ◆ coast ◇ reach"
+        "A1>3: callsign, face, speed; +N = multipin. ◆ coast ◇ reach"
     } else {
-        "A1>3: callsign, facing, speed; second arrow = course. Shade = weapon arc"
+        "A1>3: callsign, face, speed; +N = multipin. Shade = weapon arc"
     };
     lines.push(Line::from(Span::styled(
         legend,
@@ -1038,23 +1035,31 @@ fn allocate_scroll(app: &App, area: Rect) -> u16 {
     let Some(draft) = &app.alloc_draft else {
         return 0;
     };
-    // Scrolled body line layout (budget is a fixed header, not counted here):
-    //   hull(0), movement(1), weapons header(2), weapons…, shields header,
-    //   faces, diagram, footer
+    // Scrolled body line layout (budget/gauge are fixed headers, not counted):
+    //   hull(0), movement(1), weapons header(2), weapons (n),
+    //   shields header (3+n), face map title + 3 diagram rows (4+n .. 7+n),
+    //   faces (8+n ..), footer
     let n_weapons = draft.weapons.len();
-    let line: u16 = match draft.cursor {
-        0 => 1,
-        n if n <= n_weapons => (3 + (n - 1)) as u16,
+    let visible = area.height.max(1);
+    match draft.cursor {
+        0 => 1u16.saturating_sub(visible.saturating_sub(1)),
+        n if n <= n_weapons => {
+            let line = (3 + (n - 1)) as u16;
+            line.saturating_sub(visible.saturating_sub(1))
+        }
         n => {
             let face = n - 1 - n_weapons;
-            (4 + n_weapons + face) as u16
+            let diagram_top = (4 + n_weapons) as u16;
+            let face_line = (8 + n_weapons + face) as u16;
+            // Keep the compass in view: pin scroll at the diagram when the
+            // selected face still fits below it; otherwise scroll to the face.
+            if face_line.saturating_sub(diagram_top) < visible {
+                diagram_top
+            } else {
+                face_line.saturating_sub(visible.saturating_sub(1))
+            }
         }
-    };
-    let visible = area.height.max(1);
-    // Keep the selected line in view. The budget line is a fixed header now,
-    // so the whole body may scroll freely — we only need to keep the cursor
-    // row visible. (Phase 3 / criterion 3.1.)
-    line.saturating_sub(visible.saturating_sub(1))
+    }
 }
 
 fn fire_scroll(app: &App, area: Rect) -> u16 {
@@ -1277,6 +1282,52 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         Style::default().fg(Color::DarkGray),
     )));
     let n_w = draft.weapons.len();
+
+    // Face diagram *before* the face list so scrolling onto shields shows the
+    // compass immediately (play feedback: diagram was easy to miss below the list).
+    let sel_face = if draft.cursor > n_w {
+        Some(draft.cursor - 1 - n_w)
+    } else {
+        None
+    };
+    let face_cell = |i: usize| -> String {
+        let v = draft.shields.get(i).copied().unwrap_or(0);
+        let lab = shield_label(i as u32);
+        if sel_face == Some(i) {
+            format!("[{lab}{v}]")
+        } else {
+            format!(" {lab}{v} ")
+        }
+    };
+    let diagram_style = if sel_face.is_some() {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    lines.push(Line::from(Span::styled(
+        " Face map ([] = selected):",
+        diagram_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        format!(
+            "   {} {} {}",
+            face_cell(5),
+            face_cell(0),
+            face_cell(1)
+        ),
+        diagram_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        format!("   {}  ·  {}", face_cell(4), face_cell(2)),
+        diagram_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        format!("      {}", face_cell(3)),
+        diagram_style,
+    )));
+
     for i in 0..6 {
         let selected = draft.cursor == 1 + n_w + i;
         let mark = if selected { "▶ " } else { "  " };
@@ -1301,39 +1352,6 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             },
         )));
     }
-
-    // Mini face diagram
-    let sel_face = if draft.cursor > n_w {
-        Some(draft.cursor - 1 - n_w)
-    } else {
-        None
-    };
-    let face_cell = |i: usize| -> String {
-        let v = draft.shields.get(i).copied().unwrap_or(0);
-        let lab = shield_label(i as u32);
-        if sel_face == Some(i) {
-            format!("[{lab}{v}]")
-        } else {
-            format!(" {lab}{v} ")
-        }
-    };
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        " Face map (▶ / [] = selected):",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(format!(
-        "      {} {} {}",
-        face_cell(5),
-        face_cell(0),
-        face_cell(1)
-    )));
-    lines.push(Line::from(format!(
-        "      {}  ·  {}",
-        face_cell(4),
-        face_cell(2)
-    )));
-    lines.push(Line::from(format!("         {}", face_cell(3))));
 
     lines.push(Line::from(""));
     lines.push(Line::from(
@@ -1611,6 +1629,71 @@ fn focused_range_to_nearest_enemy(app: &App, snap: &Snapshot) -> String {
         }
         None => String::new(),
     }
+}
+
+/// Build the map Block title, prioritizing the range readout so it is never
+/// the first thing clipped when the panel is narrow.
+///
+/// Order kept when space allows:
+///   Map @(q,r) z=N · → B2 d=8 · 2 hex/cell · arc/preview · green=you red=ai
+#[allow(clippy::too_many_arguments)]
+fn build_map_title(
+    max_width: usize,
+    oq: i32,
+    or_: i32,
+    zoom: i8,
+    scale: i32,
+    range_readout: &str,
+    shade: Option<(&str, u32)>,
+    has_preview: bool,
+) -> String {
+    // Inner title width ≈ panel width minus borders; leave a small margin.
+    let budget = max_width.saturating_sub(2).max(12);
+
+    let base = format!("Map @({oq},{or_}) z={zoom}");
+    let scale_part = if scale > 1 {
+        format!(" · {scale} hex/cell")
+    } else {
+        String::new()
+    };
+    let mode_part = if let Some((mount, max_range)) = shade {
+        format!(" · {mount} arc ≤{max_range}")
+    } else if has_preview {
+        " · ◆/◇ preview".to_string()
+    } else {
+        String::new()
+    };
+    let legend = " · you/ai";
+
+    // Assemble in priority order: base + range always first, then scale, mode, legend.
+    let mut title = base;
+    if !range_readout.is_empty() {
+        // If even base+range overflows, keep a compact range-first form.
+        let with_range = format!("{title}{range_readout}");
+        if with_range.chars().count() > budget {
+            // Drop coords if needed: "Map z=N · → B2 d=8"
+            let compact = format!("Map z={zoom}{range_readout}");
+            return if compact.chars().count() <= budget {
+                compact
+            } else {
+                // Last resort: range alone after Map.
+                let bare = format!("Map{range_readout}");
+                bare.chars().take(budget).collect()
+            };
+        }
+        title = with_range;
+    }
+    for part in [&scale_part, &mode_part, &legend.to_string()] {
+        if part.is_empty() {
+            continue;
+        }
+        let next = format!("{title}{part}");
+        if next.chars().count() <= budget {
+            title = next;
+        }
+        // else drop this and lower-priority parts
+    }
+    title
 }
 
 /// Compass bearing from `from` to `to` as a hex-neighbor direction name.

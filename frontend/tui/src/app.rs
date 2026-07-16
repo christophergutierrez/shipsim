@@ -586,6 +586,10 @@ impl App {
     /// Effective zoom for a viewport with `columns × rows` cells. Negative
     /// values zoom out by grouping world hexes; positive values zoom in by
     /// using wider map cells.
+    ///
+    /// Auto mode picks the **finest** scale that still frames all content
+    /// (prefer 1 hex/cell). Coarsest-first packing made distant ships look
+    /// adjacent (e.g. d=8 rendered as neighboring glyphs at 8 hex/cell).
     pub fn effective_map_zoom(&self, columns: i32, rows: i32) -> i8 {
         if let Some(zoom) = self.map_zoom {
             return zoom;
@@ -593,10 +597,15 @@ impl App {
         let Some((min_q, max_q, min_r, max_r)) = self.map_content_bounds() else {
             return 0;
         };
-        for zoom in (0..=3).rev() {
-            let scale = 1_i32 << zoom;
-            if max_q - min_q + 3 <= columns * scale && max_r - min_r + 3 <= rows * scale {
-                return -(zoom as i8);
+        let span_q = (max_q - min_q + 3).max(1);
+        let span_r = (max_r - min_r + 3).max(1);
+        let cols = columns.max(1);
+        let rows = rows.max(1);
+        // Finest first: scale 1, 2, 4, 8 → zoom 0, -1, -2, -3.
+        for zoom_out in 0..=3 {
+            let scale = 1_i32 << zoom_out;
+            if span_q <= cols * scale && span_r <= rows * scale {
+                return -(zoom_out as i8);
             }
         }
         -3

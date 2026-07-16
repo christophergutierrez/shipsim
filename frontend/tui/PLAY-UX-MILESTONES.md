@@ -10,7 +10,7 @@
 | Phase | Status | Notes |
 |---|---|---|
 | 0 Baseline | done | Floor 80×24; tutorial win + free-play harness still green |
-| 1 Map truth | mostly done | `d=N` range chrome + off-map strip + scale title; **1.2** cell-style assert still optional |
+| 1 Map truth | done | Finest-fit auto-zoom; `d=N` range title priority; multipin `+N`; off-map strip; **1.2** style assert still optional |
 | 2 Weapon health | **done** | Edit lock + soft notice; **allocate/preview omit offline ids** (2.2); fire skip + `FireDraft::for_ship` snap; quiet previews |
 | 3 Allocate form | done | Sticky Budget header, ▶ row marker, honest hull |
 | 4 Fire queue + coach | done | Header/panel queue parity; `Cycle N/4` coach (assert exact substring); no-charge coach |

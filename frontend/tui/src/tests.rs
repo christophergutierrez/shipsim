@@ -1798,6 +1798,99 @@ fn map_title_shows_enemy_callsign_in_range_readout() {
     );
 }
 
+#[test]
+fn auto_zoom_prefers_finest_scale_that_fits() {
+    // Play feedback: coarsest-first auto-zoom packed d=8 into adjacent cells.
+    // With enough columns, content span 11 should fit at scale 1 (zoom 0) or 2.
+    let mut app = App::new();
+    app.update_snapshot(distant_enemy_snapshot());
+    // Wide viewport: 20 columns × 10 rows easily frames q span 8 at scale 1.
+    let z = app.effective_map_zoom(20, 10);
+    assert_eq!(
+        z, 0,
+        "auto-zoom must prefer 1 hex/cell when content fits; got z={z}"
+    );
+    // Tight viewport: 6 columns need scale 2 (span 11 > 6, 11 <= 12).
+    let z_tight = app.effective_map_zoom(6, 10);
+    assert_eq!(
+        z_tight, -1,
+        "tight viewport should use scale 2 (z=-1), not coarsest z=-3; got {z_tight}"
+    );
+}
+
+#[test]
+fn map_at_play_size_does_not_use_coarsest_zoom_for_duel() {
+    // At the free-play panel size (~100×30), d=8 ships must not force 8 hex/cell.
+    let mut app = App::new();
+    app.update_snapshot(distant_enemy_snapshot());
+    app.mode = Mode::Map;
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        !buffer_contains(&buf, "8 hex/cell"),
+        "d=8 duel must not auto-zoom to 8 hex/cell; title:\n{}",
+        buf.lines().find(|l| l.contains("Map")).unwrap_or("")
+    );
+    // Ships should not both appear as multipin in one cell.
+    assert!(
+        !buf.lines().any(|l| l.contains("A1+1") || l.contains("B2+1")),
+        "ships at d=8 should occupy distinct cells at play size"
+    );
+}
+
+#[test]
+fn map_title_keeps_range_when_panel_is_narrow() {
+    // Even when other chrome is dropped, `→ B2 d=8` must remain.
+    let mut app = App::new();
+    app.update_snapshot(distant_enemy_snapshot());
+    app.mode = Mode::Map;
+    // Narrow but above the 80×24 floor so we still paint the normal layout.
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "→ B2 d=8") || buffer_contains(&buf, "d=8"),
+        "narrow map title must keep range readout; got:\n{}",
+        buf.lines().find(|l| l.contains("Map")).unwrap_or(&buf)
+    );
+}
+
+#[test]
+fn map_multipin_marks_stacked_ships_at_coarse_zoom() {
+    let mut app = App::new();
+    let mut snap = distant_enemy_snapshot();
+    // Same hex — coarse or fine, they share a cell.
+    snap.ships[1].q = snap.ships[0].q;
+    snap.ships[1].r = snap.ships[0].r;
+    app.update_snapshot(snap);
+    app.mode = Mode::Map;
+    app.map_zoom = Some(0);
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        buf.lines().any(|l| l.contains("+1")),
+        "two ships in one cell should show multipin +N; got map rows with ships"
+    );
+}
+
+#[test]
+fn allocate_shield_cursor_shows_face_map_diagram() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    let n_w = app.alloc_draft.as_ref().unwrap().weapons.len();
+    // First shield face.
+    app.alloc_draft.as_mut().unwrap().cursor = 1 + n_w;
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        buffer_contains(&buf, "Face map"),
+        "shield cursor must keep face diagram visible"
+    );
+    // Diagram uses F/FR labels via shield_label.
+    assert!(
+        buffer_contains(&buf, "F0")
+            || buffer_contains(&buf, "[F")
+            || buffer_contains(&buf, " F"),
+        "face diagram should show face labels"
+    );
+}
+
 /// Snapshot with an enemy far off the map viewport (criterion 1.3).
 fn off_map_enemy_snapshot() -> Snapshot {
     let mut snap = test_snapshot();
