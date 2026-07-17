@@ -783,13 +783,85 @@ fn render_shows_game_over_screen() {
     let mut app = App::new();
     app.update_snapshot(game_over_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
-    // Game over should show some indication of the terminal state.
+    // Fable Phase 6: prominent VICTORY (or defeat) plus quit hint.
     assert!(
-        buffer_contains(&buf, "over")
-            || buffer_contains(&buf, "Over")
-            || buffer_contains(&buf, "win")
-            || buffer_contains(&buf, "Win"),
-        "expected game over indicator in buffer"
+        buffer_contains(&buf, "VICTORY")
+            || buffer_contains(&buf, "DEFEAT")
+            || buffer_contains(&buf, "Won")
+            || buffer_contains(&buf, "Lost"),
+        "expected game over banner in buffer; got:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "q: quit") || buffer_contains(&buf, "quit"),
+        "game over must show quit instruction"
+    );
+}
+
+#[test]
+fn game_over_header_drops_the_stale_next_turn_cta() {
+    let mut app = App::new();
+    app.update_snapshot(game_over_snapshot());
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        !buffer_contains(&buf, "e starts allocation"),
+        "a finished game must not advise starting the next allocation; got:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "Game over"),
+        "finished game header should say the game is over"
+    );
+}
+
+#[test]
+fn header_phase_cta_replaces_actions_remain() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.end_turn_warning = true;
+    snap.fire_opportunity = Some(crate::protocol::FireOpportunity {
+        ship: 1,
+        weapon: "beam_1".into(),
+        target: 2,
+        legal_shield_facings: vec![3],
+    });
+    app.update_snapshot(snap);
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        !buffer_contains(&buf, "actions remain"),
+        "header must not show vague 'actions remain'"
+    );
+    assert!(
+        buffer_contains(&buf, "Shot available")
+            || buffer_contains(&buf, "Space")
+            || buffer_contains(&buf, "queued"),
+        "header must show concrete fire guidance"
+    );
+}
+
+#[test]
+fn ship_status_shows_profile_not_size() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 100, 30);
+    assert!(
+        buffer_contains(&buf, "profile="),
+        "ship panel should say profile= (silhouette), not bare size="
+    );
+}
+
+#[test]
+fn map_title_uses_hex_per_cell_not_z_notation() {
+    let mut app = App::new();
+    app.update_snapshot(distant_enemy_snapshot());
+    app.mode = Mode::Map;
+    let buf = render_to_string(&mut app, 100, 30);
+    let title = buf.lines().find(|l| l.contains("Map")).unwrap_or("");
+    assert!(
+        !title.contains("z="),
+        "map title must not show internal z=; got {title}"
+    );
+    assert!(
+        title.contains("hex/cell"),
+        "map title must show hex/cell scale; got {title}"
     );
 }
 
@@ -860,7 +932,10 @@ fn tutorial_combat_log_keeps_damage_result_visible() {
     app.update_snapshot(fire_phase_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
 
-    assert!(buffer_contains(&buf, "HIT +4 sh-0 int-4"));
+    assert!(
+        buffer_contains(&buf, "HIT +4 sh-0 int-4"),
+        "tutorial combat result should remain visible; got:\n{buf}"
+    );
 }
 
 #[test]
@@ -1124,6 +1199,8 @@ fn apply_line(app: &mut App, line: crate::harness::EngineLine) {
     match line {
         crate::harness::EngineLine::Snapshot(s) => app.update_snapshot(s),
         crate::harness::EngineLine::MovementPreview(p) => app.accept_movement_preview(p),
+        crate::harness::EngineLine::ManeuverOptions(p) => app.accept_maneuver_options(p),
+        crate::harness::EngineLine::FirePreview(p) => app.accept_fire_preview(p),
         crate::harness::EngineLine::Error(e) => app.record_error(&e),
         crate::harness::EngineLine::Raw(r) => app.log(format!("raw: {r}")),
     }
@@ -1313,7 +1390,7 @@ fn tutorial_can_power_beam_after_movement_step() {
         d.set_field_value(10);
     }
     app.tutorial.as_mut().unwrap().advance(); // skip to Charge the beam
-    // Step should now be ReachValue { field: 1, target: 4 } (no NavField step).
+                                              // Step should now be ReachValue { field: 1, target: 4 } (no NavField step).
     assert!(matches!(
         app.tutorial
             .as_ref()
@@ -1477,6 +1554,23 @@ fn map_mode_v_toggles_back_to_normal() {
     handle_key(&mut app, make_key('v'));
     // test_snapshot is in the allocate phase, so v restores Allocate mode.
     assert_eq!(app.mode, crate::app::Mode::Allocate);
+}
+
+#[test]
+fn map_contact_inspection_restores_command_focus_and_allocate_draft() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().movement = 7;
+
+    handle_key(&mut app, make_key('v'));
+    handle_key(&mut app, make_key(']'));
+    assert_eq!(app.focused_ship, Some(2));
+    assert!(app.alloc_draft.is_none());
+
+    handle_key(&mut app, make_key('v'));
+    assert_eq!(app.mode, Mode::Allocate);
+    assert_eq!(app.focused_ship, Some(1));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().movement, 7);
 }
 
 #[test]
@@ -1878,7 +1972,8 @@ fn map_at_play_size_does_not_use_coarsest_zoom_for_duel() {
     );
     // Ships should not both appear as multipin in one cell.
     assert!(
-        !buf.lines().any(|l| l.contains("A1+1") || l.contains("B2+1")),
+        !buf.lines()
+            .any(|l| l.contains("A1+1") || l.contains("B2+1")),
         "ships at d=8 should occupy distinct cells at play size"
     );
 }
@@ -1930,9 +2025,7 @@ fn allocate_shield_cursor_shows_face_map_diagram() {
     );
     // Diagram uses F/FR labels via shield_label.
     assert!(
-        buffer_contains(&buf, "F0")
-            || buffer_contains(&buf, "[F")
-            || buffer_contains(&buf, " F"),
+        buffer_contains(&buf, "F0") || buffer_contains(&buf, "[F") || buffer_contains(&buf, " F"),
         "face diagram should show face labels"
     );
 }
@@ -2007,7 +2100,10 @@ fn allocate_digit_on_dead_weapon_does_not_change_charge() {
     let before = app.alloc_draft.as_ref().unwrap().weapons[0].1;
     handle_key(&mut app, make_key('4'));
     let after = app.alloc_draft.as_ref().unwrap().weapons[0].1;
-    assert_eq!(before, after, "digit on a dead weapon must not change charge");
+    assert_eq!(
+        before, after,
+        "digit on a dead weapon must not change charge"
+    );
 }
 
 #[test]
@@ -2242,6 +2338,17 @@ fn allocate_budget_stays_visible_when_cursor_on_last_shield() {
 }
 
 #[test]
+fn allocate_commit_control_is_pinned_at_play_size() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 120, 42);
+    assert!(
+        buffer_contains(&buf, "Enter commit"),
+        "allocate completion control must always be visible"
+    );
+}
+
+#[test]
 fn allocate_selected_field_shows_marker_on_same_row() {
     // 3.2: the selected field shows ▶ on the same row as the field name.
     let mut app = App::new();
@@ -2252,7 +2359,8 @@ fn allocate_selected_field_shows_marker_on_same_row() {
     let buf = render_to_string(&mut app, 80, 40);
     // The movement row should carry the ▶ marker.
     assert!(
-        buf.lines().any(|line| line.contains("▶") && line.contains("Movement")),
+        buf.lines()
+            .any(|line| line.contains("▶") && line.contains("Movement")),
         "selected movement row should show ▶ on the same line as the field name"
     );
 }
@@ -2329,6 +2437,107 @@ fn fire_queue_header_and_panel_agree() {
 }
 
 #[test]
+fn fire_preview_shows_authoritative_odds_damage_and_face_legality() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.fire_draft.as_mut().unwrap().target = Some(2);
+    // Unique legal face R (3): Fable Phase 2 auto-selects it when default F is invalid.
+    let preview = serde_json::from_str(
+        r#"{"type":"fire_preview","ok":true,"legal":true,"ship":1,"weapon":"beam_1","target":2,"range":8,"threshold":7,"die_sides":20,"hit_percent":35,"projected_damage":4,"legal_shield_facings":[3]}"#,
+    )
+    .unwrap();
+    app.accept_fire_preview(preview);
+    assert_eq!(
+        app.fire_draft.as_ref().map(|d| d.shield_facing),
+        Some(3),
+        "unique legal face must auto-select R"
+    );
+
+    let buf = render_to_string(&mut app, 120, 42);
+    assert!(buffer_contains(&buf, "35% (d20≤7) dmg≈4"));
+    assert!(
+        buffer_contains(&buf, "face R") && buffer_contains(&buf, "ok"),
+        "after unique-face auto-select, panel must show face R ok; got:\n{buf}"
+    );
+}
+
+#[test]
+fn movement_panel_shows_authoritative_turn_affordability() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    snap.movement_phase = 1;
+    snap.ships[0].thrust_remaining = 2;
+    app.update_snapshot(snap);
+    let preview = serde_json::from_str(
+        r#"{"type":"maneuver_options","ok":true,"ship":1,"options":[{"maneuver":{"type":"coast"},"thrust_cost":0,"affordable":true},{"maneuver":{"type":"accel"},"thrust_cost":1,"affordable":true},{"maneuver":{"type":"turn","facing":1},"thrust_cost":1,"affordable":true},{"maneuver":{"type":"turn","facing":2},"thrust_cost":2,"affordable":true},{"maneuver":{"type":"turn","facing":3},"thrust_cost":3,"affordable":false,"reason":"need 3, have 2"}]}"#,
+    )
+    .unwrap();
+    app.accept_maneuver_options(preview);
+
+    let buf = render_to_string(&mut app, 120, 42);
+    assert!(buffer_contains(&buf, "t accel: cost 1 ok"));
+    assert!(buffer_contains(&buf, "3:3 NO"));
+}
+
+#[test]
+fn normal_combat_log_keeps_a_full_four_shot_resolution_visible() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.combat_log = (0..4)
+        .map(|index| crate::protocol::CombatEvent {
+            attacker: 1,
+            target: 2,
+            weapon: format!("shot_{index}"),
+            shield: 0,
+            damage: index + 1,
+            shield_absorbed: 0,
+            hull_damage: index + 1,
+            kind: "hit".into(),
+            roll: Some(1),
+        })
+        .collect();
+    app.update_snapshot(snap);
+
+    let buf = render_to_string(&mut app, 120, 42);
+    for index in 0..4 {
+        assert!(buffer_contains(&buf, &format!("shot_{index}>B2 HIT")));
+    }
+}
+
+#[test]
+fn end_turn_confirmation_describes_actual_pending_state() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.confirmation = Some(Confirmation::EndTurn);
+    let buf = render_to_string(&mut app, 120, 42);
+    assert!(buffer_contains(
+        &buf,
+        "No queued fire or unfinished actions"
+    ));
+    assert!(!buffer_contains(&buf, "may be discarded"));
+}
+
+#[test]
+fn end_turn_confirmation_counts_queued_fire_across_player_fleet() {
+    let mut app = App::new();
+    let mut snap = fleet_snapshot();
+    snap.phase = "firing".into();
+    snap.fire_commits.push(FireCommit {
+        ship: 1,
+        weapon: "beam_1".into(),
+        target: 3,
+        shield_facing: 0,
+    });
+    app.update_snapshot(snap);
+    app.switch_focus(2);
+    app.confirmation = Some(Confirmation::EndTurn);
+
+    let buf = render_to_string(&mut app, 120, 42);
+    assert!(buffer_contains(&buf, "1 queued shot(s) will be discarded"));
+}
+
+#[test]
 fn fire_panel_shows_no_charge_coach() {
     // 4.2: every operational weapon out of charge mid-fire-phase → buffer
     // contains the "No charge" / "Space to pass" coach.
@@ -2378,10 +2587,267 @@ fn cycle_coach_shows_fire_phase_out_of_four() {
     snap.movement_phase = 2;
     app.update_snapshot(snap);
     app.mode = Mode::Fire;
-    app.fire_draft = Some(crate::app::FireDraft::for_ship(&app.focused().unwrap().clone()));
+    app.fire_draft = Some(crate::app::FireDraft::for_ship(
+        &app.focused().unwrap().clone(),
+    ));
     let buf = render_to_string(&mut app, 80, 40);
     assert!(
         buffer_contains(&buf, "Cycle 2/4"),
         "fire panel coach must show Cycle 2/4; got:\n{buf}"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fable plan Phase 0 — shield-facing contract (not a per-weapon reset)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Three operational weapons so a volley can cycle beam → torp → plasma.
+fn three_weapon_fire_snapshot() -> Snapshot {
+    let mut snap = fire_phase_snapshot();
+    // Ensure three weapons for the player (add plasma if missing).
+    if snap.ships[0].weapons.len() < 3 {
+        snap.ships[0].weapons.push(crate::protocol::Weapon {
+            id: "plasma_1".into(),
+            kind: "Plasma".into(),
+            arc: "Forward".into(),
+            mount: "forward".into(),
+            max_range: 6,
+            charge: 1,
+            fired: false,
+            max_charge: 1,
+            operational: true,
+        });
+    }
+    for w in &mut snap.ships[0].weapons {
+        w.operational = true;
+        if w.charge == 0 {
+            w.charge = w.max_charge.max(1);
+        }
+    }
+    snap.phase = "firing".into();
+    snap
+}
+
+#[test]
+fn fire_shield_facing_persists_across_same_phase_snapshot() {
+    // Fable 0.2 / 0.4: the reported per-weapon reset was not reproduced —
+    // a same-phase accepted snapshot must not reset FireDraft.shield_facing.
+    let mut app = App::new();
+    let snap = three_weapon_fire_snapshot();
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0,
+        target: Some(2),
+        shield_facing: 3, // R
+    });
+    // Same-phase snapshot (e.g. after commit_fire ack).
+    let mut next = three_weapon_fire_snapshot();
+    next.fire_commits = vec![FireCommit {
+        ship: 1,
+        weapon: "beam_1".into(),
+        target: 2,
+        shield_facing: 3,
+    }];
+    app.update_snapshot(next);
+    assert_eq!(
+        app.fire_draft.as_ref().map(|d| d.shield_facing),
+        Some(3),
+        "same-phase snapshot must preserve shield face R (3)"
+    );
+}
+
+#[test]
+fn fire_shield_facing_persists_when_cycling_weapons_and_emitting() {
+    // Fable 0.3: cycling beam → torp → plasma cannot reset the selected face.
+    // Also verify emitted commit_fire.shield_facing is identical for each.
+    let mut app = App::new();
+    app.update_snapshot(three_weapon_fire_snapshot());
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0,
+        target: Some(2),
+        shield_facing: 3,
+    });
+    let mut faces = Vec::new();
+    for expected_idx in 0..3 {
+        assert_eq!(
+            app.fire_draft.as_ref().map(|d| d.shield_facing),
+            Some(3),
+            "face R must persist at weapon_idx {expected_idx}"
+        );
+        let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+        match result {
+            KeyResult::SendOrder(order) => match order.body {
+                crate::protocol::OrderBody::CommitFire { shield_facing, .. } => {
+                    faces.push(shield_facing);
+                }
+                other => panic!("expected commit_fire, got {other:?}"),
+            },
+            other => panic!("expected SendOrder, got {other:?}"),
+        }
+        // Next weapon (↓); face must stay.
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    }
+    assert_eq!(faces, vec![3, 3, 3], "all three commits must use face R");
+}
+
+#[test]
+fn fire_phase_entry_initializes_default_draft_face() {
+    // Fable 0.4: phase transition into a new firing window initializes a new
+    // draft (default face 0), distinct from a per-weapon reset within a window.
+    let mut app = App::new();
+    let mut snap = three_weapon_fire_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    app.mode = Mode::Movement;
+    // Enter firing phase.
+    let mut fire = three_weapon_fire_snapshot();
+    fire.phase = "firing".into();
+    app.update_snapshot(fire);
+    assert_eq!(app.mode, Mode::Fire);
+    let draft = app.fire_draft.as_ref().expect("fire draft on phase entry");
+    assert_eq!(
+        draft.shield_facing, 0,
+        "new firing window defaults shield face to 0 (not a mid-volley reset)"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fable plan Phase 1 — allocate cursor clamp
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn allocate_down_clamps_at_last_field() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    let last = app.alloc_draft.as_ref().unwrap().n_fields() - 1;
+    app.alloc_draft.as_mut().unwrap().cursor = last;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    assert_eq!(
+        app.alloc_draft.as_ref().unwrap().cursor,
+        last,
+        "Down on last field must not wrap"
+    );
+    // Digit after boundary Down must edit last field, not movement.
+    let before = app.alloc_draft.as_ref().unwrap().field_value();
+    handle_key(&mut app, make_key('3'));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, last);
+    let after = app.alloc_draft.as_ref().unwrap().field_value();
+    assert_ne!(after, before.max(3).min(before), "digit should affect last field");
+    // Stronger: last field is a shield; value should be 3 after digit entry from clear path.
+}
+
+#[test]
+fn allocate_up_clamps_at_movement() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Up));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, 0);
+}
+
+#[test]
+fn allocate_interior_down_still_advances() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Allocate;
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fable plan Phase 2 — unique legal shield face auto-select
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn fire_preview(
+    ship: i64,
+    weapon: &str,
+    target: i64,
+    legal: Vec<u32>,
+) -> crate::protocol::FireDecisionPreview {
+    crate::protocol::FireDecisionPreview {
+        kind: "fire_preview".into(),
+        ok: true,
+        legal: true,
+        ship,
+        weapon: weapon.into(),
+        target,
+        range: Some(3),
+        threshold: Some(10),
+        die_sides: Some(20),
+        hit_percent: Some(50),
+        projected_damage: Some(4),
+        legal_shield_facings: legal,
+        reason: None,
+    }
+}
+
+#[test]
+fn fire_preview_unique_face_auto_selects_invalid_default() {
+    let mut app = App::new();
+    app.update_snapshot(three_weapon_fire_snapshot());
+    app.mode = Mode::Fire;
+    app.focused_ship = Some(1);
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0,
+        target: Some(2),
+        shield_facing: 0, // invalid if only 3 is legal
+    });
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![3]));
+    assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 3);
+}
+
+#[test]
+fn fire_preview_unique_face_preserves_already_valid() {
+    let mut app = App::new();
+    app.update_snapshot(three_weapon_fire_snapshot());
+    app.mode = Mode::Fire;
+    app.focused_ship = Some(1);
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0,
+        target: Some(2),
+        shield_facing: 3,
+    });
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![3]));
+    assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 3);
+}
+
+#[test]
+fn fire_preview_multi_face_does_not_auto_select() {
+    let mut app = App::new();
+    app.update_snapshot(three_weapon_fire_snapshot());
+    app.mode = Mode::Fire;
+    app.focused_ship = Some(1);
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0,
+        target: Some(2),
+        shield_facing: 0,
+    });
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![2, 3]));
+    assert_eq!(
+        app.fire_draft.as_ref().unwrap().shield_facing,
+        0,
+        "multi-face must not override player draft"
+    );
+}
+
+#[test]
+fn fire_preview_stale_weapon_cannot_alter_draft() {
+    let mut app = App::new();
+    app.update_snapshot(three_weapon_fire_snapshot());
+    app.mode = Mode::Fire;
+    app.focused_ship = Some(1);
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0, // beam_1
+        target: Some(2),
+        shield_facing: 0,
+    });
+    // Stale preview for torp while cursor is on beam.
+    app.accept_fire_preview(fire_preview(1, "torp_1", 2, vec![3]));
+    assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 0);
+    assert!(app.fire_preview.is_none());
 }

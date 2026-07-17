@@ -93,6 +93,71 @@ pub struct FireCommit {
     pub shield_facing: u8,
 }
 
+/// Why a scheduled translation substep failed (Fable Phase 3 telemetry).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TranslationBlockKind {
+    Edge,
+    Occupied,
+    Contested,
+}
+
+/// Last blocking cause encountered during translation resolution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TranslationBlock {
+    pub kind: TranslationBlockKind,
+    /// Empty for hard-map edge; occupant ship ids for occupied; claimants for contested.
+    pub ships: Vec<u32>,
+}
+
+/// Structured outcome for one living ship after a resolved movement phase.
+///
+/// `requested` is post-maneuver velocity at phase start. `moved` counts hexes
+/// actually translated. `blocked` is the last blocking cause (if any), retained
+/// even when `moved > 0` so partial travel always has an explanation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TranslationResult {
+    pub ship: u32,
+    pub requested: u8,
+    pub moved: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<TranslationBlock>,
+}
+
+/// One engine-authoritative legal fire opportunity (Fable Phase 4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FireOpportunity {
+    pub ship: u32,
+    pub weapon: String,
+    pub target: u32,
+    pub legal_shield_facings: Vec<u8>,
+}
+
+/// Read-only result for one maneuver choice in the current movement cycle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ManeuverOptionPreview {
+    pub maneuver: crate::motion::Maneuver,
+    pub thrust_cost: Option<u32>,
+    pub affordable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Read-only fire decision data. The engine remains authoritative for every
+/// value; clients use this only to explain a choice before committing it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FireDecisionPreview {
+    pub ship: u32,
+    pub weapon: String,
+    pub target: u32,
+    pub range: u32,
+    pub threshold: u8,
+    pub die_sides: u8,
+    pub hit_percent: u32,
+    pub projected_damage: u32,
+    pub legal_shield_facings: Vec<u8>,
+}
+
 /// Encapsulated game aggregate. Storage is private; mutate via orders (`movement::apply_order`)
 /// or explicit setup APIs — never by poking internal collections.
 #[derive(Debug, Clone)]
@@ -124,6 +189,10 @@ pub struct GameState {
     /// true only when the ship actually moved; this survives floating-map
     /// recentering without relying on absolute snapshot coordinates.
     last_translation_outcomes: BTreeMap<u32, bool>,
+    /// Structured translation telemetry for the most recently resolved movement
+    /// phase (additive protocol field `translation_results`). Cleared/replaced
+    /// once per resolved movement phase.
+    translation_results: Vec<TranslationResult>,
     rules: Arc<Ruleset>,
 }
 
@@ -174,6 +243,7 @@ impl GameState {
             combat_log: Vec::new(),
             npcs,
             last_translation_outcomes: BTreeMap::new(),
+            translation_results: Vec::new(),
             rules,
         };
         state.reset_all_power();
@@ -609,6 +679,75 @@ impl GameState {
         self.maneuver_commits.contains_key(&ship)
     }
 
+    /// Return every immediate maneuver choice with its authoritative thrust
+    /// cost and affordability. This is a pure query used by thin clients.
+    pub fn maneuver_options(
+        &self,
+        ship_id: u32,
+    ) -> Result<Vec<ManeuverOptionPreview>, crate::movement::OrderError> {
+        if self.phase != Phase::Movement {
+            return Err(crate::movement::OrderError::WrongPhase {
+                expected: "movement",
+                actual: self.phase_name(),
+            });
+        }
+        let ship = self
+            .ship(ship_id)
+            .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
+        if ship.destroyed {
+            return Err(crate::movement::OrderError::ShipNotFound(ship_id));
+        }
+        if self.has_committed_this_phase(ship_id) {
+            return Err(crate::movement::OrderError::AlreadyCommittedThisPhase(
+                ship_id,
+            ));
+        }
+
+        let mut maneuvers = vec![
+            crate::motion::Maneuver::Coast,
+            crate::motion::Maneuver::Accel,
+        ];
+        for facing in 0..=5 {
+            maneuvers.push(crate::motion::Maneuver::Turn { facing });
+        }
+        for facing in 0..=5 {
+            maneuvers.push(crate::motion::Maneuver::TurnAccel { facing });
+        }
+
+        Ok(maneuvers
+            .into_iter()
+            .map(|maneuver| {
+                match crate::motion::resolve_maneuver(
+                    ship.velocity,
+                    ship.facing,
+                    ship.max_velocity,
+                    maneuver,
+                ) {
+                    Ok(result) => {
+                        let affordable = result.thrust_cost <= ship.thrust_remaining;
+                        ManeuverOptionPreview {
+                            maneuver,
+                            thrust_cost: Some(result.thrust_cost),
+                            affordable,
+                            reason: (!affordable).then(|| {
+                                format!(
+                                    "need {}, have {}",
+                                    result.thrust_cost, ship.thrust_remaining
+                                )
+                            }),
+                        }
+                    }
+                    Err(error) => ManeuverOptionPreview {
+                        maneuver,
+                        thrust_cost: None,
+                        affordable: false,
+                        reason: Some(error.to_string()),
+                    },
+                }
+            })
+            .collect())
+    }
+
     fn begin_v2_movement_phase(&mut self) {
         self.phase = Phase::Movement;
         self.movement_phase = 1;
@@ -679,6 +818,7 @@ impl GameState {
     /// open the fire window (or TurnEnd after phase 4 / scenario end).
     fn resolve_movement_phase(&mut self) {
         self.last_translation_outcomes.clear();
+        self.translation_results.clear();
         // Step 1: apply each ship's committed maneuver (independent).
         let commits: Vec<(u32, crate::motion::Maneuver)> = self
             .maneuver_commits
@@ -699,6 +839,20 @@ impl GameState {
                 ship.velocity = result.velocity;
                 ship.facing = result.facing;
             }
+        }
+
+        // Seed structured translation telemetry from post-maneuver velocity.
+        for ship in self.ships.iter().filter(|s| !s.destroyed) {
+            let requested = ship.velocity.speed;
+            if requested == 0 {
+                continue;
+            }
+            self.translation_results.push(TranslationResult {
+                ship: ship.id,
+                requested,
+                moved: 0,
+                blocked: None,
+            });
         }
 
         // Step 2: lockstep multi-hex slide — each ship with speed S moves S hexes
@@ -731,21 +885,34 @@ impl GameState {
         let hard_map = self.board.mode.blocks_edges();
         let mut destination: BTreeMap<u32, Hex> = BTreeMap::new();
         let mut active: HashSet<u32> = HashSet::new();
-        for ship in self
+        // Collect candidates first so edge blocks can mutably update telemetry.
+        let candidates: Vec<(u32, Hex, u8)> = self
             .ships
             .iter()
             .filter(|s| !s.destroyed && s.velocity.speed >= step)
-        {
-            let Some(delta) = Hex::direction(ship.velocity.course) else {
-                continue;
-            };
-            let dest = ship.pos + delta;
-            if hard_map && !self.board.contains(dest) {
-                self.last_translation_outcomes.insert(ship.id, false);
+            .filter_map(|ship| {
+                let delta = Hex::direction(ship.velocity.course)?;
+                Some((ship.id, ship.pos + delta, ship.velocity.course))
+            })
+            .collect();
+        let mut edge_blocks = Vec::new();
+        for (id, dest, _course) in &candidates {
+            if hard_map && !self.board.contains(*dest) {
+                self.last_translation_outcomes.insert(*id, false);
+                edge_blocks.push(*id);
                 continue;
             }
-            destination.insert(ship.id, dest);
-            active.insert(ship.id);
+            destination.insert(*id, *dest);
+            active.insert(*id);
+        }
+        for id in edge_blocks {
+            self.record_translation_block(
+                id,
+                TranslationBlock {
+                    kind: TranslationBlockKind::Edge,
+                    ships: vec![],
+                },
+            );
         }
 
         // Course lookup for pass-through (opposite courses sharing a hex).
@@ -777,16 +944,25 @@ impl GameState {
                 }
                 for id in claimants {
                     if active.remove(id) {
+                        self.record_translation_block(
+                            *id,
+                            TranslationBlock {
+                                kind: TranslationBlockKind::Contested,
+                                ships: claimants.clone(),
+                            },
+                        );
                         changed = true;
                     }
                 }
             }
-            let stationary_positions: HashSet<Hex> = self
+            let stationary: Vec<(u32, Hex)> = self
                 .ships
                 .iter()
                 .filter(|s| !s.destroyed && !active.contains(&s.id))
-                .map(|s| s.pos)
+                .map(|s| (s.id, s.pos))
                 .collect();
+            let stationary_positions: HashSet<Hex> =
+                stationary.iter().map(|(_, p)| *p).collect();
             let blocked_now: Vec<u32> = active
                 .iter()
                 .filter(|id| stationary_positions.contains(&destination[id]))
@@ -794,6 +970,19 @@ impl GameState {
                 .collect();
             for id in blocked_now {
                 if active.remove(&id) {
+                    let dest = destination[&id];
+                    let occupants: Vec<u32> = stationary
+                        .iter()
+                        .filter(|(_, p)| *p == dest)
+                        .map(|(sid, _)| *sid)
+                        .collect();
+                    self.record_translation_block(
+                        id,
+                        TranslationBlock {
+                            kind: TranslationBlockKind::Occupied,
+                            ships: occupants,
+                        },
+                    );
                     changed = true;
                 }
             }
@@ -811,9 +1000,30 @@ impl GameState {
             if let Some(ship) = self.ship_mut(*id) {
                 ship.pos = destination[id];
             }
+            self.record_translation_move(*id);
         }
         if !active.is_empty() {
             self.maybe_float_recenter();
+        }
+    }
+
+    fn record_translation_move(&mut self, ship_id: u32) {
+        if let Some(result) = self
+            .translation_results
+            .iter_mut()
+            .find(|r| r.ship == ship_id)
+        {
+            result.moved = result.moved.saturating_add(1);
+        }
+    }
+
+    fn record_translation_block(&mut self, ship_id: u32, block: TranslationBlock) {
+        if let Some(result) = self
+            .translation_results
+            .iter_mut()
+            .find(|r| r.ship == ship_id)
+        {
+            result.blocked = Some(block);
         }
     }
 
@@ -821,6 +1031,11 @@ impl GameState {
     /// Entries exist only for ships that were scheduled to attempt translation.
     pub fn last_translation_outcomes(&self) -> &BTreeMap<u32, bool> {
         &self.last_translation_outcomes
+    }
+
+    /// Structured translation telemetry for the most recently resolved movement phase.
+    pub fn translation_results(&self) -> &[TranslationResult] {
+        &self.translation_results
     }
 
     pub fn commit_fire_v2(
@@ -840,6 +1055,64 @@ impl GameState {
         }
         self.fire_commits.push(commit);
         Ok(())
+    }
+
+    /// Preview a weapon/target pairing without queueing or rolling it.
+    /// Shield geometry is returned separately so clients can show the valid
+    /// faces before the player chooses one.
+    pub fn fire_decision_preview(
+        &self,
+        ship_id: u32,
+        weapon_id: &str,
+        target_id: u32,
+    ) -> Result<FireDecisionPreview, crate::movement::OrderError> {
+        let attacker = self
+            .ship(ship_id)
+            .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
+        let target = self
+            .ship(target_id)
+            .ok_or(crate::movement::OrderError::TargetNotFound(target_id))?;
+        let legal_shield_facings =
+            crate::arc::legal_shield_facings(attacker.pos, target.pos, target.facing);
+        let shield_facing = legal_shield_facings.first().copied().unwrap_or(0);
+        let commit = FireCommit {
+            ship: ship_id,
+            weapon: weapon_id.to_string(),
+            target: target_id,
+            shield_facing,
+        };
+        self.validate_fire_commit_v2(&commit)?;
+
+        let weapon = attacker
+            .weapon(weapon_id)
+            .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(weapon_id.to_string()))?;
+        let range = attacker.pos.distance(target.pos);
+        let threshold = crate::combat_tables::final_to_hit_threshold(
+            self.rules.combat(),
+            weapon.kind,
+            range,
+            target.size,
+            attacker.attack_accuracy_bonus,
+        )
+        .ok_or_else(|| crate::movement::OrderError::OutOfRange {
+            weapon: weapon_id.to_string(),
+            range,
+            max_range: self.effective_weapon_max_range(weapon),
+        })?;
+        let die_sides = self.rules.combat().die_sides();
+        let projected_damage = self.v2_projected_damage(attacker, weapon_id, weapon.kind, range)?;
+
+        Ok(FireDecisionPreview {
+            ship: ship_id,
+            weapon: weapon_id.to_string(),
+            target: target_id,
+            range,
+            threshold,
+            die_sides,
+            hit_percent: u32::from(threshold) * 100 / u32::from(die_sides),
+            projected_damage,
+            legal_shield_facings,
+        })
     }
 
     pub fn ready_fire_v2(&mut self, ship: u32) -> Result<(), crate::movement::OrderError> {
@@ -1047,15 +1320,42 @@ impl GameState {
 
     /// Any living ship has a charged, unfired v2 weapon with at least one currently-legal shot.
     pub fn can_any_legal_fire(&self) -> bool {
-        self.ships
-            .iter()
-            .filter(|ship| !ship.destroyed)
-            .any(|attacker| {
-                attacker
-                    .weapons
+        self.fire_opportunity().is_some()
+    }
+
+    /// One authoritative legal fire opportunity, if any (Fable Phase 4).
+    ///
+    /// Deterministic scan order: ship id ascending, weapon list order, target id
+    /// ascending. Returns all geometry-legal shield faces for that shot.
+    pub fn fire_opportunity(&self) -> Option<FireOpportunity> {
+        let mut attackers: Vec<&Ship> = self.ships.iter().filter(|s| !s.destroyed).collect();
+        attackers.sort_by_key(|s| s.id);
+        for attacker in attackers {
+            for weapon in &attacker.weapons {
+                if !self.weapon_has_legal_shot(attacker, weapon) {
+                    continue;
+                }
+                let mut targets: Vec<&Ship> = self
+                    .ships
                     .iter()
-                    .any(|weapon| self.weapon_has_legal_shot(attacker, weapon))
-            })
+                    .filter(|t| !t.destroyed && t.id != attacker.id)
+                    .collect();
+                targets.sort_by_key(|t| t.id);
+                for target in targets {
+                    let facings = self.v2_legal_shield_facings(attacker, weapon, target);
+                    if facings.is_empty() {
+                        continue;
+                    }
+                    return Some(FireOpportunity {
+                        ship: attacker.id,
+                        weapon: weapon.id.clone(),
+                        target: target.id,
+                        legal_shield_facings: facings,
+                    });
+                }
+            }
+        }
+        None
     }
 
     fn weapon_has_legal_shot(&self, attacker: &Ship, weapon: &combat::Weapon) -> bool {
@@ -1066,6 +1366,19 @@ impl GameState {
                 self.v2_shot_shield_facing(attacker, weapon, target)
                     .is_some()
             })
+    }
+
+    /// All geometry-legal shield faces for a shot (empty when the shot is illegal).
+    fn v2_legal_shield_facings(
+        &self,
+        attacker: &Ship,
+        weapon: &combat::Weapon,
+        target: &Ship,
+    ) -> Vec<u8> {
+        if self.v2_shot_shield_facing(attacker, weapon, target).is_none() {
+            return Vec::new();
+        }
+        crate::arc::legal_shield_facings(attacker.pos, target.pos, target.facing)
     }
 
     /// Shared v2 fire-legality predicate for AI + advisory queries. Mirrors commit-time

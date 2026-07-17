@@ -208,7 +208,7 @@ impl Tutorial {
                 if !on {
                     format!("{why} · ↓/↑ until ▶ is on {name}, then set to {target}")
                 } else if cur < target {
-                    format!("{why} · {name} {cur}→{target}  (→ raise · ← lower)")
+                    format!("{why} · {name} {cur}→{target}  (arrows or type {target})")
                 } else if cur > target {
                     format!("{why} · {name} {cur}→{target}  (← back down · overshot)")
                 } else {
@@ -351,7 +351,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
                Yellow bar shows why + keys. ▶ marks the selected allocate field. \
                Set Movement to 10 so we can race past the escort.",
         why: "Engine = thrust this turn (not permanent speed)",
-        hint: "→ until Movement = 10",
+        hint: "→ until Movement = 10, or type 10",
         expected: ExpectedAction::ReachValue {
             field: 0,
             target: 10,
@@ -366,7 +366,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
                the value. Charge to 4 (max) — more charge = more beam damage. We \
                will not shoot until we are behind the escort.",
         why: "beam_1 charge = damage budget for later volley",
-        hint: "→ until beam charge = 4",
+        hint: "→ until beam charge = 4, or type 4",
         expected: ExpectedAction::ReachValue {
             field: 1,
             target: 4,
@@ -379,7 +379,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
                (same list you will see in fire mode). Charge to 1 (max) and leave \
                it loaded for the rear volley.",
         why: "Arm torp for the same volley as beam + plasma",
-        hint: "→ once (charge 1)",
+        hint: "→ once, or type 1",
         expected: ExpectedAction::ReachValue {
             field: 2,
             target: 1,
@@ -391,7 +391,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
                close range — the finisher of the rear-arc dump. One point arms \
                it; the charge stays until you fire.",
         why: "Arm plasma for the close rear-arc dump",
-        hint: "→ once (charge 1)",
+        hint: "→ once, or type 1",
         expected: ExpectedAction::ReachValue {
             field: 3,
             target: 1,
@@ -413,7 +413,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
         text: "Put 6 on F (max per face). Hits on your forward arc spend this \
                before hull. Budget: 10 engine + 4+1+1 weapons + 6 F = 22 (full pool).",
         why: "Shield F=6 so bow hits soak before hull",
-        hint: "→ until F = 6",
+        hint: "→ until F = 6, or type 6",
         expected: ExpectedAction::ReachValue {
             field: 4,
             target: 6,

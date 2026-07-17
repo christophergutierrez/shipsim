@@ -878,6 +878,8 @@ mod tests {
             fire_commits: Vec::new(),
             combat_log: Vec::new(),
             end_turn_warning: false,
+            fire_opportunity: None,
+            translation_results: Vec::new(),
             rules_id: "default".into(),
             rules_fingerprint: "fnv1a-test".into(),
         }

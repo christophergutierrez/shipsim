@@ -3,7 +3,9 @@ use serde::Serialize;
 use crate::arc::Mount;
 use crate::combat::{Arc, Weapon};
 use crate::combat_tables;
-use crate::game_state::{FireCommit, GameState, ScenarioStatus};
+use crate::game_state::{
+    FireCommit, FireOpportunity, GameState, ScenarioStatus, TranslationResult,
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MapSnapshot {
@@ -94,8 +96,16 @@ pub struct StateSnapshot {
     pub ships: Vec<ShipSnapshot>,
     pub fire_commits: Vec<FireCommit>,
     pub combat_log: Vec<CombatLogEntry>,
-    /// Advisory (never blocks EndTurn): some living ship could still move or fire legally.
+    /// Advisory (never blocks EndTurn): true iff `fire_opportunity` is present.
     pub end_turn_warning: bool,
+    /// Optional structured legal fire opportunity (engine-authoritative).
+    /// Absent when no living ship has a currently legal shot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fire_opportunity: Option<FireOpportunity>,
+    /// Structured translation outcomes from the most recently resolved
+    /// movement phase. Empty before the first resolution; replaced each phase.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub translation_results: Vec<TranslationResult>,
     /// Identity of the ruleset this game was loaded with (diagnostics only;
     /// clients do not load rules TOML or decide legality themselves).
     pub rules_id: String,
@@ -208,6 +218,8 @@ impl StateSnapshot {
                 })
                 .collect(),
             end_turn_warning: game.end_turn_warning(),
+            fire_opportunity: game.fire_opportunity(),
+            translation_results: game.translation_results().to_vec(),
             rules_id: game.rules_id().to_string(),
             rules_fingerprint: game.rules_fingerprint().to_string(),
         }

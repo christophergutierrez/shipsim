@@ -212,6 +212,8 @@ pub struct App {
     pub snap: Option<Snapshot>,
     pub mode: Mode,
     pub focused_ship: Option<i64>,
+    /// Command focus to restore after read-only contact inspection in Map mode.
+    map_return_focus: Option<i64>,
     /// Map viewport pan offset (q, r) of the top-left visible hex. `None`
     /// means auto-fit living ships only (not the preview endpoint cloud).
     pub map_pan: Option<(i32, i32)>,
@@ -231,6 +233,8 @@ pub struct App {
     /// Session combat history, retained after the engine clears turn-scoped
     /// combat_log at end-turn.
     pub combat_history: Vec<String>,
+    /// Structured combat events for game-over summary (Fable Phase 6).
+    pub combat_events: Vec<protocol::CombatEvent>,
     last_combat_snapshot: Vec<String>,
     /// Pending orders to send (built by input handlers, drained by main loop).
     pub pending_order: Option<Order>,
@@ -238,9 +242,13 @@ pub struct App {
     /// by main loop). Unlike `pending_order`, this is a read-only query that
     /// returns a `movement_preview` envelope, not a snapshot.
     pub pending_preview: Option<String>,
+    pub pending_maneuver_preview: Option<String>,
+    pub pending_fire_preview: Option<String>,
     /// Last movement-preview response (for rendering reachable endpoints on
     /// the map and the projected position in the ship status panel).
     pub movement_preview: Option<crate::protocol::MovementPreview>,
+    pub maneuver_options: Option<crate::protocol::ManeuverOptionsPreview>,
+    pub fire_preview: Option<crate::protocol::FireDecisionPreview>,
     /// True if the engine subprocess has exited.
     pub engine_dead: bool,
     /// Message log lines (for the log panel).
@@ -265,6 +273,7 @@ impl App {
             snap: None,
             mode: Mode::Normal,
             focused_ship: None,
+            map_return_focus: None,
             map_pan: None,
             map_zoom: None,
             alloc_draft: None,
@@ -274,10 +283,15 @@ impl App {
             last_error: None,
             recent_events: Vec::new(),
             combat_history: Vec::new(),
+            combat_events: Vec::new(),
             last_combat_snapshot: Vec::new(),
             pending_order: None,
             pending_preview: None,
+            pending_maneuver_preview: None,
+            pending_fire_preview: None,
             movement_preview: None,
+            maneuver_options: None,
+            fire_preview: None,
             engine_dead: false,
             log: Vec::new(),
             tutorial: None,
@@ -311,6 +325,10 @@ impl App {
             self.mode = Mode::GameOver;
             self.movement_preview = None;
             self.pending_preview = None;
+            self.maneuver_options = None;
+            self.pending_maneuver_preview = None;
+            self.fire_preview = None;
+            self.pending_fire_preview = None;
         } else if self.mode == Mode::GameOver {
             // stay in game over
         } else {
@@ -332,6 +350,10 @@ impl App {
                     self.fire_drafts.clear();
                     self.movement_preview = None;
                     self.pending_preview = None;
+                    self.maneuver_options = None;
+                    self.pending_maneuver_preview = None;
+                    self.fire_preview = None;
+                    self.pending_fire_preview = None;
                     if snap.phase == "allocate" {
                         if let Some(sid) = self.focused_ship {
                             self.alloc_draft = Some(AllocDraft::from_ship(&snap, sid));
@@ -340,10 +362,7 @@ impl App {
                     } else if snap.phase == "firing" {
                         self.fire_draft = snap
                             .player_ship()
-                            .or_else(|| {
-                                self.focused_ship
-                                    .and_then(|id| snap.ship(id))
-                            })
+                            .or_else(|| self.focused_ship.and_then(|id| snap.ship(id)))
                             .map(FireDraft::for_ship)
                             .or_else(|| Some(FireDraft::default()));
                         self.mode = Mode::Fire;
@@ -355,10 +374,7 @@ impl App {
                 } else if snap.phase == "firing" {
                     // Same phase: keep selection valid if a weapon went offline.
                     if let Some(draft) = self.fire_draft.as_mut() {
-                        if let Some(ship) = self
-                            .focused_ship
-                            .and_then(|id| snap.ship(id))
-                        {
+                        if let Some(ship) = self.focused_ship.and_then(|id| snap.ship(id)) {
                             draft.snap_to_operational(ship);
                         }
                     }
@@ -373,10 +389,7 @@ impl App {
                 } else if snap.phase == "firing" {
                     self.fire_draft = snap
                         .player_ship()
-                        .or_else(|| {
-                            self.focused_ship
-                                .and_then(|id| snap.ship(id))
-                        })
+                        .or_else(|| self.focused_ship.and_then(|id| snap.ship(id)))
                         .map(FireDraft::for_ship)
                         .or_else(|| Some(FireDraft::default()));
                     self.mode = Mode::Fire;
@@ -420,18 +433,35 @@ impl App {
                 .count();
             self.combat_history
                 .extend(current_events.iter().skip(common).cloned());
+            // Structured events for victory summary (do not parse history strings).
+            self.combat_events
+                .extend(snap.combat_log.iter().skip(common).cloned());
             if self.combat_history.len() > 200 {
                 let drop = self.combat_history.len() - 200;
                 self.combat_history.drain(..drop);
             }
+            if self.combat_events.len() > 200 {
+                let drop = self.combat_events.len() - 200;
+                self.combat_events.drain(..drop);
+            }
             self.last_combat_snapshot = current_events;
+        }
+        // Log partial translations once when a new result arrives (session diagnosis).
+        for tr in &snap.translation_results {
+            if tr.moved < tr.requested {
+                if let Some(msg) = format_translation_result(&snap, tr) {
+                    if !self.log.iter().rev().take(8).any(|l| l == &msg) {
+                        self.log(msg);
+                    }
+                }
+            }
         }
 
         self.snap = Some(snap);
         self.focus_next_pending_ship();
         self.confirm_tutorial_order();
         self.sync_tutorial_allocate_cursor();
-        self.request_movement_preview();
+        self.request_active_decision_preview();
     }
 
     /// Keep allocate cursor aligned with the tutorial step.
@@ -547,6 +577,127 @@ impl App {
         }
     }
 
+    pub fn accept_maneuver_options(&mut self, preview: crate::protocol::ManeuverOptionsPreview) {
+        if self.focused_ship == Some(preview.ship)
+            && self
+                .snap
+                .as_ref()
+                .is_some_and(|snap| snap.phase == "movement")
+        {
+            self.maneuver_options = Some(preview);
+        }
+    }
+
+    pub fn accept_fire_preview(&mut self, preview: crate::protocol::FireDecisionPreview) {
+        let selection_matches = self.fire_draft.as_ref().is_some_and(|draft| {
+            let Some(snap) = self.snap.as_ref() else {
+                return false;
+            };
+            let weapon = snap
+                .ship(preview.ship)
+                .and_then(|ship| ship.weapons.get(draft.weapon_idx))
+                .map(|weapon| weapon.id.as_str());
+            let target = draft.target.or_else(|| {
+                snap.ships
+                    .iter()
+                    .find(|ship| ship.controller != "player" && !ship.destroyed)
+                    .map(|ship| ship.id)
+            });
+            weapon == Some(preview.weapon.as_str()) && target == Some(preview.target)
+        });
+        if self.focused_ship == Some(preview.ship)
+            && selection_matches
+            && self
+                .snap
+                .as_ref()
+                .is_some_and(|snap| snap.phase == "firing")
+        {
+            // Fable Phase 2: auto-select only when exactly one legal face and
+            // the current draft face is not among them. Preserve multi-face
+            // player agency and keep a shared face across the volley.
+            if let Some(draft) = self.fire_draft.as_mut() {
+                let legal = &preview.legal_shield_facings;
+                if legal.len() == 1 && !legal.contains(&draft.shield_facing) {
+                    draft.shield_facing = legal[0];
+                }
+            }
+            self.fire_preview = Some(preview);
+        }
+    }
+
+    pub fn request_maneuver_options(&mut self) {
+        let Some(snap) = self.snap.as_ref() else {
+            return;
+        };
+        if snap.phase != "movement" || self.mode == Mode::Map {
+            return;
+        }
+        let Some(ship) = self.focused_ship else {
+            return;
+        };
+        if snap
+            .ship(ship)
+            .is_none_or(|ship| ship.controller != "player")
+        {
+            return;
+        }
+        self.pending_maneuver_preview = Some(
+            serde_json::json!({
+                "protocol_version": 3,
+                "request": "maneuver_options",
+                "ship": ship,
+            })
+            .to_string(),
+        );
+    }
+
+    pub fn request_fire_preview(&mut self) {
+        let Some(snap) = self.snap.as_ref() else {
+            return;
+        };
+        if snap.phase != "firing" {
+            return;
+        }
+        let Some(ship_id) = self.focused_ship else {
+            return;
+        };
+        let Some(draft) = self.fire_draft.as_ref() else {
+            return;
+        };
+        let Some(ship) = snap.ship(ship_id) else {
+            return;
+        };
+        let Some(weapon) = ship.weapons.get(draft.weapon_idx) else {
+            return;
+        };
+        let target = draft.target.or_else(|| {
+            snap.ships
+                .iter()
+                .find(|candidate| candidate.controller != "player" && !candidate.destroyed)
+                .map(|candidate| candidate.id)
+        });
+        let Some(target) = target else {
+            return;
+        };
+        self.fire_preview = None;
+        self.pending_fire_preview = Some(
+            serde_json::json!({
+                "protocol_version": 3,
+                "request": "fire_preview",
+                "ship": ship_id,
+                "weapon": weapon.id,
+                "target": target,
+            })
+            .to_string(),
+        );
+    }
+
+    pub fn request_active_decision_preview(&mut self) {
+        self.request_movement_preview();
+        self.request_maneuver_options();
+        self.request_fire_preview();
+    }
+
     pub fn movement_preview_for_focus(&self) -> Option<&crate::protocol::MovementPreview> {
         self.active_preview()
     }
@@ -658,12 +809,21 @@ impl App {
         self.map_zoom = Some(zoom);
     }
 
-    /// Exit Map mode, restoring the phase-appropriate input mode.
+    pub fn enter_map_mode(&mut self) {
+        self.map_return_focus = self.focused_ship;
+        self.reset_map_pan();
+        self.mode = Mode::Map;
+    }
+
+    /// Exit Map mode, restoring command focus and the phase-appropriate form.
     ///
     /// Since `v` can be pressed from Allocate/Movement/Fire (the phase
     /// auto-switch leaves the app there), exiting Map mode must return to the
     /// mode matching the current phase — not unconditionally Normal.
     pub fn exit_map_mode(&mut self) {
+        if let Some(ship_id) = self.map_return_focus.take() {
+            self.switch_focus(ship_id);
+        }
         let phase = self.snap.as_ref().map(|s| s.phase.as_str()).unwrap_or("");
         self.mode = match phase {
             "allocate" => Mode::Allocate,
@@ -671,6 +831,12 @@ impl App {
             "firing" => Mode::Fire,
             _ => Mode::Normal,
         };
+        match self.mode {
+            Mode::Allocate => self.open_allocate_for_focus(),
+            Mode::Fire => self.open_fire_for_focus(),
+            Mode::Movement => self.request_maneuver_options(),
+            _ => {}
+        }
     }
 
     /// Switch command focus without allowing a local draft to follow the
@@ -693,6 +859,10 @@ impl App {
         self.focused_ship = Some(ship_id);
         self.movement_preview = None;
         self.pending_preview = None;
+        self.maneuver_options = None;
+        self.pending_maneuver_preview = None;
+        self.fire_preview = None;
+        self.pending_fire_preview = None;
         // Recenter the map on the newly focused ship (clears manual view state).
         self.reset_map_pan();
         match self.mode {
@@ -700,7 +870,7 @@ impl App {
             Mode::Fire => self.open_fire_for_focus(),
             Mode::Normal | Mode::Movement | Mode::GameOver | Mode::Map => {}
         }
-        self.request_movement_preview();
+        self.request_active_decision_preview();
     }
 
     pub fn open_allocate_for_focus(&mut self) {
@@ -738,16 +908,13 @@ impl App {
             .fire_draft
             .take()
             .or_else(|| self.fire_drafts.remove(&ship_id))
-            .unwrap_or_else(|| {
-                ship.as_ref()
-                    .map(FireDraft::for_ship)
-                    .unwrap_or_default()
-            });
+            .unwrap_or_else(|| ship.as_ref().map(FireDraft::for_ship).unwrap_or_default());
         if let Some(ship) = ship.as_ref() {
             draft.snap_to_operational(ship);
         }
         self.fire_draft = Some(draft);
         self.mode = Mode::Fire;
+        self.request_fire_preview();
     }
 
     fn focus_next_pending_ship(&mut self) {
@@ -810,4 +977,59 @@ impl App {
         let max_r = points.iter().map(|(_, r)| *r).max()?;
         Some((min_q, max_q, min_r, max_r))
     }
+}
+
+/// Human-readable partial-translation line for session log / ship panel.
+pub fn format_translation_result(
+    snap: &protocol::Snapshot,
+    tr: &protocol::TranslationResult,
+) -> Option<String> {
+    if tr.moved >= tr.requested {
+        return None;
+    }
+    let block = tr.blocked.as_ref()?;
+    let cause = match block.kind.as_str() {
+        "edge" => "map edge blocked further travel".to_string(),
+        "occupied" => {
+            let names: Vec<String> = block
+                .ships
+                .iter()
+                .map(|id| {
+                    snap.ship(*id)
+                        .map(protocol::callsign)
+                        .unwrap_or_else(|| format!("#{id}"))
+                })
+                .collect();
+            if names.is_empty() {
+                "blocked by an occupied hex".into()
+            } else {
+                format!("blocked by {}", names.join("/"))
+            }
+        }
+        "contested" => {
+            let names: Vec<String> = block
+                .ships
+                .iter()
+                .filter(|id| **id != tr.ship)
+                .map(|id| {
+                    snap.ship(*id)
+                        .map(protocol::callsign)
+                        .unwrap_or_else(|| format!("#{id}"))
+                })
+                .collect();
+            format!(
+                "destination contested by {}",
+                if names.is_empty() {
+                    "other ships".into()
+                } else {
+                    names.join("/")
+                }
+            )
+        }
+        other => format!("blocked ({other})"),
+    };
+    Some(format!(
+        "Moved {}/{}; {}",
+        tr.moved, tr.requested, cause
+    ))
 }

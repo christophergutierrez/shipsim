@@ -39,6 +39,37 @@ pub struct Snapshot {
     pub fire_commits: Vec<FireCommit>,
     #[serde(default)]
     pub end_turn_warning: bool,
+    /// Engine-authoritative legal fire opportunity (additive protocol field).
+    #[serde(default)]
+    pub fire_opportunity: Option<FireOpportunity>,
+    /// Structured translation outcomes from the last resolved movement phase.
+    #[serde(default)]
+    pub translation_results: Vec<TranslationResult>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FireOpportunity {
+    pub ship: i64,
+    pub weapon: String,
+    pub target: i64,
+    #[serde(default)]
+    pub legal_shield_facings: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TranslationResult {
+    pub ship: i64,
+    pub requested: u32,
+    pub moved: u32,
+    #[serde(default)]
+    pub blocked: Option<TranslationBlock>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TranslationBlock {
+    pub kind: String,
+    #[serde(default)]
+    pub ships: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -171,6 +202,49 @@ pub struct MovementPreview {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ManeuverOptionsPreview {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub ok: bool,
+    pub ship: i64,
+    pub options: Vec<ManeuverOptionPreview>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManeuverOptionPreview {
+    pub maneuver: Maneuver,
+    pub thrust_cost: Option<u32>,
+    pub affordable: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FireDecisionPreview {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub ok: bool,
+    pub legal: bool,
+    pub ship: i64,
+    pub weapon: String,
+    pub target: i64,
+    #[serde(default)]
+    pub range: Option<u32>,
+    #[serde(default)]
+    pub threshold: Option<u32>,
+    #[serde(default)]
+    pub die_sides: Option<u32>,
+    #[serde(default)]
+    pub hit_percent: Option<u32>,
+    #[serde(default)]
+    pub projected_damage: Option<u32>,
+    #[serde(default)]
+    pub legal_shield_facings: Vec<u32>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct HexCoord {
     pub q: i32,
     pub r: i32,
@@ -231,7 +305,7 @@ pub enum OrderBody {
     EndTurn,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Maneuver {
     Coast,

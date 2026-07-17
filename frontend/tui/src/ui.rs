@@ -13,7 +13,7 @@ use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, 
 use ratatui::Frame;
 
 use crate::app::{App, Mode};
-use crate::protocol::{callsign, facing_arrow, shield_label, Ship, Snapshot};
+use crate::protocol::{callsign, facing_arrow, shield_label, Maneuver, Ship, Snapshot};
 
 /// Render the full frame.
 pub fn render(f: &mut Frame, app: &mut App) {
@@ -57,8 +57,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(header_h),
-                Constraint::Min(10),
-                Constraint::Min(8),
+                Constraint::Fill(5),
+                Constraint::Fill(7),
             ])
             .split(size);
         render_header(f, app, snap, chunks[0]);
@@ -67,9 +67,10 @@ pub fn render(f: &mut Frame, app: &mut App) {
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
             .split(chunks[2]);
+        let event_h = if bottom[1].height >= 16 { 6 } else { 3 };
         let right = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+            .constraints([Constraint::Length(event_h), Constraint::Min(6)])
             .split(bottom[1]);
         let status_str = snap.status.clone();
         render_input_panel(f, app, &status_str, snap.is_over(), bottom[0]);
@@ -79,13 +80,14 @@ pub fn render(f: &mut Frame, app: &mut App) {
         // Header is Length so ENGINE soft-errors never get crushed when the
         // form/map compete for space. Map and form share the middle via Fill
         // (form bias slightly higher). Log is short but fixed.
+        let combat_h = if size.height >= 32 { 6 } else { 4 };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(header_h),
                 Constraint::Fill(5), // map
                 Constraint::Fill(6), // phase form (allocate / fire / movement)
-                Constraint::Length(4), // combat log
+                Constraint::Length(combat_h),
             ])
             .split(size);
         render_header(f, app, snap, chunks[0]);
@@ -142,11 +144,7 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     // player always knows what *their* ship will fire on Space.
     let focused_id = app.focused().map(|s| s.id);
     let queued = match focused_id {
-        Some(id) => snap
-            .fire_commits
-            .iter()
-            .filter(|c| c.ship == id)
-            .count(),
+        Some(id) => snap.fire_commits.iter().filter(|c| c.ship == id).count(),
         None => 0,
     };
     let phase = phase_label(&snap.phase, snap.movement_phase);
@@ -179,10 +177,12 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             },
         ),
     ];
-    if snap.end_turn_warning {
+    // Fable Phase 4: concrete next-action guidance (replaces "actions remain").
+    let cta = phase_call_to_action(app, snap);
+    if !cta.is_empty() {
         status_spans.push(Span::styled(
-            "│ actions remain ",
-            Style::default().fg(Color::Red),
+            format!("│ {cta} "),
+            Style::default().fg(Color::Yellow),
         ));
     }
     if let Some(t) = &app.tutorial {
@@ -220,12 +220,38 @@ fn render_confirm_modal(f: &mut Frame, app: &App, area: Rect) {
     let (title, body) = match confirmation {
         crate::app::Confirmation::Quit => (
             "Confirm quit",
-            "Leave this game?\n\ny = quit · n / Esc = cancel",
+            "Leave this game?\n\ny = quit · n / Esc = cancel".to_string(),
         ),
-        crate::app::Confirmation::EndTurn => (
-            "Confirm end turn",
-            "End the whole turn?\nQueued fire may be discarded.\n\ny = end turn · n / Esc = cancel",
-        ),
+        crate::app::Confirmation::EndTurn => {
+            let queued = app
+                .snap
+                .as_ref()
+                .map(|snap| {
+                    snap.fire_commits
+                        .iter()
+                        .filter(|commit| {
+                            snap.ship(commit.ship)
+                                .is_some_and(|ship| ship.controller == "player")
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            let warning = if queued > 0 {
+                format!("{queued} queued shot(s) will be discarded.")
+            } else if app
+                .snap
+                .as_ref()
+                .is_some_and(|snap| snap.fire_opportunity.is_some())
+            {
+                "Unused legal shot will be forfeited.".to_string()
+            } else {
+                "No queued fire or unfinished actions.".to_string()
+            };
+            (
+                "Confirm end turn",
+                format!("End the whole turn?\n{warning}\n\ny = end turn · n / Esc = cancel"),
+            )
+        }
     };
     let width = 48u16.min(area.width.saturating_sub(4));
     let height = 8u16.min(area.height.saturating_sub(2));
@@ -539,21 +565,31 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     let mut lines: Vec<Line> = Vec::new();
 
-    // Column header (q)
-    let mut hdr = vec![Span::styled("   ", Style::default().fg(Color::DarkGray))];
+    // Fable Phase 5: signed q labels at a non-overlapping cadence (not last-digit only).
+    let r_labels: Vec<i32> = (0..metrics.rows)
+        .map(|r| or_ + r as i32 * metrics.scale)
+        .collect();
+    let gutter = r_label_gutter_width(&r_labels);
+    let mut hdr = vec![Span::styled(
+        format!("{:gutter$}", ""),
+        Style::default().fg(Color::DarkGray),
+    )];
+    let label_every = ((4usize).div_ceil(metrics.cell_width.max(1))).max(1);
     for q in 0..metrics.columns {
         let wq = oq + q as i32 * metrics.scale;
-        hdr.push(Span::styled(
-            format!("{:<width$}", wq.rem_euclid(10), width = metrics.cell_width),
-            Style::default().fg(Color::DarkGray),
-        ));
+        let cell = if q % label_every == 0 {
+            format_signed_coord(wq, metrics.cell_width)
+        } else {
+            " ".repeat(metrics.cell_width)
+        };
+        hdr.push(Span::styled(cell, Style::default().fg(Color::DarkGray)));
     }
     lines.push(Line::from(hdr));
 
     for r in 0..metrics.rows {
         let wr = or_ + r as i32 * metrics.scale;
         let mut spans: Vec<Span> = vec![Span::styled(
-            format!("{:2} ", wr),
+            format!("{wr:>gutter$} "),
             Style::default().fg(Color::DarkGray),
         )];
         for q in 0..metrics.columns {
@@ -650,9 +686,9 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A1>3: callsign, face, speed; +N = multipin. ◆ coast ◇ reach"
+        "A1→3 = ship/facing/speed; +N = more ships here. ◆ coast ◇ reach"
     } else {
-        "A1>3: callsign, face, speed; +N = multipin. Shade = weapon arc"
+        "A1→3 = ship/facing/speed; +N = more ships here. Shade = weapon arc"
     };
     lines.push(Line::from(Span::styled(
         legend,
@@ -709,7 +745,10 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(format!("#{} {} size={}", ship.id, ship.class, ship.size)),
+                Span::raw(format!(
+                    "#{} {} profile={}",
+                    ship.id, ship.class, ship.size
+                )),
             ]),
         );
         push(
@@ -727,6 +766,19 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 ship.thrust_remaining
             )),
         );
+        // Fable Phase 3: partial translation notice for the focused ship.
+        if let Some(line) = translation_notice_for_focus(app, snap) {
+            push(
+                f,
+                &mut y,
+                Line::from(Span::styled(
+                    format!("  {line}"),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )),
+            );
+        }
 
         // Show the projected position from the movement preview (if available).
         if let Some(preview) = app.movement_preview_for_focus() {
@@ -894,18 +946,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
         Mode::Allocate => render_allocate_panel(app),
         Mode::Movement => render_movement_panel(app),
         Mode::Fire => render_fire_panel(app),
-        Mode::GameOver => (
-            "Game Over",
-            vec![
-                Line::from(Span::styled(
-                    format!(" Game status: {status}"),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )),
-                Line::from(" q: quit"),
-            ],
-        ),
+        Mode::GameOver => ("Game Over", render_game_over_summary(app, status)),
     };
 
     let title = title.to_string();
@@ -997,6 +1038,24 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                 body_area.height = body_area.height.saturating_sub(1);
             }
         }
+        if body_area.height > 1 {
+            let footer_y = body_area.y + body_area.height - 1;
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    " Enter commit · ↑/↓ select · ←/→ adjust · digits set",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ))),
+                Rect {
+                    x: body_area.x,
+                    y: footer_y,
+                    width: body_area.width,
+                    height: 1,
+                },
+            );
+            body_area.height = body_area.height.saturating_sub(1);
+        }
     } else if matches!(app.mode, Mode::Fire) {
         // Queue line: fixed header so the pending shot count stays visible
         // when the weapon list scrolls (4.1). Mirrors allocate_budget_line.
@@ -1004,6 +1063,21 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             if body_area.height > 2 {
                 f.render_widget(
                     Paragraph::new(queue),
+                    Rect {
+                        x: body_area.x,
+                        y: body_area.y,
+                        width: body_area.width,
+                        height: 1,
+                    },
+                );
+                body_area.y = body_area.y.saturating_add(1);
+                body_area.height = body_area.height.saturating_sub(1);
+            }
+        }
+        if let Some(preview) = fire_preview_line(app) {
+            if body_area.height > 2 {
+                f.render_widget(
+                    Paragraph::new(preview),
                     Rect {
                         x: body_area.x,
                         y: body_area.y,
@@ -1089,13 +1163,13 @@ fn fire_scroll(app: &App, area: Rect) -> u16 {
         .iter()
         .filter(|c| c.ship == ship.id)
         .count();
-    let has_charge = ship
-        .weapons
-        .iter()
-        .any(|w| w.operational && w.charge > 0);
-    let no_charge = if !has_charge && snap.phase == "firing" { 1 } else { 0 };
-    let selected_line = 3 + mine_count + no_charge + 1 + 1 + enemy_count + 1 + 1
-        + draft.weapon_idx;
+    let has_charge = ship.weapons.iter().any(|w| w.operational && w.charge > 0);
+    let no_charge = if !has_charge && snap.phase == "firing" {
+        1
+    } else {
+        0
+    };
+    let selected_line = 3 + mine_count + no_charge + 1 + 1 + enemy_count + 1 + 1 + draft.weapon_idx;
     let visible = area.height.max(1) as usize;
     selected_line
         .saturating_sub(visible.saturating_sub(1))
@@ -1187,6 +1261,55 @@ fn fire_queue_line(app: &App) -> Option<Line<'static>> {
     Some(Line::from(Span::styled(
         format!(" Queued: {mine_count} shot(s) pending"),
         style,
+    )))
+}
+
+fn fire_preview_line(app: &App) -> Option<Line<'static>> {
+    let preview = app.fire_preview.as_ref()?;
+    let face = app.fire_draft.as_ref()?.shield_facing;
+    let target = app
+        .snap
+        .as_ref()?
+        .ship(preview.target)
+        .map(callsign)
+        .unwrap_or_else(|| format!("#{}", preview.target));
+    if !preview.legal {
+        return Some(Line::from(Span::styled(
+            format!(
+                " {}→{}: {}",
+                preview.weapon,
+                target,
+                preview.reason.as_deref().unwrap_or("illegal shot")
+            ),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )));
+    }
+    let face_ok = preview.legal_shield_facings.contains(&face);
+    let valid_faces = preview
+        .legal_shield_facings
+        .iter()
+        .map(|f| shield_label(*f))
+        .collect::<Vec<_>>()
+        .join("/");
+    Some(Line::from(Span::styled(
+        format!(
+            " {}→{} d{}: {}% (d{}≤{}) dmg≈{} · face {} {}{}",
+            preview.weapon,
+            target,
+            preview.range.unwrap_or(0),
+            preview.hit_percent.unwrap_or(0),
+            preview.die_sides.unwrap_or(20),
+            preview.threshold.unwrap_or(0),
+            preview.projected_damage.unwrap_or(0),
+            shield_label(face),
+            if face_ok { "ok" } else { "INVALID; use " },
+            if face_ok { "" } else { valid_faces.as_str() },
+        ),
+        if face_ok {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        },
     )))
 }
 
@@ -1311,12 +1434,7 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         diagram_style,
     )));
     lines.push(Line::from(Span::styled(
-        format!(
-            "   {} {} {}",
-            face_cell(5),
-            face_cell(0),
-            face_cell(1)
-        ),
+        format!("   {} {} {}", face_cell(5), face_cell(0), face_cell(1)),
         diagram_style,
     )));
     lines.push(Line::from(Span::styled(
@@ -1353,12 +1471,27 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         )));
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(
-        " Enter commit · ↓/j next · ↑/k prev · ←/→ adjust · digits set",
-    ));
-
     ("Allocate", lines)
+}
+
+fn maneuver_cost_label(app: &App, maneuver: &Maneuver) -> String {
+    let option = app.maneuver_options.as_ref().and_then(|preview| {
+        preview
+            .options
+            .iter()
+            .find(|option| &option.maneuver == maneuver)
+    });
+    match option {
+        Some(option) if option.affordable => option
+            .thrust_cost
+            .map(|cost| format!("{cost} ok"))
+            .unwrap_or_else(|| "n/a".to_string()),
+        Some(option) => option
+            .thrust_cost
+            .map(|cost| format!("{cost} NO"))
+            .unwrap_or_else(|| "n/a".to_string()),
+        None => "…".to_string(),
+    }
 }
 
 fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
@@ -1388,19 +1521,37 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         )),
         // M6: cycle coach — where the player is in the 4-cycle move/fire loop.
         Line::from(Span::styled(
-            format!(
-                " Cycle {cycle}/4 · commit maneuver (c/t/0–5) · e ends the whole turn"
-            ),
+            format!(" Cycle {cycle}/4 · commit maneuver (c/t/0–5) · e ends the whole turn"),
             Style::default().fg(Color::Cyan),
         )),
         Line::from(Span::styled(
-            " Accel spends thrust along facing (cost often 1; reverse/revector vary).",
-            Style::default().fg(Color::DarkGray),
+            format!(
+                " t accel: cost {} · c coast: cost {}",
+                maneuver_cost_label(app, &Maneuver::Accel),
+                maneuver_cost_label(app, &Maneuver::Coast)
+            ),
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(format!(
+            " Turn costs: {}",
+            (0..=5)
+                .map(|facing| {
+                    if facing == ship.facing {
+                        format!("{facing}:here")
+                    } else {
+                        format!(
+                            "{facing}:{}",
+                            maneuver_cost_label(app, &Maneuver::Turn { facing })
+                        )
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("  ")
         )),
         Line::from(""),
         Line::from(" c: coast (slide only, free)"),
-        Line::from(" t: accel along facing"),
-        Line::from(" 0–5: turn to that facing (facing only — course stays)"),
+        Line::from(" t: accel along facing · NO = insufficient/illegal"),
+        Line::from(" 0–5: turn to that facing (course stays)"),
         Line::from(" Alt+0–5: turn then accel to that facing"),
         Line::from(" r: turn +1 facing"),
         Line::from(""),
@@ -1449,11 +1600,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     // exactly what will fire on Space (weapon → target face F). The `Queued:`
     // summary count is rendered as a fixed header by `fire_queue_line` (see
     // render_input_panel) so it stays visible when the weapon list scrolls.
-    for c in snap
-        .fire_commits
-        .iter()
-        .filter(|c| c.ship == ship.id)
-    {
+    for c in snap.fire_commits.iter().filter(|c| c.ship == ship.id) {
         let target_cs = snap
             .ships
             .iter()
@@ -1467,10 +1614,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     }
     // "No charge" coach (4.2): if every operational weapon is out of charge
     // mid-fire-phase, tell the player Space passes instead of firing.
-    let has_charge = ship
-        .weapons
-        .iter()
-        .any(|w| w.operational && w.charge > 0);
+    let has_charge = ship.weapons.iter().any(|w| w.operational && w.charge > 0);
     if !has_charge && snap.phase == "firing" {
         lines.push(Line::from(Span::styled(
             " No charge left this turn — Space to pass fire",
@@ -1495,7 +1639,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         };
         lines.push(Line::from(Span::styled(
             format!(
-                " {marker} {} {} d={} face={}{} sz={}",
+                " {marker} {} {} d={} face={}{} profile={}",
                 i + 1,
                 callsign(s),
                 dist,
@@ -1545,11 +1689,6 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         " Hit face: {} (←/→ F/FR/RR/R/RL/FL)",
         shield_label(draft.shield_facing)
     )));
-    lines.push(Line::from(Span::styled(
-        " Accuracy: range + target size (no preview).",
-        Style::default().fg(Color::DarkGray),
-    )));
-
     ("Fire", lines)
 }
 
@@ -1636,12 +1775,31 @@ fn focused_range_to_nearest_enemy(app: &App, snap: &Snapshot) -> String {
 ///
 /// Order kept when space allows:
 ///   Map @(q,r) z=N · → B2 d=8 · 2 hex/cell · arc/preview · green=you red=ai
+fn r_label_gutter_width(labels: &[i32]) -> usize {
+    labels
+        .iter()
+        .map(|v| format!("{v}").len())
+        .max()
+        .unwrap_or(2)
+        .max(2)
+        + 1 // trailing space for separation from the grid
+}
+
+fn format_signed_coord(value: i32, width: usize) -> String {
+    let s = format!("{value}");
+    if s.chars().count() >= width {
+        s.chars().take(width).collect()
+    } else {
+        format!("{s:<width$}")
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_map_title(
     max_width: usize,
     oq: i32,
     or_: i32,
-    zoom: i8,
+    _zoom: i8,
     scale: i32,
     range_readout: &str,
     shade: Option<(&str, u32)>,
@@ -1650,11 +1808,12 @@ fn build_map_title(
     // Inner title width ≈ panel width minus borders; leave a small margin.
     let budget = max_width.saturating_sub(2).max(12);
 
-    let base = format!("Map @({oq},{or_}) z={zoom}");
+    // Fable Phase 5: no internal z=N — only hex/cell (and zoom:auto when manual unset is implied by scale).
+    let base = format!("Map @({oq},{or_})");
     let scale_part = if scale > 1 {
         format!(" · {scale} hex/cell")
     } else {
-        String::new()
+        " · 1 hex/cell".to_string()
     };
     let mode_part = if let Some((mount, max_range)) = shade {
         format!(" · {mount} arc ≤{max_range}")
@@ -1671,12 +1830,11 @@ fn build_map_title(
         // If even base+range overflows, keep a compact range-first form.
         let with_range = format!("{title}{range_readout}");
         if with_range.chars().count() > budget {
-            // Drop coords if needed: "Map z=N · → B2 d=8"
-            let compact = format!("Map z={zoom}{range_readout}");
+            // Drop coords if needed: "Map · → B2 d=8"
+            let compact = format!("Map{range_readout}");
             return if compact.chars().count() <= budget {
                 compact
             } else {
-                // Last resort: range alone after Map.
                 let bare = format!("Map{range_readout}");
                 bare.chars().take(budget).collect()
             };
@@ -1732,9 +1890,7 @@ fn off_map_contacts(
     let mut off_map: Vec<(&crate::protocol::Ship, u32)> = snap
         .ships
         .iter()
-        .filter(|s| {
-            s.id != me.id && !s.destroyed
-        })
+        .filter(|s| s.id != me.id && !s.destroyed)
         .filter(|s| {
             // A ship is off-map if its q or r falls outside the viewport.
             let q_idx = (s.q - oq).div_euclid(scale);
@@ -1829,4 +1985,135 @@ fn render_tutorial_panel(f: &mut Frame, app: &App, area: Rect) {
             height: body_h,
         },
     );
+}
+
+/// Fable Phase 4: phase-specific call-to-action for the header (replaces "actions remain").
+fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
+    // A finished game has no next action; pointing at allocation/maneuvers
+    // would be stale advice. The Game Over panel carries the summary.
+    if matches!(snap.status.as_str(), "Won" | "Lost") {
+        return "Game over — q quits".into();
+    }
+    let player = snap.player_ship();
+    let player_cs = player.map(callsign).unwrap_or_else(|| "A1".into());
+    let focused_id = app.focused().map(|s| s.id);
+
+    match snap.phase.as_str() {
+        "allocate" => {
+            let pending = player
+                .filter(|s| !snap.ships_allocated_this_turn.contains(&s.id))
+                .is_some();
+            if pending {
+                format!("{player_cs} needs power allocation")
+            } else {
+                String::new()
+            }
+        }
+        "movement" => {
+            let pending = player
+                .filter(|s| !snap.ships_committed_this_phase.contains(&s.id))
+                .is_some();
+            if pending {
+                format!("{player_cs} needs a maneuver")
+            } else {
+                String::new()
+            }
+        }
+        "firing" => {
+            let queued = focused_id
+                .map(|id| {
+                    snap.fire_commits
+                        .iter()
+                        .filter(|c| c.ship == id)
+                        .count()
+                })
+                .unwrap_or(0);
+            if queued > 0 {
+                format!("{queued} shots queued; Space resolves fire")
+            } else if let Some(opp) = &snap.fire_opportunity {
+                let w = &opp.weapon;
+                let tgt = snap
+                    .ship(opp.target)
+                    .map(callsign)
+                    .unwrap_or_else(|| format!("#{}", opp.target));
+                format!("Shot available: {w} -> {tgt}")
+            } else {
+                "No legal shot; Space passes fire".into()
+            }
+        }
+        "turn_end" => {
+            if snap.fire_opportunity.is_some() || snap.end_turn_warning {
+                "Unused legal shot will be forfeited".into()
+            } else {
+                "Turn complete; e starts allocation".into()
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+fn translation_notice_for_focus(app: &App, snap: &Snapshot) -> Option<String> {
+    let id = app.focused()?.id;
+    let tr = snap.translation_results.iter().find(|r| r.ship == id)?;
+    crate::app::format_translation_result(snap, tr)
+}
+
+fn render_game_over_summary(app: &App, status: &str) -> Vec<Line<'static>> {
+    let banner = match status {
+        "Won" => " VICTORY",
+        "Lost" => " DEFEAT",
+        other => other,
+    };
+    let turn = app.snap.as_ref().map(|s| s.turn).unwrap_or(0);
+
+    // Stats from structured combat events (player controller attacks/defenses).
+    let mut shots = 0u32;
+    let mut hits = 0u32;
+    let mut int_dealt = 0u32;
+    let mut int_taken = 0u32;
+    if let Some(snap) = app.snap.as_ref() {
+        for e in &app.combat_events {
+            let atk_player = snap
+                .ship(e.attacker)
+                .is_some_and(|s| s.controller == "player");
+            let tgt_player = snap
+                .ship(e.target)
+                .is_some_and(|s| s.controller == "player");
+            if atk_player {
+                shots += 1;
+                if e.kind == "hit" {
+                    hits += 1;
+                    int_dealt += e.hull_damage;
+                }
+            }
+            if tgt_player && e.kind == "hit" {
+                int_taken += e.hull_damage;
+            }
+        }
+    }
+
+    let color = if status == "Won" {
+        Color::Green
+    } else if status == "Lost" {
+        Color::Red
+    } else {
+        Color::Yellow
+    };
+
+    vec![
+        Line::from(Span::styled(
+            banner.to_string(),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!(" Turns: {turn}")),
+        Line::from(format!(" Player shots: {shots}  hits: {hits}")),
+        Line::from(format!(" Internal damage dealt: {int_dealt}")),
+        Line::from(format!(" Internal damage taken: {int_taken}")),
+        Line::from(""),
+        Line::from(" q: quit  ·  session log written on exit"),
+        Line::from(Span::styled(
+            " Combat log remains below / in the log panel.",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ]
 }

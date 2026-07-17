@@ -109,6 +109,29 @@ fn enter_firing(game: &mut shipsim_core::game_state::GameState) {
     assert_eq!(StateSnapshot::from_game_state(game).phase, "firing");
 }
 
+#[test]
+fn fire_decision_preview_reports_odds_damage_and_faces_without_mutating() {
+    let mut game = load_combat();
+    allocate(&mut game, 1, 0, &[("beam_1", 4)], [0; 6]);
+    allocate(&mut game, 2, 0, &[("beam_1", 1)], [0; 6]);
+    enter_firing(&mut game);
+    let before = StateSnapshot::from_game_state(&game);
+    let prng_before = game.prng_state();
+
+    let preview = game.fire_decision_preview(1, "beam_1", 2).unwrap();
+    assert_eq!(preview.range, 1);
+    assert!(preview.threshold > 0);
+    assert_eq!(preview.die_sides, 20);
+    assert!(preview.hit_percent > 0);
+    assert!(preview.projected_damage > 0);
+    assert!(!preview.legal_shield_facings.is_empty());
+
+    let after = StateSnapshot::from_game_state(&game);
+    assert_eq!(after.phase, before.phase);
+    assert_eq!(after.fire_commits, before.fire_commits);
+    assert_eq!(game.prng_state(), prng_before);
+}
+
 fn ready_all(game: &mut shipsim_core::game_state::GameState, ships: &[u32]) {
     for &ship in ships {
         apply_order(game, Order::ReadyFire { ship }).expect("ready fire");

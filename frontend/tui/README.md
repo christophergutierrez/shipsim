@@ -83,7 +83,8 @@ cargo run --release --manifest-path frontend/tui/Cargo.toml
 `Backspace` clears; `Enter` commits the `allocate` order.
 
 **Movement mode** — `c` coast, `t` accel along facing, `0`–`5` turn to absolute
-facing, `r` turn +1 facing. Each sends one `commit_maneuver`.
+facing, `r` turn +1 facing. The panel shows engine-provided thrust costs and
+marks unaffordable choices before input. Each sends one `commit_maneuver`.
 
 **Tutorial mode** (`--tutorial`) — narration panel + step gate for the aggressive
 rear-attack (race past → inspect map → turn west → rear-arc beam/torp/plasma).
@@ -94,7 +95,8 @@ acknowledgment, so a rejected order cannot desynchronize the lesson.
 
 **Fire mode** — `↓`/`↑` cycles weapon; `1`–`9` select target by enemy index;
 `←`/`→` cycle shield facing; `Enter` commits `commit_fire`. Target auto-selects
-the first enemy if none is chosen.
+the first enemy if none is chosen. The fixed preview line shows engine-provided
+hit chance, projected damage, and valid shield faces for the current choice.
 
 ## Verify
 
@@ -136,7 +138,7 @@ Port **behavior and vocabulary** from the REPL, not pixel-identical ANSI:
   `combat_log[]` (attacker, target, **weapon**, kind, damage, shield),
   `ships_allocated_this_turn`, `ships_ready_fire`, `end_turn_warning`,
   `move_order`, `protocol_version`.
-- Orders: `allocate`, `move`, `pass_move`, `commit_fire`, `ready_fire`, `end_turn`
+- Orders: `allocate`, `commit_maneuver`, `commit_fire`, `ready_fire`, `end_turn`
   — shapes in `src/movement.rs` and `docs/PROTOCOL.md`. Fixtures:
   `tests/fixtures/v2/duel_orders.jsonl`.
 

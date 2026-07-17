@@ -123,6 +123,49 @@ remain unknown, so occupied endpoints are advisory rather than a promise that
 their current occupants will still be there at resolution. See
 `src/movement_preview.rs` (ADR-0022 preview contract).
 
+### `maneuver_options`
+
+Returns every immediate maneuver with its authoritative thrust cost and whether
+the focused ship can afford it. Legal only during movement.
+
+```json
+{"protocol_version":3,"request":"maneuver_options","ship":1}
+```
+
+```json
+{"type":"maneuver_options","protocol_version":3,"ok":true,"ship":1,
+ "options":[
+   {"maneuver":{"type":"coast"},"thrust_cost":0,"affordable":true},
+   {"maneuver":{"type":"turn","facing":3},"thrust_cost":3,
+    "affordable":false,"reason":"need 3, have 2"}
+ ]}
+```
+
+Invalid maneuvers remain in the list with `thrust_cost:null`,
+`affordable:false`, and an explanatory `reason`. This lets clients explain or
+disable choices without reproducing motion rules.
+
+### `fire_preview`
+
+Returns the hit threshold, percentage, projected damage, and geometrically
+legal shield facings for one weapon/target pairing. Legal only during firing.
+It does not queue the shot, roll the die, consume charge, or advance the PRNG.
+
+```json
+{"protocol_version":3,"request":"fire_preview","ship":1,
+ "weapon":"beam_1","target":2}
+```
+
+```json
+{"type":"fire_preview","protocol_version":3,"ok":true,"legal":true,
+ "ship":1,"weapon":"beam_1","target":2,"range":3,
+ "threshold":19,"die_sides":20,"hit_percent":95,"projected_damage":7,
+ "legal_shield_facings":[3]}
+```
+
+An illegal pairing is still a successful read-only request and returns
+`legal:false` with `reason`. Malformed requests return `preview_invalid`.
+
 ## Phase loop
 
 allocate (all ships) → 4× (movement commit all → slide → firing → ready all) → end_turn → allocate …
@@ -132,6 +175,14 @@ allocate (all ships) → 4× (movement commit all → slide → firing → ready
 Post-load and after each accepted order. `protocol_version: 3`. Includes phase,
 ships (`size`, velocity, course, facing, thrust_remaining, weapon charge, shields),
 combat_log, etc. See `src/snapshot.rs`.
+
+**Additive snapshot fields (no protocol bump):**
+
+| Field | Meaning |
+|---|---|
+| `translation_results` | After each resolved movement phase: per living ship that attempted a slide, `{ship, requested, moved, blocked?}`. `requested` is post-maneuver velocity (hexes scheduled); `moved` is hexes actually translated; `blocked.kind` is `edge` \| `occupied` \| `contested` with optional `ships` ids. Replaced on the next movement resolution; empty before the first. |
+| `fire_opportunity` | Optional one legal shot `{ship, weapon, target, legal_shield_facings}` when any living ship still has a currently legal fire. Absent when none. |
+| `end_turn_warning` | Boolean advisory: **true iff `fire_opportunity` is present**. Never blocks `end_turn`. |
 
 `ships[].size` is a positive relative target silhouette. The engine scales the
 range-table d20 hit threshold by `size / 2`; clients should use it when showing

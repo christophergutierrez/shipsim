@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 use shipsim_core::game_state::GameState;
 use shipsim_core::movement::OrderError;
+use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::snapshot::StateSnapshot;
 
@@ -24,6 +25,42 @@ fn load_combat() -> GameState {
 
 fn empty_weapons() -> BTreeMap<String, u32> {
     BTreeMap::new()
+}
+
+#[test]
+fn maneuver_options_report_costs_without_mutating_state() {
+    let mut game = load_combat();
+    apply_order(
+        &mut game,
+        Order::Allocate {
+            ship: 1,
+            movement: 2,
+            weapons: empty_weapons(),
+            shields: [0; 6],
+        },
+    )
+    .unwrap();
+    apply_order(
+        &mut game,
+        Order::Allocate {
+            ship: 2,
+            movement: 0,
+            weapons: empty_weapons(),
+            shields: [0; 6],
+        },
+    )
+    .unwrap();
+    let before = StateSnapshot::from_game_state(&game);
+
+    let options = game.maneuver_options(1).unwrap();
+    let reverse_turn = options
+        .iter()
+        .find(|option| option.maneuver == shipsim_core::motion::Maneuver::Turn { facing: 0 })
+        .unwrap();
+    assert_eq!(reverse_turn.thrust_cost, Some(3));
+    assert!(!reverse_turn.affordable);
+    assert_eq!(StateSnapshot::from_game_state(&game).phase, before.phase);
+    assert_eq!(game.prng_state(), before.prng_state);
 }
 
 #[test]

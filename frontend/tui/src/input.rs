@@ -115,8 +115,7 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
         && app.mode != Mode::Map
         && app.confirmation.is_none()
     {
-        app.reset_map_pan();
-        app.mode = Mode::Map;
+        app.enter_map_mode();
         return KeyResult::Continue;
     }
 
@@ -520,18 +519,23 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             )
         }
         KeyCode::Down | KeyCode::Char('j') => {
+            // Fable Phase 1: clamp at last field — never wrap to movement.
             app.digit_entry = None;
             if let Some(draft) = &mut app.alloc_draft {
-                let n_fields = draft.n_fields().max(1);
-                draft.cursor = (draft.cursor + 1) % n_fields;
+                let last = draft.n_fields().saturating_sub(1);
+                if draft.cursor < last {
+                    draft.cursor += 1;
+                }
             }
             KeyResult::Continue
         }
         KeyCode::Up | KeyCode::Char('k') => {
+            // Fable Phase 1: clamp at first field — never wrap to last shield.
             app.digit_entry = None;
             if let Some(draft) = &mut app.alloc_draft {
-                let n_fields = draft.n_fields().max(1);
-                draft.cursor = (draft.cursor + n_fields - 1) % n_fields;
+                if draft.cursor > 0 {
+                    draft.cursor -= 1;
+                }
             }
             KeyResult::Continue
         }
@@ -822,6 +826,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                 }
                 draft.weapon_idx = next;
             }
+            app.request_fire_preview();
             KeyResult::Continue
         }
         KeyCode::Up | KeyCode::Char('k') => {
@@ -842,6 +847,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                 }
                 draft.weapon_idx = prev;
             }
+            app.request_fire_preview();
             KeyResult::Continue
         }
         KeyCode::Left => {
@@ -912,6 +918,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                 if let Some(draft) = &mut app.fire_draft {
                     draft.target = Some(tid);
                 }
+                app.request_fire_preview();
             }
             KeyResult::Continue
         }

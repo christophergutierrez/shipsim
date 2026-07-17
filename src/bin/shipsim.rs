@@ -323,7 +323,7 @@ fn apply_order_line(game: &mut GameState, line: &str) -> Result<Option<Order>, S
 ///
 /// A `request` line is never an order: it must not mutate game state, is
 /// excluded from save/replay, and returns a request-specific envelope instead
-/// of a snapshot. Today the only supported request is `movement_preview`.
+/// of a snapshot. Supported requests are projections only; none mutate state.
 fn handle_request(
     game: &GameState,
     request: &str,
@@ -331,6 +331,8 @@ fn handle_request(
 ) -> Result<Option<Order>, String> {
     match request {
         "movement_preview" => handle_movement_preview(game, order_val),
+        "maneuver_options" => handle_maneuver_options(game, order_val),
+        "fire_preview" => handle_fire_preview(game, order_val),
         other => {
             emit_error(
                 "unknown_request",
@@ -341,6 +343,135 @@ fn handle_request(
             Ok(None)
         }
     }
+}
+
+fn request_ship(order_val: &serde_json::Value, request: &str) -> Result<Option<u32>, String> {
+    let Some(value) = order_val.get("ship").and_then(serde_json::Value::as_u64) else {
+        emit_error(
+            "preview_invalid",
+            &format!("{request} requires integer `ship`"),
+            Some(order_val.clone()),
+            "harness",
+        )?;
+        return Ok(None);
+    };
+    let Ok(ship) = u32::try_from(value) else {
+        emit_error(
+            "preview_invalid",
+            &format!("{request} `ship` is out of range"),
+            Some(order_val.clone()),
+            "harness",
+        )?;
+        return Ok(None);
+    };
+    Ok(Some(ship))
+}
+
+fn emit_request_body(body: &serde_json::Value) -> Result<Option<Order>, String> {
+    let mut out = io::stdout().lock();
+    writeln!(
+        out,
+        "{}",
+        serde_json::to_string(body).map_err(|error| error.to_string())?
+    )
+    .map_err(|error| error.to_string())?;
+    out.flush().map_err(|error| error.to_string())?;
+    Ok(None)
+}
+
+/// Immediate maneuver costs and affordability for one ship.
+fn handle_maneuver_options(
+    game: &GameState,
+    order_val: &serde_json::Value,
+) -> Result<Option<Order>, String> {
+    let Some(ship) = request_ship(order_val, "maneuver_options")? else {
+        return Ok(None);
+    };
+    match game.maneuver_options(ship) {
+        Ok(options) => emit_request_body(&serde_json::json!({
+            "type": "maneuver_options",
+            "protocol_version": PROTOCOL_VERSION,
+            "ok": true,
+            "ship": ship,
+            "options": options,
+        })),
+        Err(error) => {
+            emit_error(
+                "preview_invalid",
+                &error.to_string(),
+                Some(order_val.clone()),
+                "harness",
+            )?;
+            Ok(None)
+        }
+    }
+}
+
+/// Authoritative hit chance, projected damage, and legal target shield faces
+/// for a weapon/target pairing. Illegal pairings remain soft preview results.
+fn handle_fire_preview(
+    game: &GameState,
+    order_val: &serde_json::Value,
+) -> Result<Option<Order>, String> {
+    let Some(ship) = request_ship(order_val, "fire_preview")? else {
+        return Ok(None);
+    };
+    let Some(weapon) = order_val.get("weapon").and_then(serde_json::Value::as_str) else {
+        emit_error(
+            "preview_invalid",
+            "fire_preview requires string `weapon`",
+            Some(order_val.clone()),
+            "harness",
+        )?;
+        return Ok(None);
+    };
+    let Some(target_value) = order_val.get("target").and_then(serde_json::Value::as_u64) else {
+        emit_error(
+            "preview_invalid",
+            "fire_preview requires integer `target`",
+            Some(order_val.clone()),
+            "harness",
+        )?;
+        return Ok(None);
+    };
+    let Ok(target) = u32::try_from(target_value) else {
+        emit_error(
+            "preview_invalid",
+            "fire_preview `target` is out of range",
+            Some(order_val.clone()),
+            "harness",
+        )?;
+        return Ok(None);
+    };
+
+    let body = match game.fire_decision_preview(ship, weapon, target) {
+        Ok(preview) => serde_json::json!({
+            "type": "fire_preview",
+            "protocol_version": PROTOCOL_VERSION,
+            "ok": true,
+            "legal": true,
+            "ship": preview.ship,
+            "weapon": preview.weapon,
+            "target": preview.target,
+            "range": preview.range,
+            "threshold": preview.threshold,
+            "die_sides": preview.die_sides,
+            "hit_percent": preview.hit_percent,
+            "projected_damage": preview.projected_damage,
+            "legal_shield_facings": preview.legal_shield_facings,
+        }),
+        Err(error) => serde_json::json!({
+            "type": "fire_preview",
+            "protocol_version": PROTOCOL_VERSION,
+            "ok": true,
+            "legal": false,
+            "ship": ship,
+            "weapon": weapon,
+            "target": target,
+            "reason": error.to_string(),
+        }),
+    };
+    emit_request_body(&body)
 }
 
 /// `movement_preview` request (ADR-0022 preview contract).
