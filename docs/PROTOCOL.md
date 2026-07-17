@@ -181,7 +181,7 @@ combat_log, etc. See `src/snapshot.rs`.
 | Field | Meaning |
 |---|---|
 | `translation_results` | After each resolved movement phase: per living ship that attempted a slide, `{ship, requested, moved, blocked?}`. `requested` is post-maneuver velocity (hexes scheduled); `moved` is hexes actually translated; `blocked.kind` is `edge` \| `occupied` \| `contested` with optional `ships` ids. Replaced on the next movement resolution; empty before the first. |
-| `fire_opportunity` | Optional one legal shot `{ship, weapon, target, legal_shield_facings}` when any living ship still has a currently legal fire. Absent when none. |
+| `fire_opportunity` | Optional one legal **player** shot `{ship, weapon, target, legal_shield_facings}`. Skips ships already in `ships_ready_fire` and weapons already in `fire_commits` this cycle. Absent when no remaining player opportunity. |
 | `end_turn_warning` | Boolean advisory: **true iff `fire_opportunity` is present**. Never blocks `end_turn`. |
 
 `ships[].size` is a positive relative target silhouette. The engine scales the

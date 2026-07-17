@@ -1337,10 +1337,21 @@ impl GameState {
             .ships
             .iter()
             .filter(|s| !s.destroyed && self.controller_label(s.id) == "player")
+            // Ships already ready this fire cycle cannot act further — advertising
+            // their shots is header dishonesty ("ship N is already ready to fire").
+            .filter(|s| !self.ready_fire.contains(&s.id))
             .collect();
         attackers.sort_by_key(|s| s.id);
         for attacker in attackers {
             for weapon in &attacker.weapons {
+                // Already queued this cycle — skip so CTA does not re-offer it.
+                if self
+                    .fire_commits
+                    .iter()
+                    .any(|c| c.ship == attacker.id && c.weapon == weapon.id)
+                {
+                    continue;
+                }
                 if !self.weapon_has_legal_shot(attacker, weapon) {
                     continue;
                 }

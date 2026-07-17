@@ -78,9 +78,16 @@ pub fn render(f: &mut Frame, app: &mut App) {
         render_tutorial_panel(f, app, right[1]);
     } else {
         // Header is Length so ENGINE soft-errors never get crushed when the
-        // form/map compete for space. Map and form share the middle via Fill
-        // (form bias slightly higher). Log is short but fixed.
-        let combat_h = if size.height >= 32 { 6 } else { 4 };
+        // form/map compete for space. Map and form share the middle via Fill.
+        // Combat log grows modestly with terminal height so multi-ship volleys
+        // stay readable without crushing map/form at typical 80×24 / 100×30.
+        // h≤25 → 4, ≤31 → 6, ≤39 → 8, else → 10.
+        let combat_h = match size.height {
+            0..=25 => 4,
+            26..=31 => 6,
+            32..=39 => 8,
+            _ => 10,
+        };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -1709,17 +1716,25 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 
 fn render_events_log(f: &mut Frame, app: &App, area: Rect) {
     let event_block = Block::default().borders(Borders::ALL).title("Combat Log");
-    let events = if app.recent_events.is_empty() {
-        &app.combat_history
-    } else {
+    // Prefer the current volley (recent_events) in chronological order so a
+    // simultaneous 2v2 exchange (6–8 lines) is readable start-to-finish.
+    // Newest-first previously put the AI return fire on top and truncated
+    // the player's own shots out of a short panel.
+    let live_volley = !app.recent_events.is_empty();
+    let events = if live_volley {
         &app.recent_events
+    } else {
+        &app.combat_history
     };
     let event_items: Vec<ListItem> = if events.is_empty() {
         vec![ListItem::new("(no combat yet)")]
     } else {
-        events
-            .iter()
-            .rev()
+        let ordered: Box<dyn Iterator<Item = &String>> = if live_volley {
+            Box::new(events.iter()) // chronological
+        } else {
+            Box::new(events.iter().rev()) // history: newest first when browsing
+        };
+        ordered
             .map(|e| {
                 let style = if e.contains("HIT") {
                     Style::default().fg(Color::Yellow)
@@ -1738,18 +1753,22 @@ fn render_events_log(f: &mut Frame, app: &App, area: Rect) {
         )));
     }
     items.extend(event_items);
-    items.extend(
-        app.log
-            .iter()
-            .rev()
-            .filter(|line| !line.starts_with("ERROR:"))
-            .map(|l| {
-                ListItem::new(Span::styled(
-                    l.as_str(),
-                    Style::default().fg(Color::DarkGray),
-                ))
-            }),
-    );
+    // During a live volley, keep the panel for combat only — command-log
+    // lines used to crowd out the last shots of a multi-ship exchange.
+    if !live_volley {
+        items.extend(
+            app.log
+                .iter()
+                .rev()
+                .filter(|line| !line.starts_with("ERROR:"))
+                .map(|l| {
+                    ListItem::new(Span::styled(
+                        l.as_str(),
+                        Style::default().fg(Color::DarkGray),
+                    ))
+                }),
+        );
+    }
     let visible = area.height.saturating_sub(2) as usize;
     if items.len() > visible {
         items.truncate(visible);
@@ -2035,6 +2054,32 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
         "allocate" => pending_cta(&snap.ships_allocated_this_turn, "needs power allocation"),
         "movement" => pending_cta(&snap.ships_committed_this_phase, "needs a maneuver"),
         "firing" => {
+            let focused_ready =
+                focused_id.is_some_and(|id| snap.ships_ready_fire.contains(&id));
+            if focused_ready {
+                let cs = app
+                    .focused()
+                    .map(callsign)
+                    .unwrap_or_else(|| "Ship".into());
+                // Opportunity scan already skips ready ships; if another ship
+                // still has a shot, point Tab there instead of re-offering this one.
+                if let Some(opp) = &snap.fire_opportunity {
+                    if focused_id != Some(opp.ship) {
+                        let other = snap
+                            .ship(opp.ship)
+                            .map(callsign)
+                            .unwrap_or_else(|| format!("#{}", opp.ship));
+                        return format!(
+                            "{cs} ready · Shot available: {other} {} -> {} — Tab to switch",
+                            opp.weapon,
+                            snap.ship(opp.target)
+                                .map(callsign)
+                                .unwrap_or_else(|| format!("#{}", opp.target))
+                        );
+                    }
+                }
+                return format!("{cs} ready this cycle");
+            }
             let queued = focused_id
                 .map(|id| snap.fire_commits.iter().filter(|c| c.ship == id).count())
                 .unwrap_or(0);
