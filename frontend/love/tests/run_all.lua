@@ -696,4 +696,74 @@ do
   ok("fx update no-op on nonpositive dt")
 end
 
+-- UPGRADE-PLAN Phase 3 milestone: spawn 100 floaters, step update(60×2s),
+-- assert the pool empties (tweens complete and free themselves).
+do
+  local sys = fx.new()
+  for i = 1, 100 do
+    fx.spawn(sys, i, i, "-" .. i, { life = 0.9, vy = -20.0 })
+  end
+  assert_eq(fx.count(sys), 100, "100 floaters spawned")
+  -- 60 steps of 2s = 120s total; life is 0.9s so all expire well before.
+  for _ = 1, 60 do
+    fx.update(sys, 2.0)
+  end
+  assert_eq(fx.count(sys), 0, "pool empty after 60×2s")
+  ok("fx tweens complete and free themselves")
+end
+
+-- UPGRADE-PLAN Phase 3 milestone: damage pulse spawns, fades, and expires.
+do
+  local sys = fx.new()
+  -- No pulse -> alpha 0.
+  assert_eq(fx.pulse_alpha(sys, 1), 0.0, "no pulse -> alpha 0")
+  fx.pulse(sys, 1)
+  assert_eq(fx.pulse_alpha(sys, 1), 1.0, "fresh pulse -> alpha 1.0")
+  -- Step half the pulse life (0.2s of 0.4s) -> alpha 0.5.
+  fx.update(sys, 0.2)
+  assert_eq(fx.pulse_alpha(sys, 1), 0.5, "half-life pulse -> alpha 0.5")
+  -- Step past life -> pulse expired, alpha 0.
+  fx.update(sys, 0.3)
+  assert_eq(fx.pulse_alpha(sys, 1), 0.0, "expired pulse -> alpha 0.0")
+  -- Re-pulse restarts the timer.
+  fx.pulse(sys, 1)
+  assert_eq(fx.pulse_alpha(sys, 1), 1.0, "re-pulse restarts at 1.0")
+  ok("fx damage pulse fades and expires")
+end
+
+-- UPGRADE-PLAN Phase 3 milestone: ticker colors by event kind. The pure
+-- event_color function must return a distinct color per kind so the ticker
+-- is legible (green = hit dealt, red = hit taken, gray = miss, yellow =
+-- blocked). Tested headless via draw_hud (already required above).
+do
+  local green = draw_hud.event_color("hit_dealt")
+  local red = draw_hud.event_color("hit_taken")
+  local gray = draw_hud.event_color("miss")
+  local yellow = draw_hud.event_color("blocked")
+  assert(green and green[1] and green[2] and green[3], "hit_dealt color is rgb")
+  assert(red and red[1], "hit_taken color is rgb")
+  -- Distinct: green should be greener than red (g > r), red redder (r > g).
+  assert(green[2] > green[1], "hit_dealt is greenish (g > r)")
+  assert(red[1] > red[2], "hit_taken is reddish (r > g)")
+  assert(gray[1] == gray[2], "miss is gray (r == g)")
+  assert(yellow[1] > yellow[3], "blocked is yellowish (r > b)")
+  -- Unknown kind falls back to info color, not nil.
+  assert(draw_hud.event_color("nonsense") ~= nil, "unknown kind falls back")
+  ok("ticker colors by event kind")
+end
+
+-- UPGRADE-PLAN Phase 3: ticker_alpha fade curve (pure function).
+do
+  -- No last_event_time -> full alpha (never fades before first event).
+  assert_eq(draw_hud.ticker_alpha(100, nil), 1.0, "no last event -> 1.0")
+  -- Just happened -> full alpha.
+  assert_eq(draw_hud.ticker_alpha(100, 100), 1.0, "just now -> 1.0")
+  -- Halfway through fade (2.5s of 5s) -> linear 1.0 to 0.35.
+  local a = draw_hud.ticker_alpha(102.5, 100)
+  assert(a < 1.0 and a > 0.35, "halfway fade between 1.0 and 0.35")
+  -- Past fade window -> settled at faded alpha.
+  assert_eq(draw_hud.ticker_alpha(110, 100), 0.35, "past 5s -> 0.35")
+  ok("ticker alpha fades over time")
+end
+
 print(string.format("\nAll %d checks passed.", pass))

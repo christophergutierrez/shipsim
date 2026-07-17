@@ -29,7 +29,9 @@ end
 
 --- Format a combat_log entry into an event. `player_ids` is a set
 --- (id -> true) of player-controlled ship ids, used to classify hit_dealt
---- vs hit_taken. Returns the event table.
+--- vs hit_taken. Returns the event table. Combat events carry a `meta` table
+--- with target_id / hull_damage so the controller (main.lua) can spawn damage
+--- floaters and pulses at the right ship without re-parsing the text.
 local function combat_event(entry, turn, player_ids)
   local is_player_attacker = player_ids[entry.attacker] == true
   local is_player_target = player_ids[entry.target] == true
@@ -39,6 +41,7 @@ local function combat_event(entry, turn, player_ids)
       kind = "miss",
       text = string.format("%d %s → %d: MISS",
         entry.attacker, entry.weapon, entry.target),
+      meta = { target_id = entry.target, hull_damage = 0 },
     }
   end
   -- hit
@@ -59,7 +62,12 @@ local function combat_event(entry, turn, player_ids)
     text = string.format("%d %s → %d: -%d", entry.attacker, entry.weapon,
       entry.target, dmg)
   end
-  return { turn = turn, kind = kind, text = text }
+  return {
+    turn = turn,
+    kind = kind,
+    text = text,
+    meta = { target_id = entry.target, hull_damage = hull },
+  }
 end
 
 --- Format a blocked translation into an event.

@@ -79,11 +79,54 @@ local function sync_phase()
       app.attack_accuracy[s.id] = s.attack_accuracy_bonus or 0
     end
     -- Feed the event ring buffer (player_ids set for hit classification).
+    -- UPGRADE-PLAN Phase 3: after feeding, inspect new combat events to spawn
+    -- damage floaters (at the target ship's hex) and damage pulses (on hull
+    -- loss). The event meta carries target_id + hull_damage so we don't
+    -- re-parse the text. hex→pixel is geometry-for-pixels, not legality.
     local pids = {}
     for _, s in ipairs(snap.ships or {}) do
       if s.controller == "player" then pids[s.id] = true end
     end
+    local prev_count = events.count(app.events)
     events.feed(app.events, snap, pids)
+    local new_count = events.count(app.events)
+    if new_count > prev_count then
+      app.last_event_time = love.timer.getTime()
+      -- Spawn floaters + pulses for new combat events.
+      local size = draw_board.hex_size()
+      local ship_pos = {}
+      for _, s in ipairs(snap.ships or {}) do
+        ship_pos[s.id] = { hex.to_pixel(s.q, s.r, size) }
+      end
+      local rec = events.recent(app.events, new_count - prev_count)
+      for _, ev in ipairs(rec) do
+        if ev.meta and ev.meta.target_id and ship_pos[ev.meta.target_id] then
+          local px, py = unpack(ship_pos[ev.meta.target_id])
+          -- Floater text + color by event kind.
+          local text, color
+          if ev.kind == "miss" then
+            text = "MISS"
+            color = { 0.7, 0.7, 0.75, 1 }
+          elseif ev.kind == "hit_dealt" then
+            text = ev.text:match("(-?%d+)$") or "-?"
+            text = "-" .. text
+            color = { 0.4, 0.9, 0.5, 1 }
+          elseif ev.kind == "hit_taken" then
+            text = ev.text:match("(-?%d+)$") or "-?"
+            text = "-" .. text
+            color = { 0.95, 0.35, 0.35, 1 }
+          else
+            text = ev.text
+            color = { 0.9, 0.85, 0.4, 1 }
+          end
+          fx.spawn(app.fx, px, py - size * 0.3, text, { color = color })
+          -- Hull damage pulse on the target ship.
+          if (ev.meta.hull_damage or 0) > 0 then
+            fx.pulse(app.fx, ev.meta.target_id)
+          end
+        end
+      end
+    end
   end
 end
 
@@ -528,6 +571,7 @@ function love.draw()
     draw_board.draw(app.session and app.session.snapshot, app.cam, app.selected_id, nil, {
       weapon_id = app.weapon_id,
       target_id = app.target_id,
+      fx = app.fx,
     })
     -- Draw transient effects (damage floaters) inside the camera transform
     -- so world-space x/y land on the right hex. (Phase 5 resolution theater.)

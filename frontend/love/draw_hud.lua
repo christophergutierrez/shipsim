@@ -5,10 +5,45 @@ local phases = require("phases")
 local hex = require("hex")
 local ui = require("ui")
 local preview = require("preview")
+local events = require("events")
 
 local draw_hud = {}
 
 local SHIELD_FACE = { "F", "FR", "RR", "R", "RL", "FL" }
+
+-- UPGRADE-PLAN Phase 3: event-kind → display color. Pure function (no Love
+-- APIs) so it is testable headless. Mirrors draw_board.EVENT_COLORS but lives
+-- here so draw_hud is self-contained for the ticker.
+local EVENT_COLOR = {
+  hit_dealt = { 0.4, 0.9, 0.5 },
+  hit_taken = { 0.95, 0.35, 0.35 },
+  miss      = { 0.7, 0.7, 0.75 },
+  blocked   = { 0.95, 0.8, 0.3 },
+  info      = { 0.9, 0.85, 0.4 },
+}
+
+--- Return the {r,g,b} color for an event kind. Pure function (no Love APIs).
+function draw_hud.event_color(kind)
+  return EVENT_COLOR[kind] or EVENT_COLOR.info
+end
+
+--- Ticker fade alpha: 1.0 while recent, fading to 0.35 after TICKER_FADE
+--- seconds of no new events. `now` and `last_event_time` are seconds (e.g.
+--- love.timer.getTime()). Pure function (no Love APIs) so it is testable.
+local TICKER_FADE = 5.0
+local TICKER_FADED_ALPHA = 0.35
+function draw_hud.ticker_alpha(now, last_event_time)
+  if not last_event_time or not now then
+    return 1.0
+  end
+  local elapsed = now - last_event_time
+  if elapsed >= TICKER_FADE then
+    return TICKER_FADED_ALPHA
+  end
+  -- Linear fade from 1.0 to TICKER_FADED_ALPHA over the fade window.
+  local t = elapsed / TICKER_FADE
+  return 1.0 - (1.0 - TICKER_FADED_ALPHA) * t
+end
 
 function draw_hud.panel_width()
   return math.floor(300 * ui.scale)
@@ -253,6 +288,27 @@ function draw_hud.draw(app)
   end
 
   y = y + 6
+  -- UPGRADE-PLAN Phase 3: recent-events ticker. Last ~6 events from the
+  -- events.lua ring buffer, color-coded by kind, fading after ~5s of no
+  -- change. Sits above the combat log so fresh damage is visible without
+  -- scrolling. The fade alpha is a pure function (ticker_alpha) tested
+  -- headless; only the draw call touches Love APIs.
+  if app.events then
+    local rec = events.recent(app.events, 6)
+    if #rec > 0 then
+      local now = love.timer.getTime()
+      local fade = draw_hud.ticker_alpha(now, app.last_event_time)
+      for i = #rec, 1, -1 do
+        local ev = rec[i]
+        local c = draw_hud.event_color(ev.kind)
+        love.graphics.setColor(c[1], c[2], c[3], fade)
+        love.graphics.print(ev.text, px + pad, y)
+        y = y + ui.line_h(13)
+      end
+      y = y + 4
+    end
+  end
+
   section("Combat log", px + pad)
   y = y + ui.line_h(13)
   local log = snap.combat_log or {}

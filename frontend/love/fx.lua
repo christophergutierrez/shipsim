@@ -14,17 +14,23 @@
 --
 -- Phase 3 (UPGRADE-PLAN): damage floaters attach to the target ship's cx, cy
 -- (draw_board.lua ship loop) and rise + fade over ~0.9s.
+--
+-- Ship damage pulses: a short red flash on a ship that lost hull. The pulse
+-- is keyed by ship id so draw_board can look it up during the ship loop and
+-- tint the marker. Pulses expire after PULSE_LIFE seconds.
 
 local fx = {}
 
 local DEFAULT_LIFE = 0.9
 local DEFAULT_VY = -22.0 -- world px/s upward (matches SIZE=36 scale)
+local PULSE_LIFE = 0.4   -- ship marker red flash duration (UPGRADE-PLAN Phase 3)
 
 --- Create a new effect system.
 function fx.new()
   return {
-    active = {},  -- array of effect tables, oldest first
-    next_id = 1,  -- monotonic id for stable ordering / dedup
+    active = {},   -- array of floater effect tables, oldest first
+    pulses = {},   -- map ship_id -> { t, life } damage-pulse timers
+    next_id = 1,   -- monotonic id for stable ordering / dedup
   }
 end
 
@@ -50,8 +56,8 @@ function fx.spawn(sys, x, y, text, opts)
   return e
 end
 
---- Advance all effects by dt seconds. Removes expired ones (t >= life).
---- Returns the count of effects still active after the tick.
+--- Advance all effects by dt seconds. Removes expired floaters (t >= life)
+--- and expired damage pulses. Returns the count of floaters still active.
 function fx.update(sys, dt)
   if not sys or dt <= 0 then
     return #sys.active
@@ -65,6 +71,19 @@ function fx.update(sys, dt)
     end
   end
   sys.active = keep
+  -- Advance and expire damage pulses.
+  if sys.pulses then
+    local dead = {}
+    for id, p in pairs(sys.pulses) do
+      p.t = p.t + dt
+      if p.t >= p.life then
+        dead[#dead + 1] = id
+      end
+    end
+    for _, id in ipairs(dead) do
+      sys.pulses[id] = nil
+    end
+  end
   return #sys.active
 end
 
@@ -104,6 +123,35 @@ end
 --- Remove all active effects (e.g. on scenario reload).
 function fx.clear(sys)
   sys.active = {}
+  sys.pulses = {}
+end
+
+--- Spawn a damage pulse on a ship id. Re-starts the timer if already pulsing.
+function fx.pulse(sys, ship_id, opts)
+  if not sys or not sys.pulses or ship_id == nil then
+    return
+  end
+  opts = opts or {}
+  sys.pulses[ship_id] = {
+    t = 0.0,
+    life = opts.life or PULSE_LIFE,
+  }
+end
+
+--- Pulse intensity for a ship at its current t: 1.0 at spawn, linear fade to 0
+--- over life. Returns 0 if no active pulse. Pure function.
+function fx.pulse_alpha(sys, ship_id)
+  if not sys or not sys.pulses or not ship_id then
+    return 0.0
+  end
+  local p = sys.pulses[ship_id]
+  if not p or p.life <= 0 then
+    return 0.0
+  end
+  if p.t >= p.life then
+    return 0.0
+  end
+  return 1.0 - (p.t / p.life)
 end
 
 return fx
