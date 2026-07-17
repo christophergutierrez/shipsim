@@ -402,6 +402,7 @@ local function handle_ui_hit(hit)
     return true
   end
   if id == "menu" then
+    if app.session then harness.kill(app.session) end
     app.screen = "picker"
     app.session = nil
     return true
@@ -470,12 +471,14 @@ function love.keypressed(key)
   end
   if app.screen == "end" then
     if key == "return" or key == "escape" then
+      if app.session then harness.kill(app.session) end
       app.screen = "picker"
       app.session = nil
     end
     return
   end
   if key == "escape" then
+    if app.session then harness.kill(app.session) end
     app.screen = "picker"
     app.session = nil
     return
@@ -571,4 +574,8 @@ function love.wheelmoved(_, y)
   elseif y < 0 then
     app.cam.zoom = math.max(0.3, app.cam.zoom / 1.1)
   end
+end
+
+function love.quit()
+  if app.session then harness.kill(app.session) end
 end
