@@ -52,12 +52,9 @@ local function find_ship(snap, id)
   return nil
 end
 
--- ADR-0022 M4: there is no single active mover any more — every living ship
--- commits one maneuver per movement phase. This mirrors the old "active
--- ship" HUD display only loosely (first ship still owing a commitment this
--- phase), good enough until M8 replaces the movement UI with real maneuver
--- controls.
-local function first_uncommitted_ship(snap)
+-- ADR-0022 M4: simultaneous commits — HUD "Active" is the first living ship
+-- still owing a commitment this phase. Pass controller="player" for player input.
+local function first_uncommitted_ship(snap, controller)
   if not snap or snap.phase ~= "movement" then
     return nil
   end
@@ -66,7 +63,8 @@ local function first_uncommitted_ship(snap)
     committed[id] = true
   end
   for _, s in ipairs(snap.ships or {}) do
-    if not s.destroyed and not committed[s.id] then
+    if not s.destroyed and not committed[s.id]
+        and (not controller or s.controller == controller) then
       return s.id
     end
   end
@@ -110,9 +108,13 @@ function draw_hud.draw(app)
   love.graphics.setColor(1, 1, 1)
   local turn = (snap and snap.turn) or 1
   local phase = app.phase or (snap and snap.phase) or phases.ALLOCATE
-  local active = snap and first_uncommitted_ship(snap)
+  local active = snap and first_uncommitted_ship(snap, "player")
+  local mp = ""
+  if phase == phases.MOVEMENT and snap and snap.movement_phase then
+    mp = string.format(" %d/4", snap.movement_phase)
+  end
   love.graphics.print(
-    string.format("Turn %d  %s  Active #%s", turn, phase, tostring(active)),
+    string.format("Turn %d  %s%s  Active #%s", turn, phase, mp, tostring(active)),
     pad, (draw_hud.top_h() - ui.font(14):getHeight()) / 2
   )
 
@@ -236,21 +238,43 @@ end
 
 function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   local bh = math.floor(24 * ui.scale)
-  local active = first_uncommitted_ship(snap)
+  local active = first_uncommitted_ship(snap, "player")
   local ship = find_ship(snap, active)
   if not ship then
     love.graphics.setColor(0.7, 0.75, 0.8)
-    love.graphics.print("No active mover", px + pad, y)
+    love.graphics.print("No player mover pending", px + pad, y)
     y = y + ui.line_h(13)
     return y
   end
   love.graphics.setColor(0.8, 0.85, 0.9)
-  love.graphics.print(string.format("Moving #%d (%s)", ship.id, ship.class or "?"), px + pad, y)
+  local cycle = snap.movement_phase or 0
+  love.graphics.print(
+    string.format("Moving #%d (%s) — cycle %d/4", ship.id, ship.class or "?", cycle),
+    px + pad, y)
   y = y + ui.line_h(13) + 2
   love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print(string.format("thrust %d", ship.thrust_remaining or 0), px + pad, y)
+  love.graphics.print(
+    string.format("face %d  course %d  vel %d  thrust %d",
+      ship.facing or 0, ship.course or 0, ship.velocity or 0, ship.thrust_remaining or 0),
+    px + pad, y)
   y = y + ui.line_h(13) + 4
+  -- v3 motion model (ADR-0022 M4/M6): coast / accel / turn{facing} / turn_accel{facing}.
   ui.button("Coast (P)", px + pad, y, content_w, bh, "coast", nil, false)
+  y = y + bh + 4
+  ui.button("Accel (T)", px + pad, y, content_w, bh, "accel", nil, false)
+  y = y + bh + 4
+  love.graphics.setColor(0.7, 0.75, 0.8)
+  love.graphics.print(string.format("Turn to facing: %d", app.maneuver_facing or 0), px + pad, y)
+  y = y + ui.line_h(13) + 1
+  local fw = math.floor((content_w - 5 * 3) / 6)
+  for i = 0, 5 do
+    local sel = ((app.maneuver_facing or 0) == i)
+    ui.button(tostring(i), px + pad + i * (fw + 3), y, fw, bh, "pick_maneuver_facing", { face = i }, sel)
+  end
+  y = y + bh + 4
+  ui.button("Turn", px + pad, y, content_w, bh, "turn", nil, false)
+  y = y + bh + 4
+  ui.button("Turn+Accel (Shift+0-5)", px + pad, y, content_w, bh, "turn_accel", nil, false)
   y = y + bh + 6
   return y
 end
@@ -362,7 +386,10 @@ function draw_hud.draw_help_overlay()
   local lines = {
     "Allocate: spend power on movement, weapon charges, shields.",
     "  End turn to advance to Movement.",
-    "Movement: the active ship (header) moves. W=forward, P=pass.",
+    "Movement: next uncommitted player ship (header) commits.",
+    "  P=coast, T=accel, 0-5=turn, Shift+0-5=turn+accel.",
+    "  Buttons: Coast, Accel, Turn, Turn+Accel (pick facing first).",
+    "  Cycle N/4 shows which of the four movement windows is active.",
     "Firing: pick weapon + target + shield face, Commit Fire,",
     "  then Ready. Core resolves the shot.",
     "End Turn (E): advances the turn. Warning dialog if",
@@ -405,25 +432,31 @@ function draw_hud.draw_picker(app)
 end
 
 function draw_hud.status_strip(st)
-  if not st or not st.msg then
+  -- ui_status uses message/level; accept legacy msg/kind for safety.
+  if not st then
     return
   end
+  local msg = st.message or st.msg
+  if not msg or msg == "" then
+    return
+  end
+  local kind = st.level or st.kind or "info"
   local W = love.graphics.getWidth()
   local H = love.graphics.getHeight()
   local h = draw_hud.bottom_h()
   local color = { 0.6, 0.6, 0.65 }
-  if st.kind == "error" then
+  if kind == "error" then
     color = { 0.95, 0.4, 0.4 }
-  elseif st.kind == "warn" then
+  elseif kind == "warn" then
     color = { 0.95, 0.75, 0.3 }
-  elseif st.kind == "info" then
+  elseif kind == "info" then
     color = { 0.5, 0.8, 0.6 }
   end
   love.graphics.setColor(0.06, 0.07, 0.09, 0.95)
   love.graphics.rectangle("fill", 0, H - h, W, h)
   love.graphics.setColor(color)
   ui.use(13)
-  love.graphics.print(st.msg, math.floor(10 * ui.scale), H - h + (h - ui.font(13):getHeight()) / 2)
+  love.graphics.print(msg, math.floor(10 * ui.scale), H - h + (h - ui.font(13):getHeight()) / 2)
 end
 
 return draw_hud

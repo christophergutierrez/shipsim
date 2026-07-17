@@ -1,8 +1,9 @@
--- v2 order builders (Combat Model v2, ADR-0020).
+-- v3 order builders (Combat Model v2, ADR-0020 + ADR-0022 M4/M6 motion).
 -- JSON shape must match src/movement.rs::Order (serde snake_case tags).
+-- Maneuver variants match src/motion.rs::Maneuver: coast, accel, turn{facing}, turn_accel{facing}.
 
 local orders = {}
-local PROTOCOL_VERSION = 2
+local PROTOCOL_VERSION = 3
 
 local function versioned(order)
   order.protocol_version = PROTOCOL_VERSION
@@ -22,8 +23,10 @@ function orders.allocate(ship, movement, weapons, shields)
   })
 end
 
---- Commit a maneuver for a ship during the current movement phase (ADR-0022 M6).
---- maneuver: a table like { type = "coast" }, { type = "accelerate", course = N }, etc.
+--- Commit a maneuver for a ship during the current movement phase (ADR-0022 M4/M6).
+--- maneuver: { type = "coast" } | { type = "accel" } |
+---            { type = "turn", facing = N } | { type = "turn_accel", facing = N }
+--- (facing is 0..5; matches src/motion.rs::Maneuver, serde snake_case).
 function orders.commit_maneuver(ship, maneuver)
   return versioned({
     type = "commit_maneuver",
@@ -35,6 +38,21 @@ end
 --- Coast is the common case: commit Maneuver::Coast (no thrust spent).
 function orders.coast(ship)
   return orders.commit_maneuver(ship, { type = "coast" })
+end
+
+--- Accel: thrust along current facing (Maneuver::Accel).
+function orders.accel(ship)
+  return orders.commit_maneuver(ship, { type = "accel" })
+end
+
+--- Turn hull to absolute facing 0..5 (Maneuver::Turn). Cost = ring distance.
+function orders.turn(ship, facing)
+  return orders.commit_maneuver(ship, { type = "turn", facing = facing })
+end
+
+--- Turn to facing then accel from the new facing (Maneuver::TurnAccel).
+function orders.turn_accel(ship, facing)
+  return orders.commit_maneuver(ship, { type = "turn_accel", facing = facing })
 end
 
 --- Commit a charged weapon to fire at a target through a shield facing.

@@ -4,7 +4,6 @@ local json = require("json")
 local paths = require("paths")
 
 local harness = {}
-local PROTOCOL_VERSION = 2
 
 local function shell_quote(s)
   return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
@@ -34,17 +33,12 @@ function harness.parse_stream(text)
     if line:match("%S") then
       local ok, obj = pcall(json.decode, line)
       if ok and type(obj) == "table" then
-        if obj.protocol_version ~= PROTOCOL_VERSION then
-          errors[#errors + 1] = {
-            type = "error",
-            ok = false,
-            code = "unsupported_protocol",
-            message = "expected protocol version " .. PROTOCOL_VERSION,
-            source = "client",
-          }
-        elseif obj.type == "error" then
+        -- Classify by the `type` field, matching the TUI (harness.rs).
+        -- The engine enforces protocol_version on orders; the client must not
+        -- version-gate snapshots (they carry the engine's current version).
+        if obj.type == "error" then
           errors[#errors + 1] = obj
-        elseif obj.ships ~= nil or obj.turn ~= nil then
+        else
           snapshots[#snapshots + 1] = obj
         end
       end
@@ -62,10 +56,25 @@ function harness.write_orders(session)
   f:close()
 end
 
+local function absolutize(path)
+  if not path or path:sub(1, 1) == "/" then
+    return path
+  end
+  -- Resolve relative paths against the current process cwd *before* the
+  -- harness `cd`s into the repo root (Love local/ scratch is not under root).
+  local p = io.popen("pwd")
+  local cwd = p and p:read("*l") or "."
+  if p then p:close() end
+  return cwd .. "/" .. path
+end
+
 function harness.run(session)
   assert(session.scenario, "scenario required")
+  session.orders_path = absolutize(session.orders_path or paths.default_orders_path())
+  session.bin = absolutize(session.bin)
+  session.repo_root = absolutize(session.repo_root)
   harness.write_orders(session)
-  local stderr_path = session.stderr_path or paths.default_stderr_path()
+  local stderr_path = absolutize(session.stderr_path or paths.default_stderr_path())
   session.stderr_path = stderr_path
   local cmd = string.format(
     "cd %s && %s --scenario %s --orders %s 2>%s",

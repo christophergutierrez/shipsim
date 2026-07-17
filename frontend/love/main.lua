@@ -25,6 +25,7 @@ local app = {
   weapon_id = nil,
   target_id = nil,
   shield_facing = 0,
+  maneuver_facing = 0,
   cam = { x = 200, y = 120, zoom = 1.2 },
   status = ui_status.new(),
   end_result = nil,
@@ -86,7 +87,7 @@ local function ensure_selection()
     app.selected_id = nil
     return
   end
-  local active = snap and first_uncommitted_ship(snap)
+  local active = snap and first_uncommitted_ship(snap, "player")
   if active then
     for _, id in ipairs(ids) do
       if id == active then
@@ -173,6 +174,7 @@ local function start_scenario(entry)
   app.weapon_id = nil
   app.target_id = nil
   app.shield_facing = 0
+  app.maneuver_facing = 0
   app.alloc = {}
   app.show_end_warning = false
   scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
@@ -215,21 +217,28 @@ local function do_allocate(ship_id)
   end
 end
 
-local function do_movement(action)
+local function do_movement(action, facing)
   local snap = snap_now()
-  local ship = snap and first_uncommitted_ship(snap)
+  if not snap or snap.phase ~= phases.MOVEMENT then
+    ui_status.set(app.status, "warn", "Not movement phase")
+    return
+  end
+  -- Always pick the next uncommitted *player* ship (never AI/scripted).
+  local ship = first_uncommitted_ship(snap, "player")
   if not ship or not is_player_ship(ship) then
     ui_status.set(app.status, "warn", "Not your move — active is #" .. tostring(ship))
     return
   end
-  local order = command_mapping.movement_order(action, ship)
+  local order = command_mapping.movement_order(action, ship, facing)
   if not order then
-    ui_status.set(app.status, "warn", "Directional maneuver controls arrive in M8")
+    ui_status.set(app.status, "warn", "Unknown maneuver")
     return
   end
   local _, err = submit(order, true)
   if not err then
-    ui_status.set(app.status, "info", string.format("Ship #%d coasted", ship))
+    local label = action
+    if facing then label = label .. " " .. facing end
+    ui_status.set(app.status, "info", string.format("Ship #%d %s", ship, label))
   end
 end
 
@@ -336,6 +345,22 @@ local function handle_ui_hit(hit)
   end
   if id == "coast" then
     do_movement("coast")
+    return true
+  end
+  if id == "accel" then
+    do_movement("accel")
+    return true
+  end
+  if id == "turn" then
+    do_movement("turn", app.maneuver_facing or 0)
+    return true
+  end
+  if id == "turn_accel" then
+    do_movement("turn_accel", app.maneuver_facing or 0)
+    return true
+  end
+  if id == "pick_maneuver_facing" then
+    app.maneuver_facing = p.face
     return true
   end
   if id == "pick_weapon" then
@@ -463,8 +488,19 @@ function love.keypressed(key)
     end
   elseif key == "e" then
     do_end_turn()
-  elseif key == "p" then
+  elseif key == "p" and app.phase == phases.MOVEMENT then
     do_movement("coast")
+  elseif key == "t" and app.phase == phases.MOVEMENT then
+    do_movement("accel")
+  elseif key:match("^[0-5]$") and app.phase == phases.MOVEMENT then
+    local face = tonumber(key)
+    app.maneuver_facing = face
+    -- Shift+digit = turn_accel (TUI Alt+digit equivalent); plain digit = turn.
+    if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+      do_movement("turn_accel", face)
+    else
+      do_movement("turn", face)
+    end
   elseif key == "r" then
     do_ready_fire()
   end
