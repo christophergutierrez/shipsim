@@ -53,6 +53,122 @@ local function find_ship(snap, id)
   return nil
 end
 
+-- Callsign mirroring the TUI (protocol.rs callsign): A# for player, B# for ai,
+-- C# otherwise. Used by the call-to-action banner so the Love2D header names
+-- ships the same way the TUI does, instead of raw #id.
+local function callsign(ship)
+  if not ship then
+    return "Ship"
+  end
+  local prefix = "C"
+  if ship.controller == "player" then
+    prefix = "A"
+  elseif ship.controller == "ai" then
+    prefix = "B"
+  end
+  return string.format("%s%d", prefix, ship.id)
+end
+
+-- Phase-specific call-to-action mirroring the TUI's phase_call_to_action
+-- (ui.rs:2080). Returns "" when there is no next action to advertise. Pure
+-- function (no Love APIs) so it can be unit-tested under plain luajit.
+--
+-- `selected_id` is the Love2D equivalent of the TUI's focused ship.
+function draw_hud.phase_call_to_action(snap, selected_id)
+  if not snap then
+    return ""
+  end
+  -- A finished game has no next action.
+  if snap.status == "Won" or snap.status == "Lost" then
+    return "Game over"
+  end
+
+  local function completed_set(list)
+    local set = {}
+    for _, id in ipairs(list or {}) do
+      set[id] = true
+    end
+    return set
+  end
+
+  -- pending_cta: name the selected ship if it still owes an action; otherwise
+  -- name the first pending fleetmate with a Tab hint. Mirrors the TUI closure
+  -- at ui.rs:2091-2106.
+  local function pending_cta(completed, verb)
+    local sel = find_ship(snap, selected_id)
+    if sel and sel.controller == "player" and not sel.destroyed
+        and not completed[sel.id] then
+      return string.format("%s %s", callsign(sel), verb)
+    end
+    for _, s in ipairs(snap.ships or {}) do
+      if s.controller == "player" and not s.destroyed and not completed[s.id] then
+        return string.format("%s %s — Tab to switch", callsign(s), verb)
+      end
+    end
+    return ""
+  end
+
+  local phase = snap.phase
+  if phase == phases.ALLOCATE then
+    local sel = find_ship(snap, selected_id)
+    if sel and sel.controller == "player" and not sel.destroyed
+        and (sel.power_available or 0) == 0
+        and not completed_set(snap.ships_allocated_this_turn)[sel.id] then
+      return string.format("%s disabled; Space passes", callsign(sel))
+    end
+    return pending_cta(completed_set(snap.ships_allocated_this_turn), "needs power allocation")
+  elseif phase == phases.MOVEMENT then
+    local sel = find_ship(snap, selected_id)
+    if sel and sel.controller == "player" and not sel.destroyed
+        and (sel.thrust_remaining or 0) == 0
+        and not completed_set(snap.ships_committed_this_phase)[sel.id] then
+      return string.format("%s no thrust; Space coasts", callsign(sel))
+    end
+    return pending_cta(completed_set(snap.ships_committed_this_phase), "needs a maneuver")
+  elseif phase == phases.FIRING then
+    local ready = {}
+    for _, id in ipairs(snap.ships_ready_fire or {}) do
+      ready[id] = true
+    end
+    local focused_ready = selected_id ~= nil and ready[selected_id] or false
+    if focused_ready then
+      local sel = find_ship(snap, selected_id)
+      local cs = callsign(sel)
+      local opp = snap.fire_opportunity
+      if opp and selected_id ~= opp.ship then
+        local other = callsign(find_ship(snap, opp.ship))
+        local tgt = callsign(find_ship(snap, opp.target))
+        return string.format("%s ready; Tab>%s %s>%s", cs, other, opp.weapon or "?", tgt)
+      end
+      return string.format("%s ready", cs)
+    end
+    local queued = 0
+    for _, c in ipairs(snap.fire_commits or {}) do
+      if c.ship == selected_id then
+        queued = queued + 1
+      end
+    end
+    if queued > 0 then
+      return string.format("%d queued; Space fires", queued)
+    elseif snap.fire_opportunity then
+      local opp = snap.fire_opportunity
+      local attacker = callsign(find_ship(snap, opp.ship))
+      local tgt = callsign(find_ship(snap, opp.target))
+      if selected_id == opp.ship then
+        return string.format("%s %s>%s available", attacker, opp.weapon or "?", tgt)
+      else
+        local active = callsign(find_ship(snap, selected_id))
+        return string.format("%s active; Tab>%s %s>%s", active, attacker, opp.weapon or "?", tgt)
+      end
+    else
+      return "No legal shot; Space passes fire"
+    end
+  elseif phase == phases.TURN_END then
+    return "Turn complete; e"
+  end
+  return ""
+end
+
 -- ADR-0022 M4: simultaneous commits — HUD "Active" is the first living ship
 -- still owing a commitment this phase. Pass controller="player" for player input.
 local function first_uncommitted_ship(snap, controller)
@@ -92,10 +208,15 @@ function draw_hud.draw(app)
   if phase == phases.MOVEMENT and snap and snap.movement_phase then
     mp = string.format(" %d/4", snap.movement_phase)
   end
-  love.graphics.print(
-    string.format("Turn %d  %s%s  Active #%s", turn, phase, mp, tostring(active)),
-    pad, (draw_hud.top_h() - ui.font(14):getHeight()) / 2
-  )
+  local header = string.format("Turn %d  %s%s  Active #%s", turn, phase, mp, tostring(active))
+  -- Phase call-to-action mirroring the TUI header (ui.rs:192-202): a yellow
+  -- "│ {cta}" suffix naming the pending ship by callsign, with a Tab hint when
+  -- a fleetmate owes the next action.
+  local cta = draw_hud.phase_call_to_action(snap, app.selected_id)
+  if cta and cta ~= "" then
+    header = header .. "  │ " .. cta
+  end
+  love.graphics.print(header, pad, (draw_hud.top_h() - ui.font(14):getHeight()) / 2)
 
   love.graphics.setColor(0.08, 0.09, 0.12, 0.97)
   love.graphics.rectangle("fill", px, draw_hud.top_h(), pw, H - draw_hud.top_h() - draw_hud.bottom_h())

@@ -462,4 +462,238 @@ else
   ok("request envelope round-trip (skipped: LOVE_LIVE unset)")
 end
 
+-- ─── Phase 2: call-to-action banner mirrors TUI phase_call_to_action ────
+-- These mirror the TUI tests at tests.rs:2993-3074 (dead focus, CTA ownership,
+-- Tab hint, fire_opportunity attribution).
+do
+  local function mkship(id, controller, opts)
+    opts = opts or {}
+    return {
+      id = id,
+      controller = controller,
+      destroyed = opts.destroyed or false,
+      power_available = opts.power_available,
+      thrust_remaining = opts.thrust_remaining,
+      class = opts.class or "dd",
+    }
+  end
+
+  -- callsign format: A# player, B# ai, C# other. Fleet has two player ships
+  -- (A1, A2) so the pending-fleetmate branch has a real fleetmate to name.
+  local snap = { status = "playing", phase = phases.ALLOCATE,
+    ships = { mkship(1, "player", { power_available = 4 }),
+              mkship(2, "player", { power_available = 4 }),
+              mkship(3, "ai", { power_available = 4 }) } }
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A1 needs power allocation",
+    "cta callsign player prefix")
+  -- Focused ship done, fleetmate pending → Tab hint.
+  snap.ships_allocated_this_turn = { 1 }
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A2 needs power allocation — Tab to switch",
+    "cta names pending fleetmate with tab hint")
+  -- Focused ship pending → no Tab hint.
+  snap.ships_allocated_this_turn = { 2 }
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A1 needs power allocation",
+    "cta names focused pending ship")
+
+  -- movement phase
+  snap.phase = phases.MOVEMENT
+  snap.ships_committed_this_phase = { 1 }
+  snap.ships_allocated_this_turn = nil
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A2 needs a maneuver — Tab to switch",
+    "cta movement pending fleetmate")
+
+  -- firing: fire_opportunity attributed to attacker callsign, focused is attacker
+  snap.phase = phases.FIRING
+  snap.ships_committed_this_phase = nil
+  snap.ships_ready_fire = {}
+  snap.fire_commits = {}
+  snap.fire_opportunity = { ship = 1, weapon = "beam_1", target = 3 }
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A1 beam_1>B3 available",
+    "cta fire opportunity focused attacker")
+
+  -- firing: focused is NOT the attacker → Tab>attacker
+  assert_eq(draw_hud.phase_call_to_action(snap, 2), "A2 active; Tab>A1 beam_1>B3",
+    "cta fire opportunity tab to attacker")
+
+  -- firing: no opportunity, no queued → pass fire
+  snap.fire_opportunity = nil
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "No legal shot; Space passes fire",
+    "cta no legal shot")
+
+  -- turn_end
+  snap.phase = phases.TURN_END
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "Turn complete; e",
+    "cta turn end")
+
+  -- game over
+  snap.status = "Won"
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "Game over",
+    "cta game over won")
+  snap.status = "Lost"
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "Game over",
+    "cta game over lost")
+
+  ok("phase_call_to_action mirrors TUI")
+end
+
+-- ─── Phase 2: dead-focus recovery + auto-advance (selection module) ──────
+-- Pure-Lua: selection.ensure / clear_drafts_for. No love.* APIs. Mirrors the
+-- TUI's dead-focus recovery (app.rs:322-340): a destroyed focus reselects the
+-- first living player ship and drops drafts tied to the dead focus.
+print("phase 2: selection")
+local selection = require("selection")
+assert_eq(type(selection.ensure), "function", "selection module contract")
+
+do
+  local function mkship(id, controller, opts)
+    opts = opts or {}
+    return { id = id, controller = controller, destroyed = opts.destroyed or false }
+  end
+
+  -- Two player ships (A1, A2). Focus A1, then A1 is destroyed in the next
+  -- snapshot: ensure() must reselect A2 (first living player ship) and clear
+  -- the fire drafts tied to A1.
+  local state = {
+    selected_id = 1,
+    weapon_id = "beam_1",
+    target_id = 3,
+    shield_facing = 2,
+    alloc = { [1] = { movement = 1 }, [2] = { movement = 0 } },
+  }
+  local snap = { phase = "firing",
+    ships = { mkship(1, "player", { destroyed = true }),
+              mkship(2, "player"),
+              mkship(3, "ai") } }
+  selection.ensure(state, snap)
+  assert_eq(state.selected_id, 2, "dead focus recovers to survivor")
+  assert_eq(state.weapon_id, nil, "dead focus clears weapon draft")
+  assert_eq(state.target_id, nil, "dead focus clears target draft")
+  assert_eq(state.shield_facing, 0, "dead focus clears shield facing")
+  assert_eq(state.alloc[1], nil, "dead focus clears its alloc draft")
+  assert_eq(state.alloc[2].movement, 0, "survivor alloc draft untouched")
+  ok("dead selection recovers to survivor")
+end
+
+-- Auto-advance in movement: focus follows the first uncommitted player ship.
+do
+  local function mkship(id, controller)
+    return { id = id, controller = controller, destroyed = false }
+  end
+  local state = { selected_id = 1, weapon_id = nil, target_id = nil,
+    shield_facing = 0, alloc = {} }
+  local snap = { phase = "movement",
+    ships = { mkship(1, "player"), mkship(2, "player") },
+    ships_committed_this_phase = { 1 } }
+  selection.ensure(state, snap)
+  assert_eq(state.selected_id, 2, "auto-advance to uncommitted ship")
+  ok("selection auto-advances to pending ship")
+end
+
+-- No living player ships: focus cleared.
+do
+  local state = { selected_id = 1, weapon_id = "x", target_id = 2,
+    shield_facing = 0, alloc = {} }
+  local snap = { phase = "firing",
+    ships = { { id = 1, controller = "player", destroyed = true },
+              { id = 2, controller = "ai", destroyed = false } } }
+  selection.ensure(state, snap)
+  assert_eq(state.selected_id, nil, "no living players clears focus")
+  ok("selection clears focus when no living players")
+end
+
+-- ─── Phase 3: fx animation system (damage floaters) ──────────────────────
+-- Pure-Lua: spawn/update/alpha/count. No love.* APIs. Mirrors events.lua.
+print("phase 3: fx")
+local fx = require("fx")
+assert_eq(type(fx), "table", "fx module contract")
+
+-- spawn + count + active ordering.
+do
+  local sys = fx.new()
+  assert_eq(fx.count(sys), 0, "new system empty")
+  local e1 = fx.spawn(sys, 100, 200, "-5")
+  assert(e1, "spawn returns effect")
+  assert_eq(fx.count(sys), 1, "count after one spawn")
+  fx.spawn(sys, 110, 210, "MISS", { color = { 1, 1, 0.4, 1 } })
+  assert_eq(fx.count(sys), 2, "count after two spawns")
+  local act = fx.active(sys)
+  assert_eq(#act, 2, "active returns copy")
+  assert_eq(act[1].text, "-5", "active preserves spawn order")
+  assert_eq(act[2].text, "MISS", "active second is MISS")
+  -- active() returns a fresh array (length-stable across spawns), though
+  -- element tables are shared by design so update() can mutate them.
+  local act2 = fx.active(sys)
+  assert(act2 ~= act, "active returns a fresh array each call")
+  ok("fx spawn + count + active")
+end
+
+-- update advances t, drifts y upward, and expires effects past life.
+do
+  local sys = fx.new()
+  local e = fx.spawn(sys, 50, 100, "-3", { life = 1.0, vy = -20.0 })
+  assert_eq(e.t, 0.0, "spawn t starts at 0")
+  -- tick half a second: t=0.5, y drifts up by -20*0.5 = -10 -> y=90.
+  local remaining = fx.update(sys, 0.5)
+  assert_eq(remaining, 1, "still active after half life")
+  assert_eq(e.t, 0.5, "t advanced by dt")
+  assert_eq(e.y, 90.0, "y drifted upward by vy*dt")
+  -- tick another 0.6s: t=1.1 >= life=1.0 -> expired.
+  remaining = fx.update(sys, 0.6)
+  assert_eq(remaining, 0, "expired after life exceeded")
+  assert_eq(fx.count(sys), 0, "count 0 after expiry")
+  ok("fx update advances + expires")
+end
+
+-- alpha: 1.0 first half, linear fade to 0 second half, 0 at/after life.
+do
+  local sys = fx.new()
+  local e = fx.spawn(sys, 0, 0, "x", { life = 1.0 })
+  assert_eq(fx.alpha(e), 1.0, "alpha 1.0 at t=0")
+  e.t = 0.4
+  assert_eq(fx.alpha(e), 1.0, "alpha 1.0 in first half")
+  e.t = 0.5
+  assert_eq(fx.alpha(e), 1.0, "alpha 1.0 at half boundary")
+  e.t = 0.75
+  -- second half: remaining=0.25, half=0.5 -> 0.5
+  assert_eq(fx.alpha(e), 0.5, "alpha 0.5 at three-quarters")
+  e.t = 1.0
+  assert_eq(fx.alpha(e), 0.0, "alpha 0.0 at life boundary")
+  e.t = 1.5
+  assert_eq(fx.alpha(e), 0.0, "alpha 0.0 past life")
+  ok("fx alpha fade curve")
+end
+
+-- clear wipes active effects.
+do
+  local sys = fx.new()
+  fx.spawn(sys, 1, 2, "a")
+  fx.spawn(sys, 3, 4, "b")
+  assert_eq(fx.count(sys), 2, "two spawned before clear")
+  fx.clear(sys)
+  assert_eq(fx.count(sys), 0, "clear empties system")
+  ok("fx clear")
+end
+
+-- spawn with nil x/y returns nil (defensive: no anchor).
+do
+  local sys = fx.new()
+  assert_eq(fx.spawn(sys, nil, 10, "x"), nil, "nil x rejected")
+  assert_eq(fx.spawn(sys, 10, nil, "x"), nil, "nil y rejected")
+  assert_eq(fx.count(sys), 0, "rejected spawn did not add")
+  ok("fx spawn rejects nil anchor")
+end
+
+-- update with dt<=0 is a no-op (defensive against paused/stalled frames).
+do
+  local sys = fx.new()
+  local e = fx.spawn(sys, 0, 0, "x", { life = 1.0, vy = -10.0 })
+  fx.update(sys, 0.0)
+  assert_eq(e.t, 0.0, "dt=0 does not advance t")
+  assert_eq(e.y, 0.0, "dt=0 does not drift y")
+  fx.update(sys, -0.5)
+  assert_eq(e.t, 0.0, "negative dt does not advance t")
+  assert_eq(fx.count(sys), 1, "still active after no-op update")
+  ok("fx update no-op on nonpositive dt")
+end
+
 print(string.format("\nAll %d checks passed.", pass))

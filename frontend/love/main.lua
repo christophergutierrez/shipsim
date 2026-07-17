@@ -16,6 +16,8 @@ local command_mapping = require("command_mapping")
 local scripted_pump = require("scripted_pump")
 local preview = require("preview")
 local events = require("events")
+local fx = require("fx")
+local selection = require("selection")
 
 local app = {
   screen = "picker",
@@ -39,39 +41,19 @@ local app = {
   fire_preview = nil,
   maneuver_options = nil,
   events = events.new(),
+  fx = fx.new(),
 }
 
 -- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
 -- ships; pump_scripted() below advances those ships until a player owes input.
+-- Logic lives in the requireable `selection` module (testable headless); these
+-- are thin wrappers so the rest of main.lua keeps its local names.
 local function first_uncommitted_ship(snap, controller)
-  if not snap or snap.phase ~= "movement" then
-    return nil
-  end
-  local committed = {}
-  for _, id in ipairs(snap.ships_committed_this_phase or {}) do
-    committed[id] = true
-  end
-  for _, s in ipairs(snap.ships or {}) do
-    if not s.destroyed and not committed[s.id]
-        and (not controller or s.controller == controller) then
-      return s.id
-    end
-  end
-  return nil
+  return selection.first_uncommitted(snap, controller)
 end
 
 local function player_ids(snap)
-  local ids = {}
-  if not snap then
-    return ids
-  end
-  for _, s in ipairs(snap.ships or {}) do
-    if s.controller == "player" and not s.destroyed then
-      ids[#ids + 1] = s.id
-    end
-  end
-  table.sort(ids)
-  return ids
+  return selection.player_ids(snap)
 end
 
 local function snap_now()
@@ -105,28 +87,19 @@ local function sync_phase()
   end
 end
 
+-- UPGRADE-PLAN Phase 2: dead-focus recovery (mirrors TUI app.rs:322-340).
+-- A destroyed (or vanished) focus is unrecoverable by normal flow: pending-ship
+-- advancement waits for the focused ship to act, and a wreck never acts —
+-- allocate/fire would keep drafting orders for the dead ship and the engine
+-- would reject every one. Re-focus the first living player ship and drop drafts
+-- tied to the old focus. Logic lives in the requireable `selection` module
+-- (testable headless); these wrappers pass an app-state slice.
+local function clear_drafts_for(dead_id)
+  selection.clear_drafts_for(app, dead_id)
+end
+
 local function ensure_selection()
-  local snap = snap_now()
-  local ids = player_ids(snap)
-  if #ids == 0 then
-    app.selected_id = nil
-    return
-  end
-  local active = snap and first_uncommitted_ship(snap, "player")
-  if active then
-    for _, id in ipairs(ids) do
-      if id == active then
-        app.selected_id = active
-        return
-      end
-    end
-  end
-  for _, id in ipairs(ids) do
-    if id == app.selected_id then
-      return
-    end
-  end
-  app.selected_id = ids[1]
+  selection.ensure(app, snap_now())
 end
 
 -- UPGRADE-PLAN Phase 1: engine-authoritative previews.
@@ -274,6 +247,14 @@ local function center_camera()
   local board_w = love.graphics.getWidth() - pw
   app.cam.x = board_w / 2 - cx * app.cam.zoom
   app.cam.y = (love.graphics.getHeight() + draw_hud.top_h()) / 2 - cy * app.cam.zoom
+end
+
+function love.update(dt)
+  -- Tick transient effects (damage floaters, Phase 5 resolution theater).
+  -- fx is pure Lua; safe to tick every frame even when no effects are active.
+  if app.fx then
+    fx.update(app.fx, dt)
+  end
 end
 
 function love.load()
@@ -548,6 +529,24 @@ function love.draw()
       weapon_id = app.weapon_id,
       target_id = app.target_id,
     })
+    -- Draw transient effects (damage floaters) inside the camera transform
+    -- so world-space x/y land on the right hex. (Phase 5 resolution theater.)
+    -- draw_board.draw pops its own transform, so we re-apply the camera here.
+    if app.fx then
+      love.graphics.push()
+      love.graphics.translate(app.cam.x, app.cam.y)
+      love.graphics.scale(app.cam.zoom, app.cam.zoom)
+      for _, e in ipairs(fx.active(app.fx)) do
+        local a = fx.alpha(e)
+        if a > 0 then
+          local c = e.color or { 1, 0.85, 0.2 }
+          love.graphics.setColor(c[1], c[2], c[3], a)
+          love.graphics.print(e.text, e.x, e.y)
+        end
+      end
+      love.graphics.setColor(1, 1, 1)
+      love.graphics.pop()
+    end
     draw_hud.draw(app)
     draw_hud.rules_provenance(app)
     if app.show_end_warning then
