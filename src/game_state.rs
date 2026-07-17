@@ -961,8 +961,7 @@ impl GameState {
                 .filter(|s| !s.destroyed && !active.contains(&s.id))
                 .map(|s| (s.id, s.pos))
                 .collect();
-            let stationary_positions: HashSet<Hex> =
-                stationary.iter().map(|(_, p)| *p).collect();
+            let stationary_positions: HashSet<Hex> = stationary.iter().map(|(_, p)| *p).collect();
             let blocked_now: Vec<u32> = active
                 .iter()
                 .filter(|id| stationary_positions.contains(&destination[id]))
@@ -1325,10 +1324,20 @@ impl GameState {
 
     /// One authoritative legal fire opportunity, if any (Fable Phase 4).
     ///
+    /// Player-advisory: this feeds the client call-to-action and
+    /// `end_turn_warning` ("your unused legal shot will be forfeited"), so only
+    /// player-controlled attackers against enemy targets qualify — an AI's shot
+    /// at the player is a threat, not an opportunity, and same-side pairings
+    /// are never advertised.
+    ///
     /// Deterministic scan order: ship id ascending, weapon list order, target id
     /// ascending. Returns all geometry-legal shield faces for that shot.
     pub fn fire_opportunity(&self) -> Option<FireOpportunity> {
-        let mut attackers: Vec<&Ship> = self.ships.iter().filter(|s| !s.destroyed).collect();
+        let mut attackers: Vec<&Ship> = self
+            .ships
+            .iter()
+            .filter(|s| !s.destroyed && self.controller_label(s.id) == "player")
+            .collect();
         attackers.sort_by_key(|s| s.id);
         for attacker in attackers {
             for weapon in &attacker.weapons {
@@ -1338,7 +1347,7 @@ impl GameState {
                 let mut targets: Vec<&Ship> = self
                     .ships
                     .iter()
-                    .filter(|t| !t.destroyed && t.id != attacker.id)
+                    .filter(|t| !t.destroyed && self.controller_label(t.id) != "player")
                     .collect();
                 targets.sort_by_key(|t| t.id);
                 for target in targets {
@@ -1361,7 +1370,7 @@ impl GameState {
     fn weapon_has_legal_shot(&self, attacker: &Ship, weapon: &combat::Weapon) -> bool {
         self.ships
             .iter()
-            .filter(|target| !target.destroyed && target.id != attacker.id)
+            .filter(|target| !target.destroyed && self.controller_label(target.id) != "player")
             .any(|target| {
                 self.v2_shot_shield_facing(attacker, weapon, target)
                     .is_some()
@@ -1375,7 +1384,10 @@ impl GameState {
         weapon: &combat::Weapon,
         target: &Ship,
     ) -> Vec<u8> {
-        if self.v2_shot_shield_facing(attacker, weapon, target).is_none() {
+        if self
+            .v2_shot_shield_facing(attacker, weapon, target)
+            .is_none()
+        {
             return Vec::new();
         }
         crate::arc::legal_shield_facings(attacker.pos, target.pos, target.facing)

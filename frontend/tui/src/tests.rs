@@ -2735,7 +2735,11 @@ fn allocate_down_clamps_at_last_field() {
     handle_key(&mut app, make_key('3'));
     assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, last);
     let after = app.alloc_draft.as_ref().unwrap().field_value();
-    assert_ne!(after, before.max(3).min(before), "digit should affect last field");
+    assert_ne!(
+        after,
+        before.max(3).min(before),
+        "digit should affect last field"
+    );
     // Stronger: last field is a shield; value should be 3 after digit entry from clear path.
 }
 
@@ -2850,4 +2854,111 @@ fn fire_preview_stale_weapon_cannot_alter_draft() {
     app.accept_fire_preview(fire_preview(1, "torp_1", 2, vec![3]));
     assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 0);
     assert!(app.fire_preview.is_none());
+}
+
+// ─── Fable multi-ship fixes: dead focus, CTA ownership, destroyed weapons ──
+
+#[test]
+fn dead_focus_recovers_to_a_living_player_ship() {
+    let mut app = App::new();
+    app.update_snapshot(fleet_snapshot());
+    assert_eq!(app.focused_ship, Some(1));
+
+    // A1 dies between snapshots. Focus must move to the living player ship
+    // and the allocate draft must belong to it — otherwise every subsequent
+    // order is submitted for the wreck and rejected by the engine.
+    let mut snap = fleet_snapshot();
+    snap.ships[0].destroyed = true;
+    snap.ships[0].structure = 0;
+    app.update_snapshot(snap);
+    assert_eq!(
+        app.focused_ship,
+        Some(2),
+        "focus must abandon a destroyed ship"
+    );
+    assert!(
+        app.alloc_draft.is_some(),
+        "allocate draft must be rebuilt for the surviving ship"
+    );
+}
+
+#[test]
+fn cta_names_the_pending_fleetmate_with_a_tab_hint() {
+    let mut app = App::new();
+    let mut snap = fleet_snapshot();
+    // Focused A1 has allocated; fleetmate A2 is still pending.
+    snap.ships_allocated_this_turn = vec![1];
+    app.update_snapshot(snap);
+    app.focused_ship = Some(1);
+    let buf = render_to_string(&mut app, 120, 30);
+    assert!(
+        buffer_contains(&buf, "A2 needs power allocation"),
+        "CTA must name the pending fleetmate, not the finished focused ship; got:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "Tab to switch"),
+        "CTA must say how to reach the pending ship"
+    );
+}
+
+#[test]
+fn cta_names_the_focused_ship_when_it_is_pending() {
+    let mut app = App::new();
+    let mut snap = fleet_snapshot();
+    // A1 pending, A2 done — focus on A1: no Tab hint, just the verb.
+    snap.ships_allocated_this_turn = vec![2];
+    app.update_snapshot(snap);
+    app.focused_ship = Some(1);
+    let buf = render_to_string(&mut app, 120, 30);
+    assert!(
+        buffer_contains(&buf, "A1 needs power allocation"),
+        "CTA must name the focused pending ship; got:\n{buf}"
+    );
+}
+
+#[test]
+fn destroyed_weapon_preview_says_destroyed_not_not_found() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.ships[0].weapons[0].operational = false;
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    app.focused_ship = Some(1);
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0,
+        target: Some(2),
+        shield_facing: 0,
+    });
+    let mut preview = fire_preview(1, "beam_1", 2, vec![]);
+    preview.legal = false;
+    preview.reason = Some("weapon beam_1 was not found".into());
+    app.fire_preview = Some(preview);
+    let buf = render_to_string(&mut app, 120, 30);
+    assert!(
+        buffer_contains(&buf, "destroyed and cannot fire"),
+        "a shot-off weapon must read as destroyed, not as an unknown id; got:\n{buf}"
+    );
+    assert!(
+        !buffer_contains(&buf, "was not found"),
+        "raw engine lookup error must not leak to the player"
+    );
+}
+
+#[test]
+fn fire_preview_line_names_the_attacker() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.focused_ship = Some(1);
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0,
+        target: Some(2),
+        shield_facing: 0,
+    });
+    app.fire_preview = Some(fire_preview(1, "beam_1", 2, vec![0]));
+    let buf = render_to_string(&mut app, 120, 30);
+    assert!(
+        buffer_contains(&buf, "A1 beam_1"),
+        "fire preview must attribute the shot to its attacker; got:\n{buf}"
+    );
 }

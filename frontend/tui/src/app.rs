@@ -319,6 +319,26 @@ impl App {
         if self.focused_ship.is_none() {
             self.focused_ship = snap.player_ship().map(|s| s.id);
         }
+        // A destroyed (or vanished) focus is unrecoverable by normal flow:
+        // pending-ship advancement waits for the focused ship to act, and a
+        // wreck never acts — allocate/fire would keep drafting orders for the
+        // dead ship and the engine would reject every one. Re-focus the first
+        // living player ship and drop drafts tied to the old focus.
+        if let Some(id) = self.focused_ship {
+            let focus_gone = snap.ship(id).is_none_or(|ship| ship.destroyed);
+            if focus_gone {
+                self.focused_ship = snap.player_ship().map(|s| s.id);
+                self.alloc_draft = self
+                    .focused_ship
+                    .filter(|_| snap.phase == "allocate")
+                    .map(|sid| AllocDraft::from_ship(&snap, sid));
+                self.fire_draft = self
+                    .focused_ship
+                    .filter(|_| snap.phase == "firing")
+                    .and_then(|sid| snap.ship(sid))
+                    .map(FireDraft::for_ship);
+            }
+        }
 
         // Update mode based on phase.
         if snap.is_over() {
@@ -548,6 +568,11 @@ impl App {
         let Some(ship) = snap.ship(ship_id) else {
             return;
         };
+        // Never preview for a wreck: the engine only resolves living ships and
+        // would answer with preview_invalid noise every allocate.
+        if ship.destroyed {
+            return;
+        }
         // Same filter as allocate commit: never send offline weapon ids.
         let weapons = draft.weapons_json(ship);
         let shields: serde_json::Value =
@@ -637,7 +662,7 @@ impl App {
         };
         if snap
             .ship(ship)
-            .is_none_or(|ship| ship.controller != "player")
+            .is_none_or(|ship| ship.controller != "player" || ship.destroyed)
         {
             return;
         }
@@ -667,6 +692,9 @@ impl App {
         let Some(ship) = snap.ship(ship_id) else {
             return;
         };
+        if ship.destroyed {
+            return;
+        }
         let Some(weapon) = ship.weapons.get(draft.weapon_idx) else {
             return;
         };
@@ -1028,8 +1056,5 @@ pub fn format_translation_result(
         }
         other => format!("blocked ({other})"),
     };
-    Some(format!(
-        "Moved {}/{}; {}",
-        tr.moved, tr.requested, cause
-    ))
+    Some(format!("Moved {}/{}; {}", tr.moved, tr.requested, cause))
 }

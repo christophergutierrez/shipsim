@@ -745,10 +745,7 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(format!(
-                    "#{} {} profile={}",
-                    ship.id, ship.class, ship.size
-                )),
+                Span::raw(format!("#{} {} profile={}", ship.id, ship.class, ship.size)),
             ]),
         );
         push(
@@ -1267,20 +1264,37 @@ fn fire_queue_line(app: &App) -> Option<Line<'static>> {
 fn fire_preview_line(app: &App) -> Option<Line<'static>> {
     let preview = app.fire_preview.as_ref()?;
     let face = app.fire_draft.as_ref()?.shield_facing;
-    let target = app
-        .snap
-        .as_ref()?
+    let snap = app.snap.as_ref()?;
+    // Attribute the shot: with several ships carrying identically named
+    // weapons ("beam_1"), an unprefixed line doesn't say whose gun this is.
+    let attacker = snap
+        .ship(preview.ship)
+        .map(callsign)
+        .unwrap_or_else(|| format!("#{}", preview.ship));
+    let target = snap
         .ship(preview.target)
         .map(callsign)
         .unwrap_or_else(|| format!("#{}", preview.target));
     if !preview.legal {
+        // A destroyed weapon comes back from the engine as a lookup failure
+        // ("weapon X was not found") — technically true, reads like a bug.
+        // Say what actually happened to the player's gun.
+        let weapon_destroyed = snap.ship(preview.ship).is_some_and(|ship| {
+            ship.weapons
+                .iter()
+                .any(|w| w.id == preview.weapon && !w.operational)
+        });
+        let reason = if weapon_destroyed {
+            format!("{} is destroyed and cannot fire", preview.weapon)
+        } else {
+            preview
+                .reason
+                .as_deref()
+                .unwrap_or("illegal shot")
+                .to_string()
+        };
         return Some(Line::from(Span::styled(
-            format!(
-                " {}→{}: {}",
-                preview.weapon,
-                target,
-                preview.reason.as_deref().unwrap_or("illegal shot")
-            ),
+            format!(" {} {}→{}: {}", attacker, preview.weapon, target, reason),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )));
     }
@@ -1293,7 +1307,8 @@ fn fire_preview_line(app: &App) -> Option<Line<'static>> {
         .join("/");
     Some(Line::from(Span::styled(
         format!(
-            " {}→{} d{}: {}% (d{}≤{}) dmg≈{} · face {} {}{}",
+            " {} {}→{} d{}: {}% (d{}≤{}) dmg≈{} · face {} {}{}",
+            attacker,
             preview.weapon,
             target,
             preview.range.unwrap_or(0),
@@ -1994,49 +2009,52 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
     if matches!(snap.status.as_str(), "Won" | "Lost") {
         return "Game over — q quits".into();
     }
-    let player = snap.player_ship();
-    let player_cs = player.map(callsign).unwrap_or_else(|| "A1".into());
     let focused_id = app.focused().map(|s| s.id);
 
+    // Keys drive the FOCUSED ship, so the call-to-action must name it. When
+    // the focused ship is done but a fleetmate is still pending, say so and
+    // point at Tab instead of silently naming the wrong ship.
+    let pending_cta = |completed: &[i64], verb: &str| -> String {
+        let focused_pending = app
+            .focused()
+            .filter(|s| s.controller == "player" && !s.destroyed && !completed.contains(&s.id));
+        if let Some(ship) = focused_pending {
+            return format!("{} {verb}", callsign(ship));
+        }
+        let other_pending = snap
+            .ships
+            .iter()
+            .find(|s| s.controller == "player" && !s.destroyed && !completed.contains(&s.id));
+        match other_pending {
+            Some(ship) => format!("{} {verb} — Tab to switch", callsign(ship)),
+            None => String::new(),
+        }
+    };
+
     match snap.phase.as_str() {
-        "allocate" => {
-            let pending = player
-                .filter(|s| !snap.ships_allocated_this_turn.contains(&s.id))
-                .is_some();
-            if pending {
-                format!("{player_cs} needs power allocation")
-            } else {
-                String::new()
-            }
-        }
-        "movement" => {
-            let pending = player
-                .filter(|s| !snap.ships_committed_this_phase.contains(&s.id))
-                .is_some();
-            if pending {
-                format!("{player_cs} needs a maneuver")
-            } else {
-                String::new()
-            }
-        }
+        "allocate" => pending_cta(&snap.ships_allocated_this_turn, "needs power allocation"),
+        "movement" => pending_cta(&snap.ships_committed_this_phase, "needs a maneuver"),
         "firing" => {
             let queued = focused_id
-                .map(|id| {
-                    snap.fire_commits
-                        .iter()
-                        .filter(|c| c.ship == id)
-                        .count()
-                })
+                .map(|id| snap.fire_commits.iter().filter(|c| c.ship == id).count())
                 .unwrap_or(0);
             if queued > 0 {
                 format!("{queued} shots queued; Space resolves fire")
             } else if let Some(opp) = &snap.fire_opportunity {
+                let attacker = snap
+                    .ship(opp.ship)
+                    .map(callsign)
+                    .unwrap_or_else(|| format!("#{}", opp.ship));
                 let w = &opp.weapon;
                 let tgt = snap
                     .ship(opp.target)
                     .map(callsign)
                     .unwrap_or_else(|| format!("#{}", opp.target));
-                format!("Shot available: {w} -> {tgt}")
+                if focused_id == Some(opp.ship) {
+                    format!("Shot available: {attacker} {w} -> {tgt}")
+                } else {
+                    format!("Shot available: {attacker} {w} -> {tgt} — Tab to switch")
+                }
             } else {
                 "No legal shot; Space passes fire".into()
             }
