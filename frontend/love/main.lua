@@ -14,6 +14,8 @@ local hex = require("hex")
 local ui = require("ui")
 local command_mapping = require("command_mapping")
 local scripted_pump = require("scripted_pump")
+local preview = require("preview")
+local events = require("events")
 
 local app = {
   screen = "picker",
@@ -34,6 +36,9 @@ local app = {
   ghost_path = {},
   alloc = {},
   show_end_warning = false,
+  fire_preview = nil,
+  maneuver_options = nil,
+  events = events.new(),
 }
 
 -- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
@@ -124,6 +129,103 @@ local function ensure_selection()
   app.selected_id = ids[1]
 end
 
+-- UPGRADE-PLAN Phase 1: engine-authoritative previews.
+-- Requests live in the controller (main.lua), never in draw_*.
+-- The view reads app.fire_preview / app.maneuver_options; the controller
+-- refreshes them when selection or phase changes. Guards mirror the TUI
+-- (app.rs request_fire_preview / request_maneuver_options).
+
+local function find_ship_in_snap(snap, id)
+  if not snap or not id then
+    return nil
+  end
+  for _, s in ipairs(snap.ships or {}) do
+    if s.id == id then
+      return s
+    end
+  end
+  return nil
+end
+
+local function request_fire_preview()
+  local snap = snap_now()
+  if not snap or snap.phase ~= phases.FIRING then
+    app.fire_preview = nil
+    return
+  end
+  local ship_id = app.selected_id
+  if not ship_id then
+    app.fire_preview = nil
+    return
+  end
+  local ship = find_ship_in_snap(snap, ship_id)
+  if not ship or ship.destroyed or ship.controller ~= "player" then
+    app.fire_preview = nil
+    return
+  end
+  local weapon_id = app.weapon_id
+  if not weapon_id then
+    app.fire_preview = nil
+    return
+  end
+  -- Target: explicit selection, else auto-pick first non-player living ship.
+  local target = app.target_id
+  if not target then
+    for _, s in ipairs(snap.ships or {}) do
+      if s.controller ~= "player" and not s.destroyed then
+        target = s.id
+        break
+      end
+    end
+  end
+  if not target then
+    app.fire_preview = nil
+    return
+  end
+  app.fire_preview = nil
+  local resp, err = harness.request(app.session, {
+    protocol_version = 3,
+    request = "fire_preview",
+    ship = ship_id,
+    weapon = weapon_id,
+    target = target,
+  })
+  if resp and resp.ok and resp.ship == ship_id and resp.weapon == weapon_id then
+    app.fire_preview = resp
+  end
+end
+
+local function request_maneuver_options()
+  local snap = snap_now()
+  if not snap or snap.phase ~= phases.MOVEMENT then
+    app.maneuver_options = nil
+    return
+  end
+  local ship_id = app.selected_id
+  if not ship_id then
+    app.maneuver_options = nil
+    return
+  end
+  local ship = find_ship_in_snap(snap, ship_id)
+  if not ship or ship.destroyed or ship.controller ~= "player" then
+    app.maneuver_options = nil
+    return
+  end
+  local resp, err = harness.request(app.session, {
+    protocol_version = 3,
+    request = "maneuver_options",
+    ship = ship_id,
+  })
+  if resp and resp.ok and resp.ship == ship_id then
+    app.maneuver_options = resp
+  end
+end
+
+local function request_previews()
+  request_fire_preview()
+  request_maneuver_options()
+end
+
 local function is_player_ship(id)
   local snap = snap_now()
   if not snap or not id then
@@ -157,6 +259,7 @@ local function submit(order, keep_status)
   scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
   sync_phase()
   ensure_selection()
+  request_previews()
   check_end()
   return snap, err
 end
@@ -200,6 +303,7 @@ local function start_scenario(entry)
   scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
   sync_phase()
   ensure_selection()
+  request_previews()
   center_camera()
   ui_status.set(app.status, "info", "Allocate power for your ships, then End turn to move.")
 end
@@ -327,6 +431,7 @@ local function handle_ui_hit(hit)
   end
   if id == "select_ship" then
     app.selected_id = p.id
+    request_previews()
     return true
   end
   if id == "alloc_movement_up" then
@@ -385,14 +490,17 @@ local function handle_ui_hit(hit)
   end
   if id == "pick_weapon" then
     app.weapon_id = p.id
+    request_fire_preview()
     return true
   end
   if id == "pick_target" then
     app.target_id = p.id
+    request_fire_preview()
     return true
   end
   if id == "pick_shield_facing" then
     app.shield_facing = p.face
+    request_fire_preview()
     return true
   end
   if id == "fire_confirm" then
@@ -568,8 +676,10 @@ function love.mousepressed(x, y, button)
     if s.q == q and s.r == r and not s.destroyed then
       if s.controller == "player" then
         app.selected_id = s.id
+        request_previews()
       else
         app.target_id = s.id
+        request_fire_preview()
       end
       return
     end

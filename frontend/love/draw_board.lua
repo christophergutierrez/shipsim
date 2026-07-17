@@ -4,6 +4,12 @@ local draw_board = {}
 
 local SIZE = 36
 
+-- Display only — shot validity comes from fire_preview (UPGRADE-PLAN Phase 1).
+-- bearing_to / relative_bearing / arc_ok below are used ONLY to tint hexes
+-- and mark enemies for the player's eye. They never decide whether a shot is
+-- allowed; the engine's fire_preview response is the sole authority on that.
+-- Phase 4's arc-fan rendering may replace these shading helpers entirely.
+
 function draw_board.hex_size()
   return SIZE
 end

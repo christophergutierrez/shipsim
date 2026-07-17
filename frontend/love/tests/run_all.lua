@@ -24,6 +24,7 @@ local paths = require("paths")
 local draw_hud = require("draw_hud")
 local command_mapping = require("command_mapping")
 local scripted_pump = require("scripted_pump")
+local preview = require("preview")
 
 local pass = 0
 local function ok(msg)
@@ -335,6 +336,108 @@ do
   assert_eq(draw_hud.rules_label({}), nil, "label nil when no rules_id")
   assert_eq(draw_hud.rules_label(nil), nil, "label nil when app nil")
   ok("rules provenance label format")
+end
+
+-- ---- Phase 1: engine-authoritative previews (delete local rules math) ----
+print("phase 1: previews")
+-- fire_preview drives target legality: an illegal pairing renders the engine's
+-- reason verbatim, never a local verdict. Pure-logic test of preview.fire_line.
+do
+  -- Synthetic snapshot: player ship A1 with a destroyed beam_1, living target B2.
+  local snap = { ships = {
+    { id = 1, controller = "player", destroyed = false, weapons = {
+        { id = "beam_1", operational = false } } },
+    { id = 2, controller = "ai", destroyed = false, weapons = {} },
+  } }
+  -- Destroyed-weapon case: engine returns legal:false; the weapon is on the
+  -- ship but operational==false, so the line must say "destroyed and cannot
+  -- fire" — never the raw "was not found" lookup text.
+  local app_destroyed = {
+    fire_preview = { legal = false, ship = 1, weapon = "beam_1", target = 2,
+      reason = "weapon beam_1 was not found" },
+    session = { snapshot = snap },
+  }
+  local line = preview.fire_line(app_destroyed)
+  assert(line, "fire_line returns a line for destroyed weapon")
+  assert_eq(line.color, "red", "destroyed weapon line is red")
+  assert(line.text:find("destroyed and cannot fire"), "destroyed weapon says destroyed, not 'not found'; got: " .. line.text)
+
+  -- Out-of-arc case: engine returns legal:false with its own reason; the line
+  -- must echo that reason verbatim, not invent a local verdict. Use a snapshot
+  -- where the weapon is operational so the destroyed-weapon branch is skipped.
+  local snap_live = { ships = {
+    { id = 1, controller = "player", destroyed = false, weapons = {
+        { id = "beam_1", operational = true } } },
+    { id = 2, controller = "ai", destroyed = false, weapons = {} },
+  } }
+  local app_oar = {
+    fire_preview = { legal = false, ship = 1, weapon = "beam_1", target = 2,
+      reason = "target out of arc" },
+    session = { snapshot = snap_live },
+  }
+  local oline = preview.fire_line(app_oar)
+  assert(oline.text:find("target out of arc"), "out-of-arc line echoes engine reason; got: " .. oline.text)
+  assert_eq(oline.color, "red", "out-of-arc line is red")
+
+  -- Legal shot: green line with hit %, damage, and face validity.
+  local app_ok = {
+    fire_preview = { legal = true, ship = 1, weapon = "beam_1", target = 2,
+      range = 3, threshold = 19, die_sides = 20, hit_percent = 95,
+      projected_damage = 7, legal_shield_facings = { 0, 1 } },
+    shield_facing = 0,
+    session = { snapshot = snap },
+  }
+  local gline = preview.fire_line(app_ok)
+  assert_eq(gline.color, "green", "legal in-arc shot is green")
+  assert(gline.text:find("95%%"), "legal line shows hit percent; got: " .. gline.text)
+  assert(gline.text:find("dmg~7"), "legal line shows projected damage; got: " .. gline.text)
+
+  -- Invalid shield facing on a legal shot: red line naming the valid faces.
+  local app_badface = {
+    fire_preview = { legal = true, ship = 1, weapon = "beam_1", target = 2,
+      range = 3, threshold = 19, die_sides = 20, hit_percent = 95,
+      projected_damage = 7, legal_shield_facings = { 3 } },
+    shield_facing = 0,
+    session = { snapshot = snap },
+  }
+  local bline = preview.fire_line(app_badface)
+  assert_eq(bline.color, "red", "invalid shield facing is red")
+  assert(bline.text:find("INVALID"), "invalid face line says INVALID; got: " .. bline.text)
+  ok("fire_preview drives target legality")
+end
+
+-- maneuver options disable unaffordable turns: the cost label carries the
+-- engine's "NO" marker for unaffordable entries and "ok" for affordable ones.
+-- Pure-logic test of preview.maneuver_cost_label.
+do
+  -- Synthetic maneuver_options response (mirrors docs/PROTOCOL.md shape).
+  local options = {
+    { maneuver = { type = "coast" }, thrust_cost = 0, affordable = true },
+    { maneuver = { type = "turn", facing = 3 }, thrust_cost = 3,
+      affordable = false, reason = "need 3, have 2" },
+    { maneuver = { type = "turn", facing = 0 }, thrust_cost = 1, affordable = true },
+    { maneuver = { type = "turn_accel", facing = 3 }, thrust_cost = nil,
+      affordable = false, reason = "cannot turn and accelerate simultaneously" },
+  }
+  -- Affordable coast.
+  assert_eq(preview.maneuver_cost_label(options, { type = "coast" }), "0 ok",
+    "affordable coast label")
+  -- Unaffordable turn to facing 3: "3 NO".
+  assert_eq(preview.maneuver_cost_label(options, { type = "turn", facing = 3 }), "3 NO",
+    "unaffordable turn label carries NO marker")
+  -- Affordable turn to facing 0: "1 ok".
+  assert_eq(preview.maneuver_cost_label(options, { type = "turn", facing = 0 }), "1 ok",
+    "affordable turn label")
+  -- turn_accel with null cost (invalid maneuver): "n/a".
+  assert_eq(preview.maneuver_cost_label(options, { type = "turn_accel", facing = 3 }), "n/a",
+    "null-cost maneuver label is n/a")
+  -- maneuver_reason surfaces the engine's reason for the unaffordable turn.
+  assert_eq(preview.maneuver_reason(options, { type = "turn", facing = 3 }),
+    "need 3, have 2", "unaffordable turn reason surfaced for tooltip")
+  -- No options yet (preview not loaded): "...".
+  assert_eq(preview.maneuver_cost_label(nil, { type = "coast" }), "...",
+    "no preview yet shows ellipsis")
+  ok("maneuver options disable unaffordable turns")
 end
 
 -- Live-engine round-trip: gated behind LOVE_LIVE=1 so headless stays green.

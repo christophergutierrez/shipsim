@@ -4,6 +4,7 @@
 local phases = require("phases")
 local hex = require("hex")
 local ui = require("ui")
+local preview = require("preview")
 
 local draw_hud = {}
 
@@ -69,28 +70,6 @@ local function first_uncommitted_ship(snap, controller)
     end
   end
   return nil
-end
-
--- Projected beam damage for a charged weapon (duplicates the core
--- combat_tables formula for UI preview; core is authoritative).
-local function projected_damage(ship, weapon_id)
-  if not ship or not weapon_id then
-    return nil
-  end
-  local w = nil
-  for _, ww in ipairs(ship.weapons or {}) do
-    if ww.id == weapon_id then
-      w = ww
-      break
-    end
-  end
-  if not w then
-    return nil
-  end
-  local charge = w.charge or w.level or 1
-  local dice = w.damage_dice or 2
-  local per = w.damage_per_die or 4
-  return dice * per * charge, charge
 end
 
 function draw_hud.draw(app)
@@ -259,9 +238,15 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
     px + pad, y)
   y = y + ui.line_h(13) + 4
   -- v3 motion model (ADR-0022 M4/M6): coast / accel / turn{facing} / turn_accel{facing}.
-  ui.button("Coast (P)", px + pad, y, content_w, bh, "coast", nil, false)
+  -- Engine-authoritative costs from maneuver_options (UPGRADE-PLAN Phase 1).
+  -- The label shows the thrust cost and affordability; unaffordable entries
+  -- carry the engine's "NO" marker so the player sees why before clicking.
+  local opts = app.maneuver_options and app.maneuver_options.options or nil
+  local coast_label = "Coast (P)\n" .. preview.maneuver_cost_label(opts, { type = "coast" })
+  ui.button(coast_label, px + pad, y, content_w, bh, "coast", nil, false)
   y = y + bh + 4
-  ui.button("Accel (T)", px + pad, y, content_w, bh, "accel", nil, false)
+  local accel_label = "Accel (T)\n" .. preview.maneuver_cost_label(opts, { type = "accel" })
+  ui.button(accel_label, px + pad, y, content_w, bh, "accel", nil, false)
   y = y + bh + 4
   love.graphics.setColor(0.7, 0.75, 0.8)
   love.graphics.print(string.format("Turn to facing: %d", app.maneuver_facing or 0), px + pad, y)
@@ -272,9 +257,11 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
     ui.button(tostring(i), px + pad + i * (fw + 3), y, fw, bh, "pick_maneuver_facing", { face = i }, sel)
   end
   y = y + bh + 4
-  ui.button("Turn", px + pad, y, content_w, bh, "turn", nil, false)
+  local turn_label = "Turn\n" .. preview.maneuver_cost_label(opts, { type = "turn", facing = app.maneuver_facing or 0 })
+  ui.button(turn_label, px + pad, y, content_w, bh, "turn", nil, false)
   y = y + bh + 4
-  ui.button("Turn+Accel (Shift+0-5)", px + pad, y, content_w, bh, "turn_accel", nil, false)
+  local ta_label = "Turn+Accel\n" .. preview.maneuver_cost_label(opts, { type = "turn_accel", facing = app.maneuver_facing or 0 })
+  ui.button(ta_label, px + pad, y, content_w, bh, "turn_accel", nil, false)
   y = y + bh + 6
   return y
 end
@@ -317,10 +304,19 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
     ui.button(SHIELD_FACE[i + 1], px + pad + i * (fw + 3), y, fw, bh, "pick_shield_facing", { face = i }, sel)
   end
   y = y + bh + 4
-  local dmg, charge = projected_damage(ship, app.weapon_id)
-  if dmg then
-    love.graphics.setColor(0.9, 0.8, 0.4)
-    love.graphics.print(string.format("proj dmg ~%d (ch %d)", dmg, charge), px + pad, y)
+  -- Engine-authoritative fire preview (UPGRADE-PLAN Phase 1).
+  -- Renders hit %, damage, legal faces, and destroyed-weapon phrasing
+  -- straight from the fire_preview response — no local combat math.
+  local fline = preview.fire_line(app)
+  if fline then
+    if fline.color == "green" then
+      love.graphics.setColor(0.4, 0.85, 0.5)
+    elseif fline.color == "red" then
+      love.graphics.setColor(0.95, 0.4, 0.4)
+    else
+      love.graphics.setColor(0.6, 0.6, 0.65)
+    end
+    love.graphics.print(fline.text, px + pad, y)
     y = y + ui.line_h(13) + 3
   end
   ui.button("Commit Fire", px + pad, y, content_w, bh, "fire_confirm", nil, false)
