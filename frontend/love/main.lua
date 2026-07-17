@@ -78,6 +78,26 @@ local function sync_phase()
   if snap and snap.phase then
     app.phase = snap.phase
   end
+  -- Surface additive snapshot fields onto app state (UPGRADE-PLAN Phase 0).
+  -- These come straight from the engine; the client never computes them.
+  if snap then
+    app.fire_opportunity = snap.fire_opportunity or nil
+    app.translation_results = snap.translation_results or nil
+    app.end_turn_warning = snap.end_turn_warning or false
+    app.rules_id = snap.rules_id
+    app.rules_fingerprint = snap.rules_fingerprint
+    -- per-ship attack_accuracy_bonus (absent = 0)
+    app.attack_accuracy = {}
+    for _, s in ipairs(snap.ships or {}) do
+      app.attack_accuracy[s.id] = s.attack_accuracy_bonus or 0
+    end
+    -- Feed the event ring buffer (player_ids set for hit classification).
+    local pids = {}
+    for _, s in ipairs(snap.ships or {}) do
+      if s.controller == "player" then pids[s.id] = true end
+    end
+    events.feed(app.events, snap, pids)
+  end
 end
 
 local function ensure_selection()
@@ -421,6 +441,7 @@ function love.draw()
       target_id = app.target_id,
     })
     draw_hud.draw(app)
+    draw_hud.rules_provenance(app)
     if app.show_end_warning then
       draw_hud.draw_end_warning(app)
     end

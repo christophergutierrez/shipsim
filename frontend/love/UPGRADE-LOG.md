@@ -49,3 +49,55 @@ $ luajit frontend/love/tests/run_all.lua
 ... (13 OK lines) ...
 All 13 checks passed.
 ```
+
+## Phase 0 — Protocol catch-up and test scaffolding
+
+**Why:** The snapshot grew fields the Love client ignored (`fire_opportunity`,
+`translation_results`, `end_turn_warning`, `rules_id`, `rules_fingerprint`,
+per-ship `attack_accuracy_bonus`). Phase 0 surfaces them on app state, builds
+the `harness.request` plumbing every later phase uses, and adds the `events.lua`
+ring buffer that Phase 3's ticker/floaters feed from.
+
+**What changed:**
+- `harness.lua`: `harness.request(session, tbl)` sends a JSON line with a
+  `request` field and returns the decoded response envelope. Read-only — does
+  not mutate state, does not enter the order log (verified by live round-trip).
+- `main.lua` `sync_phase`: surfaces `fire_opportunity`, `translation_results`,
+  `end_turn_warning`, `rules_id`, `rules_fingerprint`, and per-ship
+  `attack_accuracy_bonus` (as `app.attack_accuracy[id]`, absent = 0) onto `app`
+  from every accepted snapshot. Feeds the event ring buffer via `events.feed`.
+- `events.lua` (new): pure-Lua ring buffer (cap 50) of structured events
+  `{turn, kind, text}` built by diffing consecutive snapshots' `combat_log`
+  (handles per-turn clear) plus `translation_results`. Kinds: `hit_dealt`,
+  `hit_taken`, `miss`, `blocked`. No Love APIs — runs under plain luajit.
+- `draw_hud.lua`: `rules_label(app)` (pure formatter) + `rules_provenance(app)`
+  (draws `rules: <id> <fp12>` in the top-right corner, always visible during
+  play). Separate from the transient status strip — provenance is persistent
+  metadata, not an event message.
+- `main.lua` `love.draw`: calls `draw_hud.rules_provenance(app)` during play.
+- `tests/run_all.lua`: +7 Phase 0 checks (events ring buffer caps/order,
+  event classification, combat_log diff-by-count, blocked translation event,
+  fire_opportunity field surfacing, rules provenance label format, live request
+  round-trip gated on `LOVE_LIVE`).
+
+**Milestones:**
+- [x] `luajit frontend/love/tests/run_all.lua` — 20 checks pass, including
+      `request envelope round-trip` (gated on `LOVE_LIVE`), `events ring buffer
+      caps and orders`, `snapshot exposes fire_opportunity fields`,
+      `rules provenance label format`.
+- [x] Grep gate — `grep -n '"request"' frontend/love/orders.lua` → no output.
+- [x] Manual: status strip shows `rules: default fnv1a-…` on load (label
+      rendered top-right; format verified by headless check).
+
+**Evidence:**
+```
+$ luajit frontend/love/tests/run_all.lua
+... (20 OK lines) ...
+All 20 checks passed.
+
+$ grep -n '"request"' frontend/love/orders.lua
+(no output)
+
+$ cargo build -q && echo ok
+ok
+```

@@ -459,4 +459,36 @@ function draw_hud.status_strip(st)
   love.graphics.print(msg, math.floor(10 * ui.scale), H - h + (h - ui.font(13):getHeight()) / 2)
 end
 
+-- Persistent rules-provenance label (UPGRADE-PLAN Phase 0 task 4).
+-- Drawn in a screen corner, always visible during play. This is distinct from
+-- the transient status strip: provenance is metadata, not an event message.
+-- Format mirrors the TUI header: "rules: <id> <fp12>".
+
+-- Pure label formatter (no Love APIs) so it is testable under plain luajit.
+function draw_hud.rules_label(app)
+  if not app or not app.rules_id then
+    return nil
+  end
+  local fp = app.rules_fingerprint or ""
+  return string.format("rules: %s %s", app.rules_id, fp:sub(1, 12))
+end
+
+function draw_hud.rules_provenance(app)
+  local label = draw_hud.rules_label(app)
+  if not label then
+    return
+  end
+  local W = love.graphics.getWidth()
+  ui.use(11)
+  local font = ui.font(11)
+  local tw = font:getWidth(label)
+  local margin = math.floor(8 * ui.scale)
+  local x = W - tw - margin
+  local y = math.floor(6 * ui.scale)
+  love.graphics.setColor(0.06, 0.07, 0.09, 0.8)
+  love.graphics.rectangle("fill", x - margin, y, tw + 2 * margin, font:getHeight() + 4)
+  love.graphics.setColor(0.5, 0.5, 0.55)
+  love.graphics.print(label, x, y + 2)
+end
+
 return draw_hud

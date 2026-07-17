@@ -229,4 +229,134 @@ assert(st.message and st.message ~= "", "status message field")
 assert(st.level == "error", "status level field")
 ok("status strip field names")
 
+-- ---- Phase 0: events ring buffer + snapshot field surfacing ----
+print("phase 0: events")
+local events = require("events")
+
+-- Caps at 50 and preserves insertion order.
+do
+  local ev = events.new()
+  for i = 1, 60 do
+    events.feed(ev, { turn = i, combat_log = {
+      { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+        damage = 1, shield_absorbed = 0, hull_damage = 1, kind = "hit" },
+    } }, { [1] = true })
+  end
+  assert_eq(events.count(ev), 50, "ring buffer caps at 50")
+  local rec = events.recent(ev, 3)
+  -- most recent 3 should be turns 58, 59, 60 (oldest-first in the slice)
+  assert_eq(rec[1].turn, 58, "recent slice oldest is turn 58")
+  assert_eq(rec[3].turn, 60, "recent slice newest is turn 60")
+  ok("events ring buffer caps and orders")
+end
+
+-- Classifies hit_dealt / hit_taken / miss by player_ids.
+do
+  local ev = events.new()
+  -- player 1 hits ship 2 (player attacker) -> hit_dealt
+  events.feed(ev, { turn = 1, combat_log = {
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 5, shield_absorbed = 0, hull_damage = 5, kind = "hit" },
+  } }, { [1] = true })
+  -- ship 3 hits player 1 (player target) -> hit_taken
+  events.feed(ev, { turn = 1, combat_log = {
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 5, shield_absorbed = 0, hull_damage = 5, kind = "hit" },
+    { attacker = 3, target = 1, weapon = "torp_1", shield = 0,
+      damage = 4, shield_absorbed = 4, hull_damage = 0, kind = "hit" },
+    { attacker = 1, target = 3, weapon = "beam_1", shield = 0,
+      damage = 0, shield_absorbed = 0, hull_damage = 0, kind = "miss" },
+  } }, { [1] = true })
+  local all = events.recent(ev)
+  assert_eq(#all, 3, "three events fed (entry 1 not re-emitted)")
+  assert_eq(all[1].kind, "hit_dealt", "player attacker -> hit_dealt")
+  assert_eq(all[2].kind, "hit_taken", "player target -> hit_taken")
+  assert_eq(all[2].text:match("shield"), "shield", "shield-only hit text says shield")
+  assert_eq(all[3].kind, "miss", "miss classified")
+  ok("events classify hit_dealt vs hit_taken vs miss")
+end
+
+-- Does not re-emit already-seen combat_log entries (diff by count).
+do
+  local ev = events.new()
+  local log = {
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 1, shield_absorbed = 0, hull_damage = 1, kind = "hit" },
+  }
+  events.feed(ev, { turn = 1, combat_log = log }, { [1] = true })
+  assert_eq(events.count(ev), 1, "first feed emits 1")
+  -- feed the same snapshot again (no new log entries) -> no new event
+  events.feed(ev, { turn = 1, combat_log = log }, { [1] = true })
+  assert_eq(events.count(ev), 1, "re-feed emits nothing new")
+  ok("events diff combat_log by count")
+end
+
+-- Blocked translation becomes a "blocked" event.
+do
+  local ev = events.new()
+  events.feed(ev, { turn = 2, translation_results = {
+    { ship = 1, requested = 3, moved = 1, blocked = { kind = "occupied", ships = { 2 } } },
+    { ship = 2, requested = 2, moved = 2 }, -- not blocked, no event
+  } }, {})
+  assert_eq(events.count(ev), 1, "one blocked event")
+  local rec = events.recent(ev)
+  assert_eq(rec[1].kind, "blocked", "blocked kind")
+  assert_eq(rec[1].text:match("moved 1/3"), "moved 1/3", "blocked text has moved/requested")
+  ok("blocked translation becomes an event")
+end
+
+-- Snapshot field surfacing: a synthetic snapshot with the additive fields
+-- is classified correctly by the harness line classifier (parse_stream).
+do
+  local snaps, _ = harness.parse_stream(
+    '{"protocol_version":3,"turn":1,"phase":"firing","ships":[],' ..
+    '"rules_id":"default","rules_fingerprint":"fnv1a-deadbeef","end_turn_warning":true,' ..
+    '"fire_opportunity":{"ship":1,"weapon":"beam_1","target":2,"legal_shield_facings":[0,1]},' ..
+    '"translation_results":[{"ship":1,"requested":2,"moved":2}],"combat_log":[]}')
+  local s = snaps[1]
+  assert(s, "synthetic snapshot parsed")
+  assert_eq(s.rules_id, "default", "rules_id surfaced")
+  assert_eq(s.rules_fingerprint, "fnv1a-deadbeef", "rules_fingerprint surfaced")
+  assert_eq(s.end_turn_warning, true, "end_turn_warning surfaced")
+  assert_eq(type(s.fire_opportunity), "table", "fire_opportunity surfaced")
+  assert_eq(s.fire_opportunity.ship, 1, "fire_opportunity.ship")
+  assert_eq(s.fire_opportunity.weapon, "beam_1", "fire_opportunity.weapon")
+  assert_eq(type(s.translation_results), "table", "translation_results surfaced")
+  ok("snapshot exposes fire_opportunity fields")
+end
+
+-- Rules provenance label format (UPGRADE-PLAN Phase 0 task 4).
+-- Pure logic: draw_hud.rules_label must run under plain luajit.
+do
+  local app1 = { rules_id = "default", rules_fingerprint = "fnv1a-deadbeef-cafe" }
+  assert_eq(draw_hud.rules_label(app1), "rules: default fnv1a-deadbe", "label format truncates fp to 12")
+  local app2 = { rules_id = "default", rules_fingerprint = "short" }
+  assert_eq(draw_hud.rules_label(app2), "rules: default short", "label handles short fp")
+  assert_eq(draw_hud.rules_label({}), nil, "label nil when no rules_id")
+  assert_eq(draw_hud.rules_label(nil), nil, "label nil when app nil")
+  ok("rules provenance label format")
+end
+
+-- Live-engine round-trip: gated behind LOVE_LIVE=1 so headless stays green.
+if os.getenv("LOVE_LIVE") then
+  print("phase 0: live request envelope round-trip (LOVE_LIVE=1)")
+  local live = harness.new({ repo_root = repo, bin = paths.find_shipsim_bin(repo) })
+  local lsnap = harness.load_scenario(live, "scenarios/combat.toml")
+  assert(lsnap, "live load")
+  -- Allocate so movement_preview is meaningful.
+  harness.submit(live, orders.allocate(1, 4, { beam_1 = 1 }, { 2, 1, 0, 0, 0, 1 }))
+  local resp, rerr = harness.request(live,
+    { protocol_version = 3, request = "movement_preview", ship = 1 })
+  assert(resp, "live movement_preview failed: " .. tostring(rerr and rerr.message))
+  assert_eq(resp.type, "movement_preview", "live response type")
+  assert_eq(resp.ok, true, "live response ok")
+  assert(resp.endpoints and #resp.endpoints > 0, "live endpoints non-empty")
+  -- request must not pollute the order log
+  assert_eq(#live.orders, 1, "live request did not pollute order log")
+  harness.kill(live)
+  ok("request envelope round-trip")
+else
+  ok("request envelope round-trip (skipped: LOVE_LIVE unset)")
+end
+
 print(string.format("\nAll %d checks passed.", pass))
