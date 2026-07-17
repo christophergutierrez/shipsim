@@ -640,10 +640,12 @@ impl App {
             // Fable Phase 2: auto-select only when exactly one legal face and
             // the current draft face is not among them. Preserve multi-face
             // player agency and keep a shared face across the volley.
-            if let Some(draft) = self.fire_draft.as_mut() {
-                let legal = &preview.legal_shield_facings;
-                if legal.len() == 1 && !legal.contains(&draft.shield_facing) {
-                    draft.shield_facing = legal[0];
+            if self.tutorial.is_none() {
+                if let Some(draft) = self.fire_draft.as_mut() {
+                    let legal = &preview.legal_shield_facings;
+                    if legal.len() == 1 && !legal.contains(&draft.shield_facing) {
+                        draft.shield_facing = legal[0];
+                    }
                 }
             }
             self.fire_preview = Some(preview);

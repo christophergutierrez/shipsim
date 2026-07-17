@@ -1457,6 +1457,10 @@ fn tutorial_floor_keeps_the_required_action_visible() {
         buffer_contains(&buf, "0→10"),
         "the 80x24 tutorial view must show the value and action: {buf}"
     );
+    assert!(
+        buffer_contains(&buf, "Each turn you split a power pool"),
+        "the 80x24 tutorial view must explain the requested action: {buf}"
+    );
 }
 
 #[test]
@@ -2522,6 +2526,37 @@ fn normal_combat_log_keeps_a_full_four_shot_resolution_visible() {
 }
 
 #[test]
+fn floor_combat_log_keeps_a_full_fleet_volley_and_block_notice_visible() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.combat_log = (0..7)
+        .map(|index| crate::protocol::CombatEvent {
+            attacker: if index < 4 { 1 } else { 2 },
+            target: if index < 4 { 2 } else { 1 },
+            weapon: format!("shot_{index}"),
+            shield: 0,
+            damage: index + 1,
+            shield_absorbed: 0,
+            hull_damage: index + 1,
+            kind: "hit".into(),
+            roll: Some(1),
+        })
+        .collect();
+    app.update_snapshot(snap);
+    app.log("Moved 3/8; blocked by B2");
+
+    let buf = render_to_string(&mut app, 80, 24);
+
+    for index in 0..7 {
+        assert!(
+            buffer_contains(&buf, &format!("shot_{index}")),
+            "shot {index} missing from the floor combat log:\n{buf}"
+        );
+    }
+    assert!(buffer_contains(&buf, "Moved 3/8"));
+}
+
+#[test]
 fn end_turn_confirmation_describes_actual_pending_state() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
@@ -2822,6 +2857,38 @@ fn fire_preview_unique_face_auto_selects_invalid_default() {
 }
 
 #[test]
+fn tutorial_fire_preview_does_not_consume_required_facing_step() {
+    let mut app = App::new_with_tutorial();
+    app.update_snapshot(three_weapon_fire_snapshot());
+    app.mode = Mode::Fire;
+    app.focused_ship = Some(1);
+    app.fire_draft = Some(crate::app::FireDraft {
+        weapon_idx: 0,
+        target: Some(2),
+        shield_facing: 0,
+    });
+    let tutorial = app.tutorial.as_mut().unwrap();
+    tutorial.current = tutorial
+        .steps
+        .iter()
+        .position(|step| {
+            matches!(
+                step.expected,
+                crate::tutorial::ExpectedAction::ShieldFacing(3)
+            )
+        })
+        .expect("shield-facing lesson");
+
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![3]));
+
+    assert_eq!(
+        app.fire_draft.as_ref().unwrap().shield_facing,
+        0,
+        "the lesson must leave the required Right presses for the player"
+    );
+}
+
+#[test]
 fn fire_preview_unique_face_preserves_already_valid() {
     let mut app = App::new();
     app.update_snapshot(three_weapon_fire_snapshot());
@@ -2870,6 +2937,54 @@ fn fire_preview_stale_weapon_cannot_alter_draft() {
     app.accept_fire_preview(fire_preview(1, "torp_1", 2, vec![3]));
     assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 0);
     assert!(app.fire_preview.is_none());
+}
+
+#[test]
+fn turn_end_does_not_advertise_a_closed_fire_opportunity() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.phase = "turn_end".into();
+    snap.end_turn_warning = true;
+    snap.fire_opportunity = Some(crate::protocol::FireOpportunity {
+        ship: 1,
+        weapon: "beam_1".into(),
+        target: 2,
+        legal_shield_facings: vec![3],
+    });
+    app.update_snapshot(snap);
+
+    let buf = render_to_string(&mut app, 80, 24);
+
+    assert!(buffer_contains(&buf, "Turn complete"));
+    assert!(!buffer_contains(&buf, "Unused legal shot"));
+}
+
+#[test]
+fn powerless_ship_can_space_pass_allocate_and_movement() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[0].power_available = 0;
+    snap.ships[0].power = 0;
+    for weapon in &mut snap.ships[0].weapons {
+        weapon.operational = false;
+    }
+    app.update_snapshot(snap.clone());
+
+    let allocate = handle_key(&mut app, make_key(' '));
+    assert!(
+        matches!(allocate, KeyResult::SendOrder(_)),
+        "Space should submit the forced empty allocation"
+    );
+
+    snap.phase = "movement".into();
+    snap.ships[0].thrust_remaining = 0;
+    snap.ships[0].velocity = 0;
+    app.update_snapshot(snap);
+    let movement = handle_key(&mut app, make_key(' '));
+    assert!(
+        matches!(movement, KeyResult::SendOrder(_)),
+        "Space should coast when no maneuver choice remains"
+    );
 }
 
 // ─── Fable multi-ship fixes: dead focus, CTA ownership, destroyed weapons ──
@@ -2929,6 +3044,32 @@ fn cta_names_the_focused_ship_when_it_is_pending() {
     assert!(
         buffer_contains(&buf, "A1 needs power allocation"),
         "CTA must name the focused pending ship; got:\n{buf}"
+    );
+}
+
+#[test]
+fn floor_fire_cta_leads_with_focus_and_the_switch_key() {
+    let mut app = App::new();
+    let mut snap = fleet_snapshot();
+    snap.phase = "firing".into();
+    snap.fire_opportunity = Some(crate::protocol::FireOpportunity {
+        ship: 1,
+        weapon: "beam_1".into(),
+        target: 3,
+        legal_shield_facings: vec![0],
+    });
+    app.update_snapshot(snap);
+    app.switch_focus(2);
+
+    let buf = render_to_string(&mut app, 80, 24);
+
+    assert!(
+        buffer_contains(&buf, "A2 active"),
+        "focused ship missing:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "Tab>A1"),
+        "switch action missing:\n{buf}"
     );
 }
 

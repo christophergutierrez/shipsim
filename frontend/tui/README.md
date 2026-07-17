@@ -80,11 +80,13 @@ cargo run --release --manifest-path frontend/tui/Cargo.toml
 
 **Allocate mode** — `↓`/`↑` cycles movement / weapons / shield facings;
 `←`/`→` decrement/increment the focused field; digits start a fresh value entry;
-`Backspace` clears; `Enter` commits the `allocate` order.
+`Backspace` clears; `Enter` commits the `allocate` order. A ship with no power
+can press `Space` to submit its forced zero allocation.
 
 **Movement mode** — `c` coast, `t` accel along facing, `0`–`5` turn to absolute
 facing, `r` turn +1 facing. The panel shows engine-provided thrust costs and
-marks unaffordable choices before input. Each sends one `commit_maneuver`.
+marks unaffordable choices before input. Each sends one `commit_maneuver`; when
+no thrust remains, `Space` is a shortcut for coast.
 
 **Tutorial mode** (`--tutorial`) — narration panel + step gate for the aggressive
 rear-attack (race past → inspect map → turn west → rear-arc beam/torp/plasma).

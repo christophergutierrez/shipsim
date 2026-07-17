@@ -495,6 +495,19 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
     };
 
     match key.code {
+        KeyCode::Char(' ') if app.focused().is_some_and(|ship| ship.power_available == 0) => {
+            app.log("allocate: disabled ship passes with zero power");
+            app.digit_entry = None;
+            emit_order(
+                app,
+                Order::allocate(
+                    sid,
+                    0,
+                    serde_json::Value::Object(serde_json::Map::new()),
+                    vec![0; 6],
+                ),
+            )
+        }
         KeyCode::Enter => {
             let draft = match &app.alloc_draft {
                 Some(d) => d.clone(),
@@ -723,6 +736,9 @@ fn allocation_field_bounds(
 
 fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
     match key.code {
+        KeyCode::Char(' ') if app.focused().is_some_and(|ship| ship.thrust_remaining == 0) => {
+            send_coast(app)
+        }
         KeyCode::Char('c') => send_coast(app),
         KeyCode::Char('t') => send_accel(app),
         KeyCode::Char(c)

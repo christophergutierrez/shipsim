@@ -256,18 +256,13 @@ impl Tutorial {
         }
         match self.current_step() {
             Some(step) => {
-                let mut text = format!(
-                    "Step {}/{} — {}\n",
-                    self.current + 1,
-                    self.steps.len(),
-                    step.title
-                );
+                // The panel title already carries step/title and the yellow
+                // prompt already carries the key. Spend the scarce coach rows
+                // on explanation and pinned error feedback instead.
+                let mut text = String::new();
                 if let Some(ref err) = self.error_msg {
                     text.push_str(&format!("⚠ {err}\n"));
                 }
-                text.push_str("Keys: ");
-                text.push_str(step.hint);
-                text.push_str("  ·  other keys are blocked until this step finishes.\n\n");
                 // Source narration uses Markdown markers; this terminal
                 // client renders plain text, so keep the lesson readable.
                 text.push_str(&step.text.replace("**", "").replace('`', ""));
