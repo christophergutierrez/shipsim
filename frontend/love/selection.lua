@@ -109,6 +109,21 @@ function selection.ensure(state, snap)
       end
     end
   end
+  -- Allocate is also per ship. Keep the one visible allocation form focused on
+  -- the next ship that still owes power so fleet forms never stack below the
+  -- viewport.
+  if snap and snap.phase == phases.ALLOCATE then
+    local allocated = {}
+    for _, id in ipairs(snap.ships_allocated_this_turn or {}) do
+      allocated[id] = true
+    end
+    for _, id in ipairs(ids) do
+      if not allocated[id] then
+        state.selected_id = id
+        return
+      end
+    end
+  end
   -- Keep current focus if still valid.
   for _, id in ipairs(ids) do
     if id == state.selected_id then

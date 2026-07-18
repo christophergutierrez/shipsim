@@ -1,10 +1,13 @@
-# Size variants (draft fleet catalog)
+# Size variants (fleet catalog)
 
-Three generic hulls per size tier (`data/sizes.toml`), derived from
-`tmp/sfb/ships.jsonl` class buckets and intended for **equal-cost simulation**.
+Three generic hulls per size tier (`data/sizes.toml`). Initial power and
+structure shapes came from local STCS-derived class buckets; current costs use
+the frame-plus-modules model in [`BALANCE-COST.md`](BALANCE-COST.md).
 
-**Status:** draft numbers. Combat does not spend `cost` yet. Tune after
-`shipsim-sim` matchups under matched budgets.
+**Status:** loadable scenario and simulation catalog. `cost` is a construction
+and scenario-design value; gameplay does not spend points during combat. The
+destroyer/titan A/B/C candidate passes pooled tuning seeds, but the full size
+ladder is not certified. See [`BALANCE.md`](BALANCE.md).
 
 ## Files
 
@@ -17,7 +20,7 @@ Three generic hulls per size tier (`data/sizes.toml`), derived from
 Legacy hulls (`escort`, `heavy_cruiser`, `huge`, `starbase`) are unchanged for
 existing scenarios.
 
-## How numbers were shortcut from JSONL
+## How the catalog is generated
 
 1. **Bucket** ships with STCS `class_number` into size 1–7 (I–III … XIX–XX).
 2. Take **p25 / median / p75** of `total_power_units` and superstructure for
@@ -26,43 +29,38 @@ existing scenarios.
    power budget:
    - `power ≈ round(stcs_power × 14/34)` (destroyer median power 34 → 14)
    - `structure ≈ round(stcs_ss × 8/14)` (destroyer median SS 14 → 8)
-4. **Cost (historical HEAD, superseded as a design target):** Combat Efficiency
-   **D** medians with destroyer line = **100**:
-   - `cost_line = round(100 × D_median / D_destroyer)`
-   - light = 0.85× line, heavy = 1.20× line  
-   That forces cost ∝ measured V (η ≈ constant) and **does not** implement
-   frame-sunk + flat modules. **Target model and catalog gap:**
-   [`docs/BALANCE-COST.md`](BALANCE-COST.md).
+4. **Cost:** positive size-dependent frame intercept plus linear power,
+   shield-cap, and flat weapon-kind prices, normalized so `destroyer_line=100`.
+   Combat-D-scaled total costs were an early draft and are no longer emitted.
 5. **Thrust** follows FASA movement-point ratio trend (larger = more power per
    thrust): fighters/destroyers efficient; capitals `power_per_thrust` 2–5.
 6. **Weapons** step up by size and variant (light = few mounts; heavy = fuller
    suite). Kinds stay beam / torp / plasma.
 
-**Not used as primary cost:** power×SS product (titan ~89× destroyer). D-based
-totals were a fleet-playable stopgap only.
+**Not used as primary cost:** power×SS product or historical Combat-D total.
+Neither expresses the intended frame-plus-fill economics.
 
 ## Line costs (budget unit)
 
 | Size | Class | light | line | heavy | ≈ destroyers (line) |
 |---:|---|---:|---:|---:|---:|
-| 1 | Fighter | 52 | 61 | 73 | 0.61 |
-| 2 | Destroyer | 85 | 100 | 120 | 1.00 |
-| 3 | Light Cruiser | 138 | 162 | 194 | 1.62 |
-| 4 | Heavy Cruiser | 210 | 247 | 296 | 2.47 |
-| 5 | Battleship | 335 | 394 | 473 | 3.94 |
-| 6 | Dreadnought | 483 | 568 | 682 | 5.68 |
-| 7 | Titan | 678 | 798 | 958 | 7.98 |
+| 1 | Fighter | 43 | 47 | 73 | 0.47 |
+| 2 | Destroyer | 93 | 100 | 126 | 1.00 |
+| 3 | Light Cruiser | 162 | 190 | 213 | 1.90 |
+| 4 | Heavy Cruiser | 279 | 304 | 327 | 3.04 |
+| 5 | Battleship | 413 | 441 | 501 | 4.41 |
+| 6 | Dreadnought | 597 | 625 | 682 | 6.25 |
+| 7 | Titan | 762 | 822 | 910 | 8.22 |
 
 ### Equal-cost sketch fleets (line hulls)
 
 | Budget ~800 | Example |
 |---|---|
-| Titan | 1× `titan_line` (798) |
-| Dreadnought + screen | 1× `dreadnought_line` + 2× `destroyer_line` |
-| Battleship wing | 2× `battleship_line` |
-| Heavy pack | 3× `heavy_cruiser_line` |
+| Titan | 1× `titan_line` (822) |
+| Dreadnought + screen | 1× `dreadnought_line` + 2× `destroyer_line` (825) |
+| Battleship wing | 2× `battleship_line` (882) |
+| Heavy pack | 3× `heavy_cruiser_line` (912) |
 | Destroyer swarm | 8× `destroyer_line` |
-| Mixed | 1× `heavy_cruiser_line` + 2× `light_cruiser_line` + 2× `destroyer_line` |
 
 ## Variant roles
 
@@ -76,6 +74,9 @@ totals were a fleet-playable stopgap only.
 
 Authoritative economics + claims A/B/C + order of ops:
 **[`docs/BALANCE-COST.md`](BALANCE-COST.md)**.
+
+Current evidence and limitations: **[`docs/BALANCE.md`](BALANCE.md)**. Agent
+tuning procedure: **[`docs/BALANCE-PROTOCOL.md`](BALANCE-PROTOCOL.md)**.
 
 Local lever sweeps (power, shields, structure) remain useful **after** games
 decide and the catalog form is frame/module — see that doc’s order of operations

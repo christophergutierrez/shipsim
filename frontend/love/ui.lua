@@ -161,6 +161,12 @@ end
 ui.HOLD_DELAY = 0.35
 ui.HOLD_RATE = 0.1
 
+function ui.is_repeatable(id)
+  return id == "alloc_movement_up" or id == "alloc_movement_dn"
+      or id == "alloc_weapon_up" or id == "alloc_weapon_dn"
+      or id == "alloc_shield_up" or id == "alloc_shield_dn"
+end
+
 function ui.press_begin(hit)
   if not hit then
     ui._press = nil

@@ -9,6 +9,7 @@ local events = require("events")
 local tutorial = require("tutorial")
 local layout = require("layout")
 local status_fmt = require("status_fmt")
+local allocation = require("allocation")
 
 local draw_hud = {}
 
@@ -502,16 +503,29 @@ function draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w, y_bot)
 end
 
 function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
-  local bh = math.max(math.floor(24 * ui.scale), 28)
-  local step = math.max(math.floor(22 * ui.scale), 28)
-  for _, s in ipairs(snap.ships or {}) do
-    if s.controller == "player" and not s.destroyed then
+  local bh = math.max(math.floor(24 * ui.scale), layout.MIN_HIT)
+  local step = math.max(math.floor(22 * ui.scale), layout.MIN_HIT)
+  local row_h = math.max(ui.line_h(13) + 2, step + 4)
+  local allocated = {}
+  for _, id in ipairs(snap.ships_allocated_this_turn or {}) do
+    allocated[id] = true
+  end
+  local s = find_ship(snap, app.selected_id)
+  if not s or s.controller ~= "player" or s.destroyed or allocated[s.id] then
+    for _, candidate in ipairs(snap.ships or {}) do
+      if candidate.controller == "player" and not candidate.destroyed and not allocated[candidate.id] then
+        s = candidate
+        break
+      end
+    end
+  end
+  if s and s.controller == "player" and not s.destroyed and not allocated[s.id] then
       love.graphics.setColor(0.8, 0.85, 0.9)
       love.graphics.print(ship_label(s), px + pad, y)
       y = y + ui.line_h(13)
       local a = app.alloc[s.id] or { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 } }
       -- Quick-set allocation (F3.4).
-      local qh = math.floor(22 * ui.scale)
+      local qh = math.max(math.floor(22 * ui.scale), layout.MIN_HIT)
       local qw = math.floor((content_w - 9) / 4)
       ui.button("Max wpn", px + pad, y, qw, qh, "alloc_quick_max_weapons", { id = s.id }, false)
       ui.button("Bal sh", px + pad + qw + 3, y, qw, qh, "alloc_quick_balance_shields", { id = s.id }, false)
@@ -522,20 +536,19 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
       love.graphics.print(string.format("move %d  (+/- keys)", a.movement), px + pad, y)
       ui.button("-", px + pad + content_w - step * 2 - 4, y - 2, step, step, "alloc_movement_dn", { id = s.id }, false)
       ui.button("+", px + pad + content_w - step, y - 2, step, step, "alloc_movement_up", { id = s.id }, false)
-      y = y + ui.line_h(13) + 4
+      y = y + row_h
       -- Power bar: click sets movement fraction (F3.4).
       local bar_h = math.floor(12 * ui.scale)
-      local power = s.power or 0
-      local spent = a.movement
-      for _, charge in pairs(a.weapons) do spent = spent + charge end
-      for _, shield in ipairs(a.shields) do spent = spent + shield end
+      local bar_hit_h = math.max(bar_h, layout.MIN_HIT)
+      local power = s.power_available or s.power or 0
+      local spent = allocation.power_spent(s, a)
       love.graphics.setColor(0.15, 0.16, 0.2)
       love.graphics.rectangle("fill", px + pad, y, content_w, bar_h, 2, 2)
-      local frac = power > 0 and math.min(1, spent / power) or 0
-      love.graphics.setColor(frac > 1 and 0.9 or 0.35, frac > 1 and 0.3 or 0.7, 0.4)
-      love.graphics.rectangle("fill", px + pad, y, content_w * math.min(1, frac), bar_h, 2, 2)
-      ui.hit("alloc_power_bar", px + pad, y, content_w, math.max(bar_h, 32), { id = s.id, power = power })
-      y = y + bar_h + 4
+      local raw_frac = power > 0 and spent / power or 0
+      love.graphics.setColor(raw_frac > 1 and 0.9 or 0.35, raw_frac > 1 and 0.3 or 0.7, 0.4)
+      love.graphics.rectangle("fill", px + pad, y, content_w * math.min(1, raw_frac), bar_h, 2, 2)
+      ui.hit("alloc_power_bar", px + pad, y, content_w, bar_hit_h, { id = s.id, power = power })
+      y = y + bar_hit_h + 4
       for _, w in ipairs(s.weapons or {}) do
         local ch = a.weapons[w.id] or 0
         love.graphics.setColor(0.7, 0.75, 0.8)
@@ -546,7 +559,7 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
           weapon = w.id,
           max = w.max_charge or 0,
         }, false)
-        y = y + ui.line_h(13) + 2
+        y = y + row_h
       end
       love.graphics.setColor(0.7, 0.75, 0.8)
       love.graphics.print("shields", px + pad, y)
@@ -561,20 +574,23 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
           face = face,
           max = s.max_shield_per_facing or 0,
         }, false)
-        y = y + ui.line_h(13) + 2
+        y = y + row_h
       end
       love.graphics.setColor(spent > power and { 0.95, 0.4, 0.4 } or { 0.7, 0.75, 0.8 })
       love.graphics.print(string.format("power %d / %d", spent, power), px + pad, y)
       y = y + ui.line_h(13) + 2
       ui.button("Allocate (Enter)", px + pad, y, content_w, bh, "alloc_confirm", { id = s.id }, false)
       y = y + bh + 6
-    end
+  else
+    love.graphics.setColor(0.7, 0.75, 0.8)
+    love.graphics.print("All player ships allocated", px + pad, y)
+    y = y + ui.line_h(13)
   end
   return y
 end
 
 function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
-  local bh = math.max(math.floor(28 * ui.scale), 32)
+  local bh = math.max(math.floor(28 * ui.scale), layout.MIN_HIT)
   local active = first_uncommitted_ship(snap, "player")
   local ship = find_ship(snap, active)
   if not ship then
@@ -622,7 +638,7 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
 end
 
 function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
-  local bh = math.max(math.floor(24 * ui.scale), 28)
+  local bh = math.max(math.floor(24 * ui.scale), layout.MIN_HIT)
   local ship = find_ship(snap, app.selected_id)
   if not ship or ship.controller ~= "player" then
     love.graphics.setColor(0.7, 0.75, 0.8)
@@ -702,7 +718,7 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
 end
 
 function draw_hud.draw_turn_end_panel(app, snap, px, pad, y, content_w)
-  local bh = math.max(math.floor(24 * ui.scale), 28)
+  local bh = math.max(math.floor(24 * ui.scale), layout.MIN_HIT)
   love.graphics.setColor(0.7, 0.75, 0.8)
   love.graphics.print("End of turn", px + pad, y)
   y = y + ui.line_h(13) + 4
@@ -800,8 +816,8 @@ function draw_hud.draw_help_overlay()
     "  End Turn button lives in the header (also E).",
     "Firing: enemies only; rows show hit% when available.",
     "  Enter=Commit Fire, R=Ready. Board-click sets target.",
-    "Right-drag pan, wheel zoom, Ctrl -/= UI scale (saved).",
-    "?/H help. Esc=scenarios. Exit/Q=quit. Auto-follow: camera tracks fleet.",
+    "Right-drag pan, wheel zoom, C=auto-fit, F=toggle follow, Ctrl -/= UI scale.",
+    "?/H help. Esc=scenarios. Exit/Q=quit.",
   }
   local y = by + 48
   for _, s in ipairs(lines) do

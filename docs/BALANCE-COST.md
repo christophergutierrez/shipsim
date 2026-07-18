@@ -1,18 +1,22 @@
 # Construction cost, efficiency, and balance claims
 
-Status: **design target**. The HEAD catalog does **not** implement this model yet
-(see [Catalog gap](#catalog-gap-head)). Simulator win matrices certify balance;
-η only generates candidate catalogs.
+Status: **implemented catalog model; pooled balance candidate, not certified**.
+See [`BALANCE.md`](BALANCE.md) for current measurements and scope. Simulator win
+matrices certify named claims; efficiency only generates candidate catalogs.
 
-### Status (2026-07-15)
+### Status (2026-07-18)
 
-**Claim A** holds on held-out seeds (65.6% swarm, n=512; [BALANCE-CAMPAIGN-SUMMARY.md §13.1](../tmp/BALANCE-CAMPAIGN-SUMMARY.md#131-claim-b-does-not-replicate-on-held-out-seeds--fail)).
+- The frame-plus-modules cost model is implemented by
+  `tools/generate_size_variants.py` and projected into `data/ship_costs.toml`.
+- A/B/C pass reusable pooled seeds 1-191 for the current catalog.
+- The virgin 264-327 sign-off range has not been run; do not call the catalog
+  certified.
+- The cross-size ladder remains uncertified. Do not extend destroyer/titan
+  evidence to cruiser, battleship, dreadnought, or mixed-fleet fairness.
+- The early 2026-07 "lock" and holdout reports are rejected historical evidence
+  because tuning exposed overfit and then a friendly-fire simulation bug.
 
-**Claim B** FAILED holdout (29.7% swarm vs 40–60% band) and is re-opened for retuning or re-scoping; original certification was overfit to seeds 1–63.
-
-**Claim C** re-scoped to `titan >= 90%` band; scenario design track, not a pure cost-vs-cost claim.
-
-The cross-size cost-matched ladder is uncertified and currently shows 100% stomps for concentrated hulls (cruiser/battleship/dreadnought); see [BALANCE-CAMPAIGN-SUMMARY.md §13.2](../tmp/BALANCE-CAMPAIGN-SUMMARY.md#132-cost-matched-size-ladder-is-broken-outside-destroyertitan--fail) — the ladder (18 of 21 hulls) needs its own claims suite before "cost = fair" extends beyond destroyer and titan pairs.
+Campaign history: [`history/BALANCE-CAMPAIGN-2026-07.md`](history/BALANCE-CAMPAIGN-2026-07.md).
 
 ## Intended economic shape
 
@@ -90,15 +94,18 @@ scores) to **accept** them.
 Niche / mid hulls likely need **matrix** module value \(k_{ij}\) (anti-fighter vs
 capital, tracking vs size), not a single scalar \(k\).
 
-## Falsifiable budget claims (A / B / C)
+## Falsifiable claims (A / B / C)
 
-Three distinct definitions — do not mix them in one suite row.
+The economic design starts from equal-budget comparisons, but the current A/B
+suite uses calibrated near-cost counts and sets `skip_cost_validation = true`.
+Do not describe these rows as exact equal-budget certification.
 
-| Claim | Budget definition | Desired outcome |
-|-------|-------------------|-----------------|
-| **A** | Equal budget \(B\); titan at **min** legal combat fit vs as many destroyers as \(B\) buys at **their** practical max | Swarm wins more often than not |
-| **B** | Equal budget \(B\); titan at **max** fill vs as many destroyers as \(B\) still buys | Titan competitive or favored — **but** not unkillable; mid hulls still relevant |
-| **C** | Fixed **count** (e.g. 8 DD) vs titan max (titan cost may exceed \(8\times C_D\)) | Scenario design claim, not pure cost-vs-cost |
+| Claim | Current operational definition | Desired outcome |
+|-------|-------------------------------|-----------------|
+| **A** | 7 destroyers (700) vs `titan_light` (762), minimum fill | Swarm wins 60-80% |
+| **B** | 10 destroyers (1000) vs `titan_heavy` (910), maximum fill | Either side can win; player 40-60% |
+| **C** | Fixed 8 destroyers (800) vs `titan_heavy` (910) | Titan wins at least 90%; scenario claim, not cost parity |
+| **Control** | 4 destroyers vs 4 destroyers | Player 35-65%; detect side/policy drift |
 
 Claim **B is ill-posed without forced engagement**. Mobility can refuse battle on
 open maps (empirically: high non-termination under annihilation-only). Either:
@@ -106,37 +113,29 @@ open maps (empirically: high non-termination under annihilation-only). Either:
 - anchor objectives (hold point, convoy, timer), or  
 - run balance suites on **bounded** arenas / closing incentives.
 
-## Catalog gap (HEAD)
+## Implemented catalog model
 
-`data/ship_costs.toml` / size variants were generated as:
+`tools/generate_size_variants.py` now computes:
 
 ```text
-cost_line = round(100 × D_median / D_destroyer)   # Combat D from JSONL
-cost_light = 0.85 × cost_line
-cost_heavy = 1.20 × cost_line
+raw cost = C_frame(size) + 1.2 * power + 3 * shield-face-cap
+           + sum(flat weapon-kind prices)
+catalog cost = normalize(raw cost so destroyer_line = 100)
 ```
 
-That is **cost ∝ measured combat efficiency**, which forces \(\eta \approx\) constant
-across tiers by construction. Light→heavy within a size often shows **rising**
-cost-per-power and **near-zero or negative** fixed intercepts when regressing
-cost on power — the **opposite** of large positive \(C_{\mathrm{frame}}\) and flat
-marginal \(c\). Titan variants share structure 120 while heavy mainly buys power,
-so “fill” does not buy hull capacity.
+`C_frame(size)` grows approximately with `size^1.85`. Light, line, and heavy
+variants are different fill packages on that frame, not total-cost multiples of
+a historical Combat-D score. Generated `power_sys`, `engine_boxes`, weapon-box
+depth, and selected fire-control fields are also part of the catalog projection.
 
-**Consequence:** claims A and B are not expressible as fill-level choices on the
-current catalog; equal-cost fleets only compare D-scaled package deals.
-
-**Fix when regenerating:** `tools/generate_size_variants.py` must emit
-
-- frame intercept \(C_{\mathrm{frame}}(s)\) from size (and structure capacity),
-- flat (or FASA-ratio) module prices,
-- light/line/heavy as **fill levels** \(L\), not D-multipliers,
-
-not Combat-D medians as total cost.
+This implements the desired economic shape, but implementation is not proof of
+fairness. The middle ladder and mixed fleets still need their own claims and
+sign-off evidence.
 
 ## Order of operations
 
-0. **Diagnose mechanism from match records before picking a lever.** Win rates
+0. **Follow [`BALANCE-PROTOCOL.md`](BALANCE-PROTOCOL.md).** Diagnose mechanism
+   from match records before picking a lever. Win rates
    alone mislead (e.g. B “titan too weak” was power_sys=2 → reactor dead after
    two DAC Power hits). Read traces / B2 geometry metrics / per-class
    `power_utilization`. Instrument: `min_class_power_utilization` on
@@ -148,26 +147,30 @@ not Combat-D medians as total cost.
 3. **Catalog regeneration** — `tools/generate_size_variants.py` emits
    frame-sunk + flat module costs (normalized `destroyer_line = 100`) and
    scaled `power_sys` / `engine_boxes` (not a global literal 2).
-4. **Certify** — `simulation/suites/abc_claims.toml` (A/B/C + asymmetric policies).
-   Prefer **≥100 matches per claim cell** and a **held-out seed set** for final
-   sign-off (binomial noise at n=32 is ~±17pp).
+4. **Tune** — fast seeds 1-32, then pooled seeds 1-191, using the tracked A/B/C
+   suites and asymmetric policies.
+5. **Certify once** — spend a virgin sign-off range only on a frozen candidate.
+   The current tracked range is 264-327. A failed or followed-by-tuning run burns
+   that range.
 
 ```bash
 cargo run --release --bin shipsim-sim -- \
-  --suite simulation/suites/abc_claims.toml \
-  --output tmp/simulation/reports/abc_claims_1k.json
+  --suite simulation/suites/abc_claims_pooled.toml \
+  --output tmp/simulation/reports/abc_claims_pooled.json
 ```
 
-**Lever #5 (cost) lock (n≈1k):** `C_frame ∝ s^1.85`, weapons slightly dearer;
-`destroyer_line=100`; titan_light≈762, titan_heavy≈910. Suite counts:
-A=**7** DD vs light, B=**10** DD vs heavy, C=**8** DD fixed. Typical WR:
-A ~67% swarm, B ~41/52, C ~1/99.
+Current costs include `destroyer_line=100`, `titan_light=762`, and
+`titan_heavy=910`. Suite counts are A=7 destroyers vs light, B=10 destroyers vs
+heavy, and C=8 destroyers vs heavy. Current measured outcomes belong in
+[`BALANCE.md`](BALANCE.md), not in this economic model.
 
 Power / shield / structure **sweeps** remain useful for local levers once games
 decide; they do not replace catalog form or engagement rules.
 
 ## Related docs
 
+- Current status: `docs/BALANCE.md`
+- Agent tuning and seed protocol: `docs/BALANCE-PROTOCOL.md`
 - Size ladder: `data/sizes.toml`, `docs/SIZE-VARIANTS.md` (historical D-cost note)
 - Suites: `docs/SIMULATION.md`, `simulation/suites/cost_matched.toml`
 - FASA component ratios (mass/SS/MCr): `tmp/sfb/Master-Construction-Book.xlsx`

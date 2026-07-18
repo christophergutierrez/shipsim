@@ -46,6 +46,8 @@ API” means drive the NDJSON harness without claiming that as UI coverage.
 | **Play types & how-to** | [`docs/AGENT-PLAY.md`](docs/AGENT-PLAY.md) |
 | External API | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
 | Batch simulation | [`docs/SIMULATION.md`](docs/SIMULATION.md) |
+| Balance status & claims | [`docs/BALANCE.md`](docs/BALANCE.md) |
+| Balance tuning protocol | [`docs/BALANCE-PROTOCOL.md`](docs/BALANCE-PROTOCOL.md) |
 | System boundaries | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Rules summary | [`docs/PLAY-V2.md`](docs/PLAY-V2.md) |
 | Hull size tiers (1–7) | [`data/sizes.toml`](data/sizes.toml), [`docs/combat-v2-tables.md`](docs/combat-v2-tables.md) |

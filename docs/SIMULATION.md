@@ -10,6 +10,10 @@ sim-play reference.
 
 `shipsim-sim` exists to make gameplay claims measurable and reproducible.
 
+For balance work, read [`BALANCE.md`](BALANCE.md) for current claim status and
+[`BALANCE-PROTOCOL.md`](BALANCE-PROTOCOL.md) before choosing seeds or changing a
+lever. In particular, do not use a sign-off suite for tuning.
+
 ## Quick start
 
 ```bash
@@ -176,3 +180,8 @@ cargo run --release --bin shipsim-sim -- \
 ## Interpretation
 
 A green rubric means its explicit numeric bounds held for the configured scenario, policies, and seeds. Advisory red results are recorded without failing the CLI exit status; blocking red results fail it. It does not prove that the game is fun. Red results are design evidence to investigate, not automatically software defects.
+
+Balance evidence also requires provenance beyond the rubric result. Record the
+engine revision, dirty ship/catalog changes, suite and seed range, and
+`rules_fingerprint`. The fingerprint covers configured rules data, not Rust
+formula changes or ship TOML, so it is not sufficient by itself.

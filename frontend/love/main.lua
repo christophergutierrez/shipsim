@@ -695,6 +695,8 @@ local function tutorial_gate_key(key)
   local action = nil
   if key == "v" then
     action = { kind = "EnterMap" }
+  elseif key == "c" then
+    action = { kind = "RecenterMap" }
   elseif key == "e" then
     action = { kind = "EndTurn" }
   elseif phase == phases.MOVEMENT then
@@ -781,7 +783,7 @@ function love.update(dt)
   if love.mouse.isDown(1) then
     local mx, my = love.mouse.getPosition()
     local rep = ui.press_tick(dt, true, mx, my)
-    if rep and rep.id and rep.id:match("^alloc_") then
+    if rep and ui.is_repeatable(rep.id) then
       handle_ui_hit(rep)
     end
   else
@@ -822,11 +824,7 @@ function love.load()
   if app.settings.ui_scale then
     ui.set_scale(app.settings.ui_scale)
   else
-    local ds = layout.default_scale(w, h)
-    if w >= 2400 then
-      ds = math.max(ds, 2)
-    end
-    ui.set_scale(ds)
+    ui.set_scale(layout.default_scale(w, h))
   end
   if app.settings.auto_follow == false then
     camera.set_auto(app.cam_sys, false)
@@ -998,7 +996,6 @@ local function apply_quick_alloc(kind, ship_id)
     return
   end
   local a = alloc_for(ship_id)
-  local power = ship.power or 0
   if kind == "clear" then
     a.movement = 0
     a.weapons = {}
@@ -1010,20 +1007,11 @@ local function apply_quick_alloc(kind, ship_id)
     end
     a.shields = { 0, 0, 0, 0, 0, 0 }
   elseif kind == "max_weapons" then
-    for _, w in ipairs(ship.weapons or {}) do
-      a.weapons[w.id] = w.max_charge or 0
-    end
+    allocation.maximize_weapons(ship, a)
   elseif kind == "balance_shields" then
-    local per = math.floor((power - a.movement) / 6)
-    if per < 0 then per = 0 end
-    local maxf = ship.max_shield_per_facing or per
-    per = math.min(per, maxf)
-    a.shields = { per, per, per, per, per, per }
+    allocation.balance_shields(ship, a)
   elseif kind == "all_engine" then
-    local wcost = 0
-    for _, c in pairs(a.weapons) do wcost = wcost + c end
-    a.movement = math.max(0, power - wcost)
-    a.shields = { 0, 0, 0, 0, 0, 0 }
+    allocation.all_engine(ship, a)
   end
   debounce.trip(app.reach_debounce)
 end
@@ -1130,7 +1118,10 @@ local function handle_ui_hit(hit)
       local frac = (mx - bar.x) / math.max(1, bar.w)
       frac = math.max(0, math.min(1, frac))
       local a = alloc_for(p.id)
-      a.movement = math.floor((p.power or 0) * frac + 0.5)
+      local ship = find_ship_in_snap(snap_now(), p.id)
+      if ship then
+        allocation.set_movement_fraction(ship, a, frac)
+      end
       debounce.trip(app.reach_debounce)
     end
     return true
@@ -1370,6 +1361,17 @@ function love.keypressed(key)
       do_commit_fire()
     elseif app.phase == phases.TURN_END then
       do_end_turn()
+    end
+  elseif key == "f" then
+    if app.cam_sys then
+      camera.set_auto(app.cam_sys, not app.cam_sys.auto)
+      persist_settings()
+      set_status("info", app.cam_sys.auto and "Auto-fit camera on" or "Auto-fit camera off")
+    end
+  elseif key == "c" then
+    if app.cam_sys then
+      camera.set_auto(app.cam_sys, true)
+      set_status("info", "Auto-fit camera")
     end
   elseif key == "e" then
     do_end_turn()

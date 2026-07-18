@@ -1396,6 +1396,46 @@ do
   ok("press increments draft exactly once")
 end
 
+-- Draft accounting matches the engine: carried charge is free, new charge is not.
+do
+  local ship = {
+    power_available = 10,
+    weapons = { { id = "beam_1", charge = 3 } },
+  }
+  local draft = {
+    movement = 2,
+    weapons = { beam_1 = 4 },
+    shields = { 1, 1, 0, 0, 0, 0 },
+  }
+  assert_eq(allocation.power_spent(ship, draft), 5, "only one beam charge is newly bought")
+  assert_eq(allocation.available_for_movement(ship, draft), 7, "movement uses residual power")
+
+  local quick_ship = {
+    power_available = 22,
+    max_shield_per_facing = 6,
+    weapons = {
+      { id = "beam_1", charge = 0, max_charge = 4 },
+      { id = "torp_1", charge = 0, max_charge = 1 },
+      { id = "plasma_1", charge = 0, max_charge = 1 },
+    },
+  }
+  local quick = { movement = 4, weapons = {}, shields = { 3, 3, 3, 3, 3, 3 } }
+  allocation.maximize_weapons(quick_ship, quick)
+  assert_eq(allocation.power_spent(quick_ship, quick), 22, "max weapons remains affordable")
+  local balanced = {
+    movement = 0,
+    weapons = { beam_1 = 4, torp_1 = 1, plasma_1 = 1 },
+    shields = { 3, 3, 3, 3, 3, 3 },
+  }
+  allocation.balance_shields(quick_ship, balanced)
+  assert_eq(allocation.power_spent(quick_ship, balanced), 18, "balanced shields use only residual power")
+  allocation.set_movement_fraction(quick_ship, balanced, 1)
+  assert_eq(allocation.power_spent(quick_ship, balanced), 22, "power bar movement remains affordable")
+  allocation.all_engine(quick_ship, balanced)
+  assert_eq(allocation.power_spent(quick_ship, balanced), 22, "all engine remains affordable")
+  ok("allocation budget honors carried charge")
+end
+
 -- status clears on phase change
 do
   local st = { level = "warn", message = "Pick weapon and target", born_turn = 1, born_phase = "firing" }
@@ -1447,10 +1487,23 @@ do
   ok("all registered hitboxes meet minimum size")
 end
 
+-- Dense allocation rows must reserve the full hit height, not overlap.
+do
+  local first = { x = 0, y = 0, w = 32, h = 32 }
+  local second = { x = 0, y = 36, w = 32, h = 32 }
+  assert(not layout.rects_overlap(first, second), "allocation row hitboxes overlap")
+  local ui = require("ui")
+  assert(ui.is_repeatable("alloc_weapon_up"), "weapon stepper repeats")
+  assert(not ui.is_repeatable("alloc_confirm"), "Allocate never repeats")
+  assert(not ui.is_repeatable("alloc_power_bar"), "power bar never repeats")
+  ok("allocation controls reserve non-overlapping repeat-safe targets")
+end
+
 -- default_scale DPI
 do
   assert(layout.default_scale(3840, 2160) >= 2, "4K scale >= 2")
   assert_eq(layout.default_scale(1280, 800), 1, "720p-class scale 1")
+  assert_eq(layout.default_scale(3832, 1021), 1, "wide short display stays usable")
   ok("dpi default scale")
 end
 
@@ -1472,6 +1525,35 @@ do
   camera.update(cam, 6.0, { { q = 0, r = 0 } }, function(q, r) return q * 10, r * 10 end, 10, { x = 0, y = 0, w = 100, h = 100 })
   assert(cam.pause_t <= 0, "pause expires")
   ok("camera state machine")
+end
+
+-- Auto-fit changes zoom as well as center so both outer contacts remain visible.
+do
+  local cam = camera.new({ x = 0, y = 0, zoom = 1 })
+  camera.update(cam, 1, { { q = 0, r = 0 }, { q = 100, r = 0 } },
+    function(q, r) return q * 10, r * 10 end, 10,
+    { x = 0, y = 0, w = 1000, h = 500 })
+  local left = cam.cam.x
+  local right = cam.cam.x + 1000 * cam.cam.zoom
+  assert(cam.cam.zoom < 1, "auto-fit zooms out for spread ships")
+  assert(left >= 0 and right <= 1000, "auto-fit keeps outer contacts on board")
+  ok("camera auto-fit frames living ships")
+end
+
+-- Allocate focus follows the next ship so only one fleet form is on screen.
+do
+  local state = { selected_id = 1, alloc = {} }
+  local snap = {
+    phase = "allocate",
+    ships_allocated_this_turn = { 1 },
+    ships = {
+      { id = 1, controller = "player", destroyed = false },
+      { id = 2, controller = "player", destroyed = false },
+    },
+  }
+  selection.ensure(state, snap)
+  assert_eq(state.selected_id, 2, "allocate focus advances to pending ship")
+  ok("allocate form follows pending ship")
 end
 
 -- settings round-trip

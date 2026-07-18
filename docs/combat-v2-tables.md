@@ -98,10 +98,12 @@ Combat baseline remains **size 2** (Destroyer): multiplier = `size / 2`.
 | 6 | Dreadnought | XVI–XVIII | ×3 |
 | 7 | Titan | XIX–XX | ×3.5 |
 
-### Draft size variants
+### Fleet catalog
 
-Twenty-one hulls (`{tier}_{light|line|heavy}`) with JSONL-ratioed `cost`:
-see `docs/SIZE-VARIANTS.md` and `data/ship_costs.toml`.
+Twenty-one hulls (`{tier}_{light|line|heavy}`) with frame-plus-modules `cost`:
+see `docs/SIZE-VARIANTS.md`, `docs/BALANCE-COST.md`, and
+`data/ship_costs.toml`. Current evidence and limitations are in
+`docs/BALANCE.md`.
 
 ### Legacy scenario hulls (provisional)
 
