@@ -45,10 +45,12 @@ function allocation.maximize_weapons(ship, draft)
     shield_cost = shield_cost + shield
   end
   local remaining = math.max(0, power_available(ship) - (draft.movement or 0) - shield_cost)
+  -- Prefer filling max charge (play intent of Max wpn); clamp by remaining budget.
   draft.weapons = {}
   for _, weapon in ipairs((ship and ship.weapons) or {}) do
     local carried = weapon.charge or 0
-    local add = math.min(math.max(0, (weapon.max_charge or 0) - carried), remaining)
+    local want = math.max(carried, weapon.max_charge or 0)
+    local add = math.min(want - carried, remaining)
     draft.weapons[weapon.id] = carried + add
     remaining = remaining - add
   end

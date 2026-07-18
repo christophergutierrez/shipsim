@@ -1578,4 +1578,33 @@ do
   ok("one request per weapon+target per snapshot")
 end
 
+-- empty weapons map encodes as {} not [] (engine BTreeMap)
+do
+  local orders = require("orders")
+  local enc = json.encode(orders.allocate(1, 5, {}, { 0, 0, 0, 0, 0, 0 }))
+  assert(enc:match('"weapons":{}'), "empty weapons is object: " .. enc)
+  assert(not enc:match('"weapons":%[%]'), "empty weapons must not be array")
+  local enc2 = json.encode(orders.allocate(1, 5, { beam_1 = 4 }, { 0, 0, 0, 0, 0, 0 }))
+  assert(enc2:match('"beam_1"'), "named weapons preserved")
+  ok("empty weapons JSON object not array")
+end
+
+-- maximize_weapons fills max_charge within budget
+do
+  local a = { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 } }
+  local ship = {
+    power = 22,
+    weapons = {
+      { id = "beam_1", max_charge = 4, charge = 0 },
+      { id = "torp_1", max_charge = 1, charge = 0 },
+    },
+  }
+  allocation.maximize_weapons(ship, a)
+  assert_eq(a.weapons.beam_1, 4, "max beam")
+  assert_eq(a.weapons.torp_1, 1, "max torp")
+  allocation.all_engine(ship, a)
+  assert_eq(a.movement, 17, "engine residual after weapons") -- 22-4-1
+  ok("quick-set max weapons then engine")
+end
+
 print(string.format("\nAll %d checks passed.", pass))

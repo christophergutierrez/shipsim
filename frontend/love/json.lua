@@ -183,8 +183,15 @@ local function encode_string(str)
 end
 
 local function is_array(t)
+  -- Metatable force: empty weapon maps must encode as {} not [] (engine BTreeMap).
+  local mt = getmetatable(t)
+  if mt and mt.__json_object then
+    return false
+  end
   local n = 0
+  local count = 0
   for k, _ in pairs(t) do
+    count = count + 1
     if type(k) ~= "number" then
       return false
     end
@@ -192,7 +199,19 @@ local function is_array(t)
       n = k
     end
   end
+  -- Empty tables are ambiguous in Lua; default to array only when non-empty
+  -- sequential. Empty stays array unless tagged via json.object().
+  if count == 0 then
+    return true
+  end
   return n == #t
+end
+
+--- Tag a table so json.encode always emits a JSON object (even when empty).
+--- Use for engine maps (e.g. allocate.weapons BTreeMap).
+function json.object(t)
+  t = t or {}
+  return setmetatable(t, { __json_object = true })
 end
 
 function json.encode(val)
@@ -215,7 +234,7 @@ function json.encode(val)
     else
       local parts = {}
       for k, v in pairs(val) do
-        parts[#parts + 1] = encode_string(k) .. ":" .. json.encode(v)
+        parts[#parts + 1] = encode_string(tostring(k)) .. ":" .. json.encode(v)
       end
       table.sort(parts)
       return "{" .. table.concat(parts, ",") .. "}"

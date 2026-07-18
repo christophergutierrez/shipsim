@@ -68,7 +68,12 @@ local app = {
   cam_sys = nil, -- filled in love.load
   settings = settings.defaults(),
   prev_phase = nil,
+  _need_weapon_pick = false,
 }
+
+-- Forward declarations (defined later; needed from sync_phase / request_previews).
+local next_fireable_weapon
+local apply_legal_shield_facing
 
 -- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
 -- ships; pump_scripted() below advances those ships until a player owes input.
@@ -88,7 +93,7 @@ end
 -- (PROTOCOL: charge carries; cannot lower below current total).
 local function alloc_for(ship_id)
   if not app.alloc[ship_id] then
-    local weapons = {}
+    local weapons = json.object({})
     local snap = app.session and app.session.snapshot
     if snap then
       for _, s in ipairs(snap.ships or {}) do
@@ -107,6 +112,10 @@ local function alloc_for(ship_id)
       weapons = weapons,
       shields = { 0, 0, 0, 0, 0, 0 },
     }
+  end
+  -- Re-tag after any mutation path so empty maps stay JSON objects.
+  if not getmetatable(app.alloc[ship_id].weapons) then
+    app.alloc[ship_id].weapons = json.object(app.alloc[ship_id].weapons or {})
   end
   return app.alloc[ship_id]
 end
@@ -150,6 +159,26 @@ local function sync_phase()
       toast.show(app.toast, label)
     end
     app.prev_phase = old_phase
+    -- Entering movement: default turn target off current nose (same-facing is illegal).
+    if app.phase == phases.MOVEMENT and snap then
+      local sid = selection.first_uncommitted(snap, "player") or app.selected_id
+      local sh = nil
+      if snap.ships then
+        for _, s in ipairs(snap.ships) do
+          if s.id == sid then sh = s; break end
+        end
+      end
+      if sh then
+        local face = sh.facing or 0
+        if (app.maneuver_facing or 0) == face then
+          app.maneuver_facing = (face + 1) % 6
+        end
+      end
+    end
+    -- Entering firing: clear spent weapon selection so request_previews can re-pick.
+    if app.phase == phases.FIRING then
+      app._need_weapon_pick = true
+    end
   else
     status_fmt.clear_if_stale(app.status, snap)
   end
@@ -390,9 +419,20 @@ local function request_maneuver_options()
 end
 
 local function request_previews()
+  -- Auto-pick first charged weapon when entering fire or after a volley shot.
+  if app.phase == phases.FIRING and app.selected_id then
+    local snap = snap_now()
+    if snap and (app._need_weapon_pick or not app.weapon_id) then
+      app.weapon_id = next_fireable_weapon(snap, app.selected_id, nil)
+      app._need_weapon_pick = false
+    end
+  end
   request_fire_preview()
   request_target_previews()
   request_maneuver_options()
+  if app.phase == phases.FIRING then
+    apply_legal_shield_facing()
+  end
 end
 
 -- UPGRADE-PLAN Phase 4: reachable-endpoint cloud. During allocate, as the
@@ -428,7 +468,8 @@ local function request_movement_preview()
     request = "movement_preview",
     ship = ship_id,
     movement = a.movement or 0,
-    weapons = a.weapons or {},
+    -- Must be JSON object {} not [] (engine BTreeMap) — see json.object.
+    weapons = json.object(a.weapons or {}),
     shields = a.shields or { 0, 0, 0, 0, 0, 0 },
     clamp = true,
   })
@@ -922,12 +963,20 @@ local function do_movement(action, facing)
     set_status("warn", "Not movement phase")
     return
   end
-  local ship = first_uncommitted_ship(snap, "player")
-  if not ship or not is_player_ship(ship) then
+  local ship_id = first_uncommitted_ship(snap, "player")
+  if not ship_id or not is_player_ship(ship_id) then
     set_status("warn", "Not your move")
     return
   end
-  local order = command_mapping.movement_order(action, ship, facing)
+  local ship = find_ship_in_snap(snap, ship_id)
+  -- Engine rejects turn/turn_accel to the current facing as a no-op.
+  if (action == "turn" or action == "turn_accel") and ship
+      and facing ~= nil and facing == (ship.facing or 0) then
+    set_status("warn", string.format(
+      "Already facing %d — pick another facing, or Coast (P)", facing))
+    return
+  end
+  local order = command_mapping.movement_order(action, ship_id, facing)
   if not order then
     set_status("warn", "Unknown maneuver")
     return
@@ -935,8 +984,47 @@ local function do_movement(action, facing)
   local _, err = submit(order, true)
   if not err then
     mark_tutorial_order_emitted()
-    set_status("info", status_fmt.order_echo(ship, action, facing))
+    set_status("info", status_fmt.order_echo(ship_id, action, facing))
   end
+end
+
+--- Next charged weapon not already in fire_commits for this ship (multi-volley).
+next_fireable_weapon = function(snap, ship_id, exclude)
+  local ship = find_ship_in_snap(snap, ship_id)
+  if not ship then
+    return nil
+  end
+  local committed = {}
+  for _, c in ipairs(snap.fire_commits or {}) do
+    if c.ship == ship_id and c.weapon then
+      committed[c.weapon] = true
+    end
+  end
+  if exclude then
+    committed[exclude] = true
+  end
+  for _, w in ipairs(ship.weapons or {}) do
+    if w.operational ~= false and (w.charge or 0) > 0 and not committed[w.id]
+        and not w.fired then
+      return w.id
+    end
+  end
+  return nil
+end
+
+--- Prefer first legal shield facing from fire_preview (engine authority).
+apply_legal_shield_facing = function()
+  local fp = app.fire_preview
+  if not fp or not fp.legal_shield_facings or #fp.legal_shield_facings == 0 then
+    return
+  end
+  local cur = app.shield_facing or 0
+  for _, f in ipairs(fp.legal_shield_facings) do
+    if f == cur then
+      return -- current is legal
+    end
+  end
+  app.shield_facing = fp.legal_shield_facings[1]
 end
 
 local function do_commit_fire()
@@ -949,12 +1037,27 @@ local function do_commit_fire()
     set_status("warn", "Pick weapon and target")
     return
   end
+  -- Auto-fix illegal shield face before send (common multi-weapon trap).
+  apply_legal_shield_facing()
   local weapon = app.weapon_id
   local target = app.target_id
   local snap2, err = submit(orders.commit_fire(ship, weapon, target, app.shield_facing), true)
   if not err then
     mark_tutorial_order_emitted()
     set_status("info", fire_result_message(snap2 or snap_now(), weapon, target))
+    -- Advance to next charged weapon so a full volley is clickable without
+    -- re-picking each mount (FIX-PLAN playtest: hard to fire all weapons).
+    local snap = snap2 or snap_now()
+    local nxt = next_fireable_weapon(snap, ship, weapon)
+    app.weapon_id = nxt
+    if nxt then
+      request_previews()
+      apply_legal_shield_facing()
+      set_status("info", fire_result_message(snap, weapon, target)
+        .. string.format(" · next: %s", nxt))
+    else
+      request_previews()
+    end
   end
 end
 
@@ -999,7 +1102,6 @@ local function apply_quick_alloc(kind, ship_id)
   if kind == "clear" then
     a.movement = 0
     a.weapons = {}
-    -- Re-seed carried charges.
     for _, w in ipairs(ship.weapons or {}) do
       if (w.charge or 0) > 0 then
         a.weapons[w.id] = w.charge
@@ -1013,6 +1115,8 @@ local function apply_quick_alloc(kind, ship_id)
   elseif kind == "all_engine" then
     allocation.all_engine(ship, a)
   end
+  -- Engine maps must encode as {} not [] when empty.
+  a.weapons = json.object(a.weapons or {})
   debounce.trip(app.reach_debounce)
 end
 
@@ -1148,12 +1252,14 @@ local function handle_ui_hit(hit)
   end
   if id == "pick_weapon" then
     app.weapon_id = p.id
-    request_fire_preview()
+    request_previews()
+    apply_legal_shield_facing()
     return true
   end
   if id == "pick_target" then
     app.target_id = p.id
-    request_fire_preview()
+    request_previews()
+    apply_legal_shield_facing()
     return true
   end
   if id == "pick_shield_facing" then
@@ -1405,7 +1511,7 @@ function love.keypressed(key)
   elseif key:match("^[0-5]$") and app.phase == phases.MOVEMENT then
     local face = tonumber(key)
     app.maneuver_facing = face
-    -- Shift+digit = turn_accel (TUI Alt+digit equivalent); plain digit = turn.
+    -- Digit commits turn (help: "0-5=turn"). Same-facing is blocked in do_movement.
     if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
       do_movement("turn_accel", face)
     else

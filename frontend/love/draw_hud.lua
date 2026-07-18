@@ -619,20 +619,31 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   ui.button_split("Accel (T)", preview.maneuver_cost_label(opts, { type = "accel" }),
     px + pad, y, content_w, bh, "accel", nil, false)
   y = y + bh + 4
+  local cur_face = ship.facing or 0
+  local want = app.maneuver_facing or 0
   love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print(string.format("Turn to facing: %d  (keys 0-5)", app.maneuver_facing or 0), px + pad, y)
+  love.graphics.print(
+    string.format("Turn to facing: %d (now %d)  keys 0-5 commit", want, cur_face),
+    px + pad, y)
   y = y + ui.line_h(13) + 1
   local fw = math.floor((content_w - 5 * 3) / 6)
   for i = 0, 5 do
-    local sel = ((app.maneuver_facing or 0) == i)
+    local sel = (want == i)
+    -- Same-facing is a no-op in the engine — still selectable for Turn+Accel path clarity.
     ui.button(tostring(i), px + pad + i * (fw + 3), y, fw, bh, "pick_maneuver_facing", { face = i }, sel)
   end
   y = y + bh + 4
-  ui.button_split("Turn", preview.maneuver_cost_label(opts, { type = "turn", facing = app.maneuver_facing or 0 }),
-    px + pad, y, content_w, bh, "turn", nil, false)
+  local turn_cost = preview.maneuver_cost_label(opts, { type = "turn", facing = want })
+  if want == cur_face then
+    turn_cost = "same"
+  end
+  ui.button_split("Turn", turn_cost, px + pad, y, content_w, bh, "turn", nil, false)
   y = y + bh + 4
-  ui.button_split("Turn+Accel", preview.maneuver_cost_label(opts, { type = "turn_accel", facing = app.maneuver_facing or 0 }),
-    px + pad, y, content_w, bh, "turn_accel", nil, false)
+  local ta_cost = preview.maneuver_cost_label(opts, { type = "turn_accel", facing = want })
+  if want == cur_face then
+    ta_cost = "same"
+  end
+  ui.button_split("Turn+Accel", ta_cost, px + pad, y, content_w, bh, "turn_accel", nil, false)
   y = y + bh + 6
   return y
 end
@@ -647,11 +658,24 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
     return y
   end
   love.graphics.setColor(0.8, 0.85, 0.9)
-  love.graphics.print("Weapon:", px + pad, y)
+  love.graphics.print("Weapon: (auto-advances after Commit)", px + pad, y)
   y = y + ui.line_h(13) + 1
+  local committed_w = {}
+  for _, c in ipairs(snap.fire_commits or {}) do
+    if c.ship == ship.id and c.weapon then
+      committed_w[c.weapon] = true
+    end
+  end
   for _, w in ipairs(ship.weapons or {}) do
     local sel = (app.weapon_id == w.id)
-    ui.button(w.id, px + pad, y, content_w, bh, "pick_weapon", { id = w.id }, sel)
+    local ch = w.charge or 0
+    local label = string.format("%s  ch%d", w.id, ch)
+    if committed_w[w.id] then
+      label = label .. " · queued"
+    elseif ch <= 0 or w.operational == false then
+      label = label .. " · empty"
+    end
+    ui.button(label, px + pad, y, content_w, bh, "pick_weapon", { id = w.id }, sel)
     y = y + bh + 2
   end
   y = y + 2

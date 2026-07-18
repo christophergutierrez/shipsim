@@ -160,9 +160,12 @@ end
 layout.MIN_HIT = 32
 
 --- Expand a rect so w,h are at least min_hit (centered expansion where possible).
+--- Only expands axes that are short — wide but short buttons grow in height only
+--- so side-by-side quick-set chips do not steal each other's clicks.
 function layout.ensure_hit_size(x, y, w, h, min_hit)
   min_hit = min_hit or layout.MIN_HIT
-  local nw, nh = math.max(w, min_hit), math.max(h, min_hit)
+  local nw = (w < min_hit) and min_hit or w
+  local nh = (h < min_hit) and min_hit or h
   local nx = x - (nw - w) / 2
   local ny = y - (nh - h) / 2
   return nx, ny, nw, nh
