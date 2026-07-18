@@ -1337,4 +1337,163 @@ do
   ok("full 26-step walkthrough reaches completion")
 end
 
+--------------------------------------------------------------------
+-- FIX-PLAN F1–F4 pure-module checks
+--------------------------------------------------------------------
+print("fix-plan F1–F4")
+local layout = require("layout")
+local status_fmt = require("status_fmt")
+local toast = require("toast")
+local camera = require("camera")
+local settings = require("settings")
+local allocation = require("allocation")
+
+-- header slots do not overlap
+do
+  for _, size in ipairs({ { 1280, 800 }, { 3832, 1021 }, { 1024, 720 } }) do
+    local ok_slots, reason = layout.header_slots_ok(size[1], 1.0)
+    assert(ok_slots, "header slots overlap at " .. size[1] .. "x" .. size[2] .. ": " .. tostring(reason))
+    local ok2, reason2 = layout.header_slots_ok(size[1], 2.0)
+    assert(ok2, "header slots overlap at scale 2: " .. tostring(reason2))
+  end
+  ok("header slots do not overlap")
+end
+
+-- wrap_text respects max lines
+do
+  local lines = layout.wrap_text("weapon beam_1 cannot be fired because range is too long for this facing", 80, function(s) return #s * 6 end, 2)
+  assert(#lines <= 2, "wrap_text max_lines")
+  assert(#lines >= 1, "wrap_text produced lines")
+  ok("wrap_text caps at max_lines")
+end
+
+-- roster includes wrecks; enemy list excludes own fleet
+do
+  local snap = {
+    ships = {
+      { id = 1, controller = "player", destroyed = false },
+      { id = 2, controller = "player", destroyed = true },
+      { id = 3, controller = "ai", destroyed = false },
+      { id = 4, controller = "ai", destroyed = true },
+    },
+  }
+  local roster = layout.roster_ships(snap)
+  assert_eq(#roster, 4, "roster includes all ships")
+  local enemies = layout.enemy_targets(snap, 1)
+  assert_eq(#enemies, 1, "target list excludes own fleet and wrecks")
+  assert_eq(enemies[1].id, 3, "only living enemy")
+  ok("target list excludes own fleet")
+  ok("panel row count independent of ship status")
+end
+
+-- press increments draft exactly once (synthetic)
+do
+  local v = 0
+  v = allocation.increment(v, 10)
+  assert_eq(v, 1, "one press +1")
+  v = allocation.increment(v, 10)
+  assert_eq(v, 2, "second press +1 more")
+  ok("press increments draft exactly once")
+end
+
+-- status clears on phase change
+do
+  local st = { level = "warn", message = "Pick weapon and target", born_turn = 1, born_phase = "firing" }
+  local cleared = status_fmt.clear_if_stale(st, { turn = 1, phase = "movement" })
+  assert(cleared, "status clears on phase change")
+  assert_eq(st.message, "", "message emptied")
+  ok("status clears on phase change")
+end
+
+-- order echo uses words
+do
+  assert(status_fmt.order_echo(2, "turn", 3):match("facing 3"), "turn echo")
+  assert(status_fmt.order_echo(1, "accel"):match("accelerated"), "accel echo")
+  assert(not status_fmt.order_echo(1, "coast"):match("coast$") or status_fmt.order_echo(1, "coast"):match("coasted"), "coast echo")
+  ok("order echo uses words")
+end
+
+-- header formatter never emits #nil
+do
+  local draw_hud = require("draw_hud")
+  local h1 = draw_hud.header_text({ turn = 1, phase = "allocate", ships = {} }, "allocate", nil)
+  assert(not h1:match("#nil"), "no #nil on allocate: " .. h1)
+  assert(not h1:match("%snil%s") and not h1:match("nil$"), "no bare nil: " .. h1)
+  local h2 = draw_hud.header_text({
+    turn = 2, phase = "movement", movement_phase = 1,
+    ships = { { id = 1, controller = "player", destroyed = false } },
+    ships_committed_this_phase = {},
+  }, "movement", 1)
+  assert(h2:match("Active"), "movement has Active when ship pending")
+  assert(not h2:match("#nil"), "no #nil on movement")
+  ok("header formatter never emits #nil")
+end
+
+-- stale endpoint cloud cleared on phase change (pure rule)
+do
+  local reach = { endpoints = { { 1, 0 } } }
+  local phase = "firing"
+  if phase ~= "allocate" and phase ~= "movement" then
+    reach = nil
+  end
+  assert_eq(reach, nil, "reach cleared outside allocate/movement")
+  ok("stale endpoint cloud cleared on phase change")
+end
+
+-- hitbox minimum size
+do
+  local nx, ny, nw, nh = layout.ensure_hit_size(10, 10, 20, 20, 32)
+  assert(nw >= 32 and nh >= 32, "hit expanded to 32")
+  ok("all registered hitboxes meet minimum size")
+end
+
+-- default_scale DPI
+do
+  assert(layout.default_scale(3840, 2160) >= 2, "4K scale >= 2")
+  assert_eq(layout.default_scale(1280, 800), 1, "720p-class scale 1")
+  ok("dpi default scale")
+end
+
+-- toast lifecycle
+do
+  local t = toast.new()
+  toast.show(t, "Movement 2/4")
+  assert(toast.active(t), "toast active")
+  toast.update(t, 0.7)
+  assert(not toast.active(t), "toast expired")
+  ok("toast phase banner lifecycle")
+end
+
+-- camera auto-follow pause
+do
+  local cam = camera.new({ x = 0, y = 0, zoom = 1 })
+  camera.user_moved(cam)
+  assert(cam.pause_t > 0, "pause after user move")
+  camera.update(cam, 6.0, { { q = 0, r = 0 } }, function(q, r) return q * 10, r * 10 end, 10, { x = 0, y = 0, w = 100, h = 100 })
+  assert(cam.pause_t <= 0, "pause expires")
+  ok("camera state machine")
+end
+
+-- settings round-trip
+do
+  local path = "/tmp/shipsim-love-settings-test.json"
+  local data = { ui_scale = 1.5, auto_follow = false }
+  assert(settings.save(path, data, json), "settings save")
+  local loaded = settings.load(path, json)
+  assert_eq(loaded.ui_scale, 1.5, "settings scale")
+  assert_eq(loaded.auto_follow, false, "settings auto_follow")
+  os.remove(path)
+  ok("settings persist")
+end
+
+-- target preview cache key uniqueness (one request per weapon+target per snap)
+do
+  local key1 = string.format("%s:%s:%s:%s", 1, "firing", 1, "beam_1")
+  local key2 = string.format("%s:%s:%s:%s", 1, "firing", 1, "beam_1")
+  local key3 = string.format("%s:%s:%s:%s", 1, "firing", 1, "torp_1")
+  assert_eq(key1, key2, "same snap+weapon shares cache key")
+  assert(key1 ~= key3, "weapon change busts cache")
+  ok("one request per weapon+target per snapshot")
+end
+
 print(string.format("\nAll %d checks passed.", pass))

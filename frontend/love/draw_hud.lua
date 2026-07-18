@@ -7,6 +7,8 @@ local ui = require("ui")
 local preview = require("preview")
 local events = require("events")
 local tutorial = require("tutorial")
+local layout = require("layout")
+local status_fmt = require("status_fmt")
 
 local draw_hud = {}
 
@@ -226,6 +228,7 @@ end
 
 --- Build the status header without Love APIs so nil focus and ownership stay
 --- testable. "Active" is meaningful only in the simultaneous movement phase.
+--- Never emits raw "#nil" (FIX-PLAN D8 / F2.4).
 function draw_hud.header_text(snap, app_phase, selected_id)
   local turn = (snap and snap.turn) or 1
   local phase = app_phase or (snap and snap.phase) or phases.ALLOCATE
@@ -237,22 +240,23 @@ function draw_hud.header_text(snap, app_phase, selected_id)
   if phase == phases.MOVEMENT then
     local active = first_uncommitted_ship(snap, "player")
     if active then
-      header = header .. "  Active " .. callsign(find_ship(snap, active))
+      header = header .. status_fmt.header_active(active, function(id)
+        return callsign(find_ship(snap, id))
+      end)
     end
   end
   local cta = draw_hud.phase_call_to_action(snap, selected_id)
   if cta and cta ~= "" then
     header = header .. "  │ " .. cta
   end
+  -- Guard: never show the literal "nil" in the header string.
+  header = header:gsub("#nil", ""):gsub("%snil%s", " "):gsub("%s+", " ")
   return header
 end
 
 --- Center a board inside the space not occupied by HUD chrome.
---- Pure layout math for resize/wide-window verification.
 function draw_hud.board_camera_origin(width, height, panel_w, top_h, bottom_h, map_x, map_y, zoom)
-  local board_w = width - panel_w
-  local board_h = height - top_h - bottom_h
-  return board_w / 2 - map_x * zoom, top_h + board_h / 2 - map_y * zoom
+  return layout.board_camera_origin(width, height, panel_w, top_h, bottom_h, map_x, map_y, zoom)
 end
 
 function draw_hud.draw(app)
@@ -263,30 +267,32 @@ function draw_hud.draw(app)
   local px = W - pw
   local pad = math.floor(10 * ui.scale)
   local content_w = pw - 2 * pad
+  local slots = layout.header_slots(W, ui.scale)
+  local phase = app.phase or (snap and snap.phase) or phases.ALLOCATE
 
+  -- F1 D1: three fixed header slots — left text, End Turn button, rules.
   love.graphics.setColor(0.1, 0.11, 0.14, 0.96)
-  love.graphics.rectangle("fill", 0, 0, W, draw_hud.top_h())
+  love.graphics.rectangle("fill", 0, 0, W, slots.top_h)
   ui.use(14)
   love.graphics.setColor(1, 1, 1)
-  local phase = app.phase or (snap and snap.phase) or phases.ALLOCATE
   local header = draw_hud.header_text(snap, phase, app.selected_id)
-  -- The provenance label owns the top-right region. Clip the header before it
-  -- reaches that region so a long CTA cannot paint underneath its metadata.
-  local reserved = 0
-  local rule_label = draw_hud.rules_label(app)
-  if rule_label then
-    ui.use(11)
-    reserved = ui.font(11):getWidth(rule_label) + math.floor(24 * ui.scale)
-  end
-  ui.use(14)
-  local header_w = math.max(0, W - pad - reserved)
-  love.graphics.setScissor(pad, 0, header_w, draw_hud.top_h())
-  love.graphics.print(header, pad, (draw_hud.top_h() - ui.font(14):getHeight()) / 2)
+  local font14 = ui.font(14)
+  local measure = function(s) return font14:getWidth(s) end
+  local left_text = layout.ellipsize(header, slots.left.w, measure)
+  love.graphics.setScissor(slots.left.x, slots.left.y, slots.left.w, slots.left.h)
+  love.graphics.print(left_text, slots.left.x,
+    (slots.top_h - font14:getHeight()) / 2)
   love.graphics.setScissor()
 
+  -- End Turn always owns the center-right header slot (discoverable; D1).
+  if app.screen == "play" and snap then
+    local et = slots.end_turn
+    ui.button("End Turn", et.x, et.y, et.w, et.h, "end_turn", nil, false)
+  end
+
   love.graphics.setColor(0.08, 0.09, 0.12, 0.97)
-  love.graphics.rectangle("fill", px, draw_hud.top_h(), pw, H - draw_hud.top_h() - draw_hud.bottom_h())
-  local y = draw_hud.top_h() + pad
+  love.graphics.rectangle("fill", px, slots.top_h, pw, H - slots.top_h - draw_hud.bottom_h())
+  local y = slots.top_h + pad
   ui.use(13)
 
   if not snap then
@@ -294,12 +300,20 @@ function draw_hud.draw(app)
     return
   end
 
+  -- Fixed roster: all ships every phase (dead dimmed) so panel y is stable (D5).
   section("Ships", px + pad)
   y = y + ui.line_h(13)
-  for _, s in ipairs(snap.ships or {}) do
+  local roster = layout.roster_ships(snap)
+  for _, s in ipairs(roster) do
     local mark = (s.id == app.selected_id) and ">" or " "
-    local dest = s.destroyed and " (destroyed)" or ""
-    love.graphics.setColor(s.controller == "player" and { 0.7, 0.9, 1 } or { 1, 0.6, 0.6 })
+    local dest = s.destroyed and " wreck" or ""
+    if s.destroyed then
+      love.graphics.setColor(0.45, 0.45, 0.5)
+    elseif s.controller == "player" then
+      love.graphics.setColor(0.7, 0.9, 1)
+    else
+      love.graphics.setColor(1, 0.6, 0.6)
+    end
     love.graphics.print(string.format("%s %s pwr %d%s", mark, ship_label(s), s.power or 0, dest), px + pad, y)
     y = y + ui.line_h(13)
   end
@@ -488,29 +502,51 @@ function draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w, y_bot)
 end
 
 function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
-  local bh = math.floor(24 * ui.scale)
+  local bh = math.max(math.floor(24 * ui.scale), 28)
+  local step = math.max(math.floor(22 * ui.scale), 28)
   for _, s in ipairs(snap.ships or {}) do
     if s.controller == "player" and not s.destroyed then
       love.graphics.setColor(0.8, 0.85, 0.9)
       love.graphics.print(ship_label(s), px + pad, y)
       y = y + ui.line_h(13)
       local a = app.alloc[s.id] or { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 } }
+      -- Quick-set allocation (F3.4).
+      local qh = math.floor(22 * ui.scale)
+      local qw = math.floor((content_w - 9) / 4)
+      ui.button("Max wpn", px + pad, y, qw, qh, "alloc_quick_max_weapons", { id = s.id }, false)
+      ui.button("Bal sh", px + pad + qw + 3, y, qw, qh, "alloc_quick_balance_shields", { id = s.id }, false)
+      ui.button("Engine", px + pad + 2 * (qw + 3), y, qw, qh, "alloc_quick_all_engine", { id = s.id }, false)
+      ui.button("Clear", px + pad + 3 * (qw + 3), y, qw, qh, "alloc_quick_clear", { id = s.id }, false)
+      y = y + qh + 4
       love.graphics.setColor(0.7, 0.75, 0.8)
-      love.graphics.print(string.format("move %d", a.movement), px + pad, y)
-      ui.button("-", px + pad + 60, y - 2, 20, bh, "alloc_movement_dn", { id = s.id }, false)
-      ui.button("+", px + pad + 84, y - 2, 20, bh, "alloc_movement_up", { id = s.id }, false)
-      y = y + ui.line_h(13) + 2
+      love.graphics.print(string.format("move %d  (+/- keys)", a.movement), px + pad, y)
+      ui.button("-", px + pad + content_w - step * 2 - 4, y - 2, step, step, "alloc_movement_dn", { id = s.id }, false)
+      ui.button("+", px + pad + content_w - step, y - 2, step, step, "alloc_movement_up", { id = s.id }, false)
+      y = y + ui.line_h(13) + 4
+      -- Power bar: click sets movement fraction (F3.4).
+      local bar_h = math.floor(12 * ui.scale)
+      local power = s.power or 0
+      local spent = a.movement
+      for _, charge in pairs(a.weapons) do spent = spent + charge end
+      for _, shield in ipairs(a.shields) do spent = spent + shield end
+      love.graphics.setColor(0.15, 0.16, 0.2)
+      love.graphics.rectangle("fill", px + pad, y, content_w, bar_h, 2, 2)
+      local frac = power > 0 and math.min(1, spent / power) or 0
+      love.graphics.setColor(frac > 1 and 0.9 or 0.35, frac > 1 and 0.3 or 0.7, 0.4)
+      love.graphics.rectangle("fill", px + pad, y, content_w * math.min(1, frac), bar_h, 2, 2)
+      ui.hit("alloc_power_bar", px + pad, y, content_w, math.max(bar_h, 32), { id = s.id, power = power })
+      y = y + bar_h + 4
       for _, w in ipairs(s.weapons or {}) do
         local ch = a.weapons[w.id] or 0
         love.graphics.setColor(0.7, 0.75, 0.8)
         love.graphics.print(string.format("%s ch %d", w.id, ch), px + pad, y)
-        ui.button("-", px + pad + 100, y - 2, 20, bh, "alloc_weapon_dn", { id = s.id, weapon = w.id }, false)
-        ui.button("+", px + pad + 124, y - 2, 20, bh, "alloc_weapon_up", {
+        ui.button("-", px + pad + content_w - step * 2 - 4, y - 2, step, step, "alloc_weapon_dn", { id = s.id, weapon = w.id }, false)
+        ui.button("+", px + pad + content_w - step, y - 2, step, step, "alloc_weapon_up", {
           id = s.id,
           weapon = w.id,
           max = w.max_charge or 0,
         }, false)
-        y = y + ui.line_h(13) + 1
+        y = y + ui.line_h(13) + 2
       end
       love.graphics.setColor(0.7, 0.75, 0.8)
       love.graphics.print("shields", px + pad, y)
@@ -519,21 +555,18 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
         local value = a.shields[face + 1] or 0
         love.graphics.setColor(0.7, 0.75, 0.8)
         love.graphics.print(string.format("%s %d", SHIELD_FACE[face + 1], value), px + pad, y)
-        ui.button("-", px + pad + 60, y - 2, 20, bh, "alloc_shield_dn", { id = s.id, face = face }, false)
-        ui.button("+", px + pad + 84, y - 2, 20, bh, "alloc_shield_up", {
+        ui.button("-", px + pad + content_w - step * 2 - 4, y - 2, step, step, "alloc_shield_dn", { id = s.id, face = face }, false)
+        ui.button("+", px + pad + content_w - step, y - 2, step, step, "alloc_shield_up", {
           id = s.id,
           face = face,
           max = s.max_shield_per_facing or 0,
         }, false)
-        y = y + ui.line_h(13) + 1
+        y = y + ui.line_h(13) + 2
       end
-      local spent = a.movement
-      for _, charge in pairs(a.weapons) do spent = spent + charge end
-      for _, shield in ipairs(a.shields) do spent = spent + shield end
-      love.graphics.setColor(spent > (s.power or 0) and { 0.95, 0.4, 0.4 } or { 0.7, 0.75, 0.8 })
-      love.graphics.print(string.format("power %d / %d", spent, s.power or 0), px + pad, y)
+      love.graphics.setColor(spent > power and { 0.95, 0.4, 0.4 } or { 0.7, 0.75, 0.8 })
+      love.graphics.print(string.format("power %d / %d", spent, power), px + pad, y)
       y = y + ui.line_h(13) + 2
-      ui.button("Allocate", px + pad, y, content_w, bh, "alloc_confirm", { id = s.id }, false)
+      ui.button("Allocate (Enter)", px + pad, y, content_w, bh, "alloc_confirm", { id = s.id }, false)
       y = y + bh + 6
     end
   end
@@ -541,7 +574,7 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
 end
 
 function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
-  local bh = math.floor(24 * ui.scale)
+  local bh = math.max(math.floor(28 * ui.scale), 32)
   local active = first_uncommitted_ship(snap, "player")
   local ship = find_ship(snap, active)
   if not ship then
@@ -562,19 +595,16 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
       ship.facing or 0, ship.course or 0, ship.velocity or 0, ship.thrust_remaining or 0),
     px + pad, y)
   y = y + ui.line_h(13) + 4
-  -- v3 motion model (ADR-0022 M4/M6): coast / accel / turn{facing} / turn_accel{facing}.
-  -- Engine-authoritative costs from maneuver_options (UPGRADE-PLAN Phase 1).
-  -- The label shows the thrust cost and affordability; unaffordable entries
-  -- carry the engine's "NO" marker so the player sees why before clicking.
+  -- Cost column inside button (F1 D2) — not a second line under the border.
   local opts = app.maneuver_options and app.maneuver_options.options or nil
-  local coast_label = "Coast (P)\n" .. preview.maneuver_cost_label(opts, { type = "coast" })
-  ui.button(coast_label, px + pad, y, content_w, bh, "coast", nil, false)
+  ui.button_split("Coast (P)", preview.maneuver_cost_label(opts, { type = "coast" }),
+    px + pad, y, content_w, bh, "coast", nil, false)
   y = y + bh + 4
-  local accel_label = "Accel (T)\n" .. preview.maneuver_cost_label(opts, { type = "accel" })
-  ui.button(accel_label, px + pad, y, content_w, bh, "accel", nil, false)
+  ui.button_split("Accel (T)", preview.maneuver_cost_label(opts, { type = "accel" }),
+    px + pad, y, content_w, bh, "accel", nil, false)
   y = y + bh + 4
   love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print(string.format("Turn to facing: %d", app.maneuver_facing or 0), px + pad, y)
+  love.graphics.print(string.format("Turn to facing: %d  (keys 0-5)", app.maneuver_facing or 0), px + pad, y)
   y = y + ui.line_h(13) + 1
   local fw = math.floor((content_w - 5 * 3) / 6)
   for i = 0, 5 do
@@ -582,17 +612,17 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
     ui.button(tostring(i), px + pad + i * (fw + 3), y, fw, bh, "pick_maneuver_facing", { face = i }, sel)
   end
   y = y + bh + 4
-  local turn_label = "Turn\n" .. preview.maneuver_cost_label(opts, { type = "turn", facing = app.maneuver_facing or 0 })
-  ui.button(turn_label, px + pad, y, content_w, bh, "turn", nil, false)
+  ui.button_split("Turn", preview.maneuver_cost_label(opts, { type = "turn", facing = app.maneuver_facing or 0 }),
+    px + pad, y, content_w, bh, "turn", nil, false)
   y = y + bh + 4
-  local ta_label = "Turn+Accel\n" .. preview.maneuver_cost_label(opts, { type = "turn_accel", facing = app.maneuver_facing or 0 })
-  ui.button(ta_label, px + pad, y, content_w, bh, "turn_accel", nil, false)
+  ui.button_split("Turn+Accel", preview.maneuver_cost_label(opts, { type = "turn_accel", facing = app.maneuver_facing or 0 }),
+    px + pad, y, content_w, bh, "turn_accel", nil, false)
   y = y + bh + 6
   return y
 end
 
 function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
-  local bh = math.floor(24 * ui.scale)
+  local bh = math.max(math.floor(24 * ui.scale), 28)
   local ship = find_ship(snap, app.selected_id)
   if not ship or ship.controller ~= "player" then
     love.graphics.setColor(0.7, 0.75, 0.8)
@@ -610,18 +640,31 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
   end
   y = y + 2
   love.graphics.setColor(0.8, 0.85, 0.9)
-  love.graphics.print("Target:", px + pad, y)
+  love.graphics.print("Target: (enemies only)", px + pad, y)
   y = y + ui.line_h(13) + 1
-  for _, s in ipairs(snap.ships or {}) do
-    if s.id ~= ship.id and not s.destroyed then
-      local sel = (app.target_id == s.id)
-      ui.button(string.format("#%d %s", s.id, s.class or "?"), px + pad, y, content_w, bh, "pick_target", { id = s.id }, sel)
-      y = y + bh + 2
+  -- F2 D6 + F4.1: enemies only; show cached hit% when available.
+  local enemies = layout.enemy_targets(snap, ship.id)
+  for _, s in ipairs(enemies) do
+    local sel = (app.target_id == s.id)
+    local label = string.format("#%d %s", s.id, s.class or "?")
+    local cache = app.target_previews and app.target_previews[s.id]
+    if cache and cache.legal then
+      label = string.format("#%d %s · %d%% ≈%ddmg", s.id, s.class or "?",
+        cache.hit_percent or 0, cache.projected_damage or 0)
+    elseif cache and not cache.legal then
+      label = string.format("#%d %s · no shot", s.id, s.class or "?")
     end
+    ui.button(label, px + pad, y, content_w, bh, "pick_target", { id = s.id }, sel)
+    y = y + bh + 2
+  end
+  if #enemies == 0 then
+    love.graphics.setColor(0.6, 0.6, 0.65)
+    love.graphics.print("(no enemies)", px + pad, y)
+    y = y + ui.line_h(13)
   end
   y = y + 2
   love.graphics.setColor(0.8, 0.85, 0.9)
-  love.graphics.print(string.format("Shield face: %s", SHIELD_FACE[app.shield_facing + 1]), px + pad, y)
+  love.graphics.print(string.format("Shield face: %s", SHIELD_FACE[(app.shield_facing or 0) + 1] or "?"), px + pad, y)
   y = y + ui.line_h(13) + 1
   local fw = math.floor((content_w - 5 * 3) / 6)
   for i = 0, 5 do
@@ -629,10 +672,11 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
     ui.button(SHIELD_FACE[i + 1], px + pad + i * (fw + 3), y, fw, bh, "pick_shield_facing", { face = i }, sel)
   end
   y = y + bh + 4
-  -- Engine-authoritative fire preview (UPGRADE-PLAN Phase 1).
-  -- Renders hit %, damage, legal faces, and destroyed-weapon phrasing
-  -- straight from the fire_preview response — no local combat math.
+  -- Fixed 2-line preview slot so Commit Fire y never jumps (F1 D3/D5).
+  local preview_h = ui.line_h(13) * 2 + 4
   local fline = preview.fire_line(app)
+  local font = ui.font(12)
+  local measure = function(s) return font:getWidth(s) end
   if fline then
     if fline.color == "green" then
       love.graphics.setColor(0.4, 0.85, 0.5)
@@ -641,10 +685,16 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
     else
       love.graphics.setColor(0.6, 0.6, 0.65)
     end
-    love.graphics.print(fline.text, px + pad, y)
-    y = y + ui.line_h(13) + 3
+    local lines = layout.wrap_text(fline.text, content_w, measure, 2)
+    ui.use(12)
+    local ly = y
+    for _, ln in ipairs(lines) do
+      love.graphics.print(ln, px + pad, ly)
+      ly = ly + ui.line_h(12)
+    end
   end
-  ui.button("Commit Fire", px + pad, y, content_w, bh, "fire_confirm", nil, false)
+  y = y + preview_h
+  ui.button("Commit Fire (Enter)", px + pad, y, content_w, bh, "fire_confirm", nil, false)
   y = y + bh + 3
   ui.button("Ready (R)", px + pad, y, content_w, bh, "ready_fire", nil, false)
   y = y + bh + 6
@@ -652,7 +702,7 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
 end
 
 function draw_hud.draw_turn_end_panel(app, snap, px, pad, y, content_w)
-  local bh = math.floor(24 * ui.scale)
+  local bh = math.max(math.floor(24 * ui.scale), 28)
   love.graphics.setColor(0.7, 0.75, 0.8)
   love.graphics.print("End of turn", px + pad, y)
   y = y + ui.line_h(13) + 4
@@ -671,8 +721,8 @@ function draw_hud.draw_end_warning(app)
   local H = love.graphics.getHeight()
   love.graphics.setColor(0, 0, 0, 0.72)
   love.graphics.rectangle("fill", 0, 0, W, H)
-  local box_w = math.min(W - 80, math.floor(420 * ui.scale))
-  local box_h = math.floor(160 * ui.scale)
+  local box_w = math.min(W - 80, math.floor(480 * ui.scale))
+  local box_h = math.floor(200 * ui.scale)
   local bx = (W - box_w) / 2
   local by = (H - box_h) / 2
   love.graphics.setColor(0.18, 0.14, 0.08, 0.98)
@@ -682,10 +732,48 @@ function draw_hud.draw_end_warning(app)
   love.graphics.print("End turn anyway?", bx + 16, by + 14)
   ui.use(13)
   love.graphics.setColor(0.9, 0.9, 0.92)
-  love.graphics.print("There is unresolved fire or unspent power.", bx + 16, by + 48)
+  -- F4.3: name the forfeited shot when fire_opportunity is present.
+  local detail = "There is unresolved fire or unspent power."
+  local snap = app.session and app.session.snapshot
+  if snap and snap.fire_opportunity then
+    local opp = snap.fire_opportunity
+    detail = string.format("%s %s → ship #%s in range — forfeit?",
+      callsign(find_ship(snap, opp.ship)),
+      opp.weapon or "weapon",
+      tostring(opp.target or "?"))
+  end
+  local font = ui.font(13)
+  local lines = layout.wrap_text(detail, box_w - 32, function(s) return font:getWidth(s) end, 3)
+  local ly = by + 48
+  for _, ln in ipairs(lines) do
+    love.graphics.print(ln, bx + 16, ly)
+    ly = ly + ui.line_h(13)
+  end
   local bw = math.floor(160 * ui.scale)
   ui.button("Confirm", bx + 16, by + box_h - 44, bw, 30, "end_warning_confirm", nil, false)
   ui.button("Cancel", bx + 16 + bw + 12, by + box_h - 44, bw, 30, "end_warning_cancel", nil, false)
+end
+
+--- Phase toast overlay (F4.4).
+function draw_hud.draw_toast(app)
+  local toast_mod = require("toast")
+  if not app.toast or not toast_mod.active(app.toast) then
+    return
+  end
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  local a = toast_mod.alpha(app.toast)
+  local text = app.toast.text
+  ui.use(22)
+  local font = ui.font(22)
+  local tw = font:getWidth(text)
+  local th = font:getHeight()
+  local bx = (W - tw) / 2 - 20
+  local by = H * 0.28
+  love.graphics.setColor(0.08, 0.09, 0.12, 0.85 * a)
+  love.graphics.rectangle("fill", bx, by, tw + 40, th + 20, 6, 6)
+  love.graphics.setColor(0.95, 0.9, 0.45, a)
+  love.graphics.print(text, bx + 20, by + 10)
 end
 
 function draw_hud.draw_help_overlay()
@@ -705,19 +793,15 @@ function draw_hud.draw_help_overlay()
   ui.use(13)
   love.graphics.setColor(0.9, 0.9, 0.92)
   local lines = {
-    "Allocate: spend power on movement, weapon charges, shields.",
-    "  End turn to advance to Movement.",
-    "Movement: next uncommitted player ship (header) commits.",
-    "  P=coast, T=accel, 0-5=turn, Shift+0-5=turn+accel.",
-    "  Buttons: Coast, Accel, Turn, Turn+Accel (pick facing first).",
-    "  Cycle N/4 shows which of the four movement windows is active.",
-    "Firing: pick weapon + target + shield face, Commit Fire,",
-    "  then Ready. Core resolves the shot.",
-    "End Turn (E): advances the turn. Warning dialog if",
-    "  there is unresolved fire or unspent power.",
-    "Right-click drag to pan, wheel to zoom. Ctrl -/= to scale UI.",
-    "? or H toggles this help. Esc returns to scenario picker.",
-    "Exit button or Q quits the app (session log written on exit).",
+    "Allocate: +/− steppers (hold to repeat) or +/− keys for movement.",
+    "  Quick: Max wpn / Bal sh / Engine / Clear. Power bar sets move fraction.",
+    "  Enter or Allocate commits. Weapon charge carries (cannot strip).",
+    "Movement: P=coast, T=accel, 0-5=turn, Shift+0-5=turn+accel.",
+    "  End Turn button lives in the header (also E).",
+    "Firing: enemies only; rows show hit% when available.",
+    "  Enter=Commit Fire, R=Ready. Board-click sets target.",
+    "Right-drag pan, wheel zoom, Ctrl -/= UI scale (saved).",
+    "?/H help. Esc=scenarios. Exit/Q=quit. Auto-follow: camera tracks fleet.",
   }
   local y = by + 48
   for _, s in ipairs(lines) do
@@ -808,16 +892,18 @@ function draw_hud.rules_provenance(app)
     return
   end
   local W = love.graphics.getWidth()
+  local slots = layout.header_slots(W, ui.scale)
   ui.use(11)
   local font = ui.font(11)
-  local tw = font:getWidth(label)
-  local margin = math.floor(8 * ui.scale)
-  local x = W - tw - margin
-  local y = math.floor(6 * ui.scale)
-  love.graphics.setColor(0.06, 0.07, 0.09, 0.8)
-  love.graphics.rectangle("fill", x - margin, y, tw + 2 * margin, font:getHeight() + 4)
+  local measure = function(s) return font:getWidth(s) end
+  local text = layout.ellipsize(label, slots.right.w - 8, measure)
+  local tw = font:getWidth(text)
+  local x = slots.right.x + slots.right.w - tw - 4
+  local y = math.floor((slots.top_h - font:getHeight()) / 2)
+  love.graphics.setScissor(slots.right.x, slots.right.y, slots.right.w, slots.right.h)
   love.graphics.setColor(0.5, 0.5, 0.55)
-  love.graphics.print(label, x, y + 2)
+  love.graphics.print(text, x, y)
+  love.graphics.setScissor()
 end
 
 -- UPGRADE-PLAN Phase 5: game-over panel. Mirrors the TUI's

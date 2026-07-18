@@ -22,6 +22,11 @@ local debounce = require("debounce")
 local slide = require("slide")
 local json = require("json")
 local tutorial = require("tutorial")
+local layout = require("layout")
+local status_fmt = require("status_fmt")
+local settings = require("settings")
+local toast = require("toast")
+local camera = require("camera")
 
 local app = {
   screen = "picker",
@@ -46,26 +51,23 @@ local app = {
   maneuver_options = nil,
   events = events.new(),
   fx = fx.new(),
-  -- UPGRADE-PLAN Phase 5: slide interpolation + resolution theater.
   slide = slide.new(),
-  fx_enabled = true,   -- false disables all fire animations (settings flag)
+  fx_enabled = true,
   session_log_path = nil,
-  -- UPGRADE-PLAN Phase 4: reach-preview debounce + threat cache.
-  -- reach_debounce coalesces alloc-draft bursts into ≤5 movement_preview
-  -- requests/s. reach holds the last response; threats holds bearing lines
-  -- cached per snapshot (never recomputed per frame).
   reach_debounce = debounce.new(),
   reach = nil,
   threats = nil,
   threats_snap_turn = nil,
-  -- UPGRADE-PLAN Phase 6: tutorial controller (nil in free play).
-  -- tutorial is the step-gate machine (tutorial.lua). tutorial_order_pending
-  -- holds an order-backed step until the engine accepts it (confirm_order,
-  -- mirroring app.rs:735-744). tutorial_order_candidate is the validated
-  -- action waiting for the input handler to emit its order.
   tutorial = nil,
   tutorial_order_pending = false,
   tutorial_order_candidate = nil,
+  -- FIX-PLAN F2/F4
+  target_previews = {}, -- [target_id] = fire_preview response (cached)
+  target_previews_key = nil,
+  toast = toast.new(),
+  cam_sys = nil, -- filled in love.load
+  settings = settings.defaults(),
+  prev_phase = nil,
 }
 
 -- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
@@ -113,20 +115,51 @@ local function snap_now()
   return app.session and app.session.snapshot
 end
 
+local function set_status(level, message)
+  ui_status.set(app.status, level, message)
+  status_fmt.stamp(app.status, snap_now())
+end
+
+local function clear_phase_overlays(new_phase)
+  -- F2 D4: overlays from allocate/movement die outside those phases.
+  if new_phase ~= phases.ALLOCATE and new_phase ~= phases.MOVEMENT then
+    app.reach = nil
+  end
+  if new_phase ~= phases.MOVEMENT then
+    app.maneuver_options = nil
+    app.ghost_path = {}
+  end
+  if new_phase ~= phases.FIRING then
+    app.fire_preview = nil
+    app.target_previews = {}
+    app.target_previews_key = nil
+  end
+end
+
 local function sync_phase()
   local snap = snap_now()
+  local old_phase = app.phase
   if snap and snap.phase then
     app.phase = snap.phase
   end
+  if app.phase ~= old_phase then
+    clear_phase_overlays(app.phase)
+    status_fmt.clear_if_stale(app.status, snap)
+    local label = toast.phase_label(snap, old_phase)
+    if label and app.screen == "play" then
+      toast.show(app.toast, label)
+    end
+    app.prev_phase = old_phase
+  else
+    status_fmt.clear_if_stale(app.status, snap)
+  end
   -- Surface additive snapshot fields onto app state (UPGRADE-PLAN Phase 0).
-  -- These come straight from the engine; the client never computes them.
   if snap then
     app.fire_opportunity = snap.fire_opportunity or nil
     app.translation_results = snap.translation_results or nil
     app.end_turn_warning = snap.end_turn_warning or false
     app.rules_id = snap.rules_id
     app.rules_fingerprint = snap.rules_fingerprint
-    -- per-ship attack_accuracy_bonus (absent = 0)
     app.attack_accuracy = {}
     for _, s in ipairs(snap.ships or {}) do
       app.attack_accuracy[s.id] = s.attack_accuracy_bonus or 0
@@ -294,6 +327,42 @@ local function request_fire_preview()
   end
 end
 
+--- F4.1: one fire_preview per enemy for selected weapon; cached per weapon+snap.
+local function request_target_previews()
+  local snap = snap_now()
+  if not snap or snap.phase ~= phases.FIRING then
+    app.target_previews = {}
+    app.target_previews_key = nil
+    return
+  end
+  local ship_id = app.selected_id
+  local weapon_id = app.weapon_id
+  if not ship_id or not weapon_id then
+    app.target_previews = {}
+    app.target_previews_key = nil
+    return
+  end
+  local key = string.format("%s:%s:%s:%s", snap.turn or 0, snap.phase or "", ship_id, weapon_id)
+  if app.target_previews_key == key then
+    return
+  end
+  app.target_previews = {}
+  app.target_previews_key = key
+  local enemies = layout.enemy_targets(snap, ship_id)
+  for _, s in ipairs(enemies) do
+    local resp = harness.request(app.session, {
+      protocol_version = 3,
+      request = "fire_preview",
+      ship = ship_id,
+      weapon = weapon_id,
+      target = s.id,
+    })
+    if resp and resp.ok then
+      app.target_previews[s.id] = resp
+    end
+  end
+end
+
 local function request_maneuver_options()
   local snap = snap_now()
   if not snap or snap.phase ~= phases.MOVEMENT then
@@ -322,6 +391,7 @@ end
 
 local function request_previews()
   request_fire_preview()
+  request_target_previews()
   request_maneuver_options()
 end
 
@@ -706,24 +776,72 @@ function love.update(dt)
       debounce.consume(app.reach_debounce)
     end
   end
-  -- UPGRADE-PLAN Phase 4: threat bearing lines are cached per snapshot turn
-  -- (compute_threats checks its own cache). Calling it here every frame is
-  -- cheap — the cache hit returns immediately — and keeps the view fresh when
-  -- the selected ship changes without coupling to selection events.
   compute_threats()
+  -- F3 hold-to-repeat steppers.
+  if love.mouse.isDown(1) then
+    local mx, my = love.mouse.getPosition()
+    local rep = ui.press_tick(dt, true, mx, my)
+    if rep and rep.id and rep.id:match("^alloc_") then
+      handle_ui_hit(rep)
+    end
+  else
+    ui.press_end()
+  end
+  -- F4 toast + auto-follow camera.
+  toast.update(app.toast, dt)
+  if app.screen == "play" and app.cam_sys then
+    local snap = snap_now()
+    local living = {}
+    if snap then
+      for _, s in ipairs(snap.ships or {}) do
+        if not s.destroyed then
+          living[#living + 1] = s
+        end
+      end
+    end
+    local W = love.graphics.getWidth()
+    local H = love.graphics.getHeight()
+    local pw = draw_hud.panel_width()
+    camera.update(app.cam_sys, dt, living, hex.to_pixel, draw_board.hex_size(), {
+      x = 0, y = draw_hud.top_h(), w = W - pw, h = H - draw_hud.top_h() - draw_hud.bottom_h(),
+    })
+  end
 end
 
 function love.load()
   -- Do not call love.window.setMode here: it recreates the X window after
-  -- launch and undoes i3 floating applied by frontend/love/play.sh. Size
-  -- defaults live in conf.lua; use play.sh (or $mod+Shift+Space) under i3.
+  -- launch and undoes i3 floating applied by frontend/love/play.sh.
   app.repo_root = paths.find_repo_root()
   app.scenarios = paths.list_scenarios(app.repo_root)
-  if #app.scenarios == 0 then
-    ui_status.set(app.status, "error", "No scenarios. repo=" .. tostring(app.repo_root))
+  app.cam_sys = camera.new(app.cam)
+  -- F3: DPI default scale + restore settings.
+  local settings_path = paths.local_dir() .. "/settings.json"
+  app.settings = settings.load(settings_path, json)
+  local w = love.graphics.getWidth()
+  local h = love.graphics.getHeight()
+  if app.settings.ui_scale then
+    ui.set_scale(app.settings.ui_scale)
   else
-    ui_status.set(app.status, "info", "v2: Allocate power, Move, Commit fire, Ready, End turn. ? for help.")
+    local ds = layout.default_scale(w, h)
+    if w >= 2400 then
+      ds = math.max(ds, 2)
+    end
+    ui.set_scale(ds)
   end
+  if app.settings.auto_follow == false then
+    camera.set_auto(app.cam_sys, false)
+  end
+  if #app.scenarios == 0 then
+    set_status("error", "No scenarios. repo=" .. tostring(app.repo_root))
+  else
+    set_status("info", "v2: Allocate, Move, Fire, End turn. ? help · Exit/Q quits.")
+  end
+end
+
+local function persist_settings()
+  app.settings.ui_scale = ui.scale
+  app.settings.auto_follow = app.cam_sys and app.cam_sys.auto or true
+  settings.save(paths.local_dir() .. "/settings.json", app.settings, json)
 end
 
 function love.resize()
@@ -788,52 +906,49 @@ end
 
 local function do_allocate(ship_id)
   if not is_player_ship(ship_id) then
-    ui_status.set(app.status, "warn", "Not your ship")
+    set_status("warn", "Not your ship")
     return
   end
   local a = alloc_for(ship_id)
   local _, err = submit(orders.allocate(ship_id, a.movement, a.weapons, a.shields), true)
   if not err then
     mark_tutorial_order_emitted()
-    ui_status.set(app.status, "info", string.format("Ship #%d allocated (move %d)", ship_id, a.movement))
+    set_status("info", status_fmt.order_echo(ship_id, "allocate") ..
+      string.format(" (move %d)", a.movement))
   end
 end
 
 local function do_movement(action, facing)
   local snap = snap_now()
   if not snap or snap.phase ~= phases.MOVEMENT then
-    ui_status.set(app.status, "warn", "Not movement phase")
+    set_status("warn", "Not movement phase")
     return
   end
-  -- Always pick the next uncommitted *player* ship (never AI/scripted).
   local ship = first_uncommitted_ship(snap, "player")
   if not ship or not is_player_ship(ship) then
-    ui_status.set(app.status, "warn", "Not your move — active is #" .. tostring(ship))
+    set_status("warn", "Not your move")
     return
   end
   local order = command_mapping.movement_order(action, ship, facing)
   if not order then
-    ui_status.set(app.status, "warn", "Unknown maneuver")
+    set_status("warn", "Unknown maneuver")
     return
   end
   local _, err = submit(order, true)
   if not err then
     mark_tutorial_order_emitted()
-    local label = action
-    if facing then label = label .. " " .. facing end
-    ui_status.set(app.status, "info", string.format("Ship #%d %s", ship, label))
+    set_status("info", status_fmt.order_echo(ship, action, facing))
   end
 end
 
 local function do_commit_fire()
-  local snap = snap_now()
   local ship = app.selected_id
   if not ship or not is_player_ship(ship) then
-    ui_status.set(app.status, "warn", "Select one of your ships")
+    set_status("warn", "Select one of your ships")
     return
   end
   if not (app.weapon_id and app.target_id) then
-    ui_status.set(app.status, "warn", "Pick weapon and target")
+    set_status("warn", "Pick weapon and target")
     return
   end
   local weapon = app.weapon_id
@@ -841,20 +956,20 @@ local function do_commit_fire()
   local snap2, err = submit(orders.commit_fire(ship, weapon, target, app.shield_facing), true)
   if not err then
     mark_tutorial_order_emitted()
-    ui_status.set(app.status, "info", fire_result_message(snap2 or snap_now(), weapon, target))
+    set_status("info", fire_result_message(snap2 or snap_now(), weapon, target))
   end
 end
 
 local function do_ready_fire()
   local ship = app.selected_id
   if not ship or not is_player_ship(ship) then
-    ui_status.set(app.status, "warn", "Select one of your ships")
+    set_status("warn", "Select one of your ships")
     return
   end
   local _, err = submit(orders.ready_fire(ship), true)
   if not err then
     mark_tutorial_order_emitted()
-    ui_status.set(app.status, "info", string.format("Ship #%d readied", ship))
+    set_status("info", status_fmt.order_echo(ship, "ready_fire"))
   end
 end
 
@@ -869,8 +984,48 @@ local function do_end_turn()
   if not err then
     mark_tutorial_order_emitted()
     app.alloc = {}
-    ui_status.set(app.status, "info", "Turn ended")
+    set_status("info", status_fmt.order_echo(nil, "end_turn"))
   end
+end
+
+local function apply_quick_alloc(kind, ship_id)
+  if not is_player_ship(ship_id) then
+    return
+  end
+  local snap = snap_now()
+  local ship = find_ship_in_snap(snap, ship_id)
+  if not ship then
+    return
+  end
+  local a = alloc_for(ship_id)
+  local power = ship.power or 0
+  if kind == "clear" then
+    a.movement = 0
+    a.weapons = {}
+    -- Re-seed carried charges.
+    for _, w in ipairs(ship.weapons or {}) do
+      if (w.charge or 0) > 0 then
+        a.weapons[w.id] = w.charge
+      end
+    end
+    a.shields = { 0, 0, 0, 0, 0, 0 }
+  elseif kind == "max_weapons" then
+    for _, w in ipairs(ship.weapons or {}) do
+      a.weapons[w.id] = w.max_charge or 0
+    end
+  elseif kind == "balance_shields" then
+    local per = math.floor((power - a.movement) / 6)
+    if per < 0 then per = 0 end
+    local maxf = ship.max_shield_per_facing or per
+    per = math.min(per, maxf)
+    a.shields = { per, per, per, per, per, per }
+  elseif kind == "all_engine" then
+    local wcost = 0
+    for _, c in pairs(a.weapons) do wcost = wcost + c end
+    a.movement = math.max(0, power - wcost)
+    a.shields = { 0, 0, 0, 0, 0, 0 }
+  end
+  debounce.trip(app.reach_debounce)
 end
 
 local function handle_ui_hit(hit)
@@ -942,6 +1097,42 @@ local function handle_ui_hit(hit)
   end
   if id == "alloc_confirm" then
     do_allocate(p.id)
+    return true
+  end
+  if id == "alloc_quick_max_weapons" then
+    apply_quick_alloc("max_weapons", p.id)
+    return true
+  end
+  if id == "alloc_quick_balance_shields" then
+    apply_quick_alloc("balance_shields", p.id)
+    return true
+  end
+  if id == "alloc_quick_all_engine" then
+    apply_quick_alloc("all_engine", p.id)
+    return true
+  end
+  if id == "alloc_quick_clear" then
+    apply_quick_alloc("clear", p.id)
+    return true
+  end
+  if id == "alloc_power_bar" then
+    -- Click fraction of bar → movement points (F3.4).
+    local mx = love.mouse.getX()
+    local hits = ui.hits()
+    local bar = nil
+    for i = #hits, 1, -1 do
+      if hits[i].id == "alloc_power_bar" and hits[i].payload and hits[i].payload.id == p.id then
+        bar = hits[i]
+        break
+      end
+    end
+    if bar then
+      local frac = (mx - bar.x) / math.max(1, bar.w)
+      frac = math.max(0, math.min(1, frac))
+      local a = alloc_for(p.id)
+      a.movement = math.floor((p.power or 0) * frac + 0.5)
+      debounce.trip(app.reach_debounce)
+    end
     return true
   end
   if id == "coast" then
@@ -1089,11 +1280,8 @@ function love.draw()
     if app.show_end_warning then
       draw_hud.draw_end_warning(app)
     end
+    draw_hud.draw_toast(app)
   elseif app.screen == "end" then
-    -- UPGRADE-PLAN Phase 5: game-over panel with stats from the events.lua
-    -- history (structured — never log string parsing). Mirrors the TUI's
-    -- render_game_over_summary: VICTORY/DEFEAT, turns, shots/hits, internal
-    -- damage dealt/taken. Plus a quit button and the session log path.
     draw_hud.draw_game_over(app)
   end
   draw_hud.status_strip(app.status)
@@ -1106,10 +1294,12 @@ end
 function love.keypressed(key)
   if ctrl_down() and (key == "=" or key == "kp+" or key == "+") then
     ui.adjust_scale(0.15)
+    persist_settings()
     return
   end
   if ctrl_down() and (key == "-" or key == "kp-") then
     ui.adjust_scale(-0.15)
+    persist_settings()
     return
   end
   if key == "h" or key == "/" then
@@ -1233,6 +1423,7 @@ end
 function love.mousepressed(x, y, button)
   local hit = ui.hit_at(x, y)
   if hit and button == 1 then
+    ui.press_begin(hit)
     if handle_ui_hit(hit) then
       return
     end
@@ -1273,6 +1464,9 @@ function love.mousepressed(x, y, button)
 end
 
 function love.mousereleased(_, _, button)
+  if button == 1 then
+    ui.press_end()
+  end
   if button == 2 or button == 3 then
     app.drag = nil
   end
@@ -1282,6 +1476,9 @@ function love.mousemoved(x, y)
   if app.drag then
     app.cam.x = app.drag.camx + (x - app.drag.x)
     app.cam.y = app.drag.camy + (y - app.drag.y)
+    if app.cam_sys then
+      camera.user_moved(app.cam_sys)
+    end
   end
 end
 
@@ -1290,6 +1487,9 @@ function love.wheelmoved(_, y)
     app.cam.zoom = math.min(4, app.cam.zoom * 1.1)
   elseif y < 0 then
     app.cam.zoom = math.max(0.3, app.cam.zoom / 1.1)
+  end
+  if app.cam_sys then
+    camera.user_moved(app.cam_sys)
   end
 end
 
