@@ -80,6 +80,35 @@ local function player_ids(snap)
   return selection.player_ids(snap)
 end
 
+-- Forward-usable: request_movement_preview and key handlers call this before
+-- do_allocate is defined later in the file.
+-- Seeds weapon draft from carried charge so Allocate does not try to strip
+-- (PROTOCOL: charge carries; cannot lower below current total).
+local function alloc_for(ship_id)
+  if not app.alloc[ship_id] then
+    local weapons = {}
+    local snap = app.session and app.session.snapshot
+    if snap then
+      for _, s in ipairs(snap.ships or {}) do
+        if s.id == ship_id then
+          for _, w in ipairs(s.weapons or {}) do
+            if (w.charge or 0) > 0 then
+              weapons[w.id] = w.charge
+            end
+          end
+          break
+        end
+      end
+    end
+    app.alloc[ship_id] = {
+      movement = 0,
+      weapons = weapons,
+      shields = { 0, 0, 0, 0, 0, 0 },
+    }
+  end
+  return app.alloc[ship_id]
+end
+
 local function snap_now()
   return app.session and app.session.snapshot
 end
@@ -674,6 +703,16 @@ function love.update(dt)
 end
 
 function love.load()
+  -- Some WMs open Love maximized ultrawide with a short client height that
+  -- clips the allocate panel. Force a playable default; user can still resize.
+  if love.window and love.window.setMode then
+    love.window.setMode(1280, 800, {
+      resizable = true,
+      minwidth = 1024,
+      minheight = 720,
+      centered = true,
+    })
+  end
   app.repo_root = paths.find_repo_root()
   app.scenarios = paths.list_scenarios(app.repo_root)
   if #app.scenarios == 0 then
@@ -735,13 +774,6 @@ local function fire_result_message(snap, weapon, target_id)
     return string.format("MISS — %s vs ship #%s (face %s)", weapon, tostring(target_id), face)
   end
   return string.format("HIT — %s vs ship #%s face %s for %d damage", weapon, tostring(e.target or target_id), face, e.damage or 0)
-end
-
-local function alloc_for(ship_id)
-  if not app.alloc[ship_id] then
-    app.alloc[ship_id] = { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 } }
-  end
-  return app.alloc[ship_id]
 end
 
 local function do_allocate(ship_id)
@@ -1111,13 +1143,46 @@ function love.keypressed(key)
     return
   end
   if key == "return" or key == "kpenter" then
-    if app.phase == phases.FIRING then
+    if app.phase == phases.ALLOCATE then
+      -- Commit allocate for the selected player ship (or first living player).
+      local ship = app.selected_id
+      if not ship or not is_player_ship(ship) then
+        local ids = player_ids(snap_now())
+        ship = ids[1]
+      end
+      if ship then
+        do_allocate(ship)
+      end
+    elseif app.phase == phases.FIRING then
       do_commit_fire()
     elseif app.phase == phases.TURN_END then
       do_end_turn()
     end
   elseif key == "e" then
     do_end_turn()
+  elseif app.phase == phases.ALLOCATE and (key == "=" or key == "kp+" or key == "+") then
+    -- Keyboard allocate draft: + / - nudge movement for selected ship.
+    local ship = app.selected_id
+    if not ship or not is_player_ship(ship) then
+      local ids = player_ids(snap_now())
+      ship = ids[1]
+    end
+    if ship and is_player_ship(ship) then
+      local a = alloc_for(ship)
+      a.movement = a.movement + 1
+      debounce.trip(app.reach_debounce)
+    end
+  elseif app.phase == phases.ALLOCATE and (key == "-" or key == "kp-") then
+    local ship = app.selected_id
+    if not ship or not is_player_ship(ship) then
+      local ids = player_ids(snap_now())
+      ship = ids[1]
+    end
+    if ship and is_player_ship(ship) then
+      local a = alloc_for(ship)
+      a.movement = math.max(0, a.movement - 1)
+      debounce.trip(app.reach_debounce)
+    end
   elseif key == "p" and app.phase == phases.MOVEMENT then
     do_movement("coast")
   elseif key == "t" and app.phase == phases.MOVEMENT then
