@@ -664,4 +664,77 @@ function draw_hud.rules_provenance(app)
   love.graphics.print(label, x, y + 2)
 end
 
+-- UPGRADE-PLAN Phase 5: game-over panel. Mirrors the TUI's
+-- render_game_over_summary (ui.rs:2194): VICTORY/DEFEAT banner, turns, player
+-- shots/hits, internal damage dealt/taken — all computed from the events.lua
+-- history (structured — never log string parsing). Plus a quit button and the
+-- session log path (printed on exit like the TUI does).
+function draw_hud.draw_game_over(app)
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  love.graphics.setColor(0.06, 0.07, 0.09)
+  love.graphics.rectangle("fill", 0, 0, W, H)
+
+  local snap = app.session and app.session.snapshot
+  local status = app.end_result or (snap and snap.status) or ""
+  local banner = "GAME OVER"
+  local bcolor = { 0.9, 0.85, 0.4 }
+  if status == "won" or status == "Won" then
+    banner = " VICTORY"
+    bcolor = { 0.4, 0.9, 0.5 }
+  elseif status == "defeat" or status == "Lost" then
+    banner = " DEFEAT"
+    bcolor = { 0.95, 0.35, 0.35 }
+  end
+
+  local pad = math.floor(20 * ui.scale)
+  local box_w = math.min(W - 2 * pad, math.floor(440 * ui.scale))
+  local box_h = math.floor(300 * ui.scale)
+  local bx = (W - box_w) / 2
+  local by = (H - box_h) / 2
+  love.graphics.setColor(0.1, 0.11, 0.14, 0.98)
+  love.graphics.rectangle("fill", bx, by, box_w, box_h, 8, 8)
+
+  local y = by + math.floor(20 * ui.scale)
+  ui.use(28)
+  love.graphics.setColor(bcolor[1], bcolor[2], bcolor[3])
+  love.graphics.print(banner, bx + pad, y)
+  y = y + math.floor(40 * ui.scale)
+
+  ui.use(15)
+  local turn = (snap and snap.turn) or 0
+  love.graphics.setColor(0.9, 0.9, 0.92)
+  love.graphics.print(string.format(" Turns: %d", turn), bx + pad, y)
+  y = y + ui.line_h(15)
+
+  -- Stats from the structured event history (events.stats — pure function).
+  local st = { shots = 0, hits = 0, int_dealt = 0, int_taken = 0 }
+  if app.events then
+    st = events.stats(app.events)
+  end
+  love.graphics.print(string.format(" Player shots: %d  hits: %d", st.shots, st.hits), bx + pad, y)
+  y = y + ui.line_h(15)
+  love.graphics.print(string.format(" Internal damage dealt: %d", st.int_dealt), bx + pad, y)
+  y = y + ui.line_h(15)
+  love.graphics.print(string.format(" Internal damage taken: %d", st.int_taken), bx + pad, y)
+  y = y + ui.line_h(15) + 4
+
+  -- Session log path (written on quit by main.lua love.quit).
+  love.graphics.setColor(0.6, 0.6, 0.65)
+  if app.session_log_path then
+    love.graphics.print(" Session log: " .. app.session_log_path, bx + pad, y)
+  else
+    love.graphics.print(" Session log written on exit", bx + pad, y)
+  end
+  y = y + ui.line_h(15) + 8
+
+  -- Quit button + return-to-picker hint.
+  local bh = math.floor(28 * ui.scale)
+  local bw = math.floor(140 * ui.scale)
+  ui.button("Quit (Esc)", bx + pad, by + box_h - bh - math.floor(16 * ui.scale), bw, bh, "menu", nil, false)
+  love.graphics.setColor(0.6, 0.6, 0.65)
+  ui.use(13)
+  love.graphics.print("Enter/Esc returns to scenario picker", bx + pad + bw + 12, by + box_h - bh - math.floor(12 * ui.scale))
+end
+
 return draw_hud

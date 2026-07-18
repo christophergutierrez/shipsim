@@ -19,6 +19,8 @@ local events = require("events")
 local fx = require("fx")
 local selection = require("selection")
 local debounce = require("debounce")
+local slide = require("slide")
+local json = require("json")
 
 local app = {
   screen = "picker",
@@ -43,6 +45,10 @@ local app = {
   maneuver_options = nil,
   events = events.new(),
   fx = fx.new(),
+  -- UPGRADE-PLAN Phase 5: slide interpolation + resolution theater.
+  slide = slide.new(),
+  fx_enabled = true,   -- false disables all fire animations (settings flag)
+  session_log_path = nil,
   -- UPGRADE-PLAN Phase 4: reach-preview debounce + threat cache.
   -- reach_debounce coalesces alloc-draft bursts into ≤5 movement_preview
   -- requests/s. reach holds the last response; threats holds bearing lines
@@ -133,9 +139,30 @@ local function sync_phase()
           if (ev.meta.hull_damage or 0) > 0 then
             fx.pulse(app.fx, ev.meta.target_id)
           end
+          -- UPGRADE-PLAN Phase 5: fire animation on resolve. When a volley
+          -- resolves (new combat_log entries), spawn tracers from the attacker
+          -- to the target. beam = instant line flash, torp = moving dot,
+          -- plasma = expanding bolt. Skippable via fx_enabled=false. Input
+          -- stays live — animations are cosmetic and never block orders.
+          if app.fx_enabled and ev.meta.attacker and ship_pos[ev.meta.attacker] then
+            local ax, ay = unpack(ship_pos[ev.meta.attacker])
+            local kind = "beam"
+            local wname = ev.text:match("%S+%s+(%S+)%s")
+            if wname and wname:match("^torp") then
+              kind = "torp"
+            elseif wname and wname:match("^plasma") then
+              kind = "plasma"
+            end
+            local hit = ev.kind ~= "miss"
+            fx.tracer(app.fx, ax, ay, px, py, kind, hit)
+          end
         end
       end
     end
+    -- UPGRADE-PLAN Phase 5: slide interpolation. Feed the snapshot's ship
+    -- positions so ships lerp between their previous and current hex over
+    -- 0.3s instead of teleporting. hex.to_pixel is geometry-for-pixels.
+    slide.feed(app.slide, snap, hex.to_pixel, draw_board.hex_size())
   end
 end
 
@@ -404,6 +431,12 @@ function love.update(dt)
   -- fx is pure Lua; safe to tick every frame even when no effects are active.
   if app.fx then
     fx.update(app.fx, dt)
+  end
+  -- UPGRADE-PLAN Phase 5: slide interpolation. Advance all ship slides by dt
+  -- so ships lerp between snapshot positions over 0.3s instead of teleporting.
+  -- slide is pure Lua; safe to tick every frame.
+  if app.slide then
+    slide.update(app.slide, dt)
   end
   -- UPGRADE-PLAN Phase 4: coalesce movement_preview requests. The debounce is
   -- tripped whenever an alloc draft changes (handle_ui_hit alloc_* handlers).
@@ -704,14 +737,48 @@ function love.draw()
       fx = app.fx,
       reach = app.reach,
       threats = app.threats,
+      slide = app.slide,
     })
-    -- Draw transient effects (damage floaters) inside the camera transform
-    -- so world-space x/y land on the right hex. (Phase 5 resolution theater.)
-    -- draw_board.draw pops its own transform, so we re-apply the camera here.
+    -- Draw transient effects (damage floaters + Phase 5 tracers) inside the
+    -- camera transform so world-space x/y land on the right hex. draw_board.draw
+    -- pops its own transform, so we re-apply the camera here.
     if app.fx then
       love.graphics.push()
       love.graphics.translate(app.cam.x, app.cam.y)
       love.graphics.scale(app.cam.zoom, app.cam.zoom)
+      -- Phase 5: resolution theater tracers (beam/torp/plasma + spark/puff).
+      -- Drawn before floaters so impact effects sit on top of the beam line.
+      if app.fx_enabled then
+        for _, t in ipairs(fx.tracers_active(app.fx)) do
+          local a = fx.tracer_alpha(t)
+          if a > 0 then
+            if t.kind == "beam" then
+              love.graphics.setColor(1.0, 0.9, 0.3, a * 0.9)
+              love.graphics.setLineWidth(2)
+              love.graphics.line(t.x1, t.y1, t.x2, t.y2)
+              love.graphics.setLineWidth(1)
+            elseif t.kind == "torp" then
+              local p = fx.torp_progress(t)
+              local px = t.x1 + (t.x2 - t.x1) * p
+              local py = t.y1 + (t.y2 - t.y1) * p
+              love.graphics.setColor(1.0, 0.5, 0.2, a)
+              love.graphics.circle("fill", px, py, 4)
+            elseif t.kind == "plasma" then
+              local dist = math.sqrt((t.x2 - t.x1) ^ 2 + (t.y2 - t.y1) ^ 2)
+              local r = fx.plasma_radius(t, dist)
+              love.graphics.setColor(0.4, 0.7, 1.0, a * 0.6)
+              love.graphics.circle("fill", t.x1, t.y1, r)
+            elseif t.kind == "spark" then
+              love.graphics.setColor(1.0, 0.8, 0.3, a)
+              love.graphics.circle("fill", t.x1, t.y1, 6 * a)
+            elseif t.kind == "puff" then
+              love.graphics.setColor(0.7, 0.7, 0.75, a * 0.5)
+              love.graphics.circle("line", t.x1, t.y1, 8 + 6 * (1 - a))
+            end
+          end
+        end
+      end
+      -- Damage floaters.
       for _, e in ipairs(fx.active(app.fx)) do
         local a = fx.alpha(e)
         if a > 0 then
@@ -729,10 +796,11 @@ function love.draw()
       draw_hud.draw_end_warning(app)
     end
   elseif app.screen == "end" then
-    ui.use(28)
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.print(app.end_result == "won" and "VICTORY" or "DEFEAT", 40, 40)
-    ui.button("Back", 40, 100, 200, 36, "menu", nil, true)
+    -- UPGRADE-PLAN Phase 5: game-over panel with stats from the events.lua
+    -- history (structured — never log string parsing). Mirrors the TUI's
+    -- render_game_over_summary: VICTORY/DEFEAT, turns, shots/hits, internal
+    -- damage dealt/taken. Plus a quit button and the session log path.
+    draw_hud.draw_game_over(app)
   end
   draw_hud.status_strip(app.status)
 end
@@ -882,6 +950,51 @@ function love.wheelmoved(_, y)
   end
 end
 
+-- UPGRADE-PLAN Phase 5: session log on quit. Mirrors the TUI's
+-- write_session_log (main.rs:93): write orders + final snapshot summary to
+-- local/ and print the path on exit. The harness already accumulates
+-- successful orders in session.orders; we serialize them as JSONL plus a
+-- header with the final turn/phase/status. Pure file I/O — no Love APIs
+-- beyond what love.quit already touches.
+local function write_session_log()
+  if not app.session then
+    return nil
+  end
+  local dir = paths.local_dir()
+  local stamp = os.time()
+  local pid = (app.session.proc and app.session.proc.pid) or 0
+  local path = dir .. "/session-" .. stamp .. "-" .. pid .. ".log"
+  local f = io.open(path, "w")
+  if not f then
+    return nil
+  end
+  f:write("shipsim Love2D session\n")
+  local snap = app.session.snapshot
+  if snap then
+    f:write(string.format("turn=%s phase=%s status=%s\n",
+      tostring(snap.turn), tostring(snap.phase), tostring(snap.status)))
+  end
+  if app.session.last_error then
+    f:write("last_error=" .. tostring(app.session.last_error.message or "") .. "\n")
+  end
+  f:write("\nOrders:\n")
+  for _, order in ipairs(app.session.orders or {}) do
+    f:write(json.encode(order))
+    f:write("\n")
+  end
+  f:close()
+  return path
+end
+
 function love.quit()
-  if app.session then harness.kill(app.session) end
+  -- UPGRADE-PLAN Phase 5: write the session log and print the path, mirroring
+  -- the TUI (main.rs:84-88). Only when a session was active.
+  if app.session then
+    local path = write_session_log()
+    if path then
+      app.session_log_path = path
+      print("Session log: " .. path)
+    end
+    harness.kill(app.session)
+  end
 end

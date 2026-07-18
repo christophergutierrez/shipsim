@@ -228,8 +228,20 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
     end
   end
 
+  -- UPGRADE-PLAN Phase 5: slide interpolation. When a slide system is
+  -- available (opts.slide), ships render at their interpolated pixel position
+  -- instead of teleporting to the new hex. The slide module is pure Lua and
+  -- returns nil for unknown ships; in that case we fall back to the snapshot
+  -- hex position. Destroyed ships do not slide (they are gone).
+  local slide_sys = opts.slide
   for _, ship in ipairs(snapshot.ships or {}) do
     local cx, cy = hex.to_pixel(ship.q, ship.r, SIZE)
+    if slide_sys and not ship.destroyed then
+      local sx, sy = slide.position(slide_sys, ship.id)
+      if sx and sy then
+        cx, cy = sx, sy
+      end
+    end
     if ship.destroyed then
       love.graphics.setColor(0.4, 0.4, 0.4)
     elseif ship.controller == "player" then

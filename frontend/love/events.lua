@@ -41,7 +41,12 @@ local function combat_event(entry, turn, player_ids)
       kind = "miss",
       text = string.format("%d %s → %d: MISS",
         entry.attacker, entry.weapon, entry.target),
-      meta = { target_id = entry.target, hull_damage = 0 },
+      meta = {
+        target_id = entry.target,
+        attacker = entry.attacker,
+        is_player_attack = is_player_attacker,
+        hull_damage = 0,
+      },
     }
   end
   -- hit
@@ -66,7 +71,12 @@ local function combat_event(entry, turn, player_ids)
     turn = turn,
     kind = kind,
     text = text,
-    meta = { target_id = entry.target, hull_damage = hull },
+    meta = {
+      target_id = entry.target,
+      attacker = entry.attacker,
+      is_player_attack = is_player_attacker,
+      hull_damage = hull,
+    },
   }
 end
 
@@ -150,6 +160,35 @@ end
 --- Return the count of events currently buffered.
 function events.count(ev)
   return #ev.buf
+end
+
+--- Compute game-over summary stats from the event history (UPGRADE-PLAN
+--- Phase 5). Mirrors the TUI's render_game_over_summary: shots, hits,
+--- internal damage dealt/taken — all from structured events, never log
+--- string parsing. Pure function (no Love APIs).
+---
+--- Returns: { shots, hits, int_dealt, int_taken }
+---   shots     — player shots fired (hit_dealt + player misses)
+---   hits      — player shots that hit (hit_dealt count)
+---   int_dealt — hull damage dealt by player (sum of hit_dealt hull_damage)
+---   int_taken — hull damage taken by player (sum of hit_taken hull_damage)
+function events.stats(ev)
+  local shots, hits, int_dealt, int_taken = 0, 0, 0, 0
+  for _, e in ipairs(ev.buf) do
+    if e.kind == "hit_dealt" then
+      shots = shots + 1
+      hits = hits + 1
+      int_dealt = int_dealt + (e.meta and e.meta.hull_damage or 0)
+    elseif e.kind == "hit_taken" then
+      int_taken = int_taken + (e.meta and e.meta.hull_damage or 0)
+    elseif e.kind == "miss" then
+      -- Only count player misses as shots; enemy misses are not player shots.
+      if e.meta and e.meta.is_player_attack then
+        shots = shots + 1
+      end
+    end
+  end
+  return { shots = shots, hits = hits, int_dealt = int_dealt, int_taken = int_taken }
 end
 
 return events

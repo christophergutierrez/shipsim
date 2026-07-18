@@ -25,6 +25,9 @@ local draw_hud = require("draw_hud")
 local command_mapping = require("command_mapping")
 local scripted_pump = require("scripted_pump")
 local preview = require("preview")
+local events = require("events")
+local fx = require("fx")
+local slide = require("slide")
 
 local pass = 0
 local function ok(msg)
@@ -846,6 +849,226 @@ do
   -- Zero radius -> empty polygon.
   assert_eq(#geom.fan_polygon(0, 0, 0, "Forward", 0), 0, "zero radius -> empty")
   ok("fan polygon shape is valid")
+end
+
+-- ─── Phase 5: resolution theater and game over ───────────────────────────
+-- Pure-Lua: events.stats, slide interpolation, fx tracers. No love.* APIs.
+print("phase 5: resolution theater")
+assert_eq(type(slide), "table", "slide module contract")
+
+-- UPGRADE-PLAN Phase 5 milestone: game over stats match event history.
+-- Feed synthetic combat_log entries into events.lua, then assert events.stats
+-- returns exact counts: shots, hits, internal damage dealt/taken. All from
+-- structured events — never log string parsing.
+do
+  local ev = events.new()
+  -- Player (id 1) fires 4 shots: 3 hits (hull 5,3,0 shield-only), 1 miss.
+  -- Enemy (id 2) hits player twice (hull 4, 2). Enemy misses once (not a player shot).
+  events.feed(ev, { turn = 1, combat_log = {
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 5, shield_absorbed = 0, hull_damage = 5, kind = "hit" },
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 3, shield_absorbed = 0, hull_damage = 3, kind = "hit" },
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 2, shield_absorbed = 2, hull_damage = 0, kind = "hit" },
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 0, shield_absorbed = 0, hull_damage = 0, kind = "miss" },
+  } }, { [1] = true })
+  events.feed(ev, { turn = 2, combat_log = {
+    { attacker = 2, target = 1, weapon = "torp_1", shield = 0,
+      damage = 4, shield_absorbed = 0, hull_damage = 4, kind = "hit" },
+    { attacker = 2, target = 1, weapon = "torp_1", shield = 0,
+      damage = 2, shield_absorbed = 0, hull_damage = 2, kind = "hit" },
+    { attacker = 2, target = 1, weapon = "torp_1", shield = 0,
+      damage = 0, shield_absorbed = 0, hull_damage = 0, kind = "miss" },
+  } }, { [1] = true })
+  local st = events.stats(ev)
+  -- Player shots = 3 hits + 1 miss = 4.
+  assert_eq(st.shots, 4, "stats: player shots = 4 (3 hits + 1 miss)")
+  -- Player hits = 3.
+  assert_eq(st.hits, 3, "stats: player hits = 3")
+  -- Internal damage dealt = 5 + 3 + 0 = 8 (shield-only hit deals 0 hull).
+  assert_eq(st.int_dealt, 8, "stats: int damage dealt = 8")
+  -- Internal damage taken = 4 + 2 = 6.
+  assert_eq(st.int_taken, 6, "stats: int damage taken = 6")
+  ok("game over stats match event history")
+end
+
+-- events.stats on an empty history returns zeros (no crash).
+do
+  local ev = events.new()
+  local st = events.stats(ev)
+  assert_eq(st.shots, 0, "stats: empty shots 0")
+  assert_eq(st.hits, 0, "stats: empty hits 0")
+  assert_eq(st.int_dealt, 0, "stats: empty int_dealt 0")
+  assert_eq(st.int_taken, 0, "stats: empty int_taken 0")
+  ok("game over stats empty history is zero")
+end
+
+-- UPGRADE-PLAN Phase 5 milestone: lerp reaches target within duration.
+-- slide.feed sets from/to; slide.update advances t; slide.position returns
+-- the interpolated point. After SLIDE_DUR (0.3s) of updates, the position
+-- must equal the target. Pure Lua — hex.to_pixel is stubbed.
+do
+  local sys = slide.new()
+  -- Stub hex_to_pixel: (q, r, size) -> q*10, r*10.
+  local function h2p(q, r, size) return q * 10, r * 10 end
+  -- First feed: ship 1 at (0,0) -> snaps instantly (new ship).
+  slide.feed(sys, { ships = { { id = 1, q = 0, r = 0 } }, }, h2p, 10)
+  local x0, y0 = slide.position(sys, 1)
+  assert_eq(x0, 0.0, "slide: new ship snaps x")
+  assert_eq(y0, 0.0, "slide: new ship snaps y")
+  -- Second feed: ship 1 moves to (3,0) -> pixel (30,0). Slides from (0,0).
+  slide.feed(sys, { ships = { { id = 1, q = 3, r = 0 } }, }, h2p, 10)
+  -- At t=0, position is at "from" (0,0).
+  local x1, y1 = slide.position(sys, 1)
+  assert_eq(x1, 0.0, "slide: at t=0 position is from_x")
+  assert_eq(y1, 0.0, "slide: at t=0 position is from_y")
+  -- After 0.3s (full duration), position must reach target (30,0).
+  slide.update(sys, 0.3)
+  local x2, y2 = slide.position(sys, 1)
+  assert_eq(x2, 30.0, "slide: reaches target x after duration")
+  assert_eq(y2, 0.0, "slide: reaches target y after duration")
+  -- settled() is true after all ships finish.
+  assert_eq(slide.settled(sys), true, "slide: settled after duration")
+  ok("lerp reaches target within duration")
+end
+
+-- slide interpolates at the midpoint (not just endpoints).
+do
+  local sys = slide.new()
+  local function h2p(q, r, size) return q * 10, r * 10 end
+  slide.feed(sys, { ships = { { id = 1, q = 0, r = 0 } }, }, h2p, 10)
+  slide.feed(sys, { ships = { { id = 1, q = 10, r = 0 } }, }, h2p, 10)
+  -- Halfway through 0.3s = 0.15s. ease-out-cubic at raw=0.5: 1-(0.5)^3 = 0.875.
+  -- position = 0 + (100-0)*0.875 = 87.5
+  slide.update(sys, 0.15)
+  local x, y = slide.position(sys, 1)
+  assert(x > 50 and x < 100, "slide: midpoint is between from and to; got " .. tostring(x))
+  assert_eq(y, 0.0, "slide: midpoint y unchanged")
+  ok("slide interpolates at midpoint")
+end
+
+-- slide drops ships that vanished from the snapshot.
+do
+  local sys = slide.new()
+  local function h2p(q, r, size) return q, r end
+  slide.feed(sys, { ships = { { id = 1, q = 0, r = 0 }, { id = 2, q = 1, r = 0 } } }, h2p, 10)
+  assert_eq(slide.position(sys, 2) ~= nil, true, "slide: ship 2 present before vanish")
+  -- Ship 2 gone from next snapshot.
+  slide.feed(sys, { ships = { { id = 1, q = 0, r = 0 } } }, h2p, 10)
+  assert_eq(slide.position(sys, 2), nil, "slide: vanished ship dropped")
+  ok("slide drops vanished ships")
+end
+
+-- slide.update with dt<=0 is a no-op.
+do
+  local sys = slide.new()
+  local function h2p(q, r, size) return q * 10, r * 10 end
+  slide.feed(sys, { ships = { { id = 1, q = 0, r = 0 } } }, h2p, 10)
+  slide.feed(sys, { ships = { { id = 1, q = 5, r = 0 } } }, h2p, 10)
+  slide.update(sys, 0.0)
+  local x, _ = slide.position(sys, 1)
+  assert_eq(x, 0.0, "slide: dt=0 does not advance")
+  slide.update(sys, -0.1)
+  local x2, _ = slide.position(sys, 1)
+  assert_eq(x2, 0.0, "slide: negative dt does not advance")
+  ok("slide update no-op on nonpositive dt")
+end
+
+-- ─── Phase 5: fx tracers (resolution theater) ───────────────────────────
+-- Pure-Lua: spawn/update/expire/alpha/progress. No love.* APIs.
+
+-- tracer spawn: hit spawns a spark, miss spawns a puff.
+do
+  local sys = fx.new()
+  -- Hit: tracer + spark = 2 effects.
+  fx.tracer(sys, 0, 0, 100, 100, "beam", true)
+  local act = fx.tracers_active(sys)
+  assert_eq(#act, 2, "tracer hit spawns tracer + spark")
+  assert_eq(act[1].kind, "beam", "hit tracer kind is beam")
+  assert_eq(act[2].kind, "spark", "hit spawns spark")
+  -- Miss: tracer + puff = 2 effects.
+  local sys2 = fx.new()
+  fx.tracer(sys2, 0, 0, 100, 100, "torp", false)
+  local act2 = fx.tracers_active(sys2)
+  assert_eq(#act2, 2, "tracer miss spawns tracer + puff")
+  assert_eq(act2[1].kind, "torp", "miss tracer kind is torp")
+  assert_eq(act2[2].kind, "puff", "miss spawns puff")
+  ok("tracer spawn hit vs miss")
+end
+
+-- tracer update expires effects past life.
+do
+  local sys = fx.new()
+  fx.tracer(sys, 0, 0, 50, 50, "beam", true)
+  assert_eq(#fx.tracers_active(sys), 2, "2 tracer effects before update")
+  -- tracer life 0.8s, spark life 0.4s. After 0.5s: spark expired, tracer alive.
+  fx.update(sys, 0.5)
+  assert_eq(#fx.tracers_active(sys), 1, "spark expired, tracer alive at 0.5s")
+  -- After another 0.4s (total 0.9s): tracer expired.
+  fx.update(sys, 0.4)
+  assert_eq(#fx.tracers_active(sys), 0, "all tracers expired at 0.9s")
+  ok("tracer update expires past life")
+end
+
+-- tracer_alpha: 1.0 first 30%, then linear fade to 0.
+do
+  local sys = fx.new()
+  local t = fx.tracer(sys, 0, 0, 10, 10, "beam", true)
+  -- t is the tracer, not the spark. life=0.8.
+  assert_eq(fx.tracer_alpha(t), 1.0, "tracer alpha 1.0 at t=0")
+  t.t = 0.2 -- 25% of 0.8 -> still in first 30% (0.24)
+  assert_eq(fx.tracer_alpha(t), 1.0, "tracer alpha 1.0 in first 30%")
+  t.t = 0.24 -- exactly 30%
+  assert_eq(fx.tracer_alpha(t), 1.0, "tracer alpha 1.0 at 30% boundary")
+  t.t = 0.6 -- 75%: remaining=0.2, fade_span=0.8-0.24=0.56 -> 0.2/0.56
+  local a = fx.tracer_alpha(t)
+  assert(a > 0 and a < 1.0, "tracer alpha fading at 75%; got " .. tostring(a))
+  t.t = 0.8 -- at life
+  assert_eq(fx.tracer_alpha(t), 0.0, "tracer alpha 0.0 at life")
+  ok("tracer alpha fade curve")
+end
+
+-- torp_progress: 0 at spawn, 1 at half-life, holds at 1 after.
+do
+  local sys = fx.new()
+  local t = fx.tracer(sys, 0, 0, 100, 0, "torp", true)
+  assert_eq(fx.torp_progress(t), 0.0, "torp progress 0 at spawn")
+  t.t = 0.2 -- half of 0.4 (half of life 0.8)
+  -- Wait: half-life = 0.8*0.5 = 0.4. At t=0.2, progress = 0.2/0.4 = 0.5
+  assert_eq(fx.torp_progress(t), 0.5, "torp progress 0.5 at quarter life")
+  t.t = 0.4 -- half-life
+  assert_eq(fx.torp_progress(t), 1.0, "torp progress 1.0 at half-life")
+  t.t = 0.6 -- past half-life
+  assert_eq(fx.torp_progress(t), 1.0, "torp progress holds 1.0 past half-life")
+  ok("torp progress curve")
+end
+
+-- plasma_radius: expands from 0 to max over life.
+do
+  local sys = fx.new()
+  local t = fx.tracer(sys, 0, 0, 50, 0, "plasma", true)
+  assert_eq(fx.plasma_radius(t, 50), 0.0, "plasma radius 0 at spawn")
+  t.t = 0.4 -- half of 0.8 life
+  assert_eq(fx.plasma_radius(t, 50), 25.0, "plasma radius half at half life")
+  t.t = 0.8 -- at life
+  assert_eq(fx.plasma_radius(t, 50), 0.0, "plasma radius 0 at life (expired)")
+  ok("plasma radius expands over life")
+end
+
+-- fx.clear wipes tracers too.
+do
+  local sys = fx.new()
+  fx.tracer(sys, 0, 0, 10, 10, "beam", true)
+  fx.spawn(sys, 1, 2, "x")
+  fx.pulse(sys, 1)
+  assert_eq(#fx.tracers_active(sys), 2, "tracers present before clear")
+  fx.clear(sys)
+  assert_eq(#fx.tracers_active(sys), 0, "tracers cleared")
+  assert_eq(fx.count(sys), 0, "floaters cleared")
+  assert_eq(fx.pulse_alpha(sys, 1), 0.0, "pulses cleared")
+  ok("fx clear wipes tracers")
 end
 
 print(string.format("\nAll %d checks passed.", pass))
