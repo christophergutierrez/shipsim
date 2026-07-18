@@ -703,16 +703,9 @@ function love.update(dt)
 end
 
 function love.load()
-  -- Some WMs open Love maximized ultrawide with a short client height that
-  -- clips the allocate panel. Force a playable default; user can still resize.
-  if love.window and love.window.setMode then
-    love.window.setMode(1280, 800, {
-      resizable = true,
-      minwidth = 1024,
-      minheight = 720,
-      centered = true,
-    })
-  end
+  -- Do not call love.window.setMode here: it recreates the X window after
+  -- launch and undoes i3 floating applied by frontend/love/play.sh. Size
+  -- defaults live in conf.lua; use play.sh (or $mod+Shift+Space) under i3.
   app.repo_root = paths.find_repo_root()
   app.scenarios = paths.list_scenarios(app.repo_root)
   if #app.scenarios == 0 then

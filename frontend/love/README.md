@@ -23,19 +23,49 @@ See `docs/ARCHITECTURE.md`, `docs/PRD.md`, and ADR-0017, ADR-0018, and ADR-0020 
 
 ## Launch
 
-From the repository root:
+From the repository root (preferred on i3 / tiling WMs):
+
+```bash
+cargo build -q
+./frontend/love/play.sh
+```
+
+`play.sh` starts Love and, when `i3-msg` is available, **floats** the window at
+1280×800. Bare `love frontend/love` under i3 often tiles into a ~200px strip that
+looks like the game “did nothing.”
+
+Direct launch (floating WMs / when you already float windows yourself):
 
 ```bash
 cargo build -q
 love frontend/love
 ```
 
-The scenario picker loads current TOML scenarios. The client replays accepted orders through the Rust harness and displays its latest snapshot. Order/stderr files go to `frontend/love/local/`, not the repo root or system `/tmp`.
+**i3 manual fix** if the window is a thin horizontal bar:
+
+- `$mod+Shift+Space` — toggle floating  
+- then resize, or:  
+  `i3-msg '[class="^love$"] floating enable, resize set 1280 800, move position center'`
+
+The scenario picker loads current TOML scenarios. The client drives the Rust
+harness and displays its latest snapshot. Order/stderr files go to
+`frontend/love/local/`, not the repo root or system `/tmp`.
 
 Environment overrides:
 
 - `SHIPSIM_BIN`: shipsim executable path
 - `SHIPSIM_ROOT`: repository root
+
+### Controls (summary)
+
+| Input | Action |
+|---|---|
+| ↑/↓ Enter | Scenario picker |
+| +/− / panel | Allocate draft; **Enter** or **Allocate** commits |
+| P / T / 0–5 / Shift+0–5 | Coast / accel / turn / turn+accel |
+| Enter / R / E | Commit fire / ready fire / end turn |
+| ? or H | Help · Esc | Back to picker |
+| Right-drag / wheel / Ctrl −/= | Pan / zoom / UI scale |
 
 ## Turn flow
 
