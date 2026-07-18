@@ -1,6 +1,7 @@
 local hex = require("hex")
 local fx = require("fx")
 local geom = require("geom")
+local slide = require("slide")
 
 local draw_board = {}
 
