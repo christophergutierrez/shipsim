@@ -18,6 +18,7 @@ local preview = require("preview")
 local events = require("events")
 local fx = require("fx")
 local selection = require("selection")
+local debounce = require("debounce")
 
 local app = {
   screen = "picker",
@@ -42,6 +43,14 @@ local app = {
   maneuver_options = nil,
   events = events.new(),
   fx = fx.new(),
+  -- UPGRADE-PLAN Phase 4: reach-preview debounce + threat cache.
+  -- reach_debounce coalesces alloc-draft bursts into ≤5 movement_preview
+  -- requests/s. reach holds the last response; threats holds bearing lines
+  -- cached per snapshot (never recomputed per frame).
+  reach_debounce = debounce.new(),
+  reach = nil,
+  threats = nil,
+  threats_snap_turn = nil,
 }
 
 -- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
@@ -242,6 +251,104 @@ local function request_previews()
   request_maneuver_options()
 end
 
+-- UPGRADE-PLAN Phase 4: reachable-endpoint cloud. During allocate, as the
+-- movement slider/keys change, issue the reach preview with clamp:true (built
+-- for live drags) and store the response on app.reach for draw_board to render.
+-- The debounce coalesces a burst of draft changes into ≤5 requests/s; this
+-- function is the actual issuer, called from love.update when debounce.due().
+-- Guards mirror the TUI: only during allocate/movement, only for a living
+-- player ship. The request fields mirror `allocate` exactly (PROTOCOL).
+local function request_movement_preview()
+  local snap = snap_now()
+  if not snap then
+    app.reach = nil
+    return
+  end
+  if snap.phase ~= phases.ALLOCATE and snap.phase ~= phases.MOVEMENT then
+    app.reach = nil
+    return
+  end
+  local ship_id = app.selected_id
+  if not ship_id then
+    app.reach = nil
+    return
+  end
+  local ship = find_ship_in_snap(snap, ship_id)
+  if not ship or ship.destroyed or ship.controller ~= "player" then
+    app.reach = nil
+    return
+  end
+  local a = alloc_for(ship_id)
+  local resp, err = harness.request(app.session, {
+    protocol_version = 3,
+    request = "movement_preview",
+    ship = ship_id,
+    movement = a.movement or 0,
+    weapons = a.weapons or {},
+    shields = a.shields or { 0, 0, 0, 0, 0, 0 },
+    clamp = true,
+  })
+  if resp and resp.ok and resp.ship == ship_id then
+    app.reach = resp
+  else
+    app.reach = nil
+  end
+end
+
+-- UPGRADE-PLAN Phase 4: threat bearing lines. For each enemy with a charged
+-- weapon that the engine says can reach the selected ship, draw a thin red
+-- bearing line. We reuse fire_preview with roles reversed (enemy fires at the
+-- selected player ship). Cached per snapshot turn so it never runs per frame.
+-- The result is an array of {from_q, from_r, to_q, to_r} for draw_board.
+local function compute_threats()
+  local snap = snap_now()
+  if not snap or snap.phase ~= phases.FIRING then
+    app.threats = nil
+    app.threats_snap_turn = nil
+    return
+  end
+  local turn_key = (snap.turn or 0) .. ":" .. (app.selected_id or "")
+  if app.threats and app.threats_snap_turn == turn_key then
+    return -- cache hit
+  end
+  app.threats_snap_turn = turn_key
+  app.threats = nil
+  local target_id = app.selected_id
+  if not target_id then
+    return
+  end
+  local target = find_ship_in_snap(snap, target_id)
+  if not target or target.destroyed then
+    return
+  end
+  local threats = {}
+  for _, enemy in ipairs(snap.ships or {}) do
+    if enemy.id ~= target_id and not enemy.destroyed
+       and enemy.controller ~= "player" then
+      for _, w in ipairs(enemy.weapons or {}) do
+        if w.operational and (w.charge or 0) >= (w.max_charge or 1)
+           and (w.max_range or 0) > 0 then
+          local resp = harness.request(app.session, {
+            protocol_version = 3,
+            request = "fire_preview",
+            ship = enemy.id,
+            weapon = w.id,
+            target = target_id,
+          })
+          if resp and resp.ok and resp.legal then
+            threats[#threats + 1] = {
+              from_q = enemy.q, from_r = enemy.r,
+              to_q = target.q, to_r = target.r,
+            }
+            break -- one threat line per enemy is enough
+          end
+        end
+      end
+    end
+  end
+  app.threats = threats
+end
+
 local function is_player_ship(id)
   local snap = snap_now()
   if not snap or not id then
@@ -298,6 +405,23 @@ function love.update(dt)
   if app.fx then
     fx.update(app.fx, dt)
   end
+  -- UPGRADE-PLAN Phase 4: coalesce movement_preview requests. The debounce is
+  -- tripped whenever an alloc draft changes (handle_ui_hit alloc_* handlers).
+  -- Each frame we advance the timer; when the quiet window elapses, fire the
+  -- single coalesced request and disarm. This keeps live slider drags to ≤5
+  -- requests/s without stalling the frame on a synchronous harness.request.
+  if app.reach_debounce then
+    debounce.poke(app.reach_debounce, dt)
+    if debounce.due(app.reach_debounce) then
+      request_movement_preview()
+      debounce.consume(app.reach_debounce)
+    end
+  end
+  -- UPGRADE-PLAN Phase 4: threat bearing lines are cached per snapshot turn
+  -- (compute_threats checks its own cache). Calling it here every frame is
+  -- cheap — the cache hit returns immediately — and keeps the view fresh when
+  -- the selected ship changes without coupling to selection events.
+  compute_threats()
 end
 
 function love.load()
@@ -461,31 +585,37 @@ local function handle_ui_hit(hit)
   if id == "alloc_movement_up" then
     local a = alloc_for(p.id)
     a.movement = a.movement + 1
+    debounce.trip(app.reach_debounce)
     return true
   end
   if id == "alloc_movement_dn" then
     local a = alloc_for(p.id)
     a.movement = math.max(0, a.movement - 1)
+    debounce.trip(app.reach_debounce)
     return true
   end
   if id == "alloc_weapon_up" then
     local a = alloc_for(p.id)
     a.weapons[p.weapon] = allocation.increment(a.weapons[p.weapon], p.max)
+    debounce.trip(app.reach_debounce)
     return true
   end
   if id == "alloc_weapon_dn" then
     local a = alloc_for(p.id)
     a.weapons[p.weapon] = allocation.decrement(a.weapons[p.weapon])
+    debounce.trip(app.reach_debounce)
     return true
   end
   if id == "alloc_shield_up" then
     local a = alloc_for(p.id)
     a.shields[p.face + 1] = allocation.increment(a.shields[p.face + 1], p.max)
+    debounce.trip(app.reach_debounce)
     return true
   end
   if id == "alloc_shield_dn" then
     local a = alloc_for(p.id)
     a.shields[p.face + 1] = allocation.decrement(a.shields[p.face + 1])
+    debounce.trip(app.reach_debounce)
     return true
   end
   if id == "alloc_confirm" then
@@ -572,6 +702,8 @@ function love.draw()
       weapon_id = app.weapon_id,
       target_id = app.target_id,
       fx = app.fx,
+      reach = app.reach,
+      threats = app.threats,
     })
     -- Draw transient effects (damage floaters) inside the camera transform
     -- so world-space x/y land on the right hex. (Phase 5 resolution theater.)

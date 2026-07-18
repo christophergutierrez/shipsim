@@ -1,5 +1,6 @@
 local hex = require("hex")
 local fx = require("fx")
+local geom = require("geom")
 
 local draw_board = {}
 
@@ -135,6 +136,98 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
     end
   end
 
+  -- UPGRADE-PLAN Phase 4: reachable-endpoint cloud. During allocate, the
+  -- controller issues the reach preview (clamp:true) and passes the response
+  -- here via opts.reach. We render endpoints as translucent diamonds, coast
+  -- as a distinct outline, and occupied endpoints in warning color. No
+  -- requests are issued here (grep gate: the preview request string does not
+  -- appear in this file — board only draws state passed via opts).
+  local mp = opts.reach
+  if mp and mp.endpoints then
+    local occ = {}
+    for _, o in ipairs(mp.occupied or {}) do
+      occ[o.q .. "," .. o.r] = true
+    end
+    for _, ep in ipairs(mp.endpoints) do
+      local ex, ey = hex.to_pixel(ep.q, ep.r, SIZE)
+      if occ[ep.q .. "," .. ep.r] then
+        love.graphics.setColor(0.95, 0.4, 0.2, 0.7)
+      else
+        love.graphics.setColor(0.4, 0.7, 1.0, 0.45)
+      end
+      love.graphics.polygon("fill", {
+        ex, ey - SIZE * 0.25, ex + SIZE * 0.25, ey,
+        ex, ey + SIZE * 0.25, ex - SIZE * 0.25, ey,
+      })
+    end
+    if mp.coast then
+      local cex, cey = hex.to_pixel(mp.coast.q, mp.coast.r, SIZE)
+      love.graphics.setColor(0.9, 0.85, 0.3, 0.9)
+      love.graphics.setLineWidth(2)
+      love.graphics.polygon("line", {
+        cex, cey - SIZE * 0.3, cex + SIZE * 0.3, cey,
+        cex, cey + SIZE * 0.3, cex - SIZE * 0.3, cey,
+      })
+      love.graphics.setLineWidth(1)
+    end
+  end
+
+  -- UPGRADE-PLAN Phase 4: weapon arc fans for the selected ship. Each weapon's
+  -- arc is drawn as a translucent fan (radius = max_range in hexes), colored by
+  -- charge state (charged=green, uncharged=blue, destroyed=gray). This is
+  -- display-only geometry; legality comes from fire_preview.
+  if selected and not selected.destroyed then
+    for _, w in ipairs(selected.weapons or {}) do
+      local range = (w.max_range or 0) * SIZE
+      if range > 0 then
+        local scx, scy = hex.to_pixel(selected.q, selected.r, SIZE)
+        local fan = geom.fan_polygon(scx, scy, selected.facing or 0, w.arc, range)
+        if #fan >= 6 then
+          if not w.operational then
+            love.graphics.setColor(0.5, 0.5, 0.5, 0.12)
+          elseif (w.charge or 0) >= (w.max_charge or 1) then
+            love.graphics.setColor(0.3, 0.8, 0.4, 0.18)
+          else
+            love.graphics.setColor(0.3, 0.5, 0.9, 0.14)
+          end
+          love.graphics.polygon("fill", fan)
+        end
+      end
+    end
+  end
+
+  -- UPGRADE-PLAN Phase 4: shield ring around the selected ship. Six arc
+  -- segments sized/colored by shields_remaining vs max_shield_per_facing —
+  -- bare faces are visibly missing. Answers "why did that torp hit sh-0".
+  if selected and not selected.destroyed and selected.shields_remaining then
+    local scx, scy = hex.to_pixel(selected.q, selected.r, SIZE)
+    local maxpf = selected.max_shield_per_facing or 1
+    if maxpf > 0 then
+      local ring_r = SIZE * 0.75
+      for face = 0, 5 do
+        local remaining = selected.shields_remaining[face + 1] or 0
+        local frac = remaining / maxpf
+        if frac > 0 then
+          local a0 = math.pi / 180 * (60 * face - 30)
+          local a1 = math.pi / 180 * (60 * face + 30)
+          local segs = 8
+          local pts = {}
+          for i = 0, segs do
+            local a = a0 + (a1 - a0) * i / segs
+            pts[#pts + 1] = scx + ring_r * math.cos(a)
+            pts[#pts + 1] = scy + ring_r * math.sin(a)
+          end
+          love.graphics.setColor(0.3, 0.7, 1.0, 0.3 + 0.4 * frac)
+          love.graphics.setLineWidth(2 + 2 * frac)
+          for i = 1, #pts - 2, 2 do
+            love.graphics.line(pts[i], pts[i + 1], pts[i + 2], pts[i + 3])
+          end
+          love.graphics.setLineWidth(1)
+        end
+      end
+    end
+  end
+
   for _, ship in ipairs(snapshot.ships or {}) do
     local cx, cy = hex.to_pixel(ship.q, ship.r, SIZE)
     if ship.destroyed then
@@ -193,6 +286,51 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
         love.graphics.circle("line", cx, cy, SIZE * 0.7)
       end
     end
+  end
+
+  -- UPGRADE-PLAN Phase 4: velocity vectors. Arrow from each ship along its
+  -- course, length ∝ velocity, so head-on pass-throughs and kiting are legible
+  -- pre-slide. Course is a hex direction 0..5 (same as facing).
+  for _, ship in ipairs(snapshot.ships or {}) do
+    if not ship.destroyed and (ship.velocity or 0) > 0 then
+      local cx, cy = hex.to_pixel(ship.q, ship.r, SIZE)
+      local cq, cr = hex.neighbor(ship.q, ship.r, ship.course or 0)
+      local vpx, vpy = hex.to_pixel(cq, cr, SIZE)
+      local dx, dy = vpx - cx, vpy - cy
+      local len = math.sqrt(dx * dx + dy * dy)
+      if len > 0 then
+        local vlen = SIZE * 0.5 * (ship.velocity or 0)
+        dx, dy = dx / len * vlen, dy / len * vlen
+        love.graphics.setColor(0.8, 0.8, 0.85, 0.7)
+        love.graphics.setLineWidth(2)
+        love.graphics.line(cx, cy, cx + dx, cy + dy)
+        -- arrowhead
+        local ax, ay = -dy, dx
+        local hl = SIZE * 0.12
+        love.graphics.polygon("fill", {
+          cx + dx, cy + dy,
+          cx + dx - dx * 0.3 + ax / len * hl, cy + dy - dy * 0.3 + ay / len * hl,
+          cx + dx - dx * 0.3 - ax / len * hl, cy + dy - dy * 0.3 - ay / len * hl,
+        })
+        love.graphics.setLineWidth(1)
+      end
+    end
+  end
+
+  -- UPGRADE-PLAN Phase 4: threat bearing lines. For each enemy with a charged
+  -- weapon that the engine says can reach the selected ship, draw a thin red
+  -- bearing line. The controller computes threats (reuse fire_preview with
+  -- roles reversed, cached per snapshot) and passes them via opts.threats as
+  -- an array of {from_q, from_r, to_q, to_r}. No requests issued here.
+  if opts.threats then
+    love.graphics.setColor(1.0, 0.2, 0.2, 0.5)
+    love.graphics.setLineWidth(1)
+    for _, t in ipairs(opts.threats) do
+      local fxp, fyp = hex.to_pixel(t.from_q, t.from_r, SIZE)
+      local txp, typ = hex.to_pixel(t.to_q, t.to_r, SIZE)
+      love.graphics.line(fxp, fyp, txp, typ)
+    end
+    love.graphics.setLineWidth(1)
   end
 
   -- UPGRADE-PLAN Phase 3: translation callouts. When translation_results

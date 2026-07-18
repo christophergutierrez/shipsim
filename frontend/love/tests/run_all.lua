@@ -766,4 +766,86 @@ do
   ok("ticker alpha fades over time")
 end
 
+-- ─── Phase 4: board visualization (debounce + arc-fan geometry) ──────────
+-- Pure-Lua: debounce coalesces preview-request bursts; geom produces arc-fan
+-- polygons and hex counts. No love.* APIs. Mirrors events.lua / fx.lua.
+print("phase 4: board visualization")
+local debounce = require("debounce")
+local geom = require("geom")
+assert_eq(type(debounce), "table", "debounce module contract")
+assert_eq(type(geom), "table", "geom module contract")
+
+-- UPGRADE-PLAN Phase 4 milestone: preview debounce coalesces bursts.
+-- A burst of trips (slider drag) should produce exactly ONE request after the
+-- quiet window, not one per trip. Pure timer logic — no Love APIs.
+do
+  local d = debounce.new(0.2) -- 200ms quiet window
+  -- Fresh timer: not armed, not due.
+  assert_eq(debounce.armed(d), false, "fresh timer not armed")
+  assert_eq(debounce.due(d), false, "fresh timer not due")
+  -- Simulate a burst of 5 trips (slider ticks) with small dt between each.
+  for i = 1, 5 do
+    debounce.trip(d)
+    debounce.poke(d, 0.01)
+  end
+  -- Still armed (trips reset the timer), not yet due (quiet not elapsed).
+  assert_eq(debounce.armed(d), true, "armed after burst")
+  assert_eq(debounce.due(d), false, "not due during burst")
+  -- Advance past quiet window with no new trips.
+  debounce.poke(d, 0.25)
+  assert_eq(debounce.due(d), true, "due after quiet window")
+  -- Consume (controller issued the single coalesced request).
+  debounce.consume(d)
+  assert_eq(debounce.armed(d), false, "disarmed after consume")
+  assert_eq(debounce.due(d), false, "not due after consume")
+  -- A single trip after consume re-arms.
+  debounce.trip(d)
+  assert_eq(debounce.armed(d), true, "re-armed after single trip")
+  ok("preview debounce coalesces bursts")
+end
+
+-- UPGRADE-PLAN Phase 4 milestone: arc fan geometry spans correct hex count.
+-- Pure pixel-math: arc_hex_count returns the number of hexes within range and
+-- in-arc for a ship at origin facing 0. Assert known counts for each arc.
+-- The bearing logic mirrors the engine (arc.rs nearest_bearings): find which
+-- neighbor of the origin is closest to the target hex; ties break to the
+-- lowest facing index (engine's .next()).
+do
+  -- Forward arc at range 1: only the hex directly ahead (facing 0 = east).
+  -- Hex (1,0) is at bearing 0 from origin. Count should be 1.
+  assert_eq(geom.arc_hex_count("Forward", 1), 1, "Forward r1 = 1 hex")
+  -- Forward arc at range 2: the 60° wedge covers 4 hexes:
+  -- (1,0) dist1, (2,0) dist2, (2,-1) dist2, (1,1) dist2 (tie breaks to fwd).
+  assert_eq(geom.arc_hex_count("Forward", 2), 4, "Forward r2 = 4 hexes")
+  -- Rear arc at range 1: hex at bearing 3 (opposite of facing 0).
+  -- Bearing 3 = (-1,0) direction. Hex (-1,0) dist 1 -> 1 hex.
+  assert_eq(geom.arc_hex_count("Rear", 1), 1, "Rear r1 = 1 hex")
+  -- All arc at range 1: all 6 neighbors -> 6 hexes.
+  assert_eq(geom.arc_hex_count("All", 1), 6, "All r1 = 6 hexes")
+  -- All arc at range 2: 6 (ring 1) + 12 (ring 2) = 18 hexes.
+  assert_eq(geom.arc_hex_count("All", 2), 18, "All r2 = 18 hexes")
+  -- Left arc at range 1: bearings 1 and 2 -> 2 hexes.
+  assert_eq(geom.arc_hex_count("Left", 1), 2, "Left r1 = 2 hexes")
+  -- Right arc at range 1: bearings 4 and 5 -> 2 hexes.
+  assert_eq(geom.arc_hex_count("Right", 1), 2, "Right r1 = 2 hexes")
+  -- Zero/negative range -> 0 hexes.
+  assert_eq(geom.arc_hex_count("Forward", 0), 0, "Forward r0 = 0")
+  assert_eq(geom.arc_hex_count("All", -1), 0, "All r-1 = 0")
+  ok("arc fan geometry spans correct hex count")
+end
+
+-- fan_polygon returns a valid polygon (even vertex count) for a pie slice.
+do
+  -- Forward arc, facing 0, radius 100: pie slice = center + 2 edge points = 3 pts = 6 values.
+  local pts = geom.fan_polygon(0, 0, 0, "Forward", 100)
+  assert_eq(#pts % 2, 0, "fan polygon has even vertex count (pie slice)")
+  assert(#pts >= 6, "pie slice has at least 3 vertices (6 values)")
+  -- All arc: full circle = 6 vertices = 12 values (no center needed but included).
+  local allpts = geom.fan_polygon(50, 50, 0, "All", 100)
+  assert_eq(#allpts, 12, "All arc fan = 6 vertices (12 values)")
+  -- Zero radius -> empty polygon.
+  assert_eq(#geom.fan_polygon(0, 0, 0, "Forward", 0), 0, "zero radius -> empty")
+  ok("fan polygon shape is valid")
+end
+
 print(string.format("\nAll %d checks passed.", pass))
