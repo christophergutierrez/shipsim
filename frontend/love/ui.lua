@@ -2,7 +2,9 @@
 
 local ui = {}
 
-ui.scale = 1.6 -- default readable size
+-- Default 1.0 so allocate controls fit short maximized clients (~380–500px).
+-- Ctrl -/= still scales up for large displays.
+ui.scale = 1.0
 ui.min_scale = 1.0
 ui.max_scale = 3.0
 ui._fonts = {}
