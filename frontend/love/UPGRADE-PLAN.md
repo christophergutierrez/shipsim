@@ -1,5 +1,7 @@
 # Love2D client upgrade plan — TUI parity + graphical advantage
 
+STATUS: executed 2026-07-17 by autopilot; review verdict in REVIEW-VERDICT.md.
+
 **Written:** 2026-07-17, after two full TUI playtests and the TUI multi-ship fix
 round. The ratatui client (`frontend/tui/`) is the current UX benchmark; this
 plan brings `frontend/love/` to parity on *guidance* (previews, call-to-action,
@@ -30,6 +32,8 @@ self-check. Fable reviews at the end of each phase before the next begins.
    stand-ins for judgment.
 
 ## Reference: what the TUI has that Love lacks (verified 2026-07-17)
+
+Status note: this pre-upgrade gap table is historical; the listed parity work was implemented and is now reviewed in `REVIEW-VERDICT.md`.
 
 | Capability | TUI | Love today |
 |---|---|---|

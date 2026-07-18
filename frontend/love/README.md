@@ -64,7 +64,9 @@ Environment overrides:
 | +/− / panel | Allocate draft; **Enter** or **Allocate** commits |
 | P / T / 0–5 / Shift+0–5 | Coast / accel / turn / turn+accel |
 | Enter / R / E | Commit fire / ready fire / end turn |
-| ? or H | Help · Esc | Back to picker |
+| ? or H | Help |
+| Esc | Back to scenario picker (during play) |
+| Exit / Q | Quit the app (picker: Esc or Q) |
 | Right-drag / wheel / Ctrl −/= | Pan / zoom / UI scale |
 
 ## Turn flow

@@ -503,6 +503,11 @@ local function tutorial_gate_ui(hit)
   local id = hit.id
   local p = hit.payload or {}
 
+  -- Always allow leaving the session / quitting the app.
+  if id == "menu" or id == "quit" or id == "toggle_help" then
+    return false
+  end
+
   -- ReachValue steps: allow the up/down button for the correct field only.
   if expected.kind == "ReachValue" then
     local need_field = expected.field
@@ -636,7 +641,8 @@ local function tutorial_gate_key(key)
   end
 
   if not action then
-    if key == "h" or key == "/" or key == "?" then return false end
+    -- Help and app quit always allowed (user must be able to leave).
+    if key == "h" or key == "/" or key == "?" or key == "q" then return false end
     tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
     return true
   end
@@ -666,9 +672,14 @@ local function center_camera()
   end
   local cx, cy = hex.to_pixel((snap.map.width or 1) / 2, (snap.map.height or 1) / 2, draw_board.hex_size())
   local pw = draw_hud.panel_width()
-  local board_w = love.graphics.getWidth() - pw
-  app.cam.x = board_w / 2 - cx * app.cam.zoom
-  app.cam.y = (love.graphics.getHeight() + draw_hud.top_h()) / 2 - cy * app.cam.zoom
+  app.cam.x, app.cam.y = draw_hud.board_camera_origin(
+    love.graphics.getWidth(),
+    love.graphics.getHeight(),
+    pw,
+    draw_hud.top_h(),
+    draw_hud.bottom_h(),
+    cx, cy, app.cam.zoom
+  )
 end
 
 function love.update(dt)
@@ -712,6 +723,12 @@ function love.load()
     ui_status.set(app.status, "error", "No scenarios. repo=" .. tostring(app.repo_root))
   else
     ui_status.set(app.status, "info", "v2: Allocate power, Move, Commit fire, Ready, End turn. ? for help.")
+  end
+end
+
+function love.resize()
+  if app.screen == "play" then
+    center_camera()
   end
 end
 
@@ -994,6 +1011,11 @@ local function handle_ui_hit(hit)
     app.session = nil
     return true
   end
+  if id == "quit" then
+    -- love.quit writes the session log and kills the harness.
+    love.event.quit()
+    return true
+  end
   return false
 end
 
@@ -1110,6 +1132,8 @@ function love.keypressed(key)
       if sc then
         start_scenario(sc)
       end
+    elseif key == "escape" or key == "q" then
+      love.event.quit()
     end
     return
   end
@@ -1118,7 +1142,13 @@ function love.keypressed(key)
       if app.session then harness.kill(app.session) end
       app.screen = "picker"
       app.session = nil
+    elseif key == "q" then
+      love.event.quit()
     end
+    return
+  end
+  if key == "q" then
+    love.event.quit()
     return
   end
   if key == "escape" then

@@ -38,10 +38,18 @@ function geom.arc_facings(arc)
   return { [0] = true }
 end
 
---- Absolute angle (radians) for a flat-top hex facing 0..5.
---- Facing 0 = east (0°), 1 = 60°, etc. Matches hex.corners (angle = 60*i°).
-local function facing_angle(facing)
-  return math.pi / 180 * (60 * (facing % 6))
+--- Pixel angle (radians) for a core facing 0..5 on hex.lua's axial board.
+--- The board's q-axis is 30° down-right, then each increasing facing turns
+--- 60° counter-clockwise on screen. This must match hex.to_pixel(neighbor).
+function geom.facing_angle(facing)
+  return math.pi / 180 * (30 - 60 * ((facing or 0) % 6))
+end
+
+--- Pixel angle for a relative direction such as shield F/FR/RR.
+--- Keep the relative offset unwrapped so a two-face fan remains one wedge
+--- across the 0/5 boundary.
+function geom.relative_facing_angle(facing, relative)
+  return geom.facing_angle(facing) - math.pi / 180 * (60 * (relative or 0))
 end
 
 --- Build the fan polygon for a weapon arc. Returns a flat table of x,y pairs
@@ -72,7 +80,7 @@ function geom.fan_polygon(cx, cy, facing, arc, radius)
   if #list == 6 then
     local pts = {}
     for i = 0, 5 do
-      local a = facing_angle(i)
+      local a = geom.relative_facing_angle(facing, i)
       pts[#pts + 1] = cx + radius * math.cos(a)
       pts[#pts + 1] = cy + radius * math.sin(a)
     end
@@ -82,11 +90,12 @@ function geom.fan_polygon(cx, cy, facing, arc, radius)
   -- Pie slice: center, leading edge, trailing edge, back to center.
   -- The wedge spans from the first facing's leading edge to the last facing's
   -- trailing edge. Each facing occupies a 60° wedge centered on its angle.
-  -- Leading edge of facing f = angle(f) - 30°, trailing = angle(f) + 30°.
+  -- Screen angles decrease as core-facing indices increase. The first covered
+  -- facing therefore starts at +30° and the last ends at -30°.
   local first_f = list[1]
   local last_f = list[#list]
-  local a0 = facing_angle(first_f + facing) - math.pi / 6
-  local a1 = facing_angle(last_f + facing) + math.pi / 6
+  local a0 = geom.relative_facing_angle(facing, first_f) + math.pi / 6
+  local a1 = geom.relative_facing_angle(facing, last_f) - math.pi / 6
   local pts = {}
   pts[#pts + 1] = cx
   pts[#pts + 1] = cy

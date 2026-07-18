@@ -224,6 +224,37 @@ local function first_uncommitted_ship(snap, controller)
   return nil
 end
 
+--- Build the status header without Love APIs so nil focus and ownership stay
+--- testable. "Active" is meaningful only in the simultaneous movement phase.
+function draw_hud.header_text(snap, app_phase, selected_id)
+  local turn = (snap and snap.turn) or 1
+  local phase = app_phase or (snap and snap.phase) or phases.ALLOCATE
+  local mp = ""
+  if phase == phases.MOVEMENT and snap and snap.movement_phase then
+    mp = string.format(" %d/4", snap.movement_phase)
+  end
+  local header = string.format("Turn %d  %s%s", turn, phase, mp)
+  if phase == phases.MOVEMENT then
+    local active = first_uncommitted_ship(snap, "player")
+    if active then
+      header = header .. "  Active " .. callsign(find_ship(snap, active))
+    end
+  end
+  local cta = draw_hud.phase_call_to_action(snap, selected_id)
+  if cta and cta ~= "" then
+    header = header .. "  │ " .. cta
+  end
+  return header
+end
+
+--- Center a board inside the space not occupied by HUD chrome.
+--- Pure layout math for resize/wide-window verification.
+function draw_hud.board_camera_origin(width, height, panel_w, top_h, bottom_h, map_x, map_y, zoom)
+  local board_w = width - panel_w
+  local board_h = height - top_h - bottom_h
+  return board_w / 2 - map_x * zoom, top_h + board_h / 2 - map_y * zoom
+end
+
 function draw_hud.draw(app)
   local snap = app.session and app.session.snapshot
   local W = love.graphics.getWidth()
@@ -237,22 +268,21 @@ function draw_hud.draw(app)
   love.graphics.rectangle("fill", 0, 0, W, draw_hud.top_h())
   ui.use(14)
   love.graphics.setColor(1, 1, 1)
-  local turn = (snap and snap.turn) or 1
   local phase = app.phase or (snap and snap.phase) or phases.ALLOCATE
-  local active = snap and first_uncommitted_ship(snap, "player")
-  local mp = ""
-  if phase == phases.MOVEMENT and snap and snap.movement_phase then
-    mp = string.format(" %d/4", snap.movement_phase)
+  local header = draw_hud.header_text(snap, phase, app.selected_id)
+  -- The provenance label owns the top-right region. Clip the header before it
+  -- reaches that region so a long CTA cannot paint underneath its metadata.
+  local reserved = 0
+  local rule_label = draw_hud.rules_label(app)
+  if rule_label then
+    ui.use(11)
+    reserved = ui.font(11):getWidth(rule_label) + math.floor(24 * ui.scale)
   end
-  local header = string.format("Turn %d  %s%s  Active #%s", turn, phase, mp, tostring(active))
-  -- Phase call-to-action mirroring the TUI header (ui.rs:192-202): a yellow
-  -- "│ {cta}" suffix naming the pending ship by callsign, with a Tab hint when
-  -- a fleetmate owes the next action.
-  local cta = draw_hud.phase_call_to_action(snap, app.selected_id)
-  if cta and cta ~= "" then
-    header = header .. "  │ " .. cta
-  end
+  ui.use(14)
+  local header_w = math.max(0, W - pad - reserved)
+  love.graphics.setScissor(pad, 0, header_w, draw_hud.top_h())
   love.graphics.print(header, pad, (draw_hud.top_h() - ui.font(14):getHeight()) / 2)
+  love.graphics.setScissor()
 
   love.graphics.setColor(0.08, 0.09, 0.12, 0.97)
   love.graphics.rectangle("fill", px, draw_hud.top_h(), pw, H - draw_hud.top_h() - draw_hud.bottom_h())
@@ -344,7 +374,12 @@ function draw_hud.draw(app)
       H - draw_hud.bottom_h() - math.floor(32 * ui.scale))
   end
 
-  ui.button("Scenarios", px + pad, H - draw_hud.bottom_h() - math.floor(32 * ui.scale), content_w, math.floor(26 * ui.scale), "menu", nil, false)
+  local nav_h = math.floor(26 * ui.scale)
+  local nav_y = H - draw_hud.bottom_h() - nav_h - math.floor(6 * ui.scale)
+  local gap = math.floor(6 * ui.scale)
+  local half = math.floor((content_w - gap) / 2)
+  ui.button("Scenarios", px + pad, nav_y, half, nav_h, "menu", nil, false)
+  ui.button("Exit", px + pad + half + gap, nav_y, half, nav_h, "quit", nil, false)
 
   if app.show_help then
     draw_hud.draw_help_overlay()
@@ -682,6 +717,7 @@ function draw_hud.draw_help_overlay()
     "  there is unresolved fire or unspent power.",
     "Right-click drag to pan, wheel to zoom. Ctrl -/= to scale UI.",
     "? or H toggles this help. Esc returns to scenario picker.",
+    "Exit button or Q quits the app (session log written on exit).",
   }
   local y = by + 48
   for _, s in ipairs(lines) do
@@ -702,11 +738,16 @@ function draw_hud.draw_picker(app)
   love.graphics.print("Combat v2 — choose a scenario", pad, pad)
   ui.use(14)
   love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print("Up/Down to select, Enter to start.", pad, pad + math.floor(34 * ui.scale))
+  love.graphics.print("Up/Down to select, Enter to start.  Esc or Q quits.", pad, pad + math.floor(34 * ui.scale))
   local y = pad + math.floor(70 * ui.scale)
   local bw = math.min(W - 2 * pad, math.floor(460 * ui.scale))
   local bh = math.floor(30 * ui.scale)
+  local exit_h = math.floor(30 * ui.scale)
+  local list_bot = H - pad - exit_h - math.floor(12 * ui.scale)
   for i, sc in ipairs(app.scenarios) do
+    if y + bh > list_bot then
+      break
+    end
     local sel = (i == app.picker_index)
     ui.button(sc.name, pad, y, bw, bh, "pick_scenario", { index = i }, sel)
     y = y + bh + 4
@@ -715,6 +756,8 @@ function draw_hud.draw_picker(app)
     love.graphics.setColor(0.9, 0.6, 0.4)
     love.graphics.print("No scenarios found. Check repo_root.", pad, y)
   end
+  local exit_w = math.min(bw, math.floor(160 * ui.scale))
+  ui.button("Exit", pad, H - pad - exit_h, exit_w, exit_h, "quit", nil, false)
 end
 
 function draw_hud.status_strip(st)
@@ -841,13 +884,15 @@ function draw_hud.draw_game_over(app)
   end
   y = y + ui.line_h(15) + 8
 
-  -- Quit button + return-to-picker hint.
+  -- Return to picker or exit the app (session log written in love.quit).
   local bh = math.floor(28 * ui.scale)
   local bw = math.floor(140 * ui.scale)
-  ui.button("Quit (Esc)", bx + pad, by + box_h - bh - math.floor(16 * ui.scale), bw, bh, "menu", nil, false)
+  local by_btn = by + box_h - bh - math.floor(16 * ui.scale)
+  ui.button("Scenarios", bx + pad, by_btn, bw, bh, "menu", nil, false)
+  ui.button("Exit", bx + pad + bw + math.floor(12 * ui.scale), by_btn, bw, bh, "quit", nil, false)
   love.graphics.setColor(0.6, 0.6, 0.65)
   ui.use(13)
-  love.graphics.print("Enter/Esc returns to scenario picker", bx + pad + bw + 12, by + box_h - bh - math.floor(12 * ui.scale))
+  love.graphics.print("Enter/Esc → picker · Q → exit", bx + pad, by_btn - ui.line_h(13) - 2)
 end
 
 return draw_hud

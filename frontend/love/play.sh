@@ -86,7 +86,7 @@ float_window() {
 float_window
 
 echo "shipsim Love2D running (pid $LOVE_PID)"
-echo "  picker: Up/Down + Enter · help: ? or H · Esc: scenarios"
+echo "  picker: Up/Down + Enter · Exit/Q/Esc quits · help: ? or H"
 if command -v i3-msg >/dev/null 2>&1; then
   h=0
   wid="$(find_love_wid)"

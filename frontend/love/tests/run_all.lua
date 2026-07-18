@@ -852,6 +852,43 @@ do
   ok("fan polygon shape is valid")
 end
 
+-- Fan and shield geometry must follow hex.to_pixel, not an unrelated screen
+-- angle convention. Every core facing's pixel vector agrees with geom.
+do
+  local function angle_delta(a, b)
+    return math.abs(math.atan2(math.sin(a - b), math.cos(a - b)))
+  end
+  for facing = 0, 5 do
+    local d = hex.DIRS[facing + 1]
+    local x, y = hex.to_pixel(d[1], d[2], 1)
+    assert(angle_delta(math.atan2(y, x), geom.facing_angle(facing)) < 1e-9,
+      "facing angle follows hex.to_pixel " .. facing)
+  end
+  local pts = geom.fan_polygon(0, 0, 0, "Forward", 100)
+  local mid_x, mid_y = (pts[3] + pts[5]) / 2, (pts[4] + pts[6]) / 2
+  assert(angle_delta(math.atan2(mid_y, mid_x), geom.facing_angle(0)) < 1e-9,
+    "forward fan points along facing 0")
+  ok("fan geometry follows board-facing axes")
+end
+
+-- Header and wide-layout math are pure so the high-value visual invariants
+-- remain covered when a display server is unavailable.
+do
+  local snap = {
+    turn = 1, phase = "allocate", ships = {}, ships_allocated_this_turn = {},
+  }
+  assert(not draw_hud.header_text(snap, "allocate", nil):find("nil"),
+    "allocate header never formats Active #nil")
+  snap.phase = "movement"
+  snap.movement_phase = 1
+  snap.ships = { { id = 1, controller = "player", destroyed = false } }
+  assert(draw_hud.header_text(snap, "movement", 1):find("Active A1"),
+    "movement header names the active callsign")
+  local x = draw_hud.board_camera_origin(3832, 1021, 300, 34, 30, 360, 360, 1)
+  assert(x > 1000, "wide board origin centers content instead of pinning left")
+  ok("header nil guard and wide layout math")
+end
+
 -- ─── Phase 5: resolution theater and game over ───────────────────────────
 -- Pure-Lua: events.stats, slide interpolation, fx tracers. No love.* APIs.
 print("phase 5: resolution theater")

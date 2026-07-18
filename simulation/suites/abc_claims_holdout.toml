@@ -1,4 +1,5 @@
 # Falsifiable cost claims A/B/C (docs/BALANCE-COST.md).
+# Historical note: seeds 64–191 were burned during phase-2/3 tuning; the pooled file supersedes this holdout run for current reporting.
 # Bounded hard map + close starts + damage-diff stalemate scoring + closing policies.
 #
 # Claim A: equal-budget swarm (destroyers) vs titan_light (min fill).

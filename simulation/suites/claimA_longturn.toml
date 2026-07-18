@@ -1,4 +1,5 @@
 # Falsifiable cost claims A/B/C (docs/BALANCE-COST.md).
+# Historical note: one-off diagnostic suite, retained for BALANCE-CAMPAIGN-SUMMARY.md §13.3 reproduction.
 # Bounded hard map + close starts + damage-diff stalemate scoring + closing policies.
 #
 # Claim A: equal-budget swarm (destroyers) vs titan_light (min fill).
@@ -57,4 +58,3 @@ opponent = "greedy"
 name = "A_swarm_vs_titan_min"
 player = [{ class = "destroyer_line", count = 7 }]
 opponent = [{ class = "titan_light", count = 1 }]
-

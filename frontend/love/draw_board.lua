@@ -209,8 +209,11 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
         local remaining = selected.shields_remaining[face + 1] or 0
         local frac = remaining / maxpf
         if frac > 0 then
-          local a0 = math.pi / 180 * (60 * face - 30)
-          local a1 = math.pi / 180 * (60 * face + 30)
+          -- Shield faces are relative to the hull's current facing, just like
+          -- engine legal_shield_facings. Share the board-angle mapping used by
+          -- weapon fans so F follows the nose instead of the screen.
+          local a0 = geom.relative_facing_angle(selected.facing or 0, face) + math.pi / 6
+          local a1 = geom.relative_facing_angle(selected.facing or 0, face) - math.pi / 6
           local segs = 8
           local pts = {}
           for i = 0, segs do
