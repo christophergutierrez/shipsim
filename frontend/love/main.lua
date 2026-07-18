@@ -21,6 +21,7 @@ local selection = require("selection")
 local debounce = require("debounce")
 local slide = require("slide")
 local json = require("json")
+local tutorial = require("tutorial")
 
 local app = {
   screen = "picker",
@@ -57,6 +58,14 @@ local app = {
   reach = nil,
   threats = nil,
   threats_snap_turn = nil,
+  -- UPGRADE-PLAN Phase 6: tutorial controller (nil in free play).
+  -- tutorial is the step-gate machine (tutorial.lua). tutorial_order_pending
+  -- holds an order-backed step until the engine accepts it (confirm_order,
+  -- mirroring app.rs:735-744). tutorial_order_candidate is the validated
+  -- action waiting for the input handler to emit its order.
+  tutorial = nil,
+  tutorial_order_pending = false,
+  tutorial_order_candidate = nil,
 }
 
 -- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
@@ -163,6 +172,15 @@ local function sync_phase()
     -- positions so ships lerp between their previous and current hex over
     -- 0.3s instead of teleporting. hex.to_pixel is geometry-for-pixels.
     slide.feed(app.slide, snap, hex.to_pixel, draw_board.hex_size())
+    -- UPGRADE-PLAN Phase 6: detect unexpected game-over mid-lesson (mirrors
+    -- TUI tutorial.rs:275-288 state_error). If the game ended but the tutorial
+    -- step is not Dismiss, surface the error so the coach panel can show it.
+    if app.tutorial then
+      local serr = tutorial.state_error(app.tutorial, snap)
+      if serr then
+        tutorial.set_error(app.tutorial, serr)
+      end
+    end
   end
 end
 
@@ -405,6 +423,12 @@ local function submit(order, keep_status)
     ui_status.clear(app.status)
   end
   sync_phase()
+  -- UPGRADE-PLAN Phase 6: confirm order-backed tutorial steps only after
+  -- the engine accepted the order (mirrors app.rs:735-744 confirm_tutorial_order).
+  if app.tutorial and app.tutorial_order_pending then
+    tutorial.advance(app.tutorial)
+    app.tutorial_order_pending = false
+  end
   ensure_selection()
   scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
   sync_phase()
@@ -412,6 +436,198 @@ local function submit(order, keep_status)
   request_previews()
   check_end()
   return snap, err
+end
+
+-- UPGRADE-PLAN Phase 6: tutorial gate. Mirrors the TUI's tutorial_gate
+-- (input.rs:254-373) and map_key_to_action (input.rs:946-1026), adapted to
+-- the Love2D input model (mouse buttons + keyboard shortcuts). The gate
+-- intercepts both handle_ui_hit (mouse) and love.keypressed (keyboard)
+-- before the normal dispatch. Returns true if the input is blocked.
+--
+-- Order-backed steps (CommitAllocate, Accel, TurnTo, Coast, FireWeapon,
+-- ReadyFire, EndTurn) validate but do NOT advance — the caller advances only
+-- after submit() returns an accepted snapshot (confirm_tutorial_order above).
+-- Discrete steps (NavField, ShieldFacing, EnterMap, PanMap, etc.) advance
+-- immediately via check_action.
+
+-- Mark a validated order-backed action as emitted (mirrors app.rs:746-750).
+local function mark_tutorial_order_emitted()
+  if app.tutorial and app.tutorial_order_candidate ~= nil then
+    app.tutorial_order_candidate = nil
+    app.tutorial_order_pending = true
+  end
+end
+
+-- Gate a mouse/UI hit. Returns true if blocked.
+local function tutorial_gate_ui(hit)
+  if not app.tutorial or tutorial.is_complete(app.tutorial) then
+    return false
+  end
+  if not hit then
+    return false
+  end
+  local step = tutorial.current_step(app.tutorial)
+  if not step then
+    return false
+  end
+  local expected = step.expected
+  local id = hit.id
+  local p = hit.payload or {}
+
+  -- ReachValue steps: allow the up/down button for the correct field only.
+  if expected.kind == "ReachValue" then
+    local need_field = expected.field
+    if id == "alloc_movement_up" or id == "alloc_movement_dn" then
+      if need_field == 0 then return false end
+      tutorial.set_error(app.tutorial, ("Wrong field (need %s). %s"):format(
+        ({[0]="Movement",[1]="beam_1",[2]="torp_1",[3]="plasma_1",
+          [4]="shield F"})[need_field] or ("field "..need_field), step.hint))
+      return true
+    end
+    if id == "alloc_weapon_up" or id == "alloc_weapon_dn" then
+      local wmap = { beam_1 = 1, torp_1 = 2, plasma_1 = 3 }
+      if wmap[p.weapon] == need_field then return false end
+      tutorial.set_error(app.tutorial, ("Wrong field (need %s). %s"):format(
+        ({[0]="Movement",[1]="beam_1",[2]="torp_1",[3]="plasma_1",
+          [4]="shield F"})[need_field] or ("field "..need_field), step.hint))
+      return true
+    end
+    if id == "alloc_shield_up" or id == "alloc_shield_dn" then
+      if 4 + (p.face or 0) == need_field then return false end
+      tutorial.set_error(app.tutorial, ("Wrong shield face (need field %d). %s"):format(need_field, step.hint))
+      return true
+    end
+    if id == "alloc_confirm" then
+      tutorial.set_error(app.tutorial, ("Set %s to %d first. %s"):format(
+        ({[0]="Movement",[1]="beam_1",[2]="torp_1",[3]="plasma_1",
+          [4]="shield F"})[expected.field] or ("field "..expected.field),
+        expected.target, step.hint))
+      return true
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
+  -- NavField: allow alloc buttons (check_action handles advance on ==).
+  if expected.kind == "NavField" then
+    return false
+  end
+
+  -- CommitAllocate: allow the confirm button.
+  if expected.kind == "CommitAllocate" then
+    if id == "alloc_confirm" then
+      if tutorial.validate_action(app.tutorial, { kind = "CommitAllocate" }) then
+        app.tutorial_order_candidate = { kind = "CommitAllocate" }
+        return false
+      end
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
+  -- Accel: allow the accel button.
+  if expected.kind == "Accel" then
+    if id == "accel" then
+      if tutorial.validate_action(app.tutorial, { kind = "Accel" }) then
+        app.tutorial_order_candidate = { kind = "Accel" }
+        return false
+      end
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
+  -- FireWeapon: allow the fire_confirm button.
+  if expected.kind == "FireWeapon" then
+    if id == "fire_confirm" then
+      if tutorial.validate_action(app.tutorial, { kind = "FireWeapon" }) then
+        app.tutorial_order_candidate = { kind = "FireWeapon" }
+        return false
+      end
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
+  -- ReadyFire: allow the ready_fire button.
+  if expected.kind == "ReadyFire" then
+    if id == "ready_fire" then
+      if tutorial.validate_action(app.tutorial, { kind = "ReadyFire" }) then
+        app.tutorial_order_candidate = { kind = "ReadyFire" }
+        return false
+      end
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
+  -- ShieldFacing: allow pick_shield_facing (check_action advances on ==).
+  if expected.kind == "ShieldFacing" then
+    if id == "pick_shield_facing" then
+      return not tutorial.check_action(app.tutorial, { kind = "ShieldFacing", facing = p.face })
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
+  -- Default: block unrecognized hits during tutorial.
+  tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+  return true
+end
+
+-- Gate a keyboard input. Returns true if blocked.
+local function tutorial_gate_key(key)
+  if not app.tutorial or tutorial.is_complete(app.tutorial) then
+    return false
+  end
+  local snap = snap_now()
+  if not snap then return false end
+  local step = tutorial.current_step(app.tutorial)
+  if not step then return false end
+  local expected = step.expected
+  local phase = app.phase or snap.phase
+
+  -- Map key → action (mirrors map_key_to_action, input.rs:946-1026).
+  local action = nil
+  if key == "v" then
+    action = { kind = "EnterMap" }
+  elseif key == "e" then
+    action = { kind = "EndTurn" }
+  elseif phase == phases.MOVEMENT then
+    if key == "t" then action = { kind = "Accel" }
+    elseif key == "p" then action = { kind = "Coast" }
+    elseif key:match("^[0-5]$") then action = { kind = "TurnTo", facing = tonumber(key) }
+    end
+  elseif phase == phases.FIRING then
+    if key == "return" or key == "kpenter" then action = { kind = "FireWeapon" }
+    elseif key == "r" or key == "space" then action = { kind = "ReadyFire" }
+    end
+  elseif phase == phases.TURN_END then
+    if key == "return" or key == "kpenter" or key == "e" then action = { kind = "EndTurn" } end
+  end
+
+  if not action then
+    if key == "h" or key == "/" or key == "?" then return false end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
+  -- Order-backed steps: validate but don't advance.
+  local order_backed = (expected.kind == "CommitAllocate"
+    or expected.kind == "Accel" or expected.kind == "TurnTo"
+    or expected.kind == "Coast" or expected.kind == "FireWeapon"
+    or expected.kind == "ReadyFire" or expected.kind == "EndTurn")
+
+  if order_backed then
+    if tutorial.validate_action(app.tutorial, action) then
+      app.tutorial_order_candidate = action
+      return false
+    end
+    return true
+  end
+
+  -- Discrete steps: check and advance immediately.
+  return not tutorial.check_action(app.tutorial, action)
 end
 
 local function center_camera()
@@ -481,12 +697,30 @@ local function start_scenario(entry)
   app.maneuver_facing = 0
   app.alloc = {}
   app.show_end_warning = false
+  -- UPGRADE-PLAN Phase 6: detect the tutorial scenario by filename (mirrors
+  -- the TUI's --tutorial flag, main.rs:32-39). The TUI uses a CLI flag; the
+  -- Love2D frontend has no CLI args, so we match the scenario basename.
+  -- tutorial.lua is a pure-Lua step-gate machine; nil in free play.
+  local basename = entry.path:match("([^/]+)$") or entry.path
+  if basename == "tutorial_rear_attack.toml" then
+    app.tutorial = tutorial.new()
+    app.tutorial_order_pending = false
+    app.tutorial_order_candidate = nil
+  else
+    app.tutorial = nil
+    app.tutorial_order_pending = false
+    app.tutorial_order_candidate = nil
+  end
   scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
   sync_phase()
   ensure_selection()
   request_previews()
   center_camera()
-  ui_status.set(app.status, "info", "Allocate power for your ships, then End turn to move.")
+  if app.tutorial then
+    ui_status.set(app.status, "info", "Tutorial: " .. tutorial.OBJECTIVE)
+  else
+    ui_status.set(app.status, "info", "Allocate power for your ships, then End turn to move.")
+  end
 end
 
 local SHIELD_FACE = { "F", "FR", "RR", "R", "RL", "FL" }
@@ -518,6 +752,7 @@ local function do_allocate(ship_id)
   local a = alloc_for(ship_id)
   local _, err = submit(orders.allocate(ship_id, a.movement, a.weapons, a.shields), true)
   if not err then
+    mark_tutorial_order_emitted()
     ui_status.set(app.status, "info", string.format("Ship #%d allocated (move %d)", ship_id, a.movement))
   end
 end
@@ -541,6 +776,7 @@ local function do_movement(action, facing)
   end
   local _, err = submit(order, true)
   if not err then
+    mark_tutorial_order_emitted()
     local label = action
     if facing then label = label .. " " .. facing end
     ui_status.set(app.status, "info", string.format("Ship #%d %s", ship, label))
@@ -562,6 +798,7 @@ local function do_commit_fire()
   local target = app.target_id
   local snap2, err = submit(orders.commit_fire(ship, weapon, target, app.shield_facing), true)
   if not err then
+    mark_tutorial_order_emitted()
     ui_status.set(app.status, "info", fire_result_message(snap2 or snap_now(), weapon, target))
   end
 end
@@ -574,6 +811,7 @@ local function do_ready_fire()
   end
   local _, err = submit(orders.ready_fire(ship), true)
   if not err then
+    mark_tutorial_order_emitted()
     ui_status.set(app.status, "info", string.format("Ship #%d readied", ship))
   end
 end
@@ -587,6 +825,7 @@ local function do_end_turn()
   app.show_end_warning = false
   local _, err = submit(orders.end_turn(), true)
   if not err then
+    mark_tutorial_order_emitted()
     app.alloc = {}
     ui_status.set(app.status, "info", "Turn ended")
   end
@@ -595,6 +834,14 @@ end
 local function handle_ui_hit(hit)
   if not hit then
     return false
+  end
+  -- UPGRADE-PLAN Phase 6: tutorial gate intercepts mouse hits before normal
+  -- dispatch (mirrors TUI input.rs:55 tutorial_gate). Returns true = blocked.
+  -- For order-backed steps, the gate validates and sets tutorial_order_candidate;
+  -- it returns false (allow) so the normal handler below emits the order, then
+  -- calls mark_tutorial_order_emitted() to move candidate → pending.
+  if tutorial_gate_ui(hit) then
+    return true
   end
   local id = hit.id
   local p = hit.payload or {}
@@ -853,6 +1100,14 @@ function love.keypressed(key)
     if app.session then harness.kill(app.session) end
     app.screen = "picker"
     app.session = nil
+    return
+  end
+  -- UPGRADE-PLAN Phase 6: tutorial gate intercepts keys before normal dispatch
+  -- (mirrors TUI input.rs:55). Returns true = blocked. For order-backed steps
+  -- the gate validates and sets tutorial_order_candidate, then returns false
+  -- (allow) so the normal handler below emits the order and calls
+  -- mark_tutorial_order_emitted() to move candidate → pending.
+  if tutorial_gate_key(key) then
     return
   end
   if key == "return" or key == "kpenter" then

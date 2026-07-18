@@ -6,6 +6,7 @@ local hex = require("hex")
 local ui = require("ui")
 local preview = require("preview")
 local events = require("events")
+local tutorial = require("tutorial")
 
 local draw_hud = {}
 
@@ -332,11 +333,123 @@ function draw_hud.draw(app)
     end
   end
 
+  -- UPGRADE-PLAN Phase 6: tutorial coach panel. Mirrors the TUI's
+  -- render_tutorial_panel (ui.rs:2009-2077): yellow-bordered box with a
+  -- prompt strip (do_now_line) and narration body. Sits at the bottom of
+  -- the right panel, above the Scenarios button, only when app.tutorial is
+  -- active. The prompt/narration are pure functions on the tutorial state;
+  -- only the draw calls here touch Love APIs.
+  if app.tutorial then
+    y = draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w,
+      H - draw_hud.bottom_h() - math.floor(32 * ui.scale))
+  end
+
   ui.button("Scenarios", px + pad, H - draw_hud.bottom_h() - math.floor(32 * ui.scale), content_w, math.floor(26 * ui.scale), "menu", nil, false)
 
   if app.show_help then
     draw_hud.draw_help_overlay()
   end
+end
+
+-- UPGRADE-PLAN Phase 6: tutorial coach panel. Mirrors the TUI's
+-- render_tutorial_panel (ui.rs:2009-2077). Renders a yellow-bordered box with:
+--   1. A title line: "Coach · Turn N · Phase · step/total" (or "Tutorial complete")
+--   2. A yellow prompt strip (do_now_line — the immediate next action)
+--   3. The narration body (step text + any error_msg prefix)
+-- The prompt and narration are pure functions on the tutorial state (tutorial.lua);
+-- only the draw calls here touch Love APIs. `y_bot` is the lower bound (Scenarios
+-- button top) — the panel is clamped to fit above it.
+function draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w, y_bot)
+  local t = app.tutorial
+  if not t then
+    return y
+  end
+
+  local lh = ui.line_h(13)
+  local turn = (snap and snap.turn) or 0
+  local phase = app.phase or (snap and snap.phase) or ""
+  local mp = ""
+  if phase == "movement" and snap and snap.movement_phase then
+    mp = string.format(" %d/4", snap.movement_phase)
+  elseif phase == "firing" and snap and snap.movement_phase then
+    mp = string.format(" %d/4", snap.movement_phase)
+  end
+  local phase_str = phase .. mp
+  if phase_str == "" then
+    phase_str = "Starting"
+  end
+
+  local complete = tutorial.is_complete(t)
+  local step_idx = tutorial.step_count(t) > 0
+    and (t.current + 1) or 1
+  local total = tutorial.step_count(t)
+  local title
+  if complete then
+    title = "Tutorial complete"
+  else
+    title = string.format("Coach · Turn %d · %s · %d/%d", turn, phase_str, step_idx, total)
+  end
+
+  -- Derive cursor / field_value for do_now_line from the selected ship's alloc
+  -- draft (the Love2D client is mouse-driven, so there is no keyboard cursor;
+  -- we pass nil when not in allocate or no draft, and do_now_line handles nil).
+  local cursor, field_value = nil, nil
+  if not complete and snap and app.selected_id then
+    local a = app.alloc[app.selected_id]
+    if a and (phase == "allocate") then
+      -- The Love2D alloc draft has no cursor; pass nil so do_now_line shows
+      -- the "↓/↑ until ▶ is on <field>" guidance rather than a live value.
+      -- field_value stays nil — the prompt is still useful without it.
+    end
+  end
+
+  local prompt = tutorial.do_now_line(t, cursor, field_value)
+  local narration = tutorial.narration(t)
+
+  -- Clamp: reserve space for title (1 line) + prompt (1-2 lines) + narration.
+  -- If we're too close to y_bot, skip the panel rather than overlap the button.
+  local min_h = lh * 4
+  if y + min_h > y_bot then
+    return y
+  end
+
+  -- Yellow border box.
+  local box_h = math.min(y_bot - y, lh * 10)
+  love.graphics.setColor(0.7, 0.65, 0.15, 0.25)
+  love.graphics.rectangle("fill", px, y, content_w + 2 * pad, box_h, 4, 4)
+  love.graphics.setColor(0.85, 0.8, 0.25)
+  love.graphics.rectangle("line", px, y, content_w + 2 * pad, box_h, 4, 4)
+
+  local iy = y + math.floor(4 * ui.scale)
+
+  -- Title line (yellow, bold-ish).
+  ui.use(13)
+  love.graphics.setColor(0.9, 0.85, 0.3)
+  love.graphics.print(title, px + pad, iy)
+  iy = iy + lh
+
+  -- Prompt strip: black on yellow (mirrors the TUI's styled prompt).
+  if prompt and prompt ~= "" then
+    local font = ui.font(13)
+    local prompt_h = lh
+    love.graphics.setColor(0.9, 0.8, 0.15)
+    love.graphics.rectangle("fill", px + pad, iy, content_w, prompt_h, 2, 2)
+    love.graphics.setColor(0.08, 0.07, 0.05)
+    love.graphics.print(" " .. prompt, px + pad, iy)
+    iy = iy + prompt_h + 2
+  end
+
+  -- Narration body (white, wrapped crudely by splitting on \n).
+  love.graphics.setColor(0.88, 0.88, 0.9)
+  for line_text in narration:gmatch("[^\n]+") do
+    if iy + lh > y + box_h then
+      break
+    end
+    love.graphics.print(line_text, px + pad, iy)
+    iy = iy + lh
+  end
+
+  return y + box_h + math.floor(6 * ui.scale)
 end
 
 function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)

@@ -28,6 +28,7 @@ local preview = require("preview")
 local events = require("events")
 local fx = require("fx")
 local slide = require("slide")
+local tutorial = require("tutorial")
 
 local pass = 0
 local function ok(msg)
@@ -1069,6 +1070,234 @@ do
   assert_eq(fx.count(sys), 0, "floaters cleared")
   assert_eq(fx.pulse_alpha(sys, 1), 0.0, "pulses cleared")
   ok("fx clear wipes tracers")
+end
+
+
+-- ─── Phase 6: tutorial step-gate machine ────────────────────────────────
+-- Pure-Lua: the tutorial controller (tutorial.lua) is a step-gate machine
+-- ported from frontend/tui/src/tutorial.rs. These tests exercise the gate
+-- logic (check_action, validate_action, check_reach_value, do_now_line,
+-- narration, state_error) without love.* APIs. The integration wiring in
+-- main.lua (tutorial_gate_ui/key, confirm_tutorial_order) and the coach
+-- panel in draw_hud.lua are covered by the module-contract + syntax checks.
+print("phase 6: tutorial")
+
+-- Module contract: tutorial is a table with the expected functions.
+assert_eq(type(tutorial), "table", "tutorial module contract")
+assert_eq(type(tutorial.new), "function", "tutorial.new is a function")
+assert_eq(type(tutorial.check_action), "function", "tutorial.check_action")
+assert_eq(type(tutorial.validate_action), "function", "tutorial.validate_action")
+assert_eq(type(tutorial.check_reach_value), "function", "tutorial.check_reach_value")
+assert_eq(type(tutorial.do_now_line), "function", "tutorial.do_now_line")
+assert_eq(type(tutorial.narration), "function", "tutorial.narration")
+assert_eq(type(tutorial.state_error), "function", "tutorial.state_error")
+ok("tutorial module contract")
+
+-- new() returns a controller at step 1, not complete.
+do
+  local t = tutorial.new()
+  assert_eq(tutorial.step_count(t), 26, "rear-attack has 26 steps")
+  assert_eq(t.current, 1, "new starts at step 1")
+  assert_eq(tutorial.is_complete(t), false, "new is not complete")
+  local step = tutorial.current_step(t)
+  assert(step, "current_step returns a table at step 1")
+  assert_eq(step.expected.kind, "ReachValue", "step 1 is ReachValue")
+  assert_eq(step.expected.field, 0, "step 1 field is Movement (0)")
+  assert_eq(step.expected.target, 10, "step 1 target is 10")
+  ok("tutorial new + step 1 shape")
+end
+
+-- check_reach_value: wrong field is blocked; right field toward target allowed;
+-- exact target advances.
+do
+  local t = tutorial.new()
+  -- Wrong field (1 vs expected 0): blocked, not advanced.
+  local allow, adv = tutorial.check_reach_value(t, 1, 0, 4)
+  assert_eq(allow, false, "reach: wrong field blocked")
+  assert_eq(adv, false, "reach: wrong field no advance")
+  assert_eq(t.current, 1, "reach: wrong field stays on step 1")
+  assert(t.error_msg, "reach: wrong field sets error")
+  -- Right field, not yet target: allowed, not advanced.
+  allow, adv = tutorial.check_reach_value(t, 0, 0, 5)
+  assert_eq(allow, true, "reach: toward target allowed")
+  assert_eq(adv, false, "reach: below target no advance")
+  assert_eq(t.current, 1, "reach: below target stays step 1")
+  -- Overshoot: allowed (the edit happens) but error set, no advance.
+  allow, adv = tutorial.check_reach_value(t, 0, 5, 12)
+  assert_eq(allow, true, "reach: overshoot allowed")
+  assert_eq(adv, false, "reach: overshoot no advance")
+  assert(t.error_msg, "reach: overshoot sets error")
+  -- Exact target: allowed AND advanced.
+  allow, adv = tutorial.check_reach_value(t, 0, 5, 10)
+  assert_eq(allow, true, "reach: exact target allowed")
+  assert_eq(adv, true, "reach: exact target advances")
+  assert_eq(t.current, 2, "reach: exact target moves to step 2")
+  assert_eq(t.error_msg, nil, "reach: advance clears error")
+  ok("check_reach_value gate logic")
+end
+
+-- validate_action: order-backed step validates but does NOT advance.
+-- Step 7 is CommitAllocate (order-backed).
+do
+  local t = tutorial.new()
+  -- Advance to step 7 (CommitAllocate) by completing steps 1-6.
+  for _ = 1, 6 do tutorial.advance(t) end
+  assert_eq(t.current, 7, "advanced to step 7")
+  local step = tutorial.current_step(t)
+  assert_eq(step.expected.kind, "CommitAllocate", "step 7 is CommitAllocate")
+  -- Correct action: validates true, does NOT advance.
+  local ok_v = tutorial.validate_action(t, { kind = "CommitAllocate" })
+  assert_eq(ok_v, true, "validate: correct CommitAllocate returns true")
+  assert_eq(t.current, 7, "validate: does NOT advance (order-backed)")
+  -- Wrong action: validates false, sets error.
+  ok_v = tutorial.validate_action(t, { kind = "Accel" })
+  assert_eq(ok_v, false, "validate: wrong action returns false")
+  assert(t.error_msg, "validate: wrong action sets error")
+  ok("validate_action order-backed no-advance")
+end
+
+-- check_action: discrete step advances immediately on match.
+-- Step 5 is NavField (field 4) — a discrete step.
+do
+  local t = tutorial.new()
+  for _ = 1, 4 do tutorial.advance(t) end
+  assert_eq(t.current, 5, "advanced to step 5")
+  local step = tutorial.current_step(t)
+  assert_eq(step.expected.kind, "NavField", "step 5 is NavField")
+  -- Stepping toward (field 3 <= 4): allowed, no advance.
+  local acc = tutorial.check_action(t, { kind = "NavField", field = 3 })
+  assert_eq(acc, true, "nav: toward target allowed")
+  assert_eq(t.current, 5, "nav: toward target no advance")
+  -- Exact field: allowed AND advanced.
+  acc = tutorial.check_action(t, { kind = "NavField", field = 4 })
+  assert_eq(acc, true, "nav: exact field allowed")
+  assert_eq(t.current, 6, "nav: exact field advances")
+  ok("check_action discrete advance")
+end
+
+-- check_action: wrong kind on a discrete step is blocked.
+do
+  local t = tutorial.new()
+  -- Step 1 is ReachValue; a NavField action should be blocked.
+  local acc = tutorial.check_action(t, { kind = "NavField", field = 0 })
+  assert_eq(acc, false, "check: wrong kind on ReachValue blocked")
+  assert_eq(t.current, 1, "check: wrong kind no advance")
+  ok("check_action wrong kind blocked")
+end
+
+-- do_now_line: produces a non-empty prompt for each step kind; complete msg
+-- after all steps done.
+do
+  local t = tutorial.new()
+  local line = tutorial.do_now_line(t, 0, 0)
+  assert(line and line ~= "", "do_now: step 1 non-empty")
+  assert(line:match("Movement"), "do_now: step 1 mentions Movement")
+  -- Advance through all steps; do_now_line should report complete.
+  for _ = 1, tutorial.step_count(t) do tutorial.advance(t) end
+  assert_eq(tutorial.is_complete(t), true, "do_now: all steps done")
+  line = tutorial.do_now_line(t, nil, nil)
+  assert(line:match("complete"), "do_now: complete message")
+  ok("do_now_line prompt + complete")
+end
+
+-- narration: includes step text; prefixes error_msg when set; complete msg
+-- after all steps.
+do
+  local t = tutorial.new()
+  local body = tutorial.narration(t)
+  assert(body and body ~= "", "narration: step 1 non-empty")
+  assert(body:match("thrust"), "narration: step 1 mentions thrust")
+  -- Set an error; narration should prefix it.
+  tutorial.set_error(t, "test error")
+  body = tutorial.narration(t)
+  assert(body:match("test error"), "narration: prefixes error_msg")
+  -- Complete.
+  for _ = 1, tutorial.step_count(t) do tutorial.advance(t) end
+  body = tutorial.narration(t)
+  assert(body:match("complete"), "narration: complete message")
+  ok("narration body + error prefix")
+end
+
+-- state_error: nil when not over; nil when Won (even mid-lesson); error when
+-- Lost mid-lesson.
+do
+  local t = tutorial.new()
+  -- Not over: nil.
+  assert_eq(tutorial.state_error(t, { status = "Ongoing" }), nil, "state_error: nil when ongoing")
+  -- Won mid-lesson: nil (win is acceptable).
+  assert_eq(tutorial.state_error(t, { status = "Won" }), nil, "state_error: nil on Won mid-lesson")
+  -- Lost mid-lesson: error string.
+  local serr = tutorial.state_error(t, { status = "Lost" })
+  assert(serr and serr ~= "", "state_error: error on Lost mid-lesson")
+  -- When the step IS Dismiss (last step), even Lost is not an error.
+  for _ = 1, tutorial.step_count(t) - 1 do tutorial.advance(t) end
+  local last = tutorial.current_step(t)
+  assert_eq(last.expected.kind, "Dismiss", "last step is Dismiss")
+  assert_eq(tutorial.state_error(t, { status = "Lost" }), nil, "state_error: nil on Dismiss step")
+  -- nil snap (e.g. before first snapshot loads) must not crash.
+  assert_eq(tutorial.state_error(tutorial.new(), nil), nil, "state_error: nil snap returns nil")
+  ok("state_error game-over detection")
+end
+
+-- Full walkthrough: advance all 26 steps via the gate functions, confirming
+-- the machine reaches completion. This is a smoke test of the whole sequence.
+do
+  local t = tutorial.new()
+  -- Steps 1-4: ReachValue (fields 0,1,2,3).
+  tutorial.check_reach_value(t, 0, 0, 10) -- step 1 -> 2
+  tutorial.check_reach_value(t, 1, 0, 4)  -- step 2 -> 3
+  tutorial.check_reach_value(t, 2, 0, 1)  -- step 3 -> 4
+  tutorial.check_reach_value(t, 3, 0, 1)  -- step 4 -> 5
+  -- Step 5: NavField (field 4).
+  tutorial.check_action(t, { kind = "NavField", field = 4 }) -- 5 -> 6
+  -- Step 6: ReachValue (field 4, target 6).
+  tutorial.check_reach_value(t, 4, 0, 6) -- 6 -> 7
+  -- Step 7: CommitAllocate (order-backed — validate then advance).
+  tutorial.validate_action(t, { kind = "CommitAllocate" })
+  tutorial.advance(t) -- 7 -> 8 (caller advances after engine accepts)
+  -- Steps 8-26: a mix of order-backed (validate+advance) and discrete
+  -- (check_action). We drive them all via validate_action + advance for
+  -- order-backed, and check_action for discrete, matching the integration.
+  -- Step 8: Accel (order-backed)
+  tutorial.validate_action(t, { kind = "Accel" }); tutorial.advance(t)
+  -- Step 9: ReadyFire (order-backed)
+  tutorial.validate_action(t, { kind = "ReadyFire" }); tutorial.advance(t)
+  -- Step 10: Accel
+  tutorial.validate_action(t, { kind = "Accel" }); tutorial.advance(t)
+  -- Step 11: ReadyFire
+  tutorial.validate_action(t, { kind = "ReadyFire" }); tutorial.advance(t)
+  -- Step 12: TurnTo facing 3 (order-backed)
+  tutorial.validate_action(t, { kind = "TurnTo", facing = 3 }); tutorial.advance(t)
+  -- Step 13: EnterMap (discrete)
+  tutorial.check_action(t, { kind = "EnterMap" })
+  -- Step 14: PanMap (discrete)
+  tutorial.check_action(t, { kind = "PanMap" })
+  -- Step 15: ZoomOut
+  tutorial.check_action(t, { kind = "ZoomOut" })
+  -- Step 16: ZoomIn
+  tutorial.check_action(t, { kind = "ZoomIn" })
+  -- Step 17: RecenterMap
+  tutorial.check_action(t, { kind = "RecenterMap" })
+  -- Step 18: ExitMap
+  tutorial.check_action(t, { kind = "ExitMap" })
+  -- Step 19: ShieldFacing facing 3 (discrete, advances on ==)
+  tutorial.check_action(t, { kind = "ShieldFacing", facing = 3 })
+  -- Step 20: FireWeapon (order-backed)
+  tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
+  -- Step 21: TabWeapon (discrete)
+  tutorial.check_action(t, { kind = "TabWeapon" })
+  -- Step 22: FireWeapon
+  tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
+  -- Step 23: TabWeapon
+  tutorial.check_action(t, { kind = "TabWeapon" })
+  -- Step 24: FireWeapon
+  tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
+  -- Step 25: ReadyFire
+  tutorial.validate_action(t, { kind = "ReadyFire" }); tutorial.advance(t)
+  -- Step 26: Dismiss (discrete)
+  tutorial.check_action(t, { kind = "Dismiss" })
+  assert_eq(tutorial.is_complete(t), true, "walkthrough: all 26 steps complete")
+  ok("full 26-step walkthrough reaches completion")
 end
 
 print(string.format("\nAll %d checks passed.", pass))
