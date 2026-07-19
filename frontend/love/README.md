@@ -60,14 +60,14 @@ Environment overrides:
 
 | Input | Action |
 |---|---|
-| ↑/↓ Enter | Scenario picker |
+| ↑/↓, Home/End, PgUp/PgDn, wheel | Scenario picker and list scroll |
 | +/− / panel | Allocate draft; **Enter** or **Allocate** commits |
 | P / T / 0–5 / Shift+0–5 | Coast / accel / turn / turn+accel |
-| Enter / R / E | Commit fire / ready fire / end turn |
+| ↑/↓ / Enter / R / E | Previous/next weapon / commit fire / ready fire / end turn |
 | ? or H | Help |
 | Esc | Back to scenario picker (during play) |
 | Exit / Q | Quit the app (picker: Esc or Q) |
-| Right-drag / wheel / Ctrl −/= | Pan / zoom / UI scale |
+| Right-drag / map wheel / sidebar wheel / Ctrl −/= | Pan / map zoom / sidebar scroll / UI scale |
 
 ## Turn flow
 
@@ -77,6 +77,11 @@ Environment overrides:
 4. After simultaneous resolution, continue the next movement/firing cycle or end the turn.
 
 Implemented actions are available in the right panel. Ships and targets can be selected on the board. Right-drag pans, the mouse wheel zooms, and `Ctrl` with `-` or `=` changes UI scale.
+
+The play sidebar scrolls with the mouse wheel when the pointer is over the
+right panel, or with `PageUp`/`PageDown` (`Home`/`End` jump to the top/bottom).
+The scenario picker keeps the selected row visible while scrolling. The
+minimum supported window is 720×420; smaller windows show a resize message.
 
 ## Verification
 

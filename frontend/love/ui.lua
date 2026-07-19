@@ -11,6 +11,7 @@ ui.max_scale = 3.0
 ui._fonts = {}
 ui._hits = {} -- filled each frame during draw
 ui._press = nil -- { id, payload, t0, last_fire } for hold-to-repeat (F3)
+ui._hit_clips = {}
 
 function ui.set_scale(s)
   ui.scale = math.max(ui.min_scale, math.min(ui.max_scale, s))
@@ -53,11 +54,38 @@ end
 
 function ui.clear_hits()
   ui._hits = {}
+  ui._hit_clips = {}
+end
+
+--- Limit hit registration to the currently rendered viewport. Rendering code
+--- pairs this with love.graphics.setScissor so hidden controls are neither
+--- visible nor clickable.
+function ui.push_hit_clip(rect)
+  if rect then
+    ui._hit_clips[#ui._hit_clips + 1] = rect
+  end
+end
+
+function ui.pop_hit_clip()
+  if #ui._hit_clips > 0 then
+    ui._hit_clips[#ui._hit_clips] = nil
+  end
 end
 
 --- Register a clickable rect. Hitbox is expanded to layout.MIN_HIT (F3).
 function ui.hit(id, x, y, w, h, payload)
   local nx, ny, nw, nh = layout.ensure_hit_size(x, y, w, h, layout.MIN_HIT)
+  for _, clip in ipairs(ui._hit_clips) do
+    local right = math.min(nx + nw, clip.x + clip.w)
+    local bottom = math.min(ny + nh, clip.y + clip.h)
+    nx = math.max(nx, clip.x)
+    ny = math.max(ny, clip.y)
+    nw = right - nx
+    nh = bottom - ny
+    if nw <= 0 or nh <= 0 then
+      return
+    end
+  end
   ui._hits[#ui._hits + 1] = {
     id = id,
     x = nx,

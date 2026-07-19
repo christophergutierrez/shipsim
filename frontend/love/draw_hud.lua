@@ -270,6 +270,17 @@ function draw_hud.draw(app)
   local content_w = pw - 2 * pad
   local slots = layout.header_slots(W, ui.scale)
   local phase = app.phase or (snap and snap.phase) or phases.ALLOCATE
+  local regions = layout.sidebar_regions(W, H, ui.scale, app.tutorial ~= nil)
+
+  if app.tutorial then
+    local step = app.tutorial.current
+    if app.tutorial_step_seen ~= step then
+      app.sidebar_scroll = 0
+      app.tutorial_step_seen = step
+    end
+  else
+    app.tutorial_step_seen = nil
+  end
 
   -- F1 D1: three fixed header slots — left text, End Turn button, rules.
   love.graphics.setColor(0.1, 0.11, 0.14, 0.96)
@@ -292,14 +303,21 @@ function draw_hud.draw(app)
   end
 
   love.graphics.setColor(0.08, 0.09, 0.12, 0.97)
-  love.graphics.rectangle("fill", px, slots.top_h, pw, H - slots.top_h - draw_hud.bottom_h())
-  local y = slots.top_h + pad
+  love.graphics.rectangle("fill", px, regions.panel.y, regions.panel.w, regions.panel.h)
+  local y = regions.content.y - (app.sidebar_scroll or 0) + pad
   ui.use(13)
 
   if not snap then
     section("No scenario loaded", px + pad)
     return
   end
+
+  -- All variable-height sidebar content is clipped and hit-tested as one
+  -- scrollable region. Fixed navigation and the tutorial prompt are drawn
+  -- after this clip is cleared.
+  love.graphics.setScissor(regions.content.x, regions.content.y,
+    regions.content.w, regions.content.h)
+  ui.push_hit_clip(regions.content)
 
   -- Fixed roster: all ships every phase (dead dimmed) so panel y is stable (D5).
   section("Ships", px + pad)
@@ -385,12 +403,56 @@ function draw_hud.draw(app)
   -- active. The prompt/narration are pure functions on the tutorial state;
   -- only the draw calls here touch Love APIs.
   if app.tutorial then
-    y = draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w,
-      H - draw_hud.bottom_h() - math.floor(32 * ui.scale))
+    y = draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w, y)
   end
 
-  local nav_h = math.floor(26 * ui.scale)
-  local nav_y = H - draw_hud.bottom_h() - nav_h - math.floor(6 * ui.scale)
+  ui.pop_hit_clip()
+  love.graphics.setScissor()
+
+  local content_end = y + (app.sidebar_scroll or 0)
+  local max_scroll = math.max(0, content_end - regions.content.y - regions.content.h)
+  app.sidebar_max_scroll = max_scroll
+  app.sidebar_scroll = layout.scroll_clamp(app.sidebar_scroll, content_end - regions.content.y,
+    regions.content.h)
+
+  if max_scroll > 0 then
+    local track_x = W - math.max(3, math.floor(4 * ui.scale))
+    local track_y = regions.content.y + 4
+    local track_h = math.max(1, regions.content.h - 8)
+    local thumb_h = math.max(math.floor(24 * ui.scale),
+      track_h * regions.content.h / math.max(regions.content.h, content_end - regions.content.y))
+    local thumb_y = track_y + (track_h - thumb_h)
+      * ((app.sidebar_scroll or 0) / max_scroll)
+    love.graphics.setColor(0.35, 0.38, 0.45, 0.65)
+    love.graphics.rectangle("fill", track_x, track_y, math.max(2, math.floor(3 * ui.scale)), track_h, 2, 2)
+    love.graphics.setColor(0.7, 0.75, 0.8, 0.9)
+    love.graphics.rectangle("fill", track_x, thumb_y, math.max(2, math.floor(3 * ui.scale)), thumb_h, 2, 2)
+  end
+
+  -- Tutorial prompt stays visible while its full narration remains in the
+  -- scrollable content above.
+  if app.tutorial and regions.prompt then
+    local prompt = tutorial.pinned_prompt(app.tutorial, nil, nil) or ""
+    local prompt_lines = layout.wrap_text(prompt, content_w, function(s)
+      return ui.font(12):getWidth(s)
+    end, 2)
+    love.graphics.setColor(0.7, 0.65, 0.15, 0.25)
+    love.graphics.rectangle("fill", regions.prompt.x, regions.prompt.y,
+      regions.prompt.w, regions.prompt.h, 4, 4)
+    love.graphics.setColor(0.9, 0.85, 0.3)
+    ui.use(11)
+    love.graphics.print(string.format("Step %d/%d", (app.tutorial.current or 0) + 1,
+      tutorial.step_count(app.tutorial)), regions.prompt.x + pad, regions.prompt.y + 4)
+    local py = regions.prompt.y + ui.line_h(11) + 1
+    love.graphics.setColor(0.9, 0.9, 0.92)
+    for _, line_text in ipairs(prompt_lines) do
+      love.graphics.print(line_text, regions.prompt.x + pad, py)
+      py = py + ui.line_h(12)
+    end
+  end
+
+  local nav_h = regions.navigation.h
+  local nav_y = regions.navigation.y
   local gap = math.floor(6 * ui.scale)
   local half = math.floor((content_w - gap) / 2)
   ui.button("Scenarios", px + pad, nav_y, half, nav_h, "menu", nil, false)
@@ -456,15 +518,11 @@ function draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w, y_bot)
   local prompt = tutorial.do_now_line(t, cursor, field_value)
   local narration = tutorial.narration(t)
 
-  -- Clamp: reserve space for title (1 line) + prompt (1-2 lines) + narration.
-  -- If we're too close to y_bot, skip the panel rather than overlap the button.
-  local min_h = lh * 4
-  if y + min_h > y_bot then
-    return y
-  end
-
   -- Yellow border box.
-  local box_h = math.min(y_bot - y, lh * 10)
+  -- The caller owns clipping. Never silently omit the coach because the
+  -- preceding combat log consumed the viewport; the narration is reachable
+  -- by scrolling and the compact prompt is pinned separately.
+  local box_h = lh * 10
   love.graphics.setColor(0.7, 0.65, 0.15, 0.25)
   love.graphics.rectangle("fill", px, y, content_w + 2 * pad, box_h, 4, 4)
   love.graphics.setColor(0.85, 0.8, 0.25)
@@ -821,10 +879,9 @@ function draw_hud.draw_help_overlay()
   local H = love.graphics.getHeight()
   love.graphics.setColor(0, 0, 0, 0.72)
   love.graphics.rectangle("fill", 0, 0, W, H)
-  local box_w = math.min(W - 80, math.floor(560 * ui.scale))
-  local box_h = math.floor(360 * ui.scale)
-  local bx = (W - box_w) / 2
-  local by = (H - box_h) / 2
+  local box = layout.help_metrics(W, H, ui.scale)
+  local box_w, box_h = box.w, box.h
+  local bx, by = box.x, box.y
   love.graphics.setColor(0.12, 0.13, 0.16, 0.98)
   love.graphics.rectangle("fill", bx, by, box_w, box_h, 6, 6)
   love.graphics.setColor(0.4, 0.85, 0.55)
@@ -839,8 +896,10 @@ function draw_hud.draw_help_overlay()
     "Movement: P=coast, T=accel, 0-5=turn, Shift+0-5=turn+accel.",
     "  End Turn button lives in the header (also E).",
     "Firing: enemies only; rows show hit% when available.",
-    "  Enter=Commit Fire, R=Ready. Board-click sets target.",
-    "Right-drag pan, wheel zoom, C=auto-fit, F=toggle follow, Ctrl -/= UI scale.",
+    "  Up/Down=weapon, Enter=Commit Fire, R=Ready. Board-click sets target.",
+    "Right-drag pan, map wheel zoom, sidebar wheel scrolls content.",
+    "PageUp/PageDown scroll sidebar; Home/End jump top/bottom.",
+    "C=auto-fit, F=toggle follow, Ctrl -/= UI scale.",
     "?/H help. Esc=scenarios. Exit/Q=quit.",
   }
   local y = by + 48
@@ -863,25 +922,35 @@ function draw_hud.draw_picker(app)
   ui.use(14)
   love.graphics.setColor(0.7, 0.75, 0.8)
   love.graphics.print("Up/Down to select, Enter to start.  Esc or Q quits.", pad, pad + math.floor(34 * ui.scale))
-  local y = pad + math.floor(70 * ui.scale)
-  local bw = math.min(W - 2 * pad, math.floor(460 * ui.scale))
-  local bh = math.floor(30 * ui.scale)
-  local exit_h = math.floor(30 * ui.scale)
-  local list_bot = H - pad - exit_h - math.floor(12 * ui.scale)
-  for i, sc in ipairs(app.scenarios) do
-    if y + bh > list_bot then
-      break
-    end
+  local metrics = layout.picker_metrics(W, H, ui.scale, #app.scenarios)
+  local capacity = math.max(1, metrics.capacity)
+  app.picker_first = layout.ensure_index_visible(app.picker_first, app.picker_index,
+    #app.scenarios, capacity)
+  local first = app.picker_first
+  local last = math.min(#app.scenarios, first + capacity - 1)
+  love.graphics.setScissor(metrics.list.x, metrics.list.y, metrics.list.w, metrics.list.h)
+  ui.push_hit_clip(metrics.list)
+  local y = metrics.list.y
+  for i = first, last do
+    local sc = app.scenarios[i]
     local sel = (i == app.picker_index)
-    ui.button(sc.name, pad, y, bw, bh, "pick_scenario", { index = i }, sel)
-    y = y + bh + 4
+    ui.button(sc.name, metrics.list.x, y, metrics.list.w, metrics.row_h,
+      "pick_scenario", { index = i }, sel)
+    y = y + metrics.row_h + metrics.row_gap
+  end
+  ui.pop_hit_clip()
+  love.graphics.setScissor()
+  if #app.scenarios > capacity then
+    love.graphics.setColor(0.6, 0.65, 0.7)
+    love.graphics.print(string.format("items %d-%d of %d", first, last, #app.scenarios),
+      metrics.list.x + metrics.list.w + math.floor(12 * ui.scale), metrics.list.y)
   end
   if #app.scenarios == 0 then
     love.graphics.setColor(0.9, 0.6, 0.4)
-    love.graphics.print("No scenarios found. Check repo_root.", pad, y)
+    love.graphics.print("No scenarios found. Check repo_root.", metrics.list.x, metrics.list.y)
   end
-  local exit_w = math.min(bw, math.floor(160 * ui.scale))
-  ui.button("Exit", pad, H - pad - exit_h, exit_w, exit_h, "quit", nil, false)
+  ui.button("Exit", metrics.exit.x, metrics.exit.y, metrics.exit.w, metrics.exit.h,
+    "quit", nil, false)
 end
 
 function draw_hud.status_strip(st)
@@ -910,6 +979,21 @@ function draw_hud.status_strip(st)
   love.graphics.setColor(color)
   ui.use(13)
   love.graphics.print(msg, math.floor(10 * ui.scale), H - h + (h - ui.font(13):getHeight()) / 2)
+end
+
+function draw_hud.draw_resize_overlay()
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  love.graphics.setColor(0.03, 0.04, 0.05, 0.96)
+  love.graphics.rectangle("fill", 0, 0, W, H)
+  love.graphics.setColor(0.95, 0.75, 0.3)
+  ui.use(20)
+  love.graphics.print("Window too small", math.floor(W * 0.5 - 100), math.floor(H * 0.42))
+  ui.use(14)
+  love.graphics.setColor(0.85, 0.86, 0.9)
+  love.graphics.print(string.format("Resize Love2D to at least %d x %d.",
+    layout.MIN_WINDOW_WIDTH, layout.MIN_WINDOW_HEIGHT),
+    math.floor(W * 0.5 - 125), math.floor(H * 0.52))
 end
 
 -- Persistent rules-provenance label (UPGRADE-PLAN Phase 0 task 4).

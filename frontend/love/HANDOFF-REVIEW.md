@@ -146,11 +146,10 @@ Each commit message contains a detailed breakdown of what changed and why.
 5. **Tutorial gate integration in `main.lua`.** The tutorial intercepts input
    before normal dispatch. The flow for order-backed steps is:
    - Gate validates the action → sets `tutorial_order_candidate` → returns
-     `false` (allow) → normal handler emits the order → `mark_tutorial_order_emitted()`
-     moves candidate → pending → `submit()` confirms → `tutorial.advance()`.
+     `false` (allow) → normal handler emits the order → `submit()` calls
+     `tutorial.confirm_order()` with the engine result and clears the candidate.
    - This mirrors the TUI's `confirm_tutorial_order` (`app.rs:735-744`).
-   - Verify the 5 `mark_tutorial_order_emitted()` calls are in `do_allocate`,
-     `do_movement`, `do_commit_fire`, `do_ready_fire`, `do_end_turn`.
+   - Verify rejected orders do not advance and cannot leave a stale candidate.
    - Verify `tutorial_gate_ui` is called at the top of `handle_ui_hit` and
      `tutorial_gate_key` at the top of `love.keypressed`.
 
@@ -286,8 +285,8 @@ The integration in `main.lua` mirrors the TUI's flow:
 - `tutorial_gate_ui` / `tutorial_gate_key` intercept input before normal
   dispatch (mirrors `input.rs:55 tutorial_gate`).
 - Order-backed steps validate → set `tutorial_order_candidate` → return false
-  (allow) → normal handler emits order → `mark_tutorial_order_emitted()` →
-  `submit()` → `confirm_tutorial_order` advances.
+  (allow) → normal handler emits order → `submit()` calls `confirm_order`, which
+  advances only on engine acceptance.
 - Discrete steps advance immediately via `check_action`.
 - `sync_phase` checks `state_error` on every snapshot to surface unexpected
   game-over mid-lesson.

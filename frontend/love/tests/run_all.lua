@@ -29,6 +29,7 @@ local events = require("events")
 local fx = require("fx")
 local slide = require("slide")
 local tutorial = require("tutorial")
+local input_policy = require("input_policy")
 
 local pass = 0
 local function ok(msg)
@@ -605,6 +606,31 @@ do
   ok("selection clears focus when no living players")
 end
 
+-- Fire weapon cycling follows ship order and skips already queued mounts.
+do
+  local snap = {
+    ships = {
+      { id = 1, controller = "player", weapons = {
+        { id = "beam_1", charge = 4, operational = true },
+        { id = "torp_1", charge = 1, operational = true },
+        { id = "plasma_1", charge = 1, operational = true },
+      } },
+    },
+    fire_commits = {},
+  }
+  assert_eq(selection.cycle_fireable_weapon(snap, 1, "beam_1", 1), "torp_1",
+    "down selects next weapon")
+  assert_eq(selection.cycle_fireable_weapon(snap, 1, "beam_1", -1), "plasma_1",
+    "up selects previous weapon")
+  snap.fire_commits = { { ship = 1, weapon = "beam_1" } }
+  assert_eq(selection.cycle_fireable_weapon(snap, 1, "beam_1", 1), "torp_1",
+    "queued weapon is skipped")
+  snap.ships[1].weapons[2].operational = false
+  assert_eq(selection.cycle_fireable_weapon(snap, 1, "torp_1", 1), "plasma_1",
+    "disabled weapon is skipped")
+  ok("fire weapon keyboard cycling")
+end
+
 -- ─── Phase 3: fx animation system (damage floaters) ──────────────────────
 -- Pure-Lua: spawn/update/alpha/count. No love.* APIs. Mirrors events.lua.
 print("phase 3: fx")
@@ -1124,6 +1150,7 @@ assert_eq(type(tutorial), "table", "tutorial module contract")
 assert_eq(type(tutorial.new), "function", "tutorial.new is a function")
 assert_eq(type(tutorial.check_action), "function", "tutorial.check_action")
 assert_eq(type(tutorial.validate_action), "function", "tutorial.validate_action")
+assert_eq(type(tutorial.confirm_order), "function", "tutorial.confirm_order")
 assert_eq(type(tutorial.check_reach_value), "function", "tutorial.check_reach_value")
 assert_eq(type(tutorial.do_now_line), "function", "tutorial.do_now_line")
 assert_eq(type(tutorial.narration), "function", "tutorial.narration")
@@ -1193,6 +1220,19 @@ do
   ok("validate_action order-backed no-advance")
 end
 
+-- Engine acknowledgment is the only event that advances an order-backed step.
+do
+  local t = tutorial.new()
+  for _ = 1, 6 do tutorial.advance(t) end
+  local candidate = { kind = "CommitAllocate" }
+  assert(tutorial.validate_action(t, candidate), "candidate validates")
+  assert_eq(tutorial.confirm_order(t, candidate, false), false, "rejected order not confirmed")
+  assert_eq(t.current, 7, "rejected order stays on step")
+  assert_eq(tutorial.confirm_order(t, candidate, true), true, "accepted order confirmed")
+  assert_eq(t.current, 8, "accepted order advances")
+  ok("tutorial advances on engine acceptance")
+end
+
 -- check_action: discrete step advances immediately on match.
 -- Step 5 is NavField (field 4) — a discrete step.
 do
@@ -1248,6 +1288,8 @@ do
   tutorial.set_error(t, "test error")
   body = tutorial.narration(t)
   assert(body:match("test error"), "narration: prefixes error_msg")
+  assert(tutorial.pinned_prompt(t):match("test error"), "pinned prompt shows error")
+  assert(not tutorial.pinned_prompt(t):match("Engine ="), "error replaces normal pinned prompt")
   -- Complete.
   for _ = 1, tutorial.step_count(t) do tutorial.advance(t) end
   body = tutorial.narration(t)
@@ -1322,11 +1364,11 @@ do
   -- Step 20: FireWeapon (order-backed)
   tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
   -- Step 21: TabWeapon (discrete)
-  tutorial.check_action(t, { kind = "TabWeapon" })
+  tutorial.check_action(t, { kind = "TabWeapon", weapon = "torp_1" })
   -- Step 22: FireWeapon
   tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
   -- Step 23: TabWeapon
-  tutorial.check_action(t, { kind = "TabWeapon" })
+  tutorial.check_action(t, { kind = "TabWeapon", weapon = "plasma_1" })
   -- Step 24: FireWeapon
   tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
   -- Step 25: ReadyFire
@@ -1505,6 +1547,94 @@ do
   assert_eq(layout.default_scale(1280, 800), 1, "720p-class scale 1")
   assert_eq(layout.default_scale(3832, 1021), 1, "wide short display stays usable")
   ok("dpi default scale")
+end
+
+-- Picker and sidebar chrome must not share pixels with the status strip.
+do
+  local m = layout.picker_metrics(1272, 792, 1.3, 18)
+  assert(m.capacity >= 1 and m.capacity < 18, "picker has a bounded viewport")
+  assert(m.exit.y + m.exit.h <= m.status.y, "picker exit clears status strip")
+  local first = layout.ensure_index_visible(1, 18, 18, m.capacity)
+  assert(first + m.capacity - 1 >= 18, "last picker item becomes visible")
+  local regions = layout.sidebar_regions(1272, 792, 1.3, true)
+  assert(not layout.rects_overlap(regions.content, regions.navigation), "sidebar content clears nav")
+  assert(not layout.rects_overlap(regions.prompt, regions.navigation), "tutorial prompt clears nav")
+  assert(not layout.rects_overlap(regions.navigation, regions.status), "nav clears status")
+  assert(layout.point_in_rect(regions.navigation.x + 1, regions.navigation.y + 1,
+    regions.panel), "fixed navigation is part of sidebar wheel region")
+  assert(not layout.point_in_rect(regions.panel.x - 1, regions.navigation.y,
+    regions.panel), "map is outside sidebar wheel region")
+  assert_eq(layout.scroll_clamp(-5, 100, 40), 0, "scroll lower bound")
+  assert_eq(layout.scroll_clamp(100, 100, 40), 60, "scroll upper bound")
+  for _, size in ipairs({ { 960, 600 }, { 1272, 792 }, { 1920, 1080 }, { 3832, 1021 } }) do
+    for _, scale in ipairs({ 0.85, 1.0, 1.3, 2.0 }) do
+      local r = layout.sidebar_regions(size[1], size[2], scale, true)
+      assert(not layout.rects_overlap(r.content, r.prompt), "content/prompt overlap")
+      assert(not layout.rects_overlap(r.content, r.navigation), "content/nav overlap")
+      assert(not layout.rects_overlap(r.prompt, r.navigation), "prompt/nav overlap")
+      assert(not layout.rects_overlap(r.navigation, r.status), "nav/status overlap")
+    end
+  end
+  ok("picker/sidebar viewport geometry")
+end
+
+-- Clipped controls are not clickable through the fixed chrome.
+do
+  local ui = require("ui")
+  ui.clear_hits()
+  ui.push_hit_clip({ x = 0, y = 0, w = 100, h = 40 })
+  ui.hit("hidden", 0, 50, 20, 20, nil)
+  ui.hit("partial", 0, 30, 20, 20, nil)
+  ui.pop_hit_clip()
+  assert_eq(#ui.hits(), 1, "fully clipped hit is omitted")
+  assert_eq(ui.hits()[1].id, "partial", "partial hit retained")
+  assert(ui.hits()[1].y >= 0 and ui.hits()[1].y + ui.hits()[1].h <= 40,
+    "partial hit is clipped to viewport")
+  ui.clear_hits()
+  assert_eq(#ui.hits(), 0, "clear hits resets clip state")
+  ok("viewport hit clipping")
+end
+
+-- Scale limits preserve a useful map and sidebar viewport.
+do
+  assert(layout.max_usable_scale(1272, 792, false) >= 1.3, "saved scale fits normal window")
+  assert(layout.max_usable_scale(960, 600, true) >= 0.85, "small tutorial window has a floor")
+  assert(layout.max_usable_scale(960, 600, true) <= 2.0, "small window scale is bounded")
+  assert(layout.window_supported(720, 420), "minimum window is supported")
+  assert(layout.window_supported(3832, 491), "wide short window remains usable")
+  assert(not layout.window_supported(719, 420), "narrow window requests resize")
+  assert(not layout.window_supported(720, 419), "short window requests resize")
+  for _, size in ipairs({ { 720, 420 }, { 960, 600 }, { 1272, 792 }, { 1920, 1080 } }) do
+    local scale = layout.max_usable_scale(size[1], size[2], true)
+    local help = layout.help_metrics(size[1], size[2], scale)
+    assert(help.x >= 0 and help.y >= 0, "help starts inside window")
+    assert(help.x + help.w <= size[1] and help.y + help.h <= size[2],
+      "help ends inside window")
+  end
+  ok("effective scale bounds")
+end
+
+-- Production callbacks use this policy: sidebar paging cannot steal weapon
+-- selection, and fixed sidebar chrome still owns wheel input.
+do
+  assert_eq(input_policy.sidebar_scroll_command("down"), nil,
+    "Down is not sidebar scroll")
+  assert_eq(input_policy.sidebar_scroll_command("pagedown"), "page_down",
+    "PageDown scrolls sidebar")
+  assert_eq(input_policy.fire_weapon_delta(phases.FIRING, "down"), 1,
+    "Down selects next fire weapon")
+  assert_eq(input_policy.fire_weapon_delta(phases.ALLOCATE, "down"), nil,
+    "Down has no fire meaning during allocate")
+  local sidebar = layout.sidebar_regions(1272, 792, 1.3, true).panel
+  assert_eq(input_policy.wheel_owner("play", sidebar.x + 2,
+    sidebar.y + sidebar.h - 2, nil, sidebar), "sidebar",
+    "wheel over fixed navigation belongs to sidebar")
+  assert_eq(input_policy.wheel_owner("play", sidebar.x - 2,
+    sidebar.y + 10, nil, sidebar), "map", "wheel over map remains map zoom")
+  assert(input_policy.resize_key_allowed("q"), "quit allowed under resize overlay")
+  assert(not input_policy.resize_key_allowed("return"),
+    "orders blocked under resize overlay")
+  ok("production input routing policy")
 end
 
 -- toast lifecycle

@@ -67,6 +67,8 @@ local function action_matches(expected, actual)
     return expected.facing == actual.facing
   elseif expected.kind == "ShieldFacing" then
     return expected.facing == actual.facing
+  elseif expected.kind == "TabWeapon" then
+    return expected.weapon == nil or expected.weapon == actual.weapon
   end
   -- Unit variants: CommitAllocate, Accel, Coast, EnterMap, PanMap, ZoomOut,
   -- ZoomIn, RecenterMap, ExitMap, EnterFire, FireWeapon, TabWeapon,
@@ -224,7 +226,7 @@ local REAR_ATTACK_STEPS = {
     text = "↓ cycles the selected weapon to torp_1 (ship order: beam, torp, plasma).",
     why = "Select torp for the same volley",
     hint = "↓",
-    expected = { kind = "TabWeapon" },
+    expected = { kind = "TabWeapon", weapon = "torp_1" },
   },
   {
     title = "Fire the torpedo",
@@ -238,7 +240,7 @@ local REAR_ATTACK_STEPS = {
     text = "↓ to plasma_1 — the short-range finisher.",
     why = "Select plasma finisher",
     hint = "↓",
-    expected = { kind = "TabWeapon" },
+    expected = { kind = "TabWeapon", weapon = "plasma_1" },
   },
   {
     title = "Fire the plasma",
@@ -368,6 +370,15 @@ function tutorial.validate_action(t, action)
   return false
 end
 
+--- Advance an order-backed step only after the engine accepts its candidate.
+function tutorial.confirm_order(t, candidate, accepted)
+  if not candidate or not accepted then
+    return false
+  end
+  tutorial.advance(t)
+  return true
+end
+
 --- Check a ReachValue edit. Returns (allow, advanced).
 --- allow=true permits the draft edit; advanced=true means the step completed.
 --- Mirrors check_reach_value in tutorial.rs:147-192.
@@ -490,6 +501,15 @@ function tutorial.narration(t)
   local body = step.text:gsub("%*%*", ""):gsub("`", "")
   text = text .. body
   return text
+end
+
+--- Compact pinned guidance. Errors replace the normal prompt so feedback is
+--- visible without scrolling to the full narration panel.
+function tutorial.pinned_prompt(t, cursor, field_value)
+  if t and t.error_msg then
+    return "Try again: " .. t.error_msg
+  end
+  return tutorial.do_now_line(t, cursor, field_value)
 end
 
 --- Detect an unexpected game-over mid-lesson. Returns an error string or nil.

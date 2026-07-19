@@ -3,6 +3,9 @@
 
 local layout = {}
 
+layout.MIN_WINDOW_WIDTH = 720
+layout.MIN_WINDOW_HEIGHT = 420
+
 --- Three fixed header slots for a window of width W.
 --- left: turn/phase/CTA · center: End Turn button · right: rules provenance
 function layout.header_slots(W, scale)
@@ -40,6 +43,11 @@ function layout.rects_overlap(a, b)
   end
   return a.x < b.x + b.w and a.x + a.w > b.x
       and a.y < b.y + b.h and a.y + a.h > b.y
+end
+
+function layout.point_in_rect(x, y, rect)
+  return rect ~= nil and x >= rect.x and x <= rect.x + rect.w
+    and y >= rect.y and y <= rect.y + rect.h
 end
 
 --- Assert header slots do not overlap. Returns true, or false + reason.
@@ -175,6 +183,108 @@ end
 function layout.default_scale(w, h)
   local m = math.min(w or 1280, h or 800)
   return math.max(1, math.floor(m / 720))
+end
+
+--- Clamp a vertical scroll offset to the content's valid range.
+function layout.scroll_clamp(offset, content_height, viewport_height)
+  local max_offset = math.max(0, (content_height or 0) - (viewport_height or 0))
+  return math.max(0, math.min(max_offset, offset or 0))
+end
+
+--- Keep a discrete picker selection inside its visible row window.
+function layout.ensure_index_visible(first, selected, item_count, capacity)
+  item_count = math.max(0, item_count or 0)
+  capacity = math.max(1, capacity or 1)
+  if item_count == 0 then
+    return 1
+  end
+  local max_first = math.max(1, item_count - capacity + 1)
+  first = math.max(1, math.min(max_first, first or 1))
+  selected = math.max(1, math.min(item_count, selected or 1))
+  if selected < first then
+    first = selected
+  elseif selected >= first + capacity then
+    first = selected - capacity + 1
+  end
+  return math.max(1, math.min(max_first, first))
+end
+
+--- Fixed picker regions. The status strip owns the bottom edge of the window.
+function layout.picker_metrics(width, height, scale, item_count)
+  scale = scale or 1
+  local pad = math.floor(20 * scale)
+  local row_h = math.floor(30 * scale)
+  local row_gap = math.floor(4 * scale)
+  local status_h = math.floor(30 * scale)
+  local status_y = height - status_h
+  local exit_h = math.floor(30 * scale)
+  local exit_y = status_y - pad - exit_h
+  local list_top = pad + math.floor(70 * scale)
+  local list_bottom = exit_y - math.floor(12 * scale)
+  local capacity = math.max(0, math.floor((list_bottom - list_top + row_gap) / (row_h + row_gap)))
+  local total = item_count or 0
+  return {
+    list = { x = pad, y = list_top, w = math.min(width - 2 * pad, math.floor(460 * scale)),
+      h = math.max(0, list_bottom - list_top) },
+    row_h = row_h,
+    row_gap = row_gap,
+    capacity = math.min(total, capacity),
+    exit = { x = pad, y = exit_y, w = math.min(width - 2 * pad, math.floor(160 * scale)), h = exit_h },
+    status = { x = 0, y = status_y, w = width, h = status_h },
+  }
+end
+
+--- Fixed play-sidebar regions. Content scrolls; prompt, navigation, and status
+--- remain fixed and disjoint from the scroll viewport.
+function layout.sidebar_regions(width, height, scale, tutorial_active)
+  scale = scale or 1
+  local panel_w = math.floor(300 * scale)
+  local top_h = math.floor(34 * scale)
+  local status_h = math.floor(30 * scale)
+  local nav_h = math.floor(26 * scale)
+  local gap = math.floor(6 * scale)
+  local status_y = height - status_h
+  local nav_y = status_y - nav_h - gap
+  local prompt_h = tutorial_active and math.floor(50 * scale) or 0
+  local prompt_y = nav_y - prompt_h - gap
+  local content_bottom = prompt_y - gap
+  local content = { x = width - panel_w, y = top_h,
+    w = panel_w, h = math.max(0, content_bottom - top_h) }
+  return {
+    header = { x = 0, y = 0, w = width, h = top_h },
+    content = content,
+    prompt = tutorial_active and { x = width - panel_w, y = prompt_y, w = panel_w, h = prompt_h } or nil,
+    navigation = { x = width - panel_w, y = nav_y, w = panel_w, h = nav_h },
+    status = { x = 0, y = status_y, w = width, h = status_h },
+    panel = { x = width - panel_w, y = top_h, w = panel_w, h = status_y - top_h },
+  }
+end
+
+--- Maximum useful scale while retaining a readable map and scroll viewport.
+function layout.max_usable_scale(width, height, tutorial_active)
+  local map_min = 420
+  local width_limit = ((width or 1280) - map_min) / 300
+  local fixed_h = 34 + 30 + 26 + 12 + (tutorial_active and 50 or 0)
+  local height_limit = ((height or 800) - 180) / fixed_h
+  local help_limit = ((height or 800) - 40) / 360
+  return math.max(0.85, math.min(3.0, width_limit, height_limit, help_limit))
+end
+
+function layout.window_supported(width, height)
+  return (width or 0) >= layout.MIN_WINDOW_WIDTH
+    and (height or 0) >= layout.MIN_WINDOW_HEIGHT
+end
+
+function layout.help_metrics(width, height, scale)
+  local margin = 20
+  local box_w = math.min(math.max(0, width - 2 * margin), math.floor(560 * scale))
+  local box_h = math.min(math.max(0, height - 2 * margin), math.floor(360 * scale))
+  return {
+    x = (width - box_w) / 2,
+    y = (height - box_h) / 2,
+    w = box_w,
+    h = box_h,
+  }
 end
 
 return layout

@@ -22,6 +22,7 @@ local debounce = require("debounce")
 local slide = require("slide")
 local json = require("json")
 local tutorial = require("tutorial")
+local input_policy = require("input_policy")
 local layout = require("layout")
 local status_fmt = require("status_fmt")
 local settings = require("settings")
@@ -32,6 +33,13 @@ local app = {
   screen = "picker",
   scenarios = {},
   picker_index = 1,
+  picker_first = 1,
+  sidebar_scroll = 0,
+  sidebar_max_scroll = 0,
+  requested_scale = nil,
+  effective_scale = 1,
+  window_supported = true,
+  scale_clamp_notice = false,
   session = nil,
   phase = phases.ALLOCATE,
   selected_id = nil,
@@ -59,7 +67,6 @@ local app = {
   threats = nil,
   threats_snap_turn = nil,
   tutorial = nil,
-  tutorial_order_pending = false,
   tutorial_order_candidate = nil,
   -- FIX-PLAN F2/F4
   target_previews = {}, -- [target_id] = fire_preview response (cached)
@@ -85,6 +92,22 @@ end
 
 local function player_ids(snap)
   return selection.player_ids(snap)
+end
+
+local function picker_metrics()
+  return layout.picker_metrics(love.graphics.getWidth(), love.graphics.getHeight(),
+    ui.scale, #app.scenarios)
+end
+
+local function ensure_picker_visible()
+  local m = picker_metrics()
+  app.picker_first = layout.ensure_index_visible(app.picker_first, app.picker_index,
+    #app.scenarios, math.max(1, m.capacity))
+end
+
+local function reset_sidebar_scroll()
+  app.sidebar_scroll = 0
+  app.sidebar_max_scroll = 0
 end
 
 -- Forward-usable: request_movement_preview and key handlers call this before
@@ -152,6 +175,7 @@ local function sync_phase()
     app.phase = snap.phase
   end
   if app.phase ~= old_phase then
+    reset_sidebar_scroll()
     clear_phase_overlays(app.phase)
     status_fmt.clear_if_stale(app.status, snap)
     local label = toast.phase_label(snap, old_phase)
@@ -287,7 +311,11 @@ local function clear_drafts_for(dead_id)
 end
 
 local function ensure_selection()
+  local previous = app.selected_id
   selection.ensure(app, snap_now())
+  if app.selected_id ~= previous then
+    reset_sidebar_scroll()
+  end
 end
 
 -- UPGRADE-PLAN Phase 1: engine-authoritative previews.
@@ -562,13 +590,15 @@ local function submit(order, keep_status)
   elseif not keep_status then
     ui_status.clear(app.status)
   end
-  sync_phase()
-  -- UPGRADE-PLAN Phase 6: confirm order-backed tutorial steps only after
-  -- the engine accepted the order (mirrors app.rs:735-744 confirm_tutorial_order).
-  if app.tutorial and app.tutorial_order_pending then
-    tutorial.advance(app.tutorial)
-    app.tutorial_order_pending = false
+  -- The gate records the candidate before dispatch. Confirm it only after the
+  -- engine accepts this exact submission; rejected orders must never advance.
+  if app.tutorial and app.tutorial_order_candidate then
+    if tutorial.confirm_order(app.tutorial, app.tutorial_order_candidate, not err) then
+      reset_sidebar_scroll()
+    end
+    app.tutorial_order_candidate = nil
   end
+  sync_phase()
   ensure_selection()
   scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
   sync_phase()
@@ -589,14 +619,6 @@ end
 -- after submit() returns an accepted snapshot (confirm_tutorial_order above).
 -- Discrete steps (NavField, ShieldFacing, EnterMap, PanMap, etc.) advance
 -- immediately via check_action.
-
--- Mark a validated order-backed action as emitted (mirrors app.rs:746-750).
-local function mark_tutorial_order_emitted()
-  if app.tutorial and app.tutorial_order_candidate ~= nil then
-    app.tutorial_order_candidate = nil
-    app.tutorial_order_pending = true
-  end
-end
 
 -- Gate a mouse/UI hit. Returns true if blocked.
 local function tutorial_gate_ui(hit)
@@ -715,6 +737,17 @@ local function tutorial_gate_ui(hit)
     return true
   end
 
+  if expected.kind == "TabWeapon" then
+    if id == "pick_weapon" then
+      return not tutorial.check_action(app.tutorial, {
+        kind = "TabWeapon",
+        weapon = p.id,
+      })
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
   -- Default: block unrecognized hits during tutorial.
   tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
   return true
@@ -748,6 +781,12 @@ local function tutorial_gate_key(key)
   elseif phase == phases.FIRING then
     if key == "return" or key == "kpenter" then action = { kind = "FireWeapon" }
     elseif key == "r" or key == "space" then action = { kind = "ReadyFire" }
+    elseif key == "down" or key == "up" then
+      action = {
+        kind = "TabWeapon",
+        weapon = selection.cycle_fireable_weapon(snap, app.selected_id,
+          app.weapon_id, key == "up" and -1 or 1),
+      }
     end
   elseif phase == phases.TURN_END then
     if key == "return" or key == "kpenter" or key == "e" then action = { kind = "EndTurn" } end
@@ -862,11 +901,11 @@ function love.load()
   app.settings = settings.load(settings_path, json)
   local w = love.graphics.getWidth()
   local h = love.graphics.getHeight()
-  if app.settings.ui_scale then
-    ui.set_scale(app.settings.ui_scale)
-  else
-    ui.set_scale(layout.default_scale(w, h))
-  end
+  app.requested_scale = app.settings.ui_scale or layout.default_scale(w, h)
+  local max_scale = layout.max_usable_scale(w, h, false)
+  app.effective_scale = math.min(app.requested_scale, max_scale)
+  ui.set_scale(app.effective_scale)
+  app.window_supported = layout.window_supported(w, h)
   if app.settings.auto_follow == false then
     camera.set_auto(app.cam_sys, false)
   end
@@ -878,12 +917,47 @@ function love.load()
 end
 
 local function persist_settings()
-  app.settings.ui_scale = ui.scale
+  app.settings.ui_scale = app.requested_scale or ui.scale
   app.settings.auto_follow = app.cam_sys and app.cam_sys.auto or true
   settings.save(paths.local_dir() .. "/settings.json", app.settings, json)
 end
 
+local function apply_requested_scale()
+  local w = love.graphics.getWidth()
+  local h = love.graphics.getHeight()
+  local max_scale = layout.max_usable_scale(w, h, app.tutorial ~= nil)
+  app.effective_scale = math.min(app.requested_scale or layout.default_scale(w, h), max_scale)
+  ui.set_scale(app.effective_scale)
+  app.window_supported = layout.window_supported(w, h)
+  local clamped = (app.requested_scale or ui.scale) > app.effective_scale + 0.01
+  if clamped and not app.scale_clamp_notice then
+    ui_status.set(app.status, "warn", string.format("UI scale limited to %.2f for this window", app.effective_scale))
+    app.scale_clamp_notice = true
+  elseif not clamped then
+    app.scale_clamp_notice = false
+  end
+  ensure_picker_visible()
+  app.sidebar_scroll = math.max(0, math.min(app.sidebar_scroll or 0, app.sidebar_max_scroll or 0))
+  ui.clear_hits()
+end
+
+local function adjust_requested_scale(delta)
+  app.requested_scale = math.max(ui.min_scale, math.min(ui.max_scale,
+    (app.requested_scale or ui.scale) + delta))
+  apply_requested_scale()
+end
+
+local function scroll_sidebar(lines)
+  app.sidebar_scroll = layout.scroll_clamp((app.sidebar_scroll or 0)
+    + lines * ui.line_h(13), (app.sidebar_max_scroll or 0) + 1, 1)
+  -- Hitboxes are rebuilt during draw using the new offset. Do not leave the
+  -- previous frame's controls clickable between a wheel event and that draw.
+  ui.clear_hits()
+end
+
 function love.resize()
+  apply_requested_scale()
+  ensure_picker_visible()
   if app.screen == "play" then
     center_camera()
   end
@@ -902,6 +976,8 @@ local function start_scenario(entry)
   app.shield_facing = 0
   app.maneuver_facing = 0
   app.alloc = {}
+  app.picker_first = 1
+  reset_sidebar_scroll()
   app.show_end_warning = false
   -- UPGRADE-PLAN Phase 6: detect the tutorial scenario by filename (mirrors
   -- the TUI's --tutorial flag, main.rs:32-39). The TUI uses a CLI flag; the
@@ -910,11 +986,9 @@ local function start_scenario(entry)
   local basename = entry.path:match("([^/]+)$") or entry.path
   if basename == "tutorial_rear_attack.toml" then
     app.tutorial = tutorial.new()
-    app.tutorial_order_pending = false
     app.tutorial_order_candidate = nil
   else
     app.tutorial = nil
-    app.tutorial_order_pending = false
     app.tutorial_order_candidate = nil
   end
   scripted_pump.run(app.session, function(err) ui_status.from_error(app.status, err) end)
@@ -927,6 +1001,7 @@ local function start_scenario(entry)
   else
     ui_status.set(app.status, "info", "Allocate power for your ships, then End turn to move.")
   end
+  apply_requested_scale()
 end
 
 local SHIELD_FACE = { "F", "FR", "RR", "R", "RL", "FL" }
@@ -951,7 +1026,6 @@ local function do_allocate(ship_id)
   local a = alloc_for(ship_id)
   local _, err = submit(orders.allocate(ship_id, a.movement, a.weapons, a.shields), true)
   if not err then
-    mark_tutorial_order_emitted()
     set_status("info", status_fmt.order_echo(ship_id, "allocate") ..
       string.format(" (move %d)", a.movement))
   end
@@ -983,7 +1057,6 @@ local function do_movement(action, facing)
   end
   local _, err = submit(order, true)
   if not err then
-    mark_tutorial_order_emitted()
     set_status("info", status_fmt.order_echo(ship_id, action, facing))
   end
 end
@@ -1043,14 +1116,15 @@ local function do_commit_fire()
   local target = app.target_id
   local snap2, err = submit(orders.commit_fire(ship, weapon, target, app.shield_facing), true)
   if not err then
-    mark_tutorial_order_emitted()
     set_status("info", fire_result_message(snap2 or snap_now(), weapon, target))
     -- Advance to next charged weapon so a full volley is clickable without
     -- re-picking each mount (FIX-PLAN playtest: hard to fire all weapons).
     local snap = snap2 or snap_now()
-    local nxt = next_fireable_weapon(snap, ship, weapon)
+    local nxt = app.tutorial and weapon or next_fireable_weapon(snap, ship, weapon)
     app.weapon_id = nxt
-    if nxt then
+    if app.tutorial then
+      request_previews()
+    elseif nxt then
       request_previews()
       apply_legal_shield_facing()
       set_status("info", fire_result_message(snap, weapon, target)
@@ -1069,7 +1143,6 @@ local function do_ready_fire()
   end
   local _, err = submit(orders.ready_fire(ship), true)
   if not err then
-    mark_tutorial_order_emitted()
     set_status("info", status_fmt.order_echo(ship, "ready_fire"))
   end
 end
@@ -1083,7 +1156,6 @@ local function do_end_turn()
   app.show_end_warning = false
   local _, err = submit(orders.end_turn(), true)
   if not err then
-    mark_tutorial_order_emitted()
     app.alloc = {}
     set_status("info", status_fmt.order_echo(nil, "end_turn"))
   end
@@ -1126,9 +1198,8 @@ local function handle_ui_hit(hit)
   end
   -- UPGRADE-PLAN Phase 6: tutorial gate intercepts mouse hits before normal
   -- dispatch (mirrors TUI input.rs:55 tutorial_gate). Returns true = blocked.
-  -- For order-backed steps, the gate validates and sets tutorial_order_candidate;
-  -- it returns false (allow) so the normal handler below emits the order, then
-  -- calls mark_tutorial_order_emitted() to move candidate → pending.
+  -- For order-backed steps, the gate validates and records the candidate;
+  -- submit() advances only after the engine accepts the order.
   if tutorial_gate_ui(hit) then
     return true
   end
@@ -1147,7 +1218,9 @@ local function handle_ui_hit(hit)
     return true
   end
   if id == "select_ship" then
+    local previous = app.selected_id
     app.selected_id = p.id
+    if app.selected_id ~= previous then reset_sidebar_scroll() end
     request_previews()
     return true
   end
@@ -1382,6 +1455,10 @@ function love.draw()
     draw_hud.draw_game_over(app)
   end
   draw_hud.status_strip(app.status)
+  if not app.window_supported then
+    ui.clear_hits()
+    draw_hud.draw_resize_overlay()
+  end
 end
 
 local function ctrl_down()
@@ -1389,13 +1466,19 @@ local function ctrl_down()
 end
 
 function love.keypressed(key)
+  if not app.window_supported then
+    if input_policy.resize_key_allowed(key) then
+      love.event.quit()
+    end
+    return
+  end
   if ctrl_down() and (key == "=" or key == "kp+" or key == "+") then
-    ui.adjust_scale(0.15)
+    adjust_requested_scale(0.15)
     persist_settings()
     return
   end
   if ctrl_down() and (key == "-" or key == "kp-") then
-    ui.adjust_scale(-0.15)
+    adjust_requested_scale(-0.15)
     persist_settings()
     return
   end
@@ -1414,6 +1497,16 @@ function love.keypressed(key)
       app.picker_index = math.max(1, app.picker_index - 1)
     elseif key == "down" then
       app.picker_index = math.min(#app.scenarios, app.picker_index + 1)
+    elseif key == "home" then
+      app.picker_index = 1
+    elseif key == "end" then
+      app.picker_index = #app.scenarios
+    elseif key == "pageup" then
+      local m = picker_metrics()
+      app.picker_index = math.max(1, app.picker_index - math.max(1, m.capacity))
+    elseif key == "pagedown" then
+      local m = picker_metrics()
+      app.picker_index = math.min(#app.scenarios, app.picker_index + math.max(1, m.capacity))
     elseif key == "return" or key == "kpenter" then
       local sc = app.scenarios[app.picker_index]
       if sc then
@@ -1422,6 +1515,7 @@ function love.keypressed(key)
     elseif key == "escape" or key == "q" then
       love.event.quit()
     end
+    ensure_picker_visible()
     return
   end
   if app.screen == "end" then
@@ -1444,11 +1538,26 @@ function love.keypressed(key)
     app.session = nil
     return
   end
+  local scroll_command = input_policy.sidebar_scroll_command(key)
+  if scroll_command == "page_up" then
+    scroll_sidebar(-4)
+    return
+  elseif scroll_command == "page_down" then
+    scroll_sidebar(4)
+    return
+  elseif scroll_command == "top" then
+    app.sidebar_scroll = 0
+    ui.clear_hits()
+    return
+  elseif scroll_command == "bottom" then
+    app.sidebar_scroll = app.sidebar_max_scroll or 0
+    ui.clear_hits()
+    return
+  end
   -- UPGRADE-PLAN Phase 6: tutorial gate intercepts keys before normal dispatch
   -- (mirrors TUI input.rs:55). Returns true = blocked. For order-backed steps
-  -- the gate validates and sets tutorial_order_candidate, then returns false
-  -- (allow) so the normal handler below emits the order and calls
-  -- mark_tutorial_order_emitted() to move candidate → pending.
+  -- the gate validates and records tutorial_order_candidate, then returns
+  -- false so the normal handler can emit the order.
   if tutorial_gate_key(key) then
     return
   end
@@ -1517,18 +1626,29 @@ function love.keypressed(key)
     else
       do_movement("turn", face)
     end
+  elseif input_policy.fire_weapon_delta(app.phase, key) then
+    app.weapon_id = selection.cycle_fireable_weapon(snap_now(), app.selected_id,
+      app.weapon_id, input_policy.fire_weapon_delta(app.phase, key))
+    request_previews()
+    apply_legal_shield_facing()
   elseif key == "r" then
     do_ready_fire()
   end
 end
 
 function love.textinput(t)
+  if not app.window_supported then
+    return
+  end
   if t == "?" then
     app.show_help = not app.show_help
   end
 end
 
 function love.mousepressed(x, y, button)
+  if not app.window_supported then
+    return
+  end
   local hit = ui.hit_at(x, y)
   if hit and button == 1 then
     ui.press_begin(hit)
@@ -1560,7 +1680,9 @@ function love.mousepressed(x, y, button)
   for _, s in ipairs(snap.ships or {}) do
     if s.q == q and s.r == r and not s.destroyed then
       if s.controller == "player" then
+        local previous = app.selected_id
         app.selected_id = s.id
+        if app.selected_id ~= previous then reset_sidebar_scroll() end
         request_previews()
       else
         app.target_id = s.id
@@ -1581,6 +1703,10 @@ function love.mousereleased(_, _, button)
 end
 
 function love.mousemoved(x, y)
+  if not app.window_supported then
+    app.drag = nil
+    return
+  end
   if app.drag then
     app.cam.x = app.drag.camx + (x - app.drag.x)
     app.cam.y = app.drag.camy + (y - app.drag.y)
@@ -1591,6 +1717,35 @@ function love.mousemoved(x, y)
 end
 
 function love.wheelmoved(_, y)
+  if not app.window_supported or y == 0 then
+    return
+  end
+  local mx, my = love.mouse.getPosition()
+  local W = love.graphics.getWidth()
+  local picker = app.screen == "picker" and picker_metrics() or nil
+  local sidebar = nil
+  if app.screen == "play" then
+    sidebar = layout.sidebar_regions(W, love.graphics.getHeight(), ui.scale,
+      app.tutorial ~= nil).panel
+  end
+  local owner = input_policy.wheel_owner(app.screen, mx, my,
+    picker and picker.list or nil, sidebar)
+  if app.screen == "picker" then
+    local m = picker
+    if owner == "picker" then
+      app.picker_first = layout.ensure_index_visible(app.picker_first,
+        app.picker_index + (y > 0 and -1 or 1), #app.scenarios, math.max(1, m.capacity))
+      app.picker_index = math.max(1, math.min(#app.scenarios,
+        app.picker_index + (y > 0 and -1 or 1)))
+      ensure_picker_visible()
+      return
+    end
+  elseif app.screen == "play" then
+    if owner == "sidebar" then
+      scroll_sidebar(y > 0 and -4 or 4)
+      return
+    end
+  end
   if y > 0 then
     app.cam.zoom = math.min(4, app.cam.zoom * 1.1)
   elseif y < 0 then

@@ -40,6 +40,56 @@ function selection.player_ids(snap)
   return ids
 end
 
+--- Return charged, operational weapons that have not fired or been queued.
+function selection.fireable_weapons(snap, ship_id)
+  local ship = nil
+  for _, candidate in ipairs((snap and snap.ships) or {}) do
+    if candidate.id == ship_id then
+      ship = candidate
+      break
+    end
+  end
+  if not ship then
+    return {}
+  end
+
+  local committed = {}
+  for _, fire in ipairs(snap.fire_commits or {}) do
+    if fire.ship == ship_id and fire.weapon then
+      committed[fire.weapon] = true
+    end
+  end
+
+  local weapons = {}
+  for _, weapon in ipairs(ship.weapons or {}) do
+    if weapon.operational ~= false and (weapon.charge or 0) > 0
+        and not weapon.fired and not committed[weapon.id] then
+      weapons[#weapons + 1] = weapon.id
+    end
+  end
+  return weapons
+end
+
+--- Cycle through currently fireable weapons in ship order.
+function selection.cycle_fireable_weapon(snap, ship_id, current, delta)
+  local weapons = selection.fireable_weapons(snap, ship_id)
+  if #weapons == 0 then
+    return nil
+  end
+  local index = nil
+  for i, weapon_id in ipairs(weapons) do
+    if weapon_id == current then
+      index = i
+      break
+    end
+  end
+  if not index then
+    return weapons[1]
+  end
+  local step = (delta or 1) < 0 and -1 or 1
+  return weapons[((index - 1 + step) % #weapons) + 1]
+end
+
 --- First uncommitted player ship id in movement phase, or nil.
 function selection.first_uncommitted(snap, controller)
   if not snap or snap.phase ~= "movement" then
