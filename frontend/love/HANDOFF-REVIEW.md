@@ -1,11 +1,22 @@
 # Love2D Frontend Upgrade — Reviewer Handoff
 
+> **SUPERSEDED (2026-07-19).** Handoff for a completed pre–protocol-v4 upgrade
+> cycle. Line counts, tutorial step claims (26 / “exact TUI parity”), commit
+> “ahead of origin” counts, and retired request names
+> (`movement_preview` / `maneuver_options`) are **stale**.
+>
+> - **Current client:** [`README.md`](README.md)
+> - **Hygiene review (authoritative on residual debt):** [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md)
+>
+> Love tutorial is **28** steps; TUI rear-attack is **24**. The Love port
+> intentionally decomposes compound path steps for the graphical path editor.
+
 **To:** Sol / Fable (reviewer)
 **From:** Autopilot agent
 **Date:** 2026-07-17
-**Branch:** `master` (8 commits ahead of `origin/master`)
-**Plan:** [`frontend/love/UPGRADE-PLAN.md`](UPGRADE-PLAN.md)
-**Per-phase evidence log:** [`frontend/love/UPGRADE-LOG.md`](UPGRADE-LOG.md)
+**Branch:** `master` (historical note; not a live tracking claim)
+**Plan:** [`frontend/love/UPGRADE-PLAN.md`](UPGRADE-PLAN.md) (superseded)
+**Per-phase evidence log:** [`frontend/love/UPGRADE-LOG.md`](UPGRADE-LOG.md) (superseded)
 
 ---
 

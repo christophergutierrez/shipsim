@@ -25,17 +25,26 @@ Environment: `SHIPSIM_BIN`, `SHIPSIM_ROOT`. Session files under `frontend/love/l
 
 | Input | Action |
 |---|---|
-| +/− / panel / Enter | Allocate draft; **Allocate** / Enter commits |
+| Click ship / roster | Select focused ship |
+| **+** / **−** / panel steppers | Allocate draft (movement + systems) |
+| Quick-set buttons | Max weapons / balance shields / all engine / clear |
+| **Enter** (allocate) | Commit allocate for the active ship |
 | **W** | Path: `move_f` |
 | **A** / **D** | Path: `move_fl` / `move_fr` |
 | **Z** / **X** | Path: `turn_left` / `turn_right` |
 | Backspace / Delete | Undo last path action / clear path draft |
 | **Enter** / **Commit Path** | Submit draft (requires ≥1 action) |
 | **P** / **Hold Position** | Explicit empty path (`actions: []`) |
-| ↑/↓ / Enter / **R** | Weapon cycle / queue shot / **Commit Volley** |
-| ? or H | Help |
-| Esc | Scenario picker |
-| Exit / Q | Quit |
+| ↑ / ↓ | Cycle fireable weapon |
+| **Enter** (firing) | Queue shot into the volley draft |
+| **R** | **Commit Volley** (empty = hold fire) |
+| Board click (firing) | Set fire target |
+| **C** | Auto-fit camera |
+| **F** | Toggle auto-fit camera |
+| PageUp / PageDown / Home / End | Scroll sidebar |
+| **?** or **H** | Help |
+| **Esc** | Scenario picker |
+| Exit / **Q** | Quit |
 | Right-drag / wheel / Ctrl −/= | Pan / zoom / UI scale |
 
 ## Turn flow
@@ -48,11 +57,47 @@ Environment: `SHIPSIM_BIN`, `SHIPSIM_ROOT`. Session files under `frontend/love/l
 There is no inertial multi-cycle movement and no manual end-turn.
 
 Path drafting is owned by `path_editor.lua` (shared by production input and
-headless tests). Legality and cost come from engine `path_preview`.
+headless tests). Legality and cost come from engine `path_preview`. Read-only
+previews: `path_preview`, `reach_preview`, `fire_preview`.
+
+## Module map
+
+| Module | Role |
+|---|---|
+| `main.lua` | Love entry, input, session lifecycle |
+| `path_editor.lua` | Path draft seam (append/undo/clear/commit/hold) |
+| `orders.lua` | NDJSON order builders only (no requests) |
+| `harness.lua` | Live `--stdin` shipsim pipe |
+| `scripted_pump.lua` | Scripted/AI stage completion |
+| `phases.lua` | allocate / movement / firing |
+| `preview.lua` | Format engine preview responses |
+| `status_fmt.lua` | Status strip wording + lifecycle |
+| `draw_board.lua` / `draw_hud.lua` | Board + sidebar rendering |
+| `selection.lua` | Focus / weapon cycle helpers |
+| `allocation.lua` | Allocate draft budget helpers |
+| `input_policy.lua` | Key → intent helpers |
+| `tutorial.lua` | Rear-attack coach (28 Love steps) |
+| `events.lua` / `fx.lua` / `slide.lua` | Combat log ring + resolution theater |
+| `layout.lua` / `ui.lua` / `ui_status.lua` | Layout, widgets, status |
+| `camera.lua` / `settings.lua` / `toast.lua` | Camera, persistence, toasts |
+| `debounce.lua` | Coalesce `reach_preview` traffic |
+| `geom.lua` / `hex.lua` | Geometry + hex math |
+| `subprocess.lua` / `paths.lua` / `json.lua` | Process I/O, paths, JSON |
+| `end_condition.lua` | Win/lose presentation |
+
+## Docs
+
+| Doc | Status |
+|---|---|
+| **This README** | Live |
+| `FIX-PLAN.md` | Landed F1–F4 history; suite note current |
+| `REVIEW-FINDINGS.md` | Hygiene review + residual notes |
+| `UPGRADE-PLAN.md`, `UPGRADE-LOG.md`, `HANDOFF-REVIEW.md`, `REVIEW-VERDICT.md` | **SUPERSEDED** (pre-v4 cycle) |
 
 ## Verification
 
 ```bash
 cargo build -q
 luajit frontend/love/tests/run_all.lua
+# expects: All 92 checks passed.
 ```

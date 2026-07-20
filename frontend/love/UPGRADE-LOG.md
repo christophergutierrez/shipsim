@@ -1,5 +1,12 @@
 # Love2D client upgrade log
 
+> **SUPERSEDED (2026-07-19).** Historical evidence log for
+> [`UPGRADE-PLAN.md`](UPGRADE-PLAN.md). Incomplete (only Phase −1 and 0 were
+> written up) and pre–protocol-v4. Do **not** treat request names or check
+> counts here as current.
+>
+> **Current:** [`README.md`](README.md) · **Review:** [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md)
+
 Per-phase evidence log for `frontend/love/UPGRADE-PLAN.md`. One section per
 phase, with milestone checklists and machine-checked evidence.
 

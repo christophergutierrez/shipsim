@@ -6,6 +6,13 @@ reproducible via the loop in `tmp/CLEANUP-PLAN.md` P1). Every finding below
 was seen on screen, not inferred from code. Supersedes the fix list in
 `tmp/CLEANUP-PLAN.md` Phase 2.
 
+> **Status (2026-07-19):** F1–F4 work is landed. `status_fmt.order_echo` now
+> includes the F2 `turn` → `"turned to facing N"` branch (restored in the
+> killhouse review). Headless suite: **`luajit frontend/love/tests/run_all.lua`
+> → All 92 checks passed.** For protocol-v4 controls and modules, prefer
+> [`README.md`](README.md). Pre-v4 upgrade docs are superseded (see banners on
+> UPGRADE-PLAN / HANDOFF-REVIEW / REVIEW-VERDICT).
+
 **Retraction first:** an earlier report claimed steppers "double-fire" (+2
 per click) and that one click could commit two ships' maneuvers. Both were
 artifacts of the driving harness (`xdotool mousemove X Y click 1` chained

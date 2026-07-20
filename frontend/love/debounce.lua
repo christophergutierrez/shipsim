@@ -6,7 +6,7 @@
 -- quiet period elapses with no new trips, `due()` returns true and the
 -- controller issues the (single) coalesced request, then calls `consume()`.
 --
--- UPGRADE-PLAN Phase 4: movement_preview with clamp:true is built for live
+-- Protocol v4: reach_preview (allocate motion cloud) is built for live
 -- slider drags, but harness.request is synchronous (blocks on a read). Issuing
 -- it on every slider tick would stall the frame. This debounce coalesces a
 -- burst of draft changes into at most one request per QUIET window.

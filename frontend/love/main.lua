@@ -55,7 +55,6 @@ local app = {
   ghost_path = {},
   alloc = {},
   fire_preview = nil,
-  maneuver_options = nil,
   events = events.new(),
   fx = fx.new(),
   slide = slide.new(),
@@ -111,7 +110,7 @@ local function reset_sidebar_scroll()
   app.sidebar_max_scroll = 0
 end
 
--- Forward-usable: request_movement_preview and key handlers call this before
+-- Forward-usable: request_reach_preview and key handlers call this before
 -- do_allocate is defined later in the file.
 -- Seeds weapon draft from carried charge so Allocate does not try to strip
 -- (PROTOCOL: charge carries; cannot lower below current total).
@@ -159,7 +158,6 @@ local function clear_phase_overlays(new_phase)
     app.reach = nil
   end
   if new_phase ~= phases.MOVEMENT then
-    app.maneuver_options = nil
     app.ghost_path = {}
   end
   if new_phase ~= phases.FIRING then
@@ -314,11 +312,10 @@ local function ensure_selection()
   end
 end
 
--- UPGRADE-PLAN Phase 1: engine-authoritative previews.
+-- Engine-authoritative previews (protocol v4).
 -- Requests live in the controller (main.lua), never in draw_*.
--- The view reads app.fire_preview / app.maneuver_options; the controller
--- refreshes them when selection or phase changes. Guards mirror the TUI
--- (app.rs request_fire_preview / request_maneuver_options).
+-- The view reads app.fire_preview / app.reach / app.path_preview; the
+-- controller refreshes them when selection or phase changes.
 
 local function find_ship_in_snap(snap, id)
   if not snap or not id then
@@ -416,12 +413,6 @@ local function request_target_previews()
   end
 end
 
-local function request_maneuver_options()
-  -- Protocol v4 has a path editor, not one-step maneuver options. The HUD
-  -- retains its static controls until it is replaced by that editor.
-  app.maneuver_options = nil
-end
-
 local function request_previews()
   -- Auto-pick first charged weapon when entering fire or after a volley shot.
   if app.phase == phases.FIRING and app.selected_id then
@@ -433,20 +424,17 @@ local function request_previews()
   end
   request_fire_preview()
   request_target_previews()
-  request_maneuver_options()
   if app.phase == phases.FIRING then
     apply_legal_shield_facing()
   end
 end
 
--- UPGRADE-PLAN Phase 4: reachable-endpoint cloud. During allocate, as the
--- movement slider/keys change, issue the reach preview with clamp:true (built
--- for live drags) and store the response on app.reach for draw_board to render.
--- The debounce coalesces a burst of draft changes into ≤5 requests/s; this
--- function is the actual issuer, called from love.update when debounce.due().
--- Guards mirror the TUI: only during allocate/movement, only for a living
--- player ship. The request fields mirror `allocate` exactly (PROTOCOL).
-local function request_movement_preview()
+-- Reachable-endpoint cloud (protocol v4 reach_preview). During allocate, as
+-- the movement draft changes, issue reach_preview and store the response on
+-- app.reach for draw_board. Debounce coalesces draft bursts into ≤5 req/s;
+-- this is the actual issuer (love.update when debounce.due()).
+-- Guards: allocate/movement only, living player ship only.
+local function request_reach_preview()
   local snap = snap_now()
   if not snap then
     app.reach = nil
@@ -470,7 +458,7 @@ local function request_movement_preview()
   local numerator = (a.movement or 0) * (ship.thrust_per_power or 1)
   local budget = math.floor(numerator / math.max(1, ship.power_per_thrust or 1))
   budget = math.min(budget, ship.max_maneuver_actions or budget)
-  local resp, err = harness.request(app.session, {
+  local resp = harness.request(app.session, {
     protocol_version = 4,
     request = "reach_preview",
     ship = ship_id,
@@ -779,8 +767,8 @@ local function tutorial_gate_key(key)
   local action = nil
   if key == "v" then
     action = { kind = "EnterMap" }
-  elseif key == "c" and phase ~= phases.MOVEMENT then
-    -- In movement, c is not recenter while drafting (path clear elsewhere).
+  elseif key == "c" then
+    -- C is always recenter (any phase); path clear is Delete, not C.
     action = { kind = "RecenterMap" }
   elseif phase == phases.MOVEMENT then
     if key == "w" then action = { kind = "PathAppend", action = "move_f" }
@@ -789,7 +777,6 @@ local function tutorial_gate_key(key)
     elseif key == "z" then action = { kind = "PathAppend", action = "turn_left" }
     elseif key == "x" then action = { kind = "PathAppend", action = "turn_right" }
     elseif key == "return" or key == "kpenter" then action = { kind = "CommitPath" }
-    elseif key == "c" then action = { kind = "RecenterMap" }
     end
   elseif phase == phases.FIRING then
     if key == "return" or key == "kpenter" then action = { kind = "FireWeapon" }
@@ -885,15 +872,13 @@ function love.update(dt)
   if app.slide then
     slide.update(app.slide, dt)
   end
-  -- UPGRADE-PLAN Phase 4: coalesce movement_preview requests. The debounce is
-  -- tripped whenever an alloc draft changes (handle_ui_hit alloc_* handlers).
-  -- Each frame we advance the timer; when the quiet window elapses, fire the
-  -- single coalesced request and disarm. This keeps live slider drags to ≤5
-  -- requests/s without stalling the frame on a synchronous harness.request.
+  -- Coalesce reach_preview requests. Debounce is tripped when an alloc draft
+  -- changes. Quiet window elapses → one coalesced request (≤5/s) so slider
+  -- drags do not stall the frame on synchronous harness.request.
   if app.reach_debounce then
     debounce.poke(app.reach_debounce, dt)
     if debounce.due(app.reach_debounce) then
-      request_movement_preview()
+      request_reach_preview()
       debounce.consume(app.reach_debounce)
     end
   end

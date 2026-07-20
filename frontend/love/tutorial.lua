@@ -6,10 +6,11 @@
 -- from its key handler and its snapshot apply path; they mutate the passed
 -- `t` table in place.
 --
--- UPGRADE-PLAN Phase 6: mirrors frontend/tui/src/tutorial.rs (the
--- REAR_ATTACK_STEPS sequence, the gate machine, and the two-phase
--- order-backed commit). Same scenario (scenarios/tutorial_rear_attack.toml,
--- seed 4), same step order, same gate conditions.
+-- Protocol-v4 rear-attack walkthrough. Shares the TUI scenario
+-- (scenarios/tutorial_rear_attack.toml, seed 4) and the same gate machine
+-- (check_action / validate_action / check_reach_value). Step *count* and
+-- titles intentionally diverge: Love has 28 steps (path drafting is split
+-- for the graphical editor); TUI has 24 compound steps.
 --
 -- Gate machine summary (see tutorial.rs:96-192):
 --   check_action(t, action)      — discrete steps; may advance immediately.
@@ -78,8 +79,8 @@ local function action_matches(expected, actual)
   return true
 end
 
--- The rear-attack sequence. Mirrors REAR_ATTACK_STEPS (tutorial.rs:338-577).
--- Protocol v4 path/volley rear-attack. Allocate + path draft + volley.
+-- The rear-attack sequence (Love-expanded vs TUI REAR_ATTACK_STEPS).
+-- Protocol v4: allocate + path draft + volley.
 local REAR_ATTACK_STEPS = {
   -- ── Turn 1 allocate ────────────────────────────────────────────────
   {

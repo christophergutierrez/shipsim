@@ -3,18 +3,25 @@
 **Reviewer:** Killhouse tribunal (parallel subagents + verification)
 **Date:** 2026-07-19
 **Scope:** All `frontend/love/` code and documentation
-**Verdict:** **BLOCK** — 2 blocking, 9 major, 8 minor, 5 info
+**Original verdict:** **BLOCK** — 2 blocking, 9 major, 8 minor, 5 info
+**Follow-up (same day):** B1/m7/m8 code fixes landed; suite **92** green.
+**Cleanup (same day):** M9 SUPERSEDED banners; m1 dead preview state removed;
+m4/m6 and comment hygiene closed. Residual: optional module inventory polish
+already in README.
 
 ## Executive summary
 
 The Love2D frontend was migrated to **protocol v4** (simultaneous turns,
 `path_preview`/`reach_preview`/`fire_preview`, path editor) *after* the
 UPGRADE-PLAN cycle completed. Four documents from that cycle
-(UPGRADE-PLAN, UPGRADE-LOG, HANDOFF-REVIEW, REVIEW-VERDICT) still describe
-the v3-era design and are actively misleading. The test suite crashes
-(exit 1) due to a missing `turn` branch in `status_fmt.order_echo` — a bug
-the FIX-PLAN claimed to have fixed but didn't. One real rendering bug
-(shield ring off-by-one) was found and fixed during this review.
+(UPGRADE-PLAN, UPGRADE-LOG, HANDOFF-REVIEW, REVIEW-VERDICT) described the
+v3-era design and were actively misleading — they now carry **SUPERSEDED**
+headers pointing at [`README.md`](README.md).
+
+**B1 fixed:** `status_fmt.order_echo` had a missing `turn` branch (FIX-PLAN F2
+claimed done; code never updated). Suite no longer crashes; **All 92 checks
+passed.** **m8 fixed:** shield ring off-by-one. **m7 fixed:** harness
+docstrings use v4 request names.
 
 **What's working well:**
 - Grep gates all pass (no rules in the client, no requests in orders.lua)
@@ -64,29 +71,14 @@ count.
 
 ### B2 — Docs reference retired request names as live engine API
 
-**Docs:** UPGRADE-PLAN.md (lines 16, 40, 41, 78-79, 91, 104, 197, 225),
-UPGRADE-LOG.md (lines 9, 37-38), HANDOFF-REVIEW.md (lines 83, 110, 117,
-188, 205, 266), REVIEW-VERDICT.md (line 75)
+**Docs:** UPGRADE-PLAN.md, UPGRADE-LOG.md, HANDOFF-REVIEW.md, REVIEW-VERDICT.md
 
-All four docs instruct the reader to issue `movement_preview` and
-`maneuver_options` requests. The engine (`src/bin/shipsim.rs:344-347`)
-explicitly rejects both:
+All four docs instructed the reader to issue `movement_preview` and
+`maneuver_options` requests. The engine explicitly rejects both
+(`retired_request` → use `path_preview` / `reach_preview`).
 
-```rust
-"movement_preview" | "maneuver_options" => {
-    "retired_request",
-    &format!("{request} was removed in protocol v4; use path_preview / reach_preview")
-}
-```
-
-The Love code itself has already migrated: `harness.lua:93-95` dispatches
-`path_preview`/`reach_preview`/`fire_preview`; `main.lua:475` issues
-`reach_preview`; `path_editor.lua:112` issues `path_preview`. The
-`harness.lua:232` comment even says "(movement_preview / maneuver_options
-are retired under v4.)"
-
-**Fix:** Update all four docs to reference `path_preview`/`reach_preview`/
-`fire_preview`, or deprecate them (see M9).
+**Status:** CLOSED via M9 — SUPERSEDED banners on all four docs; live
+API is documented only in README / PROTOCOL / harness comments.
 
 ---
 
@@ -183,13 +175,9 @@ allocate/path/volley with **no manual end-turn**. `main.lua` has no
 **Docs:** UPGRADE-PLAN.md, UPGRADE-LOG.md, HANDOFF-REVIEW.md,
 REVIEW-VERDICT.md — all date to 2026-07-17/18, describe v3-era design.
 
-`FIX-PLAN.md` (2026-07-18) records a later fix cycle. The git log shows
-further commits after that ("Major change in play", "Bug fixes"). The code
-is v4; these docs are historically accurate but actively misleading.
-
-**Fix:** Add "SUPERSEDED" headers pointing at README.md (current) and
-FIX-PLAN.md (latest fix cycle), or move to `archive/`. Keep README.md and
-FIX-PLAN.md as live docs.
+**Status:** FIXED — SUPERSEDED banners added; README + FIX-PLAN + this
+file remain the live surface. Stale line counts / ahead-of-origin claims
+(M2–M7) are discharged by deprecation rather than line-by-line rewrites.
 
 ---
 
@@ -197,13 +185,10 @@ FIX-PLAN.md as live docs.
 
 ### m1 — `app.maneuver_options` is dead state
 
-**File:** `main.lua:58` (field), `:162` (reset), `:419-423` (no-op stub)
+**File:** `main.lua` (field, reset, no-op stub)
 
-`request_maneuver_options()` unconditionally sets `app.maneuver_options = nil`
-with a comment "Protocol v4 has a path editor." The field is never read.
-`preview.lua:3` still comments that it manages `maneuver_options`.
-
-**Fix:** Remove the dead field, stub function, call site, and stale comment.
+**Status:** FIXED — field, stub, and call site removed; reach issuer
+renamed `request_reach_preview`; preview/debounce comments updated.
 
 ### m2 — FIX-PLAN-created modules undocumented outside FIX-PLAN
 
@@ -211,7 +196,7 @@ with a comment "Protocol v4 has a path editor." The field is never read.
 `input_policy.lua`, `allocation.lua`, `debounce.lua` exist but appear in no
 doc except FIX-PLAN (and not all there).
 
-**Fix:** Add a module inventory to README.md.
+**Status:** FIXED — module inventory added to README.md.
 
 ### m3 — UPGRADE-LOG only documents Phase −1 and Phase 0
 
@@ -220,8 +205,10 @@ only Phase −1 and Phase 0. Phases 1–6 were implemented but never logged.
 
 ### m4 — README controls table omits some bindings
 
-`Tab` (ship switch) and digit-key allocation are not listed. `R` (Commit
-Volley) is in the header row but not its own row.
+**Status:** FIXED — README controls match production help/dispatcher
+(ship select by click; `+`/`−` allocate; `R` Commit Volley own row; PageUp/
+PageDown; C/F camera). Note: Love never had Tab ship-switch or digit allocate
+(those were TUI habits mis-attributed in the original finding).
 
 ### m5 — `subprocess.lua:128-130` drops trailing bytes after newline
 
@@ -238,12 +225,12 @@ exactly one line per order/request." This is true for the current engine,
 but is a latent fragility if the engine ever pipelines multiple lines in one
 write. Not blocking, but worth a TODO.
 
-### m6 — `tutorial_gate_key` has unreachable `c` key branch
+### m6 — `tutorial_gate_key` confusing `c` key handling
 
-**File:** `main.lua:782` maps `c` → `RecenterMap` when `phase ~= phases.MOVEMENT`,
-but inside the `phase == phases.MOVEMENT` branch (line 792) `c` is *also*
-mapped to `RecenterMap`. The outer guard makes the inner branch unreachable
-for `c` during movement — dead code.
+**File:** `main.lua` tutorial key map
+
+**Status:** FIXED — `c` always maps to `RecenterMap` (any phase); redundant
+movement-branch mapping and misleading comment removed.
 
 ### m7 — `harness.lua` docstrings referenced retired request names (FIXED)
 
@@ -284,13 +271,9 @@ The only stale-version issue is retired request names (B2), not version strings.
 
 ## Recommended action order
 
-1. **Fix B1** — add `turn` branch to `status_fmt.order_echo`. Unblocks the
-   suite and fixes a real status-strip bug.
-2. **Re-measure** check count and tutorial step count; update all citations
-   (M1, M2, M3, M4).
-3. **Deprecate M9** — add SUPERSEDED headers to UPGRADE-PLAN, UPGRADE-LOG,
-   HANDOFF-REVIEW, REVIEW-VERDICT. Keep README and FIX-PLAN as live.
-4. **Fix B2** — update retired request names in any docs kept live.
-5. **Clean up m1** — remove dead `maneuver_options` state.
-6. **Refresh README** — add module inventory (m2) and missing keybindings (m4).
-7. **Fix m6** — remove unreachable `c` key branch in `tutorial_gate_key`.
+1. ~~**Fix B1**~~ — done (`turn` branch; suite 92 green).
+2. ~~**Deprecate M9**~~ — SUPERSEDED banners; discharges B2 and M2–M7 hygiene.
+3. ~~**Clean up m1 / m6 / m4 / m2**~~ — dead state, `c` map, README controls +
+   modules.
+4. **Optional:** leave historical FIX-PLAN check-count table as archaeology;
+   live count is 92 (see FIX-PLAN status note and README).

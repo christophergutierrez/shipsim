@@ -1,5 +1,12 @@
 # Love2D upgrade review verdict
 
+> **SUPERSEDED (2026-07-19).** Verdict on the 2026-07-17/18 Love upgrade cycle.
+> Cited line numbers and some FAIL items were fixed later (e.g. fan basis,
+> `love.resize`, Active-ship nil). Do **not** re-open work from this file.
+>
+> **Current client:** [`README.md`](README.md) · **Later findings:**
+> [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md)
+
 **Reviewed:** 2026-07-18
 
 ## Verdict

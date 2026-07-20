@@ -1,6 +1,6 @@
--- Engine-authoritative preview formatting (UPGRADE-PLAN Phase 1).
+-- Engine-authoritative preview formatting (protocol v4).
 -- Pure logic: no Love APIs. Runs under plain luajit for headless testing.
--- The controller (main.lua) issues fire_preview / maneuver_options requests
+-- The controller (main.lua) issues fire_preview / path_preview / reach_preview
 -- via harness.request and stores the response on app state; this module turns
 -- those responses into display strings. Legality is never computed here — it
 -- comes straight from the engine response.

@@ -1,6 +1,18 @@
 # Love2D client upgrade plan — TUI parity + graphical advantage
 
-STATUS: executed 2026-07-17 by autopilot; review verdict in REVIEW-VERDICT.md.
+> **SUPERSEDED (2026-07-19).** Historical plan for a pre–protocol-v4 Love
+> upgrade cycle. Do **not** implement from this document.
+>
+> - **Current client instructions:** [`README.md`](README.md)
+> - **Later fix cycle (also partly historical):** [`FIX-PLAN.md`](FIX-PLAN.md)
+> - **Doc/code hygiene review:** [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md)
+>
+> Protocol v4 uses `path_preview` / `reach_preview` / `fire_preview`. Names
+> such as `movement_preview` and `maneuver_options` below are **retired** and
+> rejected by the engine.
+
+STATUS: executed 2026-07-17 by autopilot; review verdict in REVIEW-VERDICT.md
+(also superseded). Kept for archaeology only.
 
 **Written:** 2026-07-17, after two full TUI playtests and the TUI multi-ship fix
 round. The ratatui client (`frontend/tui/`) is the current UX benchmark; this
