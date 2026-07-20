@@ -1,9 +1,10 @@
 # ADR-0023 — TUI input model, responsive layout, and verification strategy
 
-Status: Accepted
+Status: Accepted (input/layout; turn-loop order shapes partially superseded by ADR-0025)
 Date: 2026-07-14
 Scope: `frontend/tui/` only
-Related: ADR-0021 (ratatui terminal client — the parent decision this refines)
+Related: ADR-0021 (ratatui terminal client — the parent decision this refines),
+ADR-0025 (protocol v4 allocate/path/volley — replaces end_turn / per-cycle maneuver assumptions)
 
 ## Context
 

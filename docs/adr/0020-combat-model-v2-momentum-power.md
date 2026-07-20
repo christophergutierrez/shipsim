@@ -1,7 +1,10 @@
 # ADR-0020 -- Combat model v2 (momentum, powered shields, move/fire loop)
 
-Status: Accepted
+Status: Accepted (partially superseded for turn/movement loop)
 Date: 2026-07-10
+Note: Powered shields, weapon profiles, d20 combat, and SSD remain. The
+per-step move/fire loop, initiative-from-allocation, and manual end-turn were
+replaced by ADR-0025 (protocol v4 allocate → path → volley).
 
 ## Context
 

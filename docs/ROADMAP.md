@@ -1,25 +1,26 @@
 # shipsim Roadmap
 
-The current product definition is `docs/PRD.md`; system structure is documented in `docs/ARCHITECTURE.md`. Combat Model v2 (ADR-0020) is the only supported ruleset.
+The current product definition is `docs/PRD.md`; system structure is documented in `docs/ARCHITECTURE.md`. Combat Model v2 (ADR-0020) with the protocol-v4 simplified turn loop (ADR-0025) is the only supported ruleset.
 
 ## Shipped MVP
 
 - Turn-start allocation across movement, individual weapons, and six shield facings.
 - Power allocation, simultaneous path resolution, and simultaneous volleys.
-- Automatic three-stage turns: allocate, path, volley.
+- Automatic three-stage turns: allocate, path, volley (protocol v4).
 - Beam, plasma, and torpedo range/damage profiles with deterministic d20 resolution.
 - Powered shields, SSD hull/internals, destruction victory, multi-ship scenarios, and greedy AI.
 - TOML ship/scenario/campaign loading and an NDJSON CLI harness with soft errors.
-- Love2D thin client and deterministic Rust/Lua acceptance coverage.
+- Protocol-v4 thin clients: REPL (reference), Love2D, and ratatui TUI (Small tier).
+- In-process simulation (`shipsim-sim`) and golden fixtures under `tests/fixtures/v4/`.
 
-The retired impulse, FASA, seeking-munition, and multi-bucket compatibility implementations have been removed. Their design history remains in `docs/adr/`.
+The retired impulse, FASA, seeking-munition, inertial four-cycle, and multi-bucket compatibility implementations have been removed. Their design history remains in `docs/adr/`.
 
 ## Recommended next work
 
-1. Complete protocol-v4 path/volley support in the remaining frontends.
+1. Polish client UX (TUI Medium/Large tiers, Love presentation, combat-log clarity).
 2. Add confidence intervals and parameter sweeps to the simulation runner.
 3. Add stochastic table-verification and tactical-diversity metrics.
-4. Use simulation results to drive manual Love2D playthroughs focused on high-value gameplay paths and UI behavior.
+4. Use simulation results to drive manual playthroughs focused on high-value gameplay paths and UI behavior.
 5. Add screenshot capture and deterministic layout checks for the tracked visual rubric.
 6. Add campaign save/resume after campaign state and progression semantics are finalized.
 7. Improve combat-log presentation and replay navigation.

@@ -1506,6 +1506,15 @@ do
   assert_eq(allocation.power_spent(ship, draft), 5, "only one beam charge is newly bought")
   assert_eq(allocation.available_for_movement(ship, draft), 7, "movement uses residual power")
 
+  -- Regression: the movement "+" control must stop at the power ceiling, the
+  -- same way weapon/shield "+" already stops at their own max via
+  -- allocation.increment. Previously the movement field had no ceiling at all
+  -- and could be raised indefinitely past available power.
+  local at_cap = { movement = 7, weapons = { beam_1 = 4 }, shields = { 1, 1, 0, 0, 0, 0 } }
+  local cap = allocation.available_for_movement(ship, at_cap)
+  assert_eq(cap, 7, "movement is already at its power ceiling")
+  assert_eq(math.min(at_cap.movement + 1, cap), 7, "movement '+' does not exceed the ceiling")
+
   local quick_ship = {
     power_available = 22,
     max_shield_per_facing = 6,
@@ -1530,6 +1539,44 @@ do
   allocation.all_engine(quick_ship, balanced)
   assert_eq(allocation.power_spent(quick_ship, balanced), 22, "all engine remains affordable")
   ok("allocation budget honors carried charge")
+end
+
+-- Weapon steppers: floor at carried, top-up only spends residual power.
+-- Regression: showing ch 0 while the ship banks charge, then "+" jumping to
+-- carried+1, looked like double-charging.
+do
+  local ship = {
+    power_available = 6,
+    weapons = {
+      { id = "beam_1", charge = 2, max_charge = 4 },
+      { id = "torp_1", charge = 0, max_charge = 1 },
+    },
+  }
+  local draft = { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 } }
+  allocation.seed_weapons(ship, draft)
+  assert_eq(draft.weapons.beam_1, 2, "seed floors beam at carried")
+  assert_eq(draft.weapons.torp_1, 0, "seed includes zero-charge mounts")
+  assert_eq(allocation.power_spent(ship, draft), 0, "carried-only draft costs nothing")
+
+  allocation.weapon_up(ship, draft, "beam_1", 4)
+  assert_eq(draft.weapons.beam_1, 3, "one + adds one top-up")
+  assert_eq(allocation.power_spent(ship, draft), 1, "only the top-up spends power")
+
+  -- Cannot strip below carried.
+  draft.weapons.beam_1 = 3
+  allocation.weapon_down(ship, draft, "beam_1")
+  assert_eq(draft.weapons.beam_1, 2, "down stops at carried")
+  allocation.weapon_down(ship, draft, "beam_1")
+  assert_eq(draft.weapons.beam_1, 2, "down does not strip carried")
+
+  -- Cap top-ups by residual power (not just max_charge).
+  draft.movement = 5
+  draft.weapons.beam_1 = 2
+  allocation.weapon_up(ship, draft, "beam_1", 4)
+  assert_eq(draft.weapons.beam_1, 3, "one free power allows +1")
+  allocation.weapon_up(ship, draft, "beam_1", 4)
+  assert_eq(draft.weapons.beam_1, 3, "no free power: + does not climb toward max")
+  ok("weapon steppers honor carried charge and residual power")
 end
 
 -- status clears on phase change

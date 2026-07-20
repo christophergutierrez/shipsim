@@ -1,6 +1,9 @@
-# ADR-0021: Run gameplay policies through validated production orders
+# ADR-0026: Run gameplay policies through validated production orders
 
 Status: Accepted
+
+> Formerly numbered ADR-0021 (shared number with the ratatui TUI decision).
+> Renumbered to ADR-0026 for uniqueness. Ratatui client remains ADR-0021.
 
 ## Context
 

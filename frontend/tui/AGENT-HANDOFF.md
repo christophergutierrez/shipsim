@@ -1,5 +1,11 @@
 # Agent handoff — build the shipsim TUI (Small tier)
 
+> **Historical handoff.** Small tier is implemented. Prefer
+> [`README.md`](README.md), `docs/PROTOCOL.md` (protocol **v4**), and live
+> `src/` for current behavior. This file still describes allocate → move →
+> fire → end turn / protocol v3 in places; those passages are obsolete under
+> ADR-0025.
+
 You are implementing a new terminal UI client for shipsim. This file is your
 entry point: it tells you what to read, where everything lives, how to work,
 and how to prove each step done. Follow it exactly. When this file and your

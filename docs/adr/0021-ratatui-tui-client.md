@@ -1,7 +1,10 @@
 # ADR-0021 — ratatui terminal client
 
-Status: Accepted  
+Status: Accepted (Small tier implemented; see `frontend/tui/README.md`)  
 Date: 2026-07-11
+
+Note: Simulation policy boundary was formerly also numbered ADR-0021; it is now
+**ADR-0026**.
 
 ## Canonical text
 

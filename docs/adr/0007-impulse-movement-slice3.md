@@ -1,6 +1,6 @@
 # ADR-0007 -- 32-impulse movement and the Impulse Movement Chart (Slice 3 / D1, D3)
 
-Status: Accepted
+Status: Superseded (historical; see ADR-0020 / ADR-0025 for current combat/turns)
 Date: 2026-07-06
 
 ## Context

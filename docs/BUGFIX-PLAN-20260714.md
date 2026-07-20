@@ -1,5 +1,9 @@
 # Bugfix Plan — Playtest findings (2026-07-13/14)
 
+> **Historical plan.** Kept for audit trail of 2026-07-13/14 playtest fixes.
+> Do not treat phase checklists or protocol-era assumptions as current product
+> requirements. Current play types and tests: `docs/AGENT-PLAY.md`.
+
 This plan fixes bugs found by 10 parallel automated playtest sessions (logs in
 `tmp/playlogs/results_20260713_*.log` and `tmp/playlogs/results_20260713_181012_9194778.log`).
 Every bug below was independently verified by re-reading the actual source and,
@@ -22,7 +26,7 @@ with a known-broken build.
    ```
    cd /mnt/storage/git_home/shipsim
    cargo build -q && cargo test -q
-   python3 -m unittest discover -s tests -q
+   (cd frontend/repl && python3 -m unittest discover -s tests -q)
    ```
    All of these must exit 0 / show no failures before you commit anything.
 3. Commit each phase separately (do not squash phases together), with a

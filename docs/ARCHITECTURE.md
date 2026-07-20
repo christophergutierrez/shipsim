@@ -2,7 +2,7 @@
 
 ## Purpose
 
-shipsim is a deterministic, turn-based hex-grid starship combat simulator. The Rust crate owns all game rules and exposes a JSON-friendly state and order boundary. A Love2D application renders that state and submits orders without reimplementing combat logic.
+shipsim is a deterministic, turn-based hex-grid starship combat simulator. The Rust crate owns all game rules and exposes a JSON-friendly state and order boundary. Thin frontends under `frontend/` render that state and submit orders without reimplementing combat logic.
 
 The current product rules are Combat Model v2 as accepted in ADR-0020, with
 the simplified protocol-v4 turn loop defined by ADR-0025. Earlier impulse and
@@ -40,13 +40,14 @@ All clients live under `frontend/`. Policy is in `frontend/README.md`:
 - adding or deleting a client must not require engine changes beyond optional
   docs pointers.
 
-Current clients:
+Current clients (all protocol **v4** NDJSON):
 
-- `frontend/repl/` — interactive Python dev client (`--stdin` NDJSON).
+- `frontend/repl/` — interactive Python dev client; **agent UI-play reference**.
 - `frontend/love/` — Love2D graphical thin client (display, input, order
   construction only).
+- `frontend/tui/` — ratatui terminal client (Small tier; standalone crate).
 
-Neither client reimplements rules or AI. After load and after each accepted
+No client reimplements rules or AI. After load and after each accepted
 order, the harness runs `GameState::resolve_v2_npc_actions` so
 `controller = "ai"` ships act without the client inventing NPC orders.
 
@@ -71,7 +72,7 @@ Every path action costs one motion point. Weapon charge and firing are limited p
 | Content | `schema`, `scenario`, `ship`, `campaign` | TOML schemas, loading, ship instances, campaign setup |
 | Orchestration | `turn`, `ai` | Turn counter and NPC actions |
 | Simulation | `simulation` | Policies, match runner, traces, metrics, and rubric evaluation |
-| Adapters | `src/bin/shipsim.rs`, `frontend/repl/`, `frontend/love/` | NDJSON harness, REPL dev client, Love client |
+| Adapters | `src/bin/shipsim.rs`, `frontend/repl/`, `frontend/love/`, `frontend/tui/` | NDJSON harness, REPL, Love, ratatui TUI |
 
 ## Data and control flow
 
@@ -142,13 +143,14 @@ PRNG checkpoint; see `docs/SAVE-FORMAT.md`.
 
 - `cargo test` covers unit, integration, acceptance, AI, and deterministic fixture behavior.
 - `luajit frontend/love/tests/run_all.lua` covers pure Lua order and UI-state behavior.
-- `tests/fixtures/v2/duel.jsonl` is the golden end-to-end v2 replay.
+- `tests/fixtures/v4/` holds golden protocol-v4 order/snapshot streams.
 - REPL automated suite: `(cd frontend/repl && python3 -m unittest discover -s tests)`.
 - REPL live play: `python3 frontend/repl/repl.py scenarios/ai.toml`.
+- TUI: `cargo test --manifest-path frontend/tui/Cargo.toml`.
 
 Architecture decisions and supersession history live in `docs/adr/`.
 
-Gameplay simulation uses validated production orders as defined by ADR-0021. See `docs/SIMULATION.md` and `docs/GAMEPLAY-RUBRICS.md`.
+Gameplay simulation uses validated production orders as defined by ADR-0026. See `docs/SIMULATION.md` and `docs/GAMEPLAY-RUBRICS.md`.
 
 Combat values: `data/rules/default.toml`; interpretation: `docs/combat-v2-tables.md`.
 Rules ownership and fingerprinting: ADR-0024. Play guide: `docs/PLAY-V2.md`.

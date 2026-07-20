@@ -625,7 +625,16 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
       love.graphics.setColor(0.8, 0.85, 0.9)
       love.graphics.print(ship_label(s), px + pad, y)
       y = y + ui.line_h(13)
-      local a = app.alloc[s.id] or { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 } }
+      -- Seed from live snapshot charge so the panel never shows ch 0 while the
+      -- engine still banks charge (that read as a free/double charge).
+      local a = app.alloc[s.id]
+      if not a then
+        a = { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 } }
+        allocation.seed_weapons(s, a)
+        app.alloc[s.id] = a
+      else
+        allocation.seed_weapons(s, a)
+      end
       -- Quick-set allocation (F3.4).
       local qh = math.max(math.floor(22 * ui.scale), layout.MIN_HIT)
       local qw = math.floor((content_w - 9) / 4)
@@ -640,6 +649,7 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
       ui.button("+", px + pad + content_w - step, y - 2, step, step, "alloc_movement_up", { id = s.id }, false)
       y = y + row_h
       -- Power bar: click sets movement fraction (F3.4).
+      -- spent = engine cost (movement + shields + weapon *top-ups* only).
       local bar_h = math.floor(12 * ui.scale)
       local bar_hit_h = math.max(bar_h, layout.MIN_HIT)
       local power = s.power_available or s.power or 0
@@ -652,9 +662,25 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
       ui.hit("alloc_power_bar", px + pad, y, content_w, bar_hit_h, { id = s.id, power = power })
       y = y + bar_hit_h + 4
       for _, w in ipairs(s.weapons or {}) do
-        local ch = a.weapons[w.id] or 0
+        local carried = w.charge or 0
+        local ch = a.weapons[w.id]
+        if ch == nil or ch < carried then
+          ch = carried
+          a.weapons[w.id] = ch
+        end
+        local top_up = ch - carried
         love.graphics.setColor(0.7, 0.75, 0.8)
-        love.graphics.print(string.format("%s ch %d", w.id, ch), px + pad, y)
+        if top_up > 0 then
+          love.graphics.print(
+            string.format("%s ch %d (carried %d +%d)", w.id, ch, carried, top_up),
+            px + pad, y)
+        elseif carried > 0 then
+          love.graphics.print(
+            string.format("%s ch %d (carried)", w.id, ch),
+            px + pad, y)
+        else
+          love.graphics.print(string.format("%s ch %d", w.id, ch), px + pad, y)
+        end
         ui.button("-", px + pad + content_w - step * 2 - 4, y - 2, step, step, "alloc_weapon_dn", { id = s.id, weapon = w.id }, false)
         ui.button("+", px + pad + content_w - step, y - 2, step, step, "alloc_weapon_up", {
           id = s.id,
@@ -679,7 +705,7 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
         y = y + row_h
       end
       love.graphics.setColor(spent > power and { 0.95, 0.4, 0.4 } or { 0.7, 0.75, 0.8 })
-      love.graphics.print(string.format("power %d / %d", spent, power), px + pad, y)
+      love.graphics.print(string.format("power %d / %d (top-ups only)", spent, power), px + pad, y)
       y = y + ui.line_h(13) + 2
       ui.button("Allocate (Enter)", px + pad, y, content_w, bh, "alloc_confirm", { id = s.id }, false)
       y = y + bh + 6

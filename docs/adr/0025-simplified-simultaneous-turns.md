@@ -6,8 +6,10 @@ Supersedes: ADR-0022 (persistent velocity / four-cycle inertial movement)
 Supersedes (partial): movement/fire portions of ADR-0020 and ADR-0023 that
 assumed velocity, course, four cycles, `ready_fire`, or manual `end_turn`.
 
-Related plan: `tmp/SIMPLIFIED-TURN-PLAN.md` (implementation source of truth for
-this migration). Protocol target: **v4** (breaking; no dual v3/v4 engine).
+Related plan: implementation was driven from a local simplified-turn plan
+(ephemeral; not checked in). Authoritative product rules now live in this ADR
+plus `docs/PROTOCOL.md` and `docs/PLAY-V2.md`. Protocol target: **v4**
+(breaking; no dual v3/v4 engine).
 
 ## Context
 

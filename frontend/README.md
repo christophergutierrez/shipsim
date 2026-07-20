@@ -5,9 +5,9 @@ Optional clients for shipsim. The **game engine is independent** of everything h
 ```
 frontend/
   README.md          # this policy
-  love/              # Love2D graphical client
-  repl/              # Python interactive dev client (playable now)
-  tui/               # ratatui terminal client (decision accepted; not implemented)
+  love/              # Love2D graphical client (protocol v4)
+  repl/              # Python interactive dev client — agent reference (protocol v4)
+  tui/               # ratatui terminal client — Small tier implemented (protocol v4)
   <other>/           # future clients go here
 ```
 
@@ -40,7 +40,7 @@ python3 frontend/repl/client.py                          # API play smoke
 (cd frontend/repl && python3 -m unittest discover -s tests)
 love frontend/love
 luajit frontend/love/tests/run_all.lua
-# frontend/tui/ — see frontend/tui/README.md (ratatui; not built yet)
+cargo run --manifest-path frontend/tui/Cargo.toml   # ratatui TUI
 ```
 
 See each client's README for details. TUI decision: `frontend/tui/ADR.md`.

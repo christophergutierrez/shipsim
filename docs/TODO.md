@@ -1,5 +1,11 @@
 # shipsim Design TODO
 
+> Motion today is protocol-v4 **path** actions (ADR-0025): power → motion points
+> via hull `thrust_per_power` / `power_per_thrust`, one ordered path per ship.
+> Sections below that mention `movement_cost`, initiative-from-allocation, or
+> momentum are **design candidates / history**, not the live loop. See
+> `docs/PROTOCOL.md` and `docs/PLAY-V2.md` for current rules.
+
 ## Hull size, movement efficiency, and system capacity
 
 Status: Partially implemented. Explicit hull `size` and size-adjusted to-hit are

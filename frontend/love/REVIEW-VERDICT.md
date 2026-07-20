@@ -37,28 +37,29 @@ must be captured and spot-checked in a display-capable session after the fixes.
 ## Findings
 
 1. **P1 - Correctness: rendered arcs and shields do not face the same direction as the board.**
-   [geom.lua](geom.lua:41) treats facing 0 as 0 degrees and increases it by
-   60 degrees. On the actual board, `hex.to_pixel` maps the six core facing
-   vectors to 30, -30, -90, -150, 150, and 90 degrees. Thus a facing-0 fan
-   points right while the facing tick points down-right; each other fan is
-   similarly displaced or mirrored. [draw_board.lua](draw_board.lua:212)
-   independently repeats the wrong angle basis for shield segments and also
-   fails to rotate those relative F/FR/RR/R/RL/FL faces by the ship's facing.
-   This is display-only, so engine legality remains authoritative, but the
-   visual is actively misleading. **Fix in P2.**
+   [`geom.lua`](geom.lua) (near the facing→angle helper) treats facing 0 as 0
+   degrees and increases it by 60 degrees. On the actual board, `hex.to_pixel`
+   maps the six core facing vectors to 30, -30, -90, -150, 150, and 90 degrees.
+   Thus a facing-0 fan points right while the facing tick points down-right;
+   each other fan is similarly displaced or mirrored.
+   [`draw_board.lua`](draw_board.lua) independently repeats the wrong angle
+   basis for shield segments and also fails to rotate those relative
+   F/FR/RR/R/RL/FL faces by the ship's facing. This is display-only, so engine
+   legality remains authoritative, but the visual is actively misleading.
+   **Fix in P2.**
 
 2. **P2 - UX: allocate header prints `Active #nil`.**
-   [draw_hud.lua](draw_hud.lua:242) obtains an active ship only in movement,
-   then [draw_hud.lua](draw_hud.lua:247) formats it in every phase. **Fix in
+   [`draw_hud.lua`](draw_hud.lua) obtains an active ship only in movement,
+   then formats it in every phase. **Fix in
    P2.**
 
 3. **P2 - Layout: the header and rules-provenance label own the same top-right
-   pixels.** [draw_hud.lua](draw_hud.lua:255) prints an unbounded header while
-   [draw_hud.lua](draw_hud.lua:775) independently paints the same row from the
-   right edge. Long call-to-action text overlaps provenance. **Fix in P2.**
+   pixels.** [`draw_hud.lua`](draw_hud.lua) prints an unbounded header while
+   independently painting the same row from the right edge. Long call-to-action
+   text overlaps provenance. **Fix in P2.**
 
 4. **P2 - Layout: resizing does not re-center the board.**
-   [main.lua](main.lua:668) computes the appropriate centered camera only on
+   [`main.lua`](main.lua) computes the appropriate centered camera only on
    scenario load; there is no `love.resize` hook. A maximized/wide window thus
    retains its 1280-pixel camera coordinates and leaves content pinned to the
    upper-left. **Fix in P2.**

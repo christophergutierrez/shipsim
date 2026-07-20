@@ -1,5 +1,12 @@
 # PRD — shipsim TUI (ratatui), Small tier
 
+> **Historical build spec (2026-07-14).** Small tier has shipped. For **current**
+> keys, protocol **v4** orders (`allocate` / `commit_path` / `commit_volley`),
+> and run commands, prefer [`README.md`](README.md) and `src/`. Passages below
+> that require `end_turn`, `commit_maneuver`, `commit_fire`, `ready_fire`, or
+> protocol v3 describe the pre-ADR-0025 plan and must not be followed as live
+> requirements.
+
 Source: grilling session 2026-07-14 (`killhouse:grill-with-docs`), synthesized against
 ADR-0021 (`docs/adr/0021-ratatui-tui-client.md`), ADR-0023
 (`docs/adr/0023-tui-input-layout-and-verification.md`), `frontend/tui/README.md`,

@@ -1,5 +1,8 @@
 # TUI UX Recommendations
 
+> **Partially historical (2026-07-14).** Prefer [`README.md`](README.md) for
+> current protocol-v4 keys and orders.
+
 Date: 2026-07-14
 
 ## Scope and method

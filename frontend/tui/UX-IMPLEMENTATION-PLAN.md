@@ -1,5 +1,9 @@
 # TUI UX Implementation Plan
 
+> **Partially historical (2026-07-14).** Prefer [`README.md`](README.md) for
+> current protocol-v4 keys and orders. Inertial / end_turn language below is
+> obsolete under ADR-0025.
+
 Date: 2026-07-14
 
 ## Purpose

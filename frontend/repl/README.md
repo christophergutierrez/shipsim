@@ -1,7 +1,7 @@
 # shipsim REPL (playable dev client)
 
 Ship-centric text client for Combat Model v2. Spawns the Rust `shipsim` harness
-over stdin/stdout NDJSON (`protocol_version: 3`).
+over stdin/stdout NDJSON (`protocol_version: 4`).
 
 **This directory is the entire REPL client.** See `frontend/README.md`.
 
@@ -31,7 +31,8 @@ frontend/repl/
 | `../../docs/AGENT-PLAY.md` | UI play · API play · sim play |
 | `../../docs/PROTOCOL.md` | Engine API |
 
-Rules of the game (engine): `docs/PLAY-V2.md`, `docs/PROTOCOL.md`, ADR-0020.
+Rules of the game (engine): `docs/PLAY-V2.md`, `docs/PROTOCOL.md`, ADR-0025
+(turn loop) and ADR-0020 (combat model base).
 
 ## Run
 
@@ -116,4 +117,4 @@ allocate (draft → commit) → movement (commit one path) → firing (commit on
 ## Isolation
 
 Scratch only under `frontend/repl/local/`. Do not write REPL logs to the repo root.
-Love and the future ratatui client are sibling trees under `frontend/`.
+Love and the ratatui TUI are sibling trees under `frontend/`.

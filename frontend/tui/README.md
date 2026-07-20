@@ -1,9 +1,13 @@
 # shipsim TUI (ratatui)
 
-Terminal product client for Combat Model v2. **Implemented (Small tier).** Read
-**[`ADR.md`](ADR.md)** for why ratatui and how it fits the architecture, and
+Terminal product client for Combat Model v2 over **protocol v4**. **Implemented
+(Small tier).** Read **[`ADR.md`](ADR.md)** for why ratatui and how it fits the
+architecture, and
 **[ADR-0023](../../docs/adr/0023-tui-input-layout-and-verification.md)**
 for input model, layout, responsive tiers, and verification strategy.
+
+Turn loop and wire format: `docs/PROTOCOL.md`, ADR-0025. Play types:
+`docs/AGENT-PLAY.md`.
 
 This directory is the **entire** TUI client tree (isolation: `frontend/README.md`).
 Dropping it must not affect the engine, `frontend/repl/`, or `frontend/love/`.
@@ -15,12 +19,12 @@ frontend/tui/
   Cargo.toml       # standalone crate (ratatui + crossterm + serde_json)
   src/
     main.rs        # binary entry point, crossterm event loop
-    app.rs         # app state (Mode, AllocDraft, FireDraft, focus)
+    app.rs         # app state (Mode, AllocDraft, PathDraft, FireDraft, focus)
     harness.rs     # subprocess wrapper: spawns shipsim, reads/writes NDJSON
-    protocol.rs    # NDJSON v3 snapshot + order types
+    protocol.rs    # NDJSON v4 snapshot + order types
     input.rs       # keyboard → app state + pending orders
     ui.rs          # ratatui rendering (Small-tier layout)
-    tests.rs       # TestBackend tests (all 6 slices)
+    tests.rs       # TestBackend tests
   local/           # gitignored session junk only
 ```
 
@@ -42,7 +46,7 @@ cargo run --manifest-path frontend/tui/Cargo.toml
 
 ```bash
 cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial
-# → scenarios/tutorial_rear_attack.toml (seed 4), step-gated keys, ~3 turns to Won
+# → scenarios/tutorial_rear_attack.toml (seed 4), step-gated keys
 ```
 
 Pick a different scenario (first positional arg):
@@ -66,39 +70,54 @@ cargo build --release
 cargo run --release --manifest-path frontend/tui/Cargo.toml
 ```
 
-## Keys
+## Keys (protocol v4)
+
+Engine phase names are `allocate` / `movement` / `firing` (product language:
+allocate / path / volley). There is **no** `end_turn`.
 
 | Key | Action |
 |---|---|
 | `q` | Request quit; press `y` to confirm (`n`/`Esc` cancels); prints the session-log path after exit |
 | `Esc` | Return to Normal mode; in the tutorial, reopen the expected form |
 | `Tab` | Cycle focus in free play; blocked during the tutorial |
-| `e` | Request end turn; press `y` to confirm (`n`/`Esc` cancels) |
+| `v` | Map focus (pan/zoom); `Esc`/`v`/`Enter` returns |
 | `a` / `Enter` | Enter Allocate mode (when phase = allocate) |
-| `m` / `Enter` | Enter Movement mode (when phase = movement) |
-| `f` / `Enter` | Enter Fire mode (when phase = fire) |
+| `m` / `Enter` | Enter Movement/path mode (when phase = movement) |
+| `f` / `Enter` | Enter Fire/volley mode (when phase = firing) |
 
-**Allocate mode** — `↓`/`↑` cycles movement / weapons / shield facings;
-`←`/`→` decrement/increment the focused field; digits start a fresh value entry;
-`Backspace` clears; `Enter` commits the `allocate` order. A ship with no power
-can press `Space` to submit its forced zero allocation.
+**Allocate mode** — `↓`/`↑` (or `j`/`k`) cycles movement / weapons / shield
+facings; `←`/`→` decrement/increment the focused field; digits start a fresh
+value entry; `Backspace` clears; `Enter` commits the `allocate` order. A ship
+with no power can press `Space` to submit its forced zero allocation.
 
-**Movement mode** — `c` coast, `t` accel along facing, `0`–`5` turn to absolute
-facing, `r` turn +1 facing. The panel shows engine-provided thrust costs and
-marks unaffordable choices before input. Each sends one `commit_maneuver`; when
-no thrust remains, `Space` is a shortcut for coast.
+**Movement (path) mode** — draft one ordered path, then submit once:
+
+| Key | Path action |
+|---|---|
+| `w` / `f` / `↑` | `move_f` |
+| `a` | `move_fl` |
+| `d` | `move_fr` |
+| `←` / `→` | `turn_left` / `turn_right` |
+| `0`–`5` | turn toward absolute facing (minimal turns) |
+| `Backspace` | undo last action |
+| `x` | clear draft |
+| `Enter` | `commit_path` with the draft |
+| `Space` | hold position (`commit_path` with empty actions) |
+
+**Fire (volley) mode** — queue zero or more shots, then submit once:
+
+| Key | Action |
+|---|---|
+| `↓`/`↑` or `j`/`k` | cycle weapon |
+| `1`–`9` | select target by enemy index |
+| `←`/`→` | cycle shield facing |
+| `Enter` | queue/unqueue shot for the focused weapon |
+| `Backspace` | remove last queued shot |
+| `Space` | `commit_volley` (empty shots = hold fire) |
 
 **Tutorial mode** (`--tutorial`) — narration panel + step gate for the aggressive
-rear-attack (race past → inspect map → turn west → rear-arc beam/torp/plasma).
-Wrong keys are blocked; `↓`/`→` fill the allocate form, `t`/`3` drive motion,
-`v`/WASD/`+`/`-` teach the map, and `Enter`/`Space` resolve the kill volley.
-Order-backed steps advance only after engine
-acknowledgment, so a rejected order cannot desynchronize the lesson.
-
-**Fire mode** — `↓`/`↑` cycles weapon; `1`–`9` select target by enemy index;
-`←`/`→` cycle shield facing; `Enter` commits `commit_fire`. Target auto-selects
-the first enemy if none is chosen. The fixed preview line shows engine-provided
-hit chance, projected damage, and valid shield faces for the current choice.
+rear-attack. Wrong keys are blocked. Order-backed steps advance only after
+engine acknowledgment.
 
 ## Verify
 
@@ -115,64 +134,40 @@ absolute path after the terminal UI closes.
 | Client | Role |
 |---|---|
 | **Engine + harness** | Rules + NDJSON (`docs/PROTOCOL.md`) |
-| **`frontend/repl/`** | Playable Python client; agent/debug; fixed play-frame prototype of “TUI shape” |
+| **`frontend/repl/`** | Reference Python client; agent/debug UI play |
 | **`frontend/love/`** | Graphical thin client |
-| **`frontend/tui/`** | Future ratatui terminal product UI |
+| **`frontend/tui/`** | ratatui terminal product UI (this tree; Small tier) |
 
 Port **behavior and vocabulary** from the REPL, not pixel-identical ANSI:
 
-- Ship-centric focus; callsigns by side (`A1` player, `B2` ai, …) until scenarios carry fleet/side ids.
+- Ship-centric focus; callsigns by side (`A1` player, `B2` ai, …).
 - Facing 0..5 with **board-aligned** arrows (0 = +q → right on q→/r↓ maps). See `frontend/repl/ASCII-UI.md`.
-- Allocate = **local draft until commit**; bare numbers must not wipe drafts.
-- Fire: optional shots; `ready` / nofire leaves fire phase; `end` is whole turn.
-- HIT/MISS, damage, shield absorption, and hull damage persist in the Combat Log,
-  including after game over.
+- Allocate / path / volley = **local drafts until commit**.
+- After every living ship commits a volley, the next allocate begins automatically.
 - Soft errors stay soft; never reimplement hit tables or legality.
 
-## Protocol (v1) — must not reinvent
+## Protocol (v4) — must not reinvent
 
 - Spawn: `shipsim --scenario <path> --stdin` (build with `cargo build -q` in repo root).
 - Overrides: `SHIPSIM_BIN`, optionally `SHIPSIM_ROOT`.
 - After load and after each **accepted** order, harness runs AI
   (`resolve_v2_npc_actions`); client only drives **player** orders.
-- Snapshot fields of interest: `phase`, `turn`, `active_ship`, `ships[]`
-  (weapons charge/fired, shields rem/powered, structure, controller),
-  `combat_log[]` (attacker, target, **weapon**, kind, damage, shield),
-  `ships_allocated_this_turn`, `ships_ready_fire`, `end_turn_warning`,
-  `move_order`, `protocol_version`.
-- Orders: `allocate`, `commit_maneuver`, `commit_fire`, `ready_fire`, `end_turn`
-  — shapes in `src/movement.rs` and `docs/PROTOCOL.md`. Fixtures:
-  `tests/fixtures/v2/duel_orders.jsonl`.
+- Snapshot fields of interest: `phase`, `turn`, `ships[]`, `combat_log[]`,
+  `ships_allocated_this_turn`, `ships_committed_path`, `ships_committed_volley`,
+  `path_results`, `protocol_version`.
+- Orders: `allocate`, `commit_path`, `commit_volley` — see `docs/PROTOCOL.md`.
+  Goldens: `tests/fixtures/v4/`.
+- Retired under v4 (rejected): `commit_maneuver`, `commit_fire`, `ready_fire`,
+  `end_turn`, `pass_move`.
 
-## Design decisions (grilled 2026-07-14)
+## Design decisions
 
 **[ADR-0023](../../docs/adr/0023-tui-input-layout-and-verification.md)**
-resolved the product-shape questions this handoff originally left open:
-keypress-primary input (vim + arrows, `:` for a typed fallback), a layout
-where the map + a compact status bar are always visible and everything else
-is tabbed, three responsive tiers (Small/Medium/Large, exact breakpoints
-deferred until Small is built and measured), a live recoverable pause below
-the floor rather than a crash, `TestBackend`-driven tests as the required
-verification path, and a standalone (non-workspace) Cargo package. Read it
-before starting slice 1 below — every slice targets the **Small tier only**;
-Medium/Large don't exist yet.
-
-## Suggested first implementation slices
-
-Keep PRs small; each should stay playable or at least runnable. Every slice
-below targets the Small tier's layout (see ADR-0023) — no tier-switching
-code until slice 5 is done and fully playable.
-
-1. **Skeleton** — `Cargo.toml` (ratatui + crossterm + serde_json), binary that
-   spawns harness, reads post-load snapshot, draws turn/phase + ship names, `q` quits.
-2. **Map + status** — hex/occupancy panel; callsigns; facing; hull/shield gauges.
-3. **Allocate UX** — focused ship draft (mov/weapons/shields) → `allocate` order;
-   show engine-accepted values after commit.
-4. **Movement** — active ship; forward/reverse/turns (and optional absolute dir helper).
-5. **Fire** — weapon/target/facing; ready; combat log region; FIRED HIT/MISS.
-6. **Polish** — layout regions (map | ship | log | help), resize, key help overlay,
-   optional transcript flag (mirror REPL `--debug` idea; prefer `frontend/tui/local/`
-   for product logs, `/tmp` only if explicitly requested).
+covers keypress-primary input, layout (map + compact status always visible),
+responsive tiers (Small shipped; Medium/Large deferred), recoverable pause below
+the floor, `TestBackend` verification, and a standalone (non-workspace) Cargo
+package. Path/volley turn structure is ADR-0025 (partially supersedes input
+assumptions from the inertial era).
 
 ## Stack notes (ratatui)
 
@@ -187,10 +182,8 @@ code until slice 5 is done and fully playable.
 ## Verification
 
 - Engine: `cargo test` (unchanged).
-- REPL remains the non-fullscreen regression path for protocol play.
-- When TUI exists: document a one-command smoke (e.g. run binary against
-  `scenarios/ai.toml`, exit). Fullscreen UI is not the agent primary path;
-  keep subprocess protocol tests on the harness.
+- REPL remains the non-fullscreen regression path for protocol play and agent UI play.
+- TUI smoke: run binary against `scenarios/ai.toml`, quit with `q` → `y`.
 
 ## Anti-goals
 
@@ -206,13 +199,20 @@ code until slice 5 is done and fully playable.
 - `frontend/README.md` (isolation)
 - `frontend/repl/README.md`, `frontend/repl/ASCII-UI.md` (play vocabulary + ASCII lessons)
 - ADR-0017 (Love subprocess pattern — same integration style)
-- ADR-0020 (combat model v2)
+- ADR-0020 (combat model v2 base), ADR-0025 (simplified simultaneous turns / protocol v4)
 
-## Status checklist for implementers
+## Status checklist
 
 - [x] Package builds under `frontend/tui/`
 - [x] Spawns harness, shows live snapshot fields
-- [x] Player can finish allocate → move → fire → end turn on `scenarios/ai.toml`
+- [x] Player can finish allocate → path → volley on `scenarios/ai.toml` (auto next turn)
 - [x] Soft errors visible; state only changes on accepted orders
 - [x] Scratch only under `frontend/tui/local/`
-- [x] This README updated with real run commands once the binary exists
+- [x] This README matches protocol v4 orders and keys
+
+## Older design notes in this tree
+
+`PRD.md`, `AGENT-HANDOFF.md`, `PLAY-UX-MILESTONES.md`, and the UX recommendation
+docs capture **pre-v4 / build-out** planning. Prefer this README + live
+`src/` for current behavior; those files may still describe inertial orders or
+`end_turn` as historical context.

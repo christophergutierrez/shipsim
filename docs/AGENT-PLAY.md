@@ -88,9 +88,14 @@ Logs: `frontend/repl/local/session-*.log`, `orders-*.jsonl`.
 
 ### Secondary: Ratatui TUI / Love2D
 
-Protocol **v4** engine is live; REPL is the reference client. TUI and Love2D
-still need path-editor / volley-builder UX (plan Phases 7–8). Prefer REPL for
-UI play until those land.
+Protocol **v4** is live on the engine and on all three clients. **REPL** remains
+the agent reference path for UI play. Prefer it unless the ask names TUI or Love.
+
+| Client | Run | Notes |
+|---|---|---|
+| **REPL** | `python3 frontend/repl/repl.py scenarios/ai.toml` | Reference; best for agents |
+| **TUI** | `cargo run --manifest-path frontend/tui/Cargo.toml` | Small-tier ratatui; see `frontend/tui/README.md` |
+| **Love2D** | `./frontend/love/play.sh` | Graphical thin client; see `frontend/love/README.md` |
 
 ### Screen grid audit (UI presentation, not a full game)
 
@@ -123,7 +128,9 @@ target/debug/shipsim --scenario scenarios/ai.toml --stdin
 # one JSON order per line → one snapshot or error per line
 ```
 
-Example protocol-v3 stream: `scenarios/d8_frontend_orders.jsonl`.
+Golden order/snapshot streams: `tests/fixtures/v4/` (see that directory’s
+README). Older `scenarios/d8_frontend_orders.jsonl` is protocol **v3** and is
+**rejected** by the current engine.
 
 ### REPL automated suite (command → order; not live UI)
 
@@ -209,7 +216,7 @@ suites.
 
 1. Frontend code and scratch only under `frontend/<name>/` (`local/` gitignored).
 2. No cross-client imports; engine must not depend on `frontend/`.
-3. External clients: protocol **v3** only (`docs/PROTOCOL.md`).
+3. External clients: protocol **v4** only (`docs/PROTOCOL.md`).
 4. Sim reports under ignored `tmp/simulation/` (or equivalent local paths).
 
 ---

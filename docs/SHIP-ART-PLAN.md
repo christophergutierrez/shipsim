@@ -4,6 +4,10 @@
 > specifies how to build a ship-sprite generation, viewing, and editing system
 > for shipsim, modeled on the proven character-image pipeline in the sibling
 > `norrust` repo.
+>
+> Paths such as `data/ship_art/`, `docs/SHIP-ART-SPEC.md`, and norrust’s
+> `docs/ASSET-SPEC.md` / `data/units/` are **targets or sibling-repo references**,
+> not existing shipsim checked-in trees.
 
 ## 1. Background — what norrust has
 

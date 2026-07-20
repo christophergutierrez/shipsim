@@ -2,7 +2,7 @@
 
 ## Product
 
-shipsim is a deterministic, turn-based starship combat game for players who want meaningful power-allocation and maneuver decisions without the bookkeeping of a full tabletop ruleset. The current product is Combat Model v2, a single supported ruleset played through a Love2D client or a headless JSON harness.
+shipsim is a deterministic, turn-based starship combat game for players who want meaningful power-allocation and maneuver decisions without the bookkeeping of a full tabletop ruleset. The current product is Combat Model v2 with the protocol-v4 simplified turn loop (ADR-0025), played through thin clients (REPL reference, Love2D, ratatui TUI) or a headless JSON harness.
 
 ## Problem
 
@@ -17,7 +17,8 @@ The product needs one coherent loop that is playable, deterministic under test, 
 - Keep movement and simultaneous fire decisions readable and compact.
 - Give beam, plasma, and torpedo weapons distinct range and damage profiles.
 - Make facing and powered shields central to survival.
-- Support complete battles against a basic AI in the Love2D client.
+- Support complete battles against a basic AI through at least one thin client
+  (REPL reference; Love2D and TUI also supported).
 - Keep every rule in the Rust core and every automated run reproducible from a seed.
 
 ## Player experience
@@ -78,7 +79,10 @@ battle ends when its destruction objective is met.
 
 ## Current scope
 
-The shipped MVP includes generic escort and heavy-cruiser data, v2 power/path combat, multi-ship scenarios, deterministic AI, protocol-v4 replay coverage, and a reference REPL client. Graphical protocol-v4 clients remain migration work.
+The shipped MVP includes size-ladder and legacy hull data, v2 combat with the
+protocol-v4 allocate/path/volley loop, multi-ship scenarios, deterministic AI,
+protocol-v4 replay coverage, a reference REPL client, Love2D and ratatui TUI
+clients, and in-process simulation (`shipsim-sim`).
 
 ## Out of scope
 
@@ -90,16 +94,18 @@ The shipped MVP includes generic escort and heavy-cruiser data, v2 power/path co
 
 ## Success criteria
 
-- A player can complete the v2 duel through Love2D without editing files.
-- The acceptance replay covers allocation and at least two move/fire cycles through a deterministic outcome.
+- A player can complete a duel through the REPL (agent reference) or Love2D/TUI without editing files.
+- Golden fixtures cover allocate → path → volley through a deterministic outcome (`tests/fixtures/v4/`).
 - Over-allocation, illegal movement, illegal fire, and malformed external orders are rejected cleanly.
-- Core and Lua headless test suites pass.
-- Only v2 is presented as the active product loop in current documentation.
+- Core, REPL, TUI, and Lua headless test suites pass.
+- Protocol v4 / ADR-0025 is the active turn loop in current documentation; older impulse/inertial loops are historical only.
 
 ## References
 
 - Architecture: `docs/ARCHITECTURE.md`
-- Product decisions: `docs/adr/0020-combat-model-v2-momentum-power.md`
+- Turn loop: `docs/adr/0025-simplified-simultaneous-turns.md`
+- Combat model base: `docs/adr/0020-combat-model-v2-momentum-power.md`
 - Play guide: `docs/PLAY-V2.md`
 - Working combat constants: `docs/combat-v2-tables.md`
+- Protocol: `docs/PROTOCOL.md`
 - Deferred work: `docs/ROADMAP.md`

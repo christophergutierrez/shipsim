@@ -1,5 +1,8 @@
 # shipsim TUI — UI recommendations
 
+> **Partially historical (2026-07-14).** Prefer [`README.md`](README.md) for
+> current protocol-v4 keys and orders.
+
 **Date:** 2026-07-14  
 **Scope:** ratatui capabilities research, live rear-attack tutorial play
 (`cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial`), and

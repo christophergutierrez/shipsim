@@ -1,8 +1,10 @@
 # ADR-0022: Persistent Velocity and Inertial Movement
 
 Date: 2026-07-01
-Status: Accepted
-Supersedes: ADR-0020 (Combat Model v2 momentum-power movement) upon M9 completion
+Status: Superseded by ADR-0025
+Supersedes: ADR-0020 movement portions (historical; later replaced by simplified turns)
+Note: Four-cycle inertial velocity/course is **not** current product behavior.
+Current turn loop: ADR-0025 / protocol v4.
 
 ## Context
 

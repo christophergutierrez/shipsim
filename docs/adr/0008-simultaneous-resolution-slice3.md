@@ -1,6 +1,6 @@
 # ADR-0008 -- Simultaneous plot-then-resolve movement (Slice 3 / D2)
 
-Status: Accepted
+Status: Superseded (historical; see ADR-0020 / ADR-0025 for current combat/turns)
 Date: 2026-07-06
 
 ## Context

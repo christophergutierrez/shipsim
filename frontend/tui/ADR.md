@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| Status | Accepted (scaffold / decision only; implementation not started) |
+| Status | Accepted (Small tier implemented under `frontend/tui/`) |
 | Date | 2026-07-11 |
 | Scope | `frontend/tui/` only |
-| Related | ADR-0004 (harness first), ADR-0017 (Love thin client), ADR-0018 (soft errors), ADR-0020 (Combat Model v2), `docs/PROTOCOL.md` |
+| Related | ADR-0004 (harness first), ADR-0017 (Love thin client), ADR-0018 (soft errors), ADR-0020 (Combat Model v2), ADR-0023 (input/layout), ADR-0025 (protocol v4 turns), `docs/PROTOCOL.md` |
 
 ## Context
 
@@ -23,14 +23,14 @@ Constraints that still apply:
 
 - Rules live only in `shipsim_core`.
 - Frontends are isolated under `frontend/<name>/` and may be deleted without touching the engine.
-- Wire contract is protocol v1 NDJSON (`docs/PROTOCOL.md`).
+- Wire contract is protocol **v4** NDJSON (`docs/PROTOCOL.md`).
 - Soft-reject illegal orders; do not reimplement legality in the UI.
 
 ## Decision
 
 1. **Add a third frontend tree:** `frontend/tui/` — a Rust terminal client built with **ratatui** + **crossterm** (or ratatui’s recommended backend pairing at implementation time).
 
-2. **Integration (v1):** same as Love/REPL — **JSON subprocess**, not in-process rules embedding and not FFI:
+2. **Integration:** same as Love/REPL — **JSON subprocess**, not in-process rules embedding and not FFI:
    - Spawn `shipsim --scenario <path> --stdin` (or `SHIPSIM_BIN`).
    - Read post-load snapshot; write one order line; read snapshot or soft error.
    - Rely on harness `resolve_v2_npc_actions` after accepted orders (AI advances without the TUI inventing NPC orders).

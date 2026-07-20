@@ -1,8 +1,13 @@
 # Phased Plan: Persistent Velocity and Inertial Movement
 
-Status: Accepted (ADR-0022). M0–M7 complete; M8 next.
+> **HISTORICAL.** This plan and ADR-0022 are **superseded by ADR-0025**
+> (simplified simultaneous turns / protocol v4). Ships no longer carry
+> velocity/course or four movement cycles per turn. Do not implement further
+> milestones from this document. Kept for design history only.
 
-Related design TODO: `docs/TODO.md`
+Status: Superseded by ADR-0025 (was: Accepted under ADR-0022).
+
+Related design TODO: `docs/TODO.md` (size/construction still open; motion model is path-based)
 
 ## Goal
 

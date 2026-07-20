@@ -1,5 +1,10 @@
 # TUI play-feedback plan — phased milestones
 
+> **Partially historical.** Written against the pre-v4 / early TUI loop.
+> Milestones that mention `end_turn`, `commit_fire`, or four move/fire cycles
+> are obsolete. Current loop: allocate → path → volley (auto next turn). See
+> [`README.md`](README.md).
+
 **Date:** 2026-07-16  
 **Source:** UI play on ratatui free-play (`scenarios/ai.toml`) + rear-attack tutorial  
 **Session logs:** `frontend/tui/local/agent-play-*.md`  

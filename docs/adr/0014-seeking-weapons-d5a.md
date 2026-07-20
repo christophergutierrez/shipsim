@@ -1,6 +1,6 @@
 # ADR-0014 -- Seeking weapons / drones (D5a)
 
-Status: Accepted
+Status: Superseded (historical; see ADR-0020 / ADR-0025 for current combat/turns)
 Date: 2026-07-09
 
 ## Context

@@ -67,8 +67,9 @@ cargo test -q
 cargo run --release --bin shipsim-sim -- --suite simulation/suites/smoke.toml
 ```
 
-**Clients:** REPL is the protocol-v4 reference. Ratatui TUI and Love2D still
-need full path/volley UX migration (see plan Phases 7–8).
+**Clients:** All three frontends speak protocol v4 (`allocate` / `commit_path` /
+`commit_volley`). **REPL** is the agent reference for UI play; TUI and Love2D
+are secondary play surfaces (`frontend/tui/README.md`, `frontend/love/README.md`).
 
 Session logs: `frontend/<name>/local/` only.
 

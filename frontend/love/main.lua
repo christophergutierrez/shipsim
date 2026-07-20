@@ -81,6 +81,11 @@ local app = {
 -- Forward declarations (defined later; needed from sync_phase / request_previews).
 local next_fireable_weapon
 local apply_legal_shield_facing
+-- Needed from love.update's F3 hold-to-repeat tick, which runs long before
+-- handle_ui_hit's definition later in the file. Without this forward
+-- declaration, holding a repeatable button (e.g. an allocate +/- control)
+-- resolves the call to the (nil) global instead of the local and crashes.
+local handle_ui_hit
 
 -- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
 -- ships; pump_scripted() below advances those ships until a player owes input.
@@ -113,28 +118,29 @@ end
 -- Forward-usable: request_reach_preview and key handlers call this before
 -- do_allocate is defined later in the file.
 -- Seeds weapon draft from carried charge so Allocate does not try to strip
--- (PROTOCOL: charge carries; cannot lower below current total).
+-- (PROTOCOL: charge carries; cannot lower below current total). Always re-floors
+-- draft totals up to live snapshot charge so a stale draft never shows 0 while
+-- the ship still banks charge (that looked like a free/double charge).
 local function alloc_for(ship_id)
   if not app.alloc[ship_id] then
-    local weapons = json.object({})
-    local snap = app.session and app.session.snapshot
-    if snap then
-      for _, s in ipairs(snap.ships or {}) do
-        if s.id == ship_id then
-          for _, w in ipairs(s.weapons or {}) do
-            if (w.charge or 0) > 0 then
-              weapons[w.id] = w.charge
-            end
-          end
-          break
-        end
-      end
-    end
     app.alloc[ship_id] = {
       movement = 0,
-      weapons = weapons,
+      weapons = json.object({}),
       shields = { 0, 0, 0, 0, 0, 0 },
     }
+  end
+  local snap = app.session and app.session.snapshot
+  local ship = nil
+  if snap then
+    for _, s in ipairs(snap.ships or {}) do
+      if s.id == ship_id then
+        ship = s
+        break
+      end
+    end
+  end
+  if ship then
+    allocation.seed_weapons(ship, app.alloc[ship_id])
   end
   -- Re-tag after any mutation path so empty maps stay JSON objects.
   if not getmetatable(app.alloc[ship_id].weapons) then
@@ -201,6 +207,11 @@ local function sync_phase()
     -- Entering firing: clear spent weapon selection so request_previews can re-pick.
     if app.phase == phases.FIRING then
       app._need_weapon_pick = true
+    end
+    -- New allocate phase (incl. auto turn advance): drop local drafts so the
+    -- next turn re-seeds from live carried charge instead of last turn's totals.
+    if app.phase == phases.ALLOCATE then
+      app.alloc = {}
     end
   else
     status_fmt.clear_if_stale(app.status, snap)
@@ -586,16 +597,24 @@ local function allocation_edit(hit)
   local p = hit.payload or {}
   local draft = alloc_for(p.id)
   if id == "alloc_movement_up" then
-    return 0, draft.movement, draft.movement + 1
+    -- Cap at what remaining power can afford (weapons/shields already cap at
+    -- their own max via allocation.increment; movement had no ceiling at all).
+    local ship = find_ship_in_snap(snap_now(), p.id)
+    local cap = allocation.available_for_movement(ship, draft)
+    return 0, draft.movement, math.min(draft.movement + 1, cap)
   elseif id == "alloc_movement_dn" then
     return 0, draft.movement, math.max(0, draft.movement - 1)
   elseif id == "alloc_weapon_up" or id == "alloc_weapon_dn" then
     local fields = { beam_1 = 1, torp_1 = 2, plasma_1 = 3 }
     local field = fields[p.weapon]
-    local old = draft.weapons[p.weapon] or 0
-    local new = id == "alloc_weapon_up"
-      and allocation.increment(old, p.max)
-      or allocation.decrement(old)
+    local ship = find_ship_in_snap(snap_now(), p.id)
+    local old = draft.weapons[p.weapon] or allocation.carried_charge(ship, p.weapon)
+    local new
+    if id == "alloc_weapon_up" then
+      new = allocation.weapon_up(ship, draft, p.weapon, p.max)
+    else
+      new = allocation.weapon_down(ship, draft, p.weapon)
+    end
     return field, old, new
   elseif id == "alloc_shield_up" or id == "alloc_shield_dn" then
     local field = 4 + (p.face or 0)
@@ -1284,11 +1303,7 @@ local function apply_quick_alloc(kind, ship_id)
   if kind == "clear" then
     a.movement = 0
     a.weapons = {}
-    for _, w in ipairs(ship.weapons or {}) do
-      if (w.charge or 0) > 0 then
-        a.weapons[w.id] = w.charge
-      end
-    end
+    allocation.seed_weapons(ship, a)
     a.shields = { 0, 0, 0, 0, 0, 0 }
   elseif kind == "max_weapons" then
     allocation.maximize_weapons(ship, a)
@@ -1302,7 +1317,7 @@ local function apply_quick_alloc(kind, ship_id)
   debounce.trip(app.reach_debounce)
 end
 
-local function handle_ui_hit(hit)
+handle_ui_hit = function(hit)
   if not hit then
     return false
   end
@@ -1336,7 +1351,9 @@ local function handle_ui_hit(hit)
   end
   if id == "alloc_movement_up" then
     local a = alloc_for(p.id)
-    a.movement = a.movement + 1
+    local ship = find_ship_in_snap(snap_now(), p.id)
+    local cap = allocation.available_for_movement(ship, a)
+    a.movement = math.min(a.movement + 1, cap)
     debounce.trip(app.reach_debounce)
     return true
   end
@@ -1348,13 +1365,15 @@ local function handle_ui_hit(hit)
   end
   if id == "alloc_weapon_up" then
     local a = alloc_for(p.id)
-    a.weapons[p.weapon] = allocation.increment(a.weapons[p.weapon], p.max)
+    local ship = find_ship_in_snap(snap_now(), p.id)
+    allocation.weapon_up(ship, a, p.weapon, p.max)
     debounce.trip(app.reach_debounce)
     return true
   end
   if id == "alloc_weapon_dn" then
     local a = alloc_for(p.id)
-    a.weapons[p.weapon] = allocation.decrement(a.weapons[p.weapon])
+    local ship = find_ship_in_snap(snap_now(), p.id)
+    allocation.weapon_down(ship, a, p.weapon)
     debounce.trip(app.reach_debounce)
     return true
   end
@@ -1690,7 +1709,9 @@ function love.keypressed(key)
     end
     if ship and is_player_ship(ship) then
       local a = alloc_for(ship)
-      a.movement = a.movement + 1
+      local record = find_ship_in_snap(snap_now(), ship)
+      local cap = allocation.available_for_movement(record, a)
+      a.movement = math.min(a.movement + 1, cap)
       debounce.trip(app.reach_debounce)
     end
   elseif app.phase == phases.ALLOCATE and (key == "-" or key == "kp-") then

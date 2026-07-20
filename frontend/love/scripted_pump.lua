@@ -39,15 +39,9 @@ function pump.run(session, on_error)
       if first_unallocated(snap, "player") then return end
       local ship = first_unallocated(snap, "scripted")
       if ship then
-        local weapons = {}
-        for _, weapon in ipairs(snap.ships or {}) do
-          if weapon.id == ship then
-            for _, mounted in ipairs(weapon.weapons or {}) do
-              weapons[mounted.id] = 0
-            end
-          end
-        end
-        order = orders.allocate(ship, 0, weapons, { 0, 0, 0, 0, 0, 0 })
+        -- Empty weapons map: leave carried charge untouched (PROTOCOL: charge
+        -- carries; sending 0 would try to strip and soft-fail).
+        order = orders.allocate(ship, 0, {}, { 0, 0, 0, 0, 0, 0 })
       end
     elseif snap.phase == "movement" then
       if first_pending(snap, "player", "ships_committed_path") then return end
