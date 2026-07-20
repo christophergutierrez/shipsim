@@ -55,6 +55,70 @@ fn test_orders_file_emits_snapshots() {
 }
 
 #[test]
+fn test_class_id_emitted_on_every_ship_snapshot() {
+    // Phase 1: canonical class_id is an additive snapshot field. Every ship
+    // must carry a non-empty class_id equal to the scenario catalog key,
+    // distinct from numeric id and display class. Duplicate display names
+    // (Escort, Heavy Cruiser) must resolve to distinct class_id values.
+    let output = shipsim_command()
+        .arg("--scenario")
+        .arg(manifest_path("scenarios/class_id_duplicates.toml"))
+        .arg("--stdin")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("shipsim runs");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let snaps = parse_stdout(&output.stdout);
+    assert!(!snaps.is_empty(), "at least the post-load snapshot");
+    let ships = snaps[0]["ships"].as_array().expect("ships array");
+    assert_eq!(ships.len(), 4, "four placed ships");
+
+    // class_id -> (numeric id, display class) map for lookup.
+    let mut by_class_id = std::collections::HashMap::new();
+    for ship in ships {
+        let id = ship["id"].as_u64().expect("numeric id");
+        let class = ship["class"].as_str().expect("display class");
+        let class_id = ship["class_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("ship {id} missing class_id"));
+        assert!(!class_id.is_empty(), "ship {id} has empty class_id");
+        // Numeric id, display class, and canonical class_id are independent.
+        assert_ne!(
+            class_id, class,
+            "class_id must not equal display class for ship {id}"
+        );
+        by_class_id.insert(class_id.to_string(), (id, class.to_string()));
+    }
+
+    // Catalog keys are the expected canonical identities.
+    assert_eq!(by_class_id["heavy_cruiser"].1, "Heavy Cruiser");
+    assert_eq!(by_class_id["tutorial_heavy_cruiser"].1, "Heavy Cruiser");
+    assert_eq!(by_class_id["escort"].1, "Escort");
+    assert_eq!(by_class_id["tutorial_escort"].1, "Escort");
+
+    // Duplicate display names resolve to distinct canonical class_id values.
+    assert_ne!(
+        by_class_id["heavy_cruiser"].0,
+        by_class_id["tutorial_heavy_cruiser"].0,
+        "heavy_cruiser and tutorial_heavy_cruiser are distinct ships"
+    );
+    assert_ne!(
+        by_class_id["escort"].0,
+        by_class_id["tutorial_escort"].0,
+        "escort and tutorial_escort are distinct ships"
+    );
+
+    // Protocol remains v4.
+    assert_eq!(snaps[0]["protocol_version"], 4);
+}
+
+#[test]
 fn test_soft_reject_retired_v3_order() {
     use std::io::Write;
     let mut child = shipsim_command()

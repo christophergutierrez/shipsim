@@ -23,6 +23,10 @@ pub struct HexSnapshot {
 pub struct ShipSnapshot {
     pub id: u32,
     pub class: String,
+    /// Canonical catalog key (ship-definition file stem). Additive identity
+    /// field for presentation clients; distinct from numeric `id` and display
+    /// `class`. Protocol remains v4. See `docs/SHIP-ART-IMPLEMENTATION-PLAN.md`.
+    pub class_id: String,
     pub size: u32,
     /// `player`, `ai`, or `scripted` (ADR-0018).
     pub controller: String,
@@ -134,6 +138,7 @@ impl StateSnapshot {
                 .map(|ship| ShipSnapshot {
                     id: ship.id,
                     class: ship.class.clone(),
+                    class_id: ship.class_id.clone(),
                     size: ship.size,
                     controller: game.controller_label(ship.id).to_string(),
                     q: ship.pos.q,

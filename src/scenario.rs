@@ -250,7 +250,15 @@ pub fn load_scenario_def_with_rules(
 
         ships.push(Ship {
             id: placement.id,
-            class: ship_def.name,
+            class: ship_def.name.clone(),
+            // Canonical catalog key: the ship-definition file stem. Falls back
+            // to the placement class key when a definition omits its internal
+            // `id` field, so canonical identity is always non-empty.
+            class_id: if ship_def.id.is_empty() {
+                placement.class.clone()
+            } else {
+                ship_def.id.clone()
+            },
             size: ship_def.size,
             pos,
             facing: placement.facing,

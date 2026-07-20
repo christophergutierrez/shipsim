@@ -728,6 +728,7 @@ mod tests {
         ShipSnapshot {
             id,
             class: "Test".into(),
+            class_id: "test".into(),
             size: 2,
             controller: controller.into(),
             q: 0,

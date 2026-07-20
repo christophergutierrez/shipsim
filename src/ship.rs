@@ -9,6 +9,11 @@ use crate::thrust::ThrustConversion;
 pub struct Ship {
     pub id: u32,
     pub class: String,
+    /// Canonical catalog key (ship-definition file stem). Distinct from the
+    /// numeric scenario-instance `id` and the human-readable display `class`.
+    /// Presentation clients use this to resolve data-driven art; the engine
+    /// never reads art. See `docs/SHIP-ART-IMPLEMENTATION-PLAN.md` Phase 1.
+    pub class_id: String,
     /// Relative target silhouette used to scale d20 hit thresholds (1..=7 tiers in `data/sizes.toml`).
     pub size: u32,
     pub pos: Hex,

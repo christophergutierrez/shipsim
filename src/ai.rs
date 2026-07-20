@@ -253,6 +253,7 @@ mod tests {
         Ship {
             id,
             class: "t".into(),
+            class_id: "t".into(),
             size: crate::rules::Ruleset::builtin()
                 .combat()
                 .accuracy()

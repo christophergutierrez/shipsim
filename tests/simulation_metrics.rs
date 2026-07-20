@@ -96,6 +96,7 @@ fn weapon_power_metric_counts_increases_only() {
     let ship = ShipSnapshot {
         id: 1,
         class: "test".into(),
+        class_id: "test".into(),
         size: 2,
         controller: "player".into(),
         q: 0,
