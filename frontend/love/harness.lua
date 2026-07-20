@@ -3,9 +3,10 @@
 -- Spawns `shipsim --scenario <path> --stdin` once and keeps the child's
 -- stdin/stdout pipes open for the whole session. One NDJSON line in -> one
 -- NDJSON line out. This mirrors frontend/tui/src/harness.rs exactly and is
--- the only transport that supports read-only requests (movement_preview,
--- maneuver_options, fire_preview): a batch `--orders` replay process has no
--- way to receive a mid-game request.
+-- the only transport that supports read-only requests (path_preview,
+-- reach_preview, fire_preview): a batch `--orders` replay process has no
+-- way to receive a mid-game request. (movement_preview / maneuver_options
+-- were retired in protocol v4; the engine returns a retired_request error.)
 --
 -- Engine line protocol (empirically verified):
 --   - On spawn: emits exactly 1 initial snapshot (the starting state).
@@ -225,10 +226,10 @@ function harness.submit(session, order)
   return session.snapshot, nil
 end
 
---- Send a read-only request (movement_preview / maneuver_options /
---- fire_preview). Returns the typed response envelope. Does NOT mutate game
---- state and is NEVER appended to session.orders. See docs/PROTOCOL.md
---- "Read-only requests".
+--- Send a read-only request (path_preview / reach_preview / fire_preview).
+--- Returns the typed response envelope. Does NOT mutate game state and is
+--- NEVER appended to session.orders. See docs/PROTOCOL.md "Read-only
+--- requests". (movement_preview / maneuver_options are retired under v4.)
 function harness.request(session, tbl)
   if not session.proc then
     return nil, {
@@ -264,7 +265,7 @@ function harness.request(session, tbl)
     session.last_error = classified
     return nil, classified
   end
-  -- kind == "response" (movement_preview / maneuver_options / fire_preview)
+  -- kind == "response" (path_preview / reach_preview / fire_preview)
   session.last_error = nil
   return classified, nil
 end

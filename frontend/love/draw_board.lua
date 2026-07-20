@@ -223,7 +223,11 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
           end
           love.graphics.setColor(0.3, 0.7, 1.0, 0.3 + 0.4 * frac)
           love.graphics.setLineWidth(2 + 2 * frac)
-          for i = 1, #pts - 2, 2 do
+          -- pts holds segs+1 points as flat x,y pairs. Each line() call draws
+          -- one segment between consecutive points, so the last segment starts
+          -- at the second-to-last point (array index #pts-3). Iterating to
+          -- #pts-2 inclusive would skip that final segment (off-by-one).
+          for i = 1, #pts - 3, 2 do
             love.graphics.line(pts[i], pts[i + 1], pts[i + 2], pts[i + 3])
           end
           love.graphics.setLineWidth(1)

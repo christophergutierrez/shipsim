@@ -6,7 +6,9 @@ local status_fmt = {}
 --- Human wording for a successful order echo (protocol v4).
 function status_fmt.order_echo(ship, action, facing)
   local id = tostring(ship or "?")
-  local _ = facing
+  if action == "turn" then
+    return string.format("Ship #%s turned to facing %s", id, tostring(facing))
+  end
   if action == "allocate" then
     return string.format("Ship #%s allocated", id)
   end
