@@ -21,6 +21,7 @@ local phases = require("phases")
 local end_condition = require("end_condition")
 local harness = require("harness")
 local paths = require("paths")
+local draw_board = require("draw_board")
 local draw_hud = require("draw_hud")
 local path_editor = require("path_editor")
 local scripted_pump = require("scripted_pump")
@@ -1799,12 +1800,25 @@ end
 
 -- ---- Phase 4: ship art runtime loader + fallback ----
 print("phase 4: ship art")
+local function art_record(class_id, state, image_path)
+  return {
+    class_id = class_id,
+    state = state,
+    image_path = image_path,
+    width = 256,
+    height = 256,
+    anchor_x = 0.5,
+    anchor_y = 0.5,
+    source_angle = 0,
+    scale = 1,
+  }
+end
 do
   -- Empty manifest (P0 fallback state): every lookup falls back to geometry.
   local st, err = ship_art.load_manifest({ version = 1, records = {} })
   assert(st, "empty manifest loads")
   assert_eq(err, nil, "empty manifest no error")
-  local d = ship_art.lookup(st, "escort", nil, "top_down")
+  local d = ship_art.lookup(st, "escort", "top_down")
   assert_eq(d.fallback, true, "empty manifest -> fallback")
   assert_eq(d.found, false, "empty manifest -> not found")
   assert_eq(d.class_id, "escort", "class_id preserved on fallback")
@@ -1812,45 +1826,48 @@ do
 end
 
 do
-  -- Alias resolution: tutorial_* borrows base class art.
-  local aliases = { tutorial_escort = "escort", tutorial_heavy_cruiser = "heavy_cruiser" }
-  assert_eq(ship_art.resolve_alias("tutorial_escort", aliases), "escort", "alias resolves to base")
-  assert_eq(ship_art.resolve_alias("escort", aliases), "escort", "non-alias passes through")
-  assert_eq(ship_art.resolve_alias("battleship_heavy", aliases), "battleship_heavy", "unaliased id unchanged")
-  -- nil aliases is safe
-  assert_eq(ship_art.resolve_alias("escort", nil), "escort", "nil aliases safe")
-  ok("alias resolution")
-end
-
-do
-  -- Manifest with a real record: lookup finds it and is not fallback.
+  -- Producer-shaped manifest record: lookup consumes the canonical
+  -- `image_path` field emitted by ship_art_catalog.py.
   local st = ship_art.load_manifest({
     version = 1,
     records = {
-      { class_id = "escort", state = "top_down", image = "escort_top.png" },
+      art_record("escort", "top_down", "escort/top_down.png"),
     },
   })
-  local d = ship_art.lookup(st, "escort", nil, "top_down")
+  local d = ship_art.lookup(st, "escort", "top_down")
   assert_eq(d.found, true, "record found")
-  assert_eq(d.fallback, false, "record with image is not fallback")
-  assert_eq(d.record.image, "escort_top.png", "record image path exposed")
-  ok("manifest record lookup")
+  assert_eq(d.fallback, false, "record with image_path is not fallback")
+  assert_eq(d.record.image_path, "escort/top_down.png", "producer image path exposed")
+  ok("producer manifest record lookup")
 end
 
 do
-  -- Alias lookup resolves through the alias map before hitting the manifest.
-  local aliases = { tutorial_escort = "escort" }
+  -- Decode the exact fixture that the Python producer contract test compares
+  -- byte-for-byte with manifest_to_json output.
+  local fixture = assert(io.open(dir .. "fixtures/ship_art_manifest.json", "r"))
+  local payload = json.decode(fixture:read("*a"))
+  fixture:close()
+  local st = ship_art.load_manifest(payload)
+  local d = ship_art.lookup(st, "escort", "top_down")
+  assert_eq(d.found, true, "serialized producer fixture loads through JSON")
+  assert_eq(d.record.image_path, "escort/top_down.png", "serialized image path survives")
+  ok("serialized Python manifest crosses the Love JSON boundary")
+end
+
+do
+  -- The publisher materializes aliases, so the manifest is the only runtime
+  -- identity authority.
   local st = ship_art.load_manifest({
     version = 1,
     records = {
-      { class_id = "escort", state = "top_down", image = "escort_top.png" },
+      art_record("tutorial_escort", "top_down", "escort/top_down.png"),
     },
   })
-  local d = ship_art.lookup(st, "tutorial_escort", aliases, "top_down")
-  assert_eq(d.found, true, "alias resolves to base record")
-  assert_eq(d.class_id, "escort", "canonical class_id is the base")
+  local d = ship_art.lookup(st, "tutorial_escort", "top_down")
+  assert_eq(d.found, true, "materialized alias record resolves")
+  assert_eq(d.class_id, "tutorial_escort", "snapshot class_id remains the lookup key")
   assert_eq(d.fallback, false, "alias art is not fallback")
-  ok("alias lookup hits base record")
+  ok("manifest materializes alias lookup")
 end
 
 do
@@ -1858,28 +1875,59 @@ do
   local st = ship_art.load_manifest({
     version = 1,
     records = {
-      { class_id = "escort", state = "top_down", image = "" },
+      { class_id = "escort", state = "top_down", image_path = "" },
     },
   })
-  local d = ship_art.lookup(st, "escort", nil, "top_down")
+  local d = ship_art.lookup(st, "escort", "top_down")
   assert_eq(d.fallback, true, "empty image path -> fallback")
   assert_eq(d.found, false, "empty image path -> not found")
   ok("ungenerated record falls back")
 end
 
 do
-  -- Missing state degrades to top_down before falling back to geometry.
+  -- State fallbacks are exact: a top-down asset must never impersonate a
+  -- portrait or a destroyed-state sprite.
   local st = ship_art.load_manifest({
     version = 1,
     records = {
-      { class_id = "escort", state = "top_down", image = "escort_top.png" },
+      art_record("escort", "top_down", "escort/top_down.png"),
     },
   })
-  local d = ship_art.lookup(st, "escort", nil, "portrait")
-  assert_eq(d.found, true, "portrait missing degrades to top_down")
-  assert_eq(d.state, "top_down", "degraded state reported as top_down")
-  assert_eq(d.fallback, false, "degraded state still usable")
-  ok("missing state degrades to top_down")
+  local portrait = ship_art.lookup(st, "escort", "portrait")
+  assert_eq(portrait.found, false, "missing portrait is not found")
+  assert_eq(portrait.state, "portrait", "requested portrait state preserved")
+  assert_eq(portrait.fallback, true, "missing portrait keeps text-only HUD")
+  local destroyed = ship_art.lookup(st, "escort", "destroyed")
+  assert_eq(destroyed.found, false, "missing destroyed state is not found")
+  assert_eq(destroyed.state, "destroyed", "requested destroyed state preserved")
+  assert_eq(destroyed.fallback, true, "missing destroyed state keeps gray marker")
+  ok("missing states use their exact geometric or text fallback")
+end
+
+do
+  -- Runtime validation is defensive even if a manifest was edited by hand.
+  local loaded, st, err = pcall(ship_art.load_manifest, {
+    version = 1,
+    records = {
+      { class_id = "absolute", state = "top_down", image_path = "/tmp/ship.png" },
+      { class_id = "traversal", state = "top_down", image_path = "../ship.png" },
+      { class_id = "windows", state = "top_down", image_path = "escort\\ship.png" },
+      { class_id = "unnormalized", state = "top_down", image_path = "escort//ship.png" },
+      { class_id = "bad_path", state = "top_down", image_path = {} },
+      { class_id = "bad_state", state = {}, image_path = "escort/ship.png" },
+      { class_id = {}, state = "top_down", image_path = "escort/ship.png" },
+      { class_id = "bad_meta", state = "top_down", image_path = "escort/ship.png",
+        width = 256, height = 256, anchor_x = 2, anchor_y = 0.5,
+        source_angle = 0, scale = 1 },
+      "not a record",
+    },
+  })
+  assert_eq(loaded, true, "malformed records do not throw")
+  assert(st, "manifest with malformed records still loads")
+  assert_eq(err, nil, "record errors do not reject whole manifest")
+  assert_eq(next(st.by_class), nil, "unsafe and malformed records are ignored")
+  assert(#st.diagnostics >= 9, "each malformed record is diagnosed")
+  ok("unsafe and malformed manifest records are ignored")
 end
 
 do
@@ -1899,19 +1947,20 @@ do
   local load_count = 0
   local function load_image(path)
     load_count = load_count + 1
-    return { handle = path } -- stub image
+    return { handle = path, getDimensions = function() return 256, 256 end }
   end
   local st = ship_art.load_manifest({
     version = 1,
     records = {
-      { class_id = "escort", state = "top_down", image = "escort_top.png" },
+      art_record("escort", "top_down", "escort/top_down.png"),
     },
   })
-  local cache = ship_art.new_cache(st, nil, load_image)
-  local d1 = cache:get(st, "escort", nil, "top_down")
+  local cache = ship_art.new_cache(st, load_image)
+  local d1 = cache:get("escort", "top_down")
   assert_eq(d1.fallback, false, "cache returns non-fallback on success")
   assert_eq(type(d1.image), "table", "cache returns image handle")
-  local d2 = cache:get(st, "escort", nil, "top_down")
+  assert_eq(d1.image.handle, "assets/ship_art/escort/top_down.png", "cache loads from Love asset root")
+  local d2 = cache:get("escort", "top_down")
   assert_eq(load_count, 1, "image loaded only once (cached)")
   ok("cache loads image once")
 end
@@ -1924,19 +1973,87 @@ do
   local st = ship_art.load_manifest({
     version = 1,
     records = {
-      { class_id = "escort", state = "top_down", image = "missing.png" },
+      art_record("escort", "top_down", "escort/missing.png"),
     },
   })
-  local cache = ship_art.new_cache(st, nil, load_image)
-  local d = cache:get(st, "escort", nil, "top_down")
+  local cache = ship_art.new_cache(st, load_image)
+  local d = cache:get("escort", "top_down")
   assert_eq(d.fallback, true, "load failure -> fallback")
   assert_eq(d.image, nil, "no image on failure")
   assert_eq(#st.diagnostics, 1, "load failure emits one diagnostic")
   -- Second lookup does not re-attempt or re-diagnose.
-  local d2 = cache:get(st, "escort", nil, "top_down")
+  local d2 = cache:get("escort", "top_down")
   assert_eq(d2.fallback, true, "cached failure stays fallback")
   assert_eq(#st.diagnostics, 1, "no second diagnostic for same asset")
   ok("cache load failure falls back safely")
+end
+
+do
+  -- The authored sprite stays white; controller ownership is carried by the
+  -- outline color drawn around successful sprites.
+  local player = draw_board.controller_color({ controller = "player" })
+  local ai = draw_board.controller_color({ controller = "ai" })
+  local scripted = draw_board.controller_color({ controller = "scripted" })
+  local destroyed = draw_board.controller_color({ controller = "player", destroyed = true })
+  assert_eq(player[1], 0.3, "player controller cue")
+  assert_eq(ai[1], 1.0, "AI controller cue")
+  assert_eq(scripted[2], 0.75, "scripted controller cue")
+  assert_eq(destroyed[1], 0.4, "destroyed cue remains gray")
+  assert(draw_board.controller_cue_radius() < draw_board.marker_radius(),
+    "controller cue stays inset within the frozen marker footprint")
+  local record = art_record("escort", "top_down", "escort/top_down.png")
+  record.anchor_x = 0.25
+  record.anchor_y = 0.75
+  record.source_angle = 30
+  local presenter = assert(ship_art.new_presenter(
+    { version = 1, records = { record } },
+    function(path)
+      return { getDimensions = function() return 256, 256 end }
+    end
+  ))
+  local presentation = presenter:board_decision(
+    { class_id = "escort", facing = 0 },
+    draw_board.marker_radius()
+  )
+  assert(presentation.outer_radius <= draw_board.marker_radius() + 0.000001,
+    "full rectangular sprite stays inside the marker footprint")
+  assert_eq(presentation.origin_x, 64, "manifest anchor_x is applied")
+  assert_eq(presentation.origin_y, 192, "manifest anchor_y is applied")
+  assert(math.abs(presentation.angle
+    - (geom.facing_angle(0) - ship_art.SOURCE_UP_ANGLE + math.rad(30))) < 0.000001,
+    "manifest source angle is applied")
+  ok("controller ownership colors remain available with sprites")
+end
+
+do
+  -- Shared runtime ownership means the HUD can initialize and draw a portrait
+  -- before draw_board.draw has ever run.
+  local manifest_payload = [[{"version":1,"records":[{
+    "class_id":"escort","state":"portrait",
+    "image_path":"escort/portrait.png","width":256,"height":256,
+    "anchor_x":0.5,"anchor_y":0.5,"source_angle":0,"scale":1
+  }]}]]
+  local drew = false
+  local prior_love = love
+  love = {
+    filesystem = { read = function(path) return manifest_payload end },
+    graphics = {
+      newImage = function(path)
+        return { getDimensions = function() return 256, 256 end }
+      end,
+      setColor = function() end,
+      draw = function() drew = true end,
+    },
+  }
+  local consumed = draw_hud.draw_portrait(
+    { selected_id = 7 },
+    { ships = { { id = 7, class_id = "escort" } } },
+    700, 10, 100, 220
+  )
+  love = prior_love
+  assert_eq(drew, true, "HUD portrait draws without a board initialization side effect")
+  assert_eq(consumed, 48, "HUD portrait reports its presentation height")
+  ok("HUD portrait initializes independently of board draw order")
 end
 
 do

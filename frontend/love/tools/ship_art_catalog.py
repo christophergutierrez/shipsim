@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import re
 import sys
 import tomllib
-from dataclasses import dataclass, field
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +46,13 @@ MANIFEST_PATH = _ASSETS_DIR / "manifest.json"
 
 # P0 states: top-down sprite + portrait.
 P0_STATES = ("top_down", "portrait")
+REVIEW_STATUSES = ("unreviewed", "accepted", "rejected")
+_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def is_safe_identifier(value: Any) -> bool:
+    """Return whether a class/state identifier is safe in TOML and paths."""
+    return isinstance(value, str) and _IDENTIFIER_RE.fullmatch(value) is not None
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -84,6 +94,139 @@ class CatalogEntry:
         return d
 
 
+@dataclass(frozen=True)
+class StateAsset:
+    """One complete sidecar state and its review lifecycle.
+
+    This is the sole schema owner for persisted state metadata. Sidecars never
+    persist partial dictionaries; malformed legacy/manual TOML fails loading
+    and is reported by the audit.
+    """
+
+    image_path: str
+    width: int
+    height: int
+    anchor_x: float
+    anchor_y: float
+    source_angle: float
+    scale: float
+    provider: str
+    model: str
+    prompt_hash: str
+    reference_state: str
+    processing_version: str
+    review_status: str
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], state: str = "state") -> "StateAsset":
+        required = tuple(cls.__dataclass_fields__)
+        for key in required:
+            if key not in data:
+                raise ValueError(f"state '{state}' missing metadata '{key}'")
+        asset = cls(**{key: data[key] for key in required})
+        asset.validate_schema(state)
+        return asset
+
+    def validate_schema(self, state: str = "state") -> None:
+        if (
+            not isinstance(self.image_path, str)
+            or not self.image_path
+            or not is_safe_relative_path(self.image_path, Path("."))
+        ):
+            raise ValueError(f"state '{state}' has invalid image_path")
+        for key in ("width", "height"):
+            value = getattr(self, key)
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"state '{state}' has invalid {key}")
+        for key in ("anchor_x", "anchor_y"):
+            value = getattr(self, key)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or not 0.0 <= value <= 1.0
+            ):
+                raise ValueError(f"state '{state}' has invalid {key}")
+        if (
+            not isinstance(self.source_angle, (int, float))
+            or isinstance(self.source_angle, bool)
+            or not math.isfinite(self.source_angle)
+        ):
+            raise ValueError(f"state '{state}' has invalid source_angle")
+        if (
+            not isinstance(self.scale, (int, float))
+            or isinstance(self.scale, bool)
+            or not math.isfinite(self.scale)
+            or not 0.0 < self.scale <= 1.0
+        ):
+            raise ValueError(f"state '{state}' has invalid scale")
+        for key in ("provider", "model", "prompt_hash", "processing_version"):
+            value = getattr(self, key)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"state '{state}' has invalid {key}")
+        if not isinstance(self.reference_state, str):
+            raise ValueError(f"state '{state}' has invalid reference_state")
+        if self.review_status not in REVIEW_STATUSES:
+            raise ValueError(
+                f"state '{state}' has unknown review_status '{self.review_status}'"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            key: getattr(self, key)
+            for key in self.__dataclass_fields__
+        }
+
+    def transition_review(self, review_status: str) -> "StateAsset":
+        if review_status not in REVIEW_STATUSES:
+            raise ValueError(f"unknown review status '{review_status}'")
+        return replace(self, review_status=review_status)
+
+    def after_pixel_change(self, width: int, height: int) -> "StateAsset":
+        changed = replace(
+            self,
+            width=width,
+            height=height,
+            review_status="unreviewed",
+        )
+        changed.validate_schema()
+        return changed
+
+    def asset_exists(self, assets_dir: Path) -> bool:
+        return is_safe_relative_path(self.image_path, assets_dir) and (
+            assets_dir / self.image_path
+        ).is_file()
+
+    def asset_valid(self, assets_dir: Path) -> bool:
+        if not self.asset_exists(assets_dir):
+            return False
+        try:
+            from PIL import Image
+
+            with Image.open(assets_dir / self.image_path) as image:
+                actual_size = image.size
+                image.verify()
+        except (OSError, ValueError):
+            return False
+        return actual_size == (self.width, self.height)
+
+    def is_accepted(self, assets_dir: Path) -> bool:
+        return self.review_status == "accepted" and self.asset_valid(assets_dir)
+
+    def to_manifest_record(self, class_id: str, state: str) -> "ManifestRecord":
+        return ManifestRecord(
+            class_id=class_id,
+            state=state,
+            image_path=Path(self.image_path).as_posix(),
+            width=self.width,
+            height=self.height,
+            anchor_x=self.anchor_x,
+            anchor_y=self.anchor_y,
+            source_angle=self.source_angle,
+            scale=self.scale,
+        )
+
+
 @dataclass
 class Sidecar:
     """Per-class authoring/provenance metadata (sprite.toml).
@@ -93,20 +236,117 @@ class Sidecar:
     """
 
     class_id: str
-    states: dict[str, dict[str, Any]] = field(default_factory=dict)
+    states: dict[str, StateAsset] = field(default_factory=dict)
+    display_name: str = ""
 
     @classmethod
     def from_toml(cls, path: Path) -> "Sidecar":
         with open(path, "rb") as f:
             data = tomllib.load(f)
         class_id = data.get("class_id", path.parent.name)
-        states = {}
+        states: dict[str, StateAsset] = {}
         raw_states = data.get("states", {})
         if isinstance(raw_states, dict):
             for state_name, state_data in raw_states.items():
-                if isinstance(state_data, dict):
-                    states[state_name] = state_data
-        return cls(class_id=class_id, states=states)
+                if not is_safe_identifier(state_name):
+                    raise ValueError(f"invalid state identifier '{state_name}'")
+                if not isinstance(state_data, dict):
+                    raise ValueError(f"state '{state_name}' must be a table")
+                states[state_name] = StateAsset.from_dict(state_data, state_name)
+        return cls(class_id=class_id, states=states, display_name=data.get("display_name", ""))
+
+
+def _toml_string(value: str) -> str:
+    """Encode a string for the small, deterministic sidecar TOML schema."""
+    return json.dumps(value, ensure_ascii=False)
+
+
+def sidecar_to_toml(sidecar: Sidecar) -> str:
+    """Serialize authoring metadata deterministically without a TOML dependency."""
+    lines = [f"class_id = {_toml_string(sidecar.class_id)}"]
+    if sidecar.display_name:
+        lines.append(f"display_name = {_toml_string(sidecar.display_name)}")
+    for state, asset in sorted(sidecar.states.items()):
+        metadata = asset.to_dict()
+        lines.extend(("", f"[states.{state}]"))
+        preferred = (
+            "image_path", "width", "height", "anchor_x", "anchor_y",
+            "source_angle", "scale", "provider", "model", "prompt_hash",
+            "reference_state", "processing_version", "review_status",
+        )
+        for key in preferred:
+            value = metadata[key]
+            if isinstance(value, str):
+                encoded = _toml_string(value)
+            elif isinstance(value, bool):
+                encoded = "true" if value else "false"
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                encoded = str(value).lower()
+            else:
+                raise ValueError(f"unsupported sidecar value for {state}.{key}")
+            lines.append(f"{key} = {encoded}")
+    return "\n".join(lines) + "\n"
+
+
+def write_sidecar_state(
+    path: Path,
+    *,
+    class_id: str,
+    display_name: str,
+    state: str,
+    metadata: StateAsset | dict[str, Any],
+) -> None:
+    """Atomically insert or replace one state while preserving other states."""
+    if not is_safe_identifier(class_id) or not is_safe_identifier(state):
+        raise ValueError("class_id and state must be lowercase identifiers")
+    sidecar = Sidecar(class_id=class_id, display_name=display_name)
+    if path.is_file():
+        sidecar = Sidecar.from_toml(path)
+        if sidecar.class_id != class_id:
+            raise ValueError(
+                f"sidecar class_id '{sidecar.class_id}' does not match '{class_id}'"
+            )
+        sidecar.display_name = display_name or sidecar.display_name
+    asset = (
+        metadata
+        if isinstance(metadata, StateAsset)
+        else StateAsset.from_dict(metadata, state)
+    )
+    asset.validate_schema(state)
+    sidecar.states[state] = asset
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(sidecar_to_toml(sidecar))
+    os.replace(temporary, path)
+
+
+def set_review_status(
+    path: Path,
+    *,
+    class_id: str,
+    state: str,
+    review_status: str,
+) -> None:
+    """Atomically update the explicit reviewer decision for one existing state."""
+    if review_status not in REVIEW_STATUSES:
+        raise ValueError(f"unknown review status '{review_status}'")
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    sidecar = Sidecar.from_toml(path)
+    if sidecar.class_id != class_id:
+        raise ValueError(
+            f"sidecar class_id '{sidecar.class_id}' does not match '{class_id}'"
+        )
+    asset = sidecar.states.get(state)
+    if asset is None:
+        raise ValueError(f"sidecar has no state '{state}'")
+    write_sidecar_state(
+        path,
+        class_id=class_id,
+        display_name=sidecar.display_name,
+        state=state,
+        metadata=asset.transition_review(review_status),
+    )
 
 
 @dataclass
@@ -350,7 +590,10 @@ def load_catalog(path: Path = CATALOG_PATH) -> list[CatalogEntry]:
 # ---------------------------------------------------------------------------
 
 
-def load_sidecars(assets_dir: Path = _ASSETS_DIR) -> dict[str, Sidecar]:
+def load_sidecars(
+    assets_dir: Path = _ASSETS_DIR,
+    errors: list[str] | None = None,
+) -> dict[str, Sidecar]:
     """Load all sprite.toml sidecars from <assets_dir>/<class_id>/sprite.toml."""
     sidecars: dict[str, Sidecar] = {}
     if not assets_dir.is_dir():
@@ -360,8 +603,15 @@ def load_sidecars(assets_dir: Path = _ASSETS_DIR) -> dict[str, Sidecar]:
             continue
         sidecar_path = class_dir / "sprite.toml"
         if sidecar_path.is_file():
-            sc = Sidecar.from_toml(sidecar_path)
-            sidecars[sc.class_id] = sc
+            try:
+                sc = Sidecar.from_toml(sidecar_path)
+            except (OSError, TypeError, ValueError, tomllib.TOMLDecodeError) as error:
+                if errors is not None:
+                    errors.append(f"invalid sidecar '{class_dir.name}': {error}")
+                continue
+            # Key by the authoritative directory/catalog identity so a
+            # mismatched internal class_id remains visible to the audit.
+            sidecars[class_dir.name] = sc
     return sidecars
 
 
@@ -372,7 +622,16 @@ def load_sidecars(assets_dir: Path = _ASSETS_DIR) -> dict[str, Sidecar]:
 
 def is_safe_relative_path(path_str: str, base: Path) -> bool:
     """Return True if path_str is relative, normalized, and stays inside base."""
-    if not path_str:
+    if not isinstance(path_str, str) or not path_str:
+        return False
+    # Runtime JSON paths use portable POSIX separators and must already be
+    # normalized; accepting a path only after normalization can conceal a
+    # traversal or produce platform-dependent manifests.
+    if (
+        "\\" in path_str
+        or os.path.normpath(path_str) != path_str
+        or path_str.split("/", 1)[0].endswith(":")
+    ):
         return False
     if os.path.isabs(path_str):
         return False
@@ -388,6 +647,42 @@ def is_safe_relative_path(path_str: str, base: Path) -> bool:
     except (ValueError, RuntimeError):
         return False
     return True
+
+
+def _state_asset(metadata: StateAsset | dict[str, Any]) -> StateAsset | None:
+    if isinstance(metadata, StateAsset):
+        return metadata
+    try:
+        return StateAsset.from_dict(metadata)
+    except (TypeError, ValueError):
+        return None
+
+
+def state_asset_exists(
+    metadata: StateAsset | dict[str, Any],
+    assets_dir: Path = _ASSETS_DIR,
+) -> bool:
+    """Return whether state metadata points at an existing in-tree file."""
+    asset = _state_asset(metadata)
+    return asset is not None and asset.asset_exists(assets_dir)
+
+
+def state_asset_valid(
+    metadata: StateAsset | dict[str, Any],
+    assets_dir: Path = _ASSETS_DIR,
+) -> bool:
+    """Return whether one state has complete metadata and a valid matching PNG."""
+    asset = _state_asset(metadata)
+    return asset is not None and asset.asset_valid(assets_dir)
+
+
+def state_is_accepted(
+    metadata: StateAsset | dict[str, Any],
+    assets_dir: Path = _ASSETS_DIR,
+) -> bool:
+    """Return whether a state is explicitly reviewed and publishable."""
+    asset = _state_asset(metadata)
+    return asset is not None and asset.is_accepted(assets_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -446,22 +741,9 @@ def generate_manifest(
             state_data = sc.states.get(state)
             if state_data is None:
                 continue
-            image_path = state_data.get("image_path", "")
-            if not image_path:
+            if not state_is_accepted(state_data, assets_dir):
                 continue
-            if not is_safe_relative_path(image_path, assets_dir):
-                continue
-            rec = ManifestRecord(
-                class_id=entry.class_id,
-                state=state,
-                image_path=image_path,
-                width=state_data.get("width", 0),
-                height=state_data.get("height", 0),
-                anchor_x=state_data.get("anchor_x", 0.5),
-                anchor_y=state_data.get("anchor_y", 0.5),
-                source_angle=state_data.get("source_angle", 0.0),
-                scale=state_data.get("scale", 1.0),
-            )
+            rec = state_data.to_manifest_record(entry.class_id, state)
             primary_records.setdefault(entry.class_id, []).append(rec)
 
     # Emit primary records.
@@ -504,9 +786,76 @@ def manifest_to_json(records: list[ManifestRecord]) -> str:
 
 
 def write_manifest(records: list[ManifestRecord], path: Path = MANIFEST_PATH) -> None:
-    """Write manifest JSON to disk."""
+    """Atomically publish manifest JSON."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(manifest_to_json(records))
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(manifest_to_json(records))
+    os.replace(temporary, path)
+
+
+def _restore_file(path: Path, contents: bytes | None) -> None:
+    """Restore one file snapshot without exposing a partially written file."""
+    if contents is None:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".rollback")
+    temporary.write_bytes(contents)
+    os.replace(temporary, path)
+
+
+@contextmanager
+def asset_publication(
+    catalog: list[CatalogEntry],
+    assets_dir: Path,
+    changed_paths: list[Path],
+):
+    """Publish asset files, sidecars, and the runtime manifest as one unit.
+
+    Callers perform atomic image/sidecar mutations inside the context. On a
+    successful exit the manifest is rebuilt immediately from the resulting
+    accepted states. Any mutation or manifest failure restores every supplied
+    path and the prior manifest, so a stale record cannot expose unreviewed
+    pixels that reused an accepted image path.
+    """
+    assets_dir = Path(assets_dir)
+    manifest_path = assets_dir / "manifest.json"
+    paths = list(
+        dict.fromkeys([Path(path) for path in changed_paths] + [manifest_path])
+    )
+    snapshots = {
+        path: path.read_bytes() if path.is_file() else None
+        for path in paths
+    }
+    try:
+        yield
+        write_manifest(
+            generate_manifest(catalog, assets_dir=assets_dir),
+            path=manifest_path,
+        )
+    except Exception:
+        for path, contents in snapshots.items():
+            _restore_file(path, contents)
+        raise
+
+
+def publish_review_status(
+    catalog: list[CatalogEntry],
+    assets_dir: Path,
+    *,
+    class_id: str,
+    state: str,
+    review_status: str,
+) -> None:
+    """Change a reviewer decision and runtime visibility atomically."""
+    sidecar_path = Path(assets_dir) / class_id / "sprite.toml"
+    with asset_publication(catalog, Path(assets_dir), [sidecar_path]):
+        set_review_status(
+            sidecar_path,
+            class_id=class_id,
+            state=state,
+            review_status=review_status,
+        )
 
 
 def load_manifest(path: Path = MANIFEST_PATH) -> list[ManifestRecord]:
@@ -559,6 +908,13 @@ def audit(
 
     # Check every ship definition resolves to a catalog entry.
     for def_id in sorted(defs.keys()):
+        internal_id = defs[def_id].get("id")
+        # Rust treats omitted and explicitly empty ids as "use the
+        # authoritative file stem". Keep the offline audit in exact parity.
+        if internal_id not in (None, "") and internal_id != def_id:
+            result.errors.append(
+                f"definition '{def_id}' internal id '{internal_id}' does not match file stem"
+            )
         if def_id not in by_id:
             result.errors.append(f"definition '{def_id}' has no catalog entry")
             result.unknown += 1
@@ -571,6 +927,8 @@ def audit(
 
     # Count primaries and aliases.
     for entry in catalog:
+        if not is_safe_identifier(entry.class_id):
+            result.errors.append(f"catalog entry has invalid class_id '{entry.class_id}'")
         if entry.kind == "primary":
             result.primary += 1
         elif entry.kind == "alias":
@@ -603,15 +961,44 @@ def audit(
             result.errors.append(f"alias cycle detected starting at '{entry.class_id}'")
             result.cycles += 1
 
-    # Validate sidecar paths are safe.
-    sidecars = load_sidecars(assets_dir)
+    # Validate canonical identity and required state metadata. Partial sidecars
+    # are allowed, but every state that is declared must be renderable and
+    # traceable.
+    sidecars = load_sidecars(assets_dir, result.errors)
     for class_id, sc in sidecars.items():
+        if sc.class_id != class_id:
+            result.errors.append(
+                f"sidecar directory '{class_id}' declares class_id '{sc.class_id}'"
+            )
+        if class_id not in by_id:
+            result.errors.append(f"sidecar '{class_id}' has no catalog entry")
         for state, state_data in sc.states.items():
-            image_path = state_data.get("image_path", "")
-            if image_path and not is_safe_relative_path(image_path, assets_dir):
+            image_path = state_data.image_path
+            if not is_safe_relative_path(image_path, assets_dir):
                 result.errors.append(
                     f"sidecar '{class_id}' state '{state}' has unsafe path '{image_path}'"
                 )
+            elif not (assets_dir / image_path).is_file():
+                result.errors.append(
+                    f"sidecar '{class_id}' state '{state}' asset does not exist: '{image_path}'"
+                )
+            else:
+                try:
+                    from PIL import Image
+
+                    with Image.open(assets_dir / image_path) as image:
+                        actual_size = image.size
+                        image.verify()
+                    declared_size = (state_data.width, state_data.height)
+                    if declared_size != actual_size:
+                        result.errors.append(
+                            f"sidecar '{class_id}' state '{state}' dimensions "
+                            f"{declared_size} do not match asset {actual_size}"
+                        )
+                except (OSError, ValueError) as error:
+                    result.errors.append(
+                        f"sidecar '{class_id}' state '{state}' asset is invalid: {error}"
+                    )
 
     return result
 

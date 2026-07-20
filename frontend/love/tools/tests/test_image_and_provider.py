@@ -358,8 +358,8 @@ class TestPortraitProcessing(unittest.TestCase):
             self.assertTrue(ok)
             self.assertGreater(file_bytes, 0)
             # Verify the output is 128x128.
-            out = Image.open(f.name)
-            self.assertEqual(out.size, (128, 128))
+            with Image.open(f.name) as out:
+                self.assertEqual(out.size, (128, 128))
             os.unlink(f.name)
 
 

@@ -104,13 +104,11 @@ fn test_class_id_emitted_on_every_ship_snapshot() {
 
     // Duplicate display names resolve to distinct canonical class_id values.
     assert_ne!(
-        by_class_id["heavy_cruiser"].0,
-        by_class_id["tutorial_heavy_cruiser"].0,
+        by_class_id["heavy_cruiser"].0, by_class_id["tutorial_heavy_cruiser"].0,
         "heavy_cruiser and tutorial_heavy_cruiser are distinct ships"
     );
     assert_ne!(
-        by_class_id["escort"].0,
-        by_class_id["tutorial_escort"].0,
+        by_class_id["escort"].0, by_class_id["tutorial_escort"].0,
         "escort and tutorial_escort are distinct ships"
     );
 

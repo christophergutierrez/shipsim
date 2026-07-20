@@ -10,11 +10,42 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 # Make the tools module importable.
 _TOOLS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_TOOLS_DIR))
 
 import ship_art_catalog as sac  # noqa: E402
+
+
+def write_accepted_state(assets_dir: Path, state: str) -> None:
+    """Create one complete, reviewed fixture using the production sidecar writer."""
+    class_dir = assets_dir / "escort"
+    class_dir.mkdir(exist_ok=True)
+    image_path = class_dir / f"{state}.png"
+    Image.new("RGBA", (256, 256), (20, 40, 80, 255)).save(image_path)
+    sac.write_sidecar_state(
+        class_dir / "sprite.toml",
+        class_id="escort",
+        display_name="Escort",
+        state=state,
+        metadata={
+            "image_path": f"escort/{state}.png",
+            "width": 256,
+            "height": 256,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "source_angle": 0.0,
+            "scale": 1.0,
+            "provider": "fake",
+            "model": "fake-model",
+            "prompt_hash": "fixture",
+            "reference_state": "",
+            "processing_version": "1",
+            "review_status": "accepted",
+        },
+    )
 
 
 class TestCatalogBuilding(unittest.TestCase):
@@ -170,22 +201,8 @@ class TestManifestGeneration(unittest.TestCase):
         """Manifest with a sidecar fixture is deterministic across rebuilds."""
         with tempfile.TemporaryDirectory() as tmp:
             assets_dir = Path(tmp)
-            # Create a sidecar for escort.
-            escort_dir = assets_dir / "escort"
-            escort_dir.mkdir()
-            sidecar = escort_dir / "sprite.toml"
-            sidecar.write_text(
-                'class_id = "escort"\n'
-                '[states.top_down]\n'
-                'image_path = "escort/top_down.png"\n'
-                'width = 256\n'
-                'height = 256\n'
-                'source_angle = 0.0\n'
-                '[states.portrait]\n'
-                'image_path = "escort/portrait.png"\n'
-                'width = 256\n'
-                'height = 256\n'
-            )
+            write_accepted_state(assets_dir, "top_down")
+            write_accepted_state(assets_dir, "portrait")
             catalog = sac.build_catalog()
             records1 = sac.generate_manifest(catalog, assets_dir=assets_dir)
             records2 = sac.generate_manifest(catalog, assets_dir=assets_dir)
@@ -199,21 +216,8 @@ class TestManifestGeneration(unittest.TestCase):
         state plus any aliases targeting it."""
         with tempfile.TemporaryDirectory() as tmp:
             assets_dir = Path(tmp)
-            # Create a sidecar for escort (which tutorial_escort aliases).
-            escort_dir = assets_dir / "escort"
-            escort_dir.mkdir()
-            sidecar = escort_dir / "sprite.toml"
-            sidecar.write_text(
-                'class_id = "escort"\n'
-                '[states.top_down]\n'
-                'image_path = "escort/top_down.png"\n'
-                'width = 256\n'
-                'height = 256\n'
-                '[states.portrait]\n'
-                'image_path = "escort/portrait.png"\n'
-                'width = 256\n'
-                'height = 256\n'
-            )
+            write_accepted_state(assets_dir, "top_down")
+            write_accepted_state(assets_dir, "portrait")
             catalog = sac.build_catalog()
             records = sac.generate_manifest(catalog, assets_dir=assets_dir)
 
@@ -234,16 +238,7 @@ class TestManifestGeneration(unittest.TestCase):
         """A sidecar with only top_down omits portrait from the manifest."""
         with tempfile.TemporaryDirectory() as tmp:
             assets_dir = Path(tmp)
-            escort_dir = assets_dir / "escort"
-            escort_dir.mkdir()
-            sidecar = escort_dir / "sprite.toml"
-            sidecar.write_text(
-                'class_id = "escort"\n'
-                '[states.top_down]\n'
-                'image_path = "escort/top_down.png"\n'
-                'width = 256\n'
-                'height = 256\n'
-            )
+            write_accepted_state(assets_dir, "top_down")
             catalog = sac.build_catalog()
             records = sac.generate_manifest(catalog, assets_dir=assets_dir)
             # Only top_down for escort + tutorial_escort alias.
@@ -306,12 +301,18 @@ class TestSidecarLoading(unittest.TestCase):
                 'anchor_y = 0.4\n'
                 'source_angle = 0.0\n'
                 'scale = 1.0\n'
+                'provider = "fake"\n'
+                'model = "fake-model"\n'
+                'prompt_hash = "fixture"\n'
+                'reference_state = ""\n'
+                'processing_version = "1"\n'
+                'review_status = "accepted"\n'
             )
             sc = sac.Sidecar.from_toml(sidecar_path)
             self.assertEqual(sc.class_id, "escort")
             self.assertIn("top_down", sc.states)
-            self.assertEqual(sc.states["top_down"]["image_path"], "escort/top_down.png")
-            self.assertEqual(sc.states["top_down"]["width"], 256)
+            self.assertEqual(sc.states["top_down"].image_path, "escort/top_down.png")
+            self.assertEqual(sc.states["top_down"].width, 256)
 
     def test_sidecar_class_id_defaults_to_parent_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -319,8 +320,7 @@ class TestSidecarLoading(unittest.TestCase):
             class_dir.mkdir()
             sidecar_path = class_dir / "sprite.toml"
             sidecar_path.write_text(
-                '[states.top_down]\n'
-                'image_path = "my_ship/top_down.png"\n'
+                'class_id = "my_ship"\n'
             )
             sc = sac.Sidecar.from_toml(sidecar_path)
             self.assertEqual(sc.class_id, "my_ship")

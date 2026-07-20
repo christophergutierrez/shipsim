@@ -30,6 +30,14 @@ pub enum LoadError {
     Rules(#[from] RulesError),
     #[error("ship class {class:?} is missing at {path:?}")]
     MissingShipClass { class: String, path: PathBuf },
+    #[error(
+        "ship definition at {path:?} declares id {declared_id:?}, but its catalog key is {class:?}"
+    )]
+    MismatchedShipClassId {
+        class: String,
+        declared_id: String,
+        path: PathBuf,
+    },
     #[error("hex ({q},{r}) is outside the scenario map")]
     OffBoard { q: i32, r: i32 },
     #[error("facing {facing} is not in 0..=5")]
@@ -251,14 +259,9 @@ pub fn load_scenario_def_with_rules(
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name.clone(),
-            // Canonical catalog key: the ship-definition file stem. Falls back
-            // to the placement class key when a definition omits its internal
-            // `id` field, so canonical identity is always non-empty.
-            class_id: if ship_def.id.is_empty() {
-                placement.class.clone()
-            } else {
-                ship_def.id.clone()
-            },
+            // Canonical identity is the catalog key used to load this
+            // definition. `load_ship_def` rejects a conflicting internal id.
+            class_id: placement.class.clone(),
             size: ship_def.size,
             pos,
             facing: placement.facing,
@@ -303,6 +306,13 @@ pub fn load_ship_def(data_root: &Path, class: &str) -> Result<ShipDef, LoadError
 
     let text = read_to_string(&ship_path)?;
     let ship_def: ShipDef = parse_toml(&ship_path, &text)?;
+    if !ship_def.id.is_empty() && ship_def.id != class {
+        return Err(LoadError::MismatchedShipClassId {
+            class: class.to_string(),
+            declared_id: ship_def.id,
+            path: ship_path,
+        });
+    }
     Ok(ship_def)
 }
 
@@ -572,5 +582,61 @@ engine_boxes = 1
         let error =
             load_ship_def(dir.path(), "no_size").expect_err("missing size must fail to parse");
         assert!(matches!(error, LoadError::Parse { .. }), "{error}");
+    }
+
+    #[test]
+    fn ship_definition_id_must_match_catalog_key() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_ship(
+            dir.path(),
+            "catalog_key",
+            &format!("id = \"different_key\"\n{MIN_SHIP}"),
+        );
+
+        let error = load_ship_def(dir.path(), "catalog_key")
+            .expect_err("a declared id that disagrees with the catalog key must be rejected");
+        assert!(matches!(
+            &error,
+            LoadError::MismatchedShipClassId {
+                class,
+                declared_id,
+                path,
+            } if class == "catalog_key"
+                && declared_id == "different_key"
+                && path.ends_with("data/ships/catalog_key.toml")
+        ));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "ship definition at {:?} declares id {:?}, but its catalog key is {:?}",
+                dir.path().join("data/ships/catalog_key.toml"),
+                "different_key",
+                "catalog_key",
+            )
+        );
+    }
+
+    #[test]
+    fn omitted_ship_definition_id_uses_catalog_key_as_runtime_identity() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_ship(dir.path(), "catalog_key", MIN_SHIP);
+        let def = one_ship_scenario("catalog_key");
+
+        let state = load_scenario_def_with_rules(&def, dir.path(), Ruleset::builtin())
+            .expect("an omitted internal id remains valid");
+
+        assert_eq!(state.ships()[0].class_id, "catalog_key");
+    }
+
+    #[test]
+    fn empty_ship_definition_id_uses_catalog_key_as_runtime_identity() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_ship(dir.path(), "catalog_key", &format!("id = \"\"\n{MIN_SHIP}"));
+        let def = one_ship_scenario("catalog_key");
+
+        let state = load_scenario_def_with_rules(&def, dir.path(), Ruleset::builtin())
+            .expect("an explicitly empty internal id remains valid");
+
+        assert_eq!(state.ships()[0].class_id, "catalog_key");
     }
 }

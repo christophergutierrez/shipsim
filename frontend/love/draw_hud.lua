@@ -10,7 +10,7 @@ local tutorial = require("tutorial")
 local layout = require("layout")
 local status_fmt = require("status_fmt")
 local allocation = require("allocation")
-local ship_art = require("ship_art")
+local ship_art_runtime = require("ship_art_runtime")
 
 local draw_hud = {}
 
@@ -281,29 +281,24 @@ function draw_hud.draw_portrait(app, snap, px, pad, y, content_w)
   -- Yield space at small window sizes: skip the portrait entirely below a
   -- content-width threshold so command controls are never clipped.
   if content_w < 180 then return 0 end
-  -- Lazy-require draw_board to avoid a hard load-time dependency and keep
-  -- draw_hud unit-testable in isolation. art_handle returns nils until the
-  -- board has drawn at least once (init_art runs on first board draw).
-  local draw_board = require("draw_board")
-  local art_state, art_cache = draw_board.art_handle()
-  if not art_state or not art_cache then return 0 end
-  -- aliases are captured in the cache closure at new_cache time; get() takes
-  -- (loader_state, class_id, want_state).
-  local desc = art_cache:get(art_state, ship.class_id, "portrait")
-  if desc.fallback or not desc.image then return 0 end
-  local img = desc.image
-  local iw, ih = img:getDimensions()
-  if iw <= 0 or ih <= 0 then return 0 end
-  -- Scale to fit within a PORTRAIT_PX square, preserving aspect ratio.
-  local scale = PORTRAIT_PX / math.max(iw, ih)
-  local dw = iw * scale
-  local dh = ih * scale
+  local presentation = ship_art_runtime.portrait_decision(
+    ship.class_id,
+    PORTRAIT_PX
+  )
+  if presentation.fallback or not presentation.image then return 0 end
   -- Right-align the thumbnail in the content area.
-  local dx = px + pad + content_w - dw
+  local dx = px + pad + content_w - presentation.width
   local dy = y
   love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.draw(img, dx, dy, 0, scale, scale)
-  return dh
+  love.graphics.draw(
+    presentation.image,
+    dx,
+    dy,
+    0,
+    presentation.scale,
+    presentation.scale
+  )
+  return presentation.height
 end
 
 function draw_hud.draw(app)

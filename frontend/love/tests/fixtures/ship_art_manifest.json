@@ -1,0 +1,16 @@
+{
+  "records": [
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "escort",
+      "height": 256,
+      "image_path": "escort/top_down.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "top_down",
+      "width": 256
+    }
+  ],
+  "version": 1
+}

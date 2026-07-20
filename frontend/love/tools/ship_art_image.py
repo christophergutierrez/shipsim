@@ -503,7 +503,10 @@ def validate_image(
 
     result = ValidationResult()
 
-    img = Image.open(img_path).convert("RGBA")
+    # ``convert`` returns a detached image, but explicitly close the decoder's
+    # file handle; validation is frequently run across the whole catalog.
+    with Image.open(img_path) as source:
+        img = source.convert("RGBA")
 
     # Empty mask check
     has_content, opaque_count = check_empty_mask(img)

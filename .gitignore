@@ -35,6 +35,7 @@ AGENT-LOCAL.md
 .idea/
 .vscode/
 *.swp
+.devtribunal/
 *~
 
 # OS artifacts
