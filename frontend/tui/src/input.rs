@@ -367,10 +367,10 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
             }
             // Bind by on-screen direction (see handle_movement's direction note).
             KeyCode::Left => {
-                path_append(app, "turn_right");
+                path_append(app, "turn_left");
             }
             KeyCode::Right => {
-                path_append(app, "turn_left");
+                path_append(app, "turn_right");
             }
             KeyCode::Backspace => {
                 if let Some(d) = app.path_draft.as_mut() {
@@ -755,25 +755,24 @@ fn allocation_field_bounds(
 ///
 /// Direction note: on the TUI's `r↓` map, **increasing** facing rotates the ship
 /// counterclockwise (E→NE→NW→…), i.e. to the on-screen LEFT. The engine names the
-/// facing-increasing actions `turn_right` / `move_fr` and the facing-decreasing
-/// ones `turn_left` / `move_fl` — the opposite of how they read on screen. The
-/// TUI therefore binds keys by **on-screen direction**, not by engine action name,
-/// so the player's Left key turns the ship left. (See `path::PathAction` for the
-/// engine's canonical, rendering-agnostic definitions.)
+/// facing-increasing actions `turn_left` / `move_fl` and the facing-decreasing
+/// ones `turn_right` / `move_fr`, matching how they read on screen. The TUI binds
+/// keys by **on-screen direction**, so the player's Left key turns the ship left.
+/// (See `path::PathAction` for the engine's canonical, rendering-agnostic definitions.)
 fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
     if app.focused_ship.is_none() {
         return KeyResult::Continue;
     }
     match key.code {
         KeyCode::Up | KeyCode::Char('w') | KeyCode::Char('f') => path_append(app, "move_f"),
-        // Screen-left veer = ship's port = facing-increasing = engine `move_fr`.
-        KeyCode::Char('a') => path_append(app, "move_fr"),
-        // Screen-right veer = ship's starboard = facing-decreasing = engine `move_fl`.
-        KeyCode::Char('d') => path_append(app, "move_fl"),
-        // Turn nose left on screen (counterclockwise) = engine `turn_right`.
-        KeyCode::Left => path_append(app, "turn_right"),
-        // Turn nose right on screen (clockwise) = engine `turn_left`.
-        KeyCode::Right => path_append(app, "turn_left"),
+        // Screen-left veer = ship's port = facing-increasing = engine `move_fl`.
+        KeyCode::Char('a') => path_append(app, "move_fl"),
+        // Screen-right veer = ship's starboard = facing-decreasing = engine `move_fr`.
+        KeyCode::Char('d') => path_append(app, "move_fr"),
+        // Turn nose left on screen (counterclockwise) = engine `turn_left`.
+        KeyCode::Left => path_append(app, "turn_left"),
+        // Turn nose right on screen (clockwise) = engine `turn_right`.
+        KeyCode::Right => path_append(app, "turn_right"),
         KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
             path_turn_to(app, (c as u8 - b'0') as u32)
         }
@@ -888,13 +887,13 @@ fn commit_volley(app: &mut App) -> KeyResult {
 }
 
 /// Fold a path's actions over a starting facing to get the projected facing.
-/// `move_fr`/`turn_right` add a face; `move_fl`/`turn_left` subtract one.
+/// `move_fl`/`turn_left` add a face; `move_fr`/`turn_right` subtract one.
 fn projected_facing(start: u32, actions: &[String]) -> u32 {
     let mut f = start as i32;
     for a in actions {
         match a.as_str() {
-            "turn_right" | "move_fr" => f += 1,
-            "turn_left" | "move_fl" => f -= 1,
+            "turn_left" | "move_fl" => f += 1,
+            "turn_right" | "move_fr" => f -= 1,
             _ => {}
         }
     }
@@ -902,12 +901,12 @@ fn projected_facing(start: u32, actions: &[String]) -> u32 {
 }
 
 fn turn_actions(current: u32, target: u32) -> Vec<String> {
-    let right = (target + 6 - current) % 6;
-    let left = (current + 6 - target) % 6;
-    let (action, count) = if right <= left {
-        ("turn_right", right)
+    let ccw = (target + 6 - current) % 6;
+    let cw = (current + 6 - target) % 6;
+    let (action, count) = if ccw <= cw {
+        ("turn_left", ccw)
     } else {
-        ("turn_left", left)
+        ("turn_right", cw)
     };
     std::iter::repeat_n(action.to_string(), count as usize).collect()
 }

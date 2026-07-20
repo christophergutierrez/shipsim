@@ -207,11 +207,11 @@ impl BaselinePolicy {
     }
 
     fn facing_cw_steps(from: u8, to: u8) -> u8 {
-        (to + 6 - from) % 6
+        (from + 6 - to) % 6
     }
 
     fn facing_ccw_steps(from: u8, to: u8) -> u8 {
-        (from + 6 - to) % 6
+        (to + 6 - from) % 6
     }
 
     fn map_bounds(snapshot: &StateSnapshot) -> Option<path::MapBounds> {

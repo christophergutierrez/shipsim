@@ -181,15 +181,20 @@ def legal_shield_facings(
 
 
 def turn_toward(current: int, target: int) -> str:
-    """One turn order mode (turn_port | turn_starboard) toward absolute facing target."""
+    """One turn order mode (turn_port | turn_starboard) toward absolute facing target.
+
+    After the engine handedness fix: turn_left = +1 (ccw = port = visual left),
+    turn_right = -1 (cw = starboard = visual right). ``delta`` counts +1 steps,
+    so ``delta <= 3`` means the shorter way is counterclockwise (port).
+    """
     current %= 6
     target %= 6
     delta = (target - current) % 6
     if delta == 0:
         return "forward"  # already aligned; caller should move
     if delta <= 3:
-        return "turn_starboard"
-    return "turn_port"
+        return "turn_port"
+    return "turn_starboard"
 
 
 def steps_to_face(current: int, target: int) -> int:

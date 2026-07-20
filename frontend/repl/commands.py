@@ -804,14 +804,16 @@ def plan_absolute_move(
         return [
             _order("commit_path", ship=ship_id, actions=["move_f"])
         ], f"already facing {target}; move_f along nose"
-    right_steps = (target - face) % 6
-    left_steps = (face - target) % 6
-    if right_steps <= left_steps:
-        actions = ["turn_right"] * right_steps
-        note = f"turn_right ×{right_steps} to face {target}"
-    else:
+    # After the engine handedness fix: turn_left = +1 (ccw, visual left),
+    # turn_right = -1 (cw, visual right). (target - face) % 6 counts +1 steps.
+    left_steps = (target - face) % 6
+    right_steps = (face - target) % 6
+    if left_steps <= right_steps:
         actions = ["turn_left"] * left_steps
         note = f"turn_left ×{left_steps} to face {target}"
+    else:
+        actions = ["turn_right"] * right_steps
+        note = f"turn_right ×{right_steps} to face {target}"
     return [_order("commit_path", ship=ship_id, actions=actions)], note
 
 

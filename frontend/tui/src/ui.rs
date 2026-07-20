@@ -1490,16 +1490,16 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 
 /// Short display token for one path action.
 /// Draft-path token, labelled by **on-screen direction**. The engine's
-/// facing-increasing actions (`move_fr`/`turn_right`) rotate counterclockwise —
+/// facing-increasing actions (`move_fl`/`turn_left`) rotate counterclockwise —
 /// to the on-screen LEFT on the `r↓` map — so they render as the left tokens.
 /// (See `input::handle_movement`'s direction note.)
 fn action_token(action: &str) -> &'static str {
     match action {
         "move_f" => "F",
-        "move_fr" => "FL", // veers to the on-screen left (port)
-        "move_fl" => "FR", // veers to the on-screen right (starboard)
-        "turn_right" => "◄", // rotates nose left on screen
-        "turn_left" => "►",  // rotates nose right on screen
+        "move_fl" => "FL", // veers to the on-screen left (port)
+        "move_fr" => "FR", // veers to the on-screen right (starboard)
+        "turn_left" => "◄",  // rotates nose left on screen
+        "turn_right" => "►", // rotates nose right on screen
         _ => "?",
     }
 }

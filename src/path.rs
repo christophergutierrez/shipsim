@@ -80,7 +80,7 @@ impl PathState {
     }
 
     /// Absolute hex direction for a relative offset from facing.
-    /// `rel`: 0 = F, 1 = FR, 5 = FL (mod 6).
+    /// `rel`: 0 = F, 5 = FR (clockwise), 1 = FL (counterclockwise) (mod 6).
     pub fn absolute_dir(self, rel: u8) -> u8 {
         (self.facing + rel) % 6
     }
@@ -162,14 +162,6 @@ pub fn apply_action(state: PathState, action: PathAction) -> Result<PathState, P
             })
         }
         PathAction::MoveFr => {
-            let dir = state.absolute_dir(1);
-            let delta = Hex::direction(dir).expect("facing validated");
-            Ok(PathState {
-                pos: state.pos + delta,
-                facing: (state.facing + 1) % 6,
-            })
-        }
-        PathAction::MoveFl => {
             let dir = state.absolute_dir(5);
             let delta = Hex::direction(dir).expect("facing validated");
             Ok(PathState {
@@ -177,13 +169,21 @@ pub fn apply_action(state: PathState, action: PathAction) -> Result<PathState, P
                 facing: (state.facing + 5) % 6,
             })
         }
+        PathAction::MoveFl => {
+            let dir = state.absolute_dir(1);
+            let delta = Hex::direction(dir).expect("facing validated");
+            Ok(PathState {
+                pos: state.pos + delta,
+                facing: (state.facing + 1) % 6,
+            })
+        }
         PathAction::TurnRight => Ok(PathState {
             pos: state.pos,
-            facing: (state.facing + 1) % 6,
+            facing: (state.facing + 5) % 6,
         }),
         PathAction::TurnLeft => Ok(PathState {
             pos: state.pos,
-            facing: (state.facing + 5) % 6,
+            facing: (state.facing + 1) % 6,
         }),
     }
 }
@@ -290,6 +290,19 @@ mod tests {
     }
 
     #[test]
+    fn turn_right_is_clockwise_oracle() {
+        // Anchor oracle: from facing 0 (East), turn_right must point the nose
+        // clockwise to facing 5 (SouthEast). turn_left must point to facing 1 (NE).
+        let start = origin_facing(0);
+        let right = apply_action(start, PathAction::TurnRight).unwrap();
+        assert_eq!(right.facing, 5);
+        assert_eq!(right.pos, Hex::ORIGIN);
+        let left = apply_action(start, PathAction::TurnLeft).unwrap();
+        assert_eq!(left.facing, 1);
+        assert_eq!(left.pos, Hex::ORIGIN);
+    }
+
+    #[test]
     fn move_f_preserves_facing() {
         let start = origin_facing(0);
         let t = trace_path(start, &[PathAction::MoveF], 1, None).unwrap();
@@ -300,20 +313,20 @@ mod tests {
 
     #[test]
     fn move_fr_moves_and_rotates_right() {
-        // Facing 0: FR is dir 1 → (1,-1), then facing becomes 1.
+        // Facing 0: FR is dir 5 → (0,1), then facing becomes 5.
         let start = origin_facing(0);
         let t = trace_path(start, &[PathAction::MoveFr], 1, None).unwrap();
-        assert_eq!(t.final_state.pos, Hex::new(1, -1));
-        assert_eq!(t.final_state.facing, 1);
+        assert_eq!(t.final_state.pos, Hex::new(0, 1));
+        assert_eq!(t.final_state.facing, 5);
     }
 
     #[test]
     fn move_fl_moves_and_rotates_left() {
-        // Facing 0: FL is dir 5 → (0,1), then facing becomes 5.
+        // Facing 0: FL is dir 1 → (1,-1), then facing becomes 1.
         let start = origin_facing(0);
         let t = trace_path(start, &[PathAction::MoveFl], 1, None).unwrap();
-        assert_eq!(t.final_state.pos, Hex::new(0, 1));
-        assert_eq!(t.final_state.facing, 5);
+        assert_eq!(t.final_state.pos, Hex::new(1, -1));
+        assert_eq!(t.final_state.facing, 1);
     }
 
     #[test]
@@ -322,14 +335,14 @@ mod tests {
         let actions = [PathAction::MoveFr, PathAction::MoveFr, PathAction::MoveFr];
         let t = trace_path(start, &actions, 3, None).unwrap();
         assert_eq!(t.cost, 3);
-        // Step 1: (1,-1) face 1
-        assert_eq!(t.steps[0].pos, Hex::new(1, -1));
-        assert_eq!(t.steps[0].facing, 1);
-        // Step 2 from face 1 FR = dir 2 → (0,-1) relative → (1,-2), face 2
-        assert_eq!(t.steps[1].pos, Hex::new(1, -2));
-        assert_eq!(t.steps[1].facing, 2);
-        // Step 3 from face 2 FR = dir 3 → (-1,0) → (0,-2), face 3
-        assert_eq!(t.steps[2].pos, Hex::new(0, -2));
+        // Step 1: from face 0 FR = dir 5 → (0,1), face 5
+        assert_eq!(t.steps[0].pos, Hex::new(0, 1));
+        assert_eq!(t.steps[0].facing, 5);
+        // Step 2 from face 5 FR = dir 4 → (-1,1) → (-1,2), face 4
+        assert_eq!(t.steps[1].pos, Hex::new(-1, 2));
+        assert_eq!(t.steps[1].facing, 4);
+        // Step 3 from face 4 FR = dir 3 → (-1,0) → (-2,2), face 3
+        assert_eq!(t.steps[2].pos, Hex::new(-2, 2));
         assert_eq!(t.steps[2].facing, 3);
         assert_eq!(t.final_state.facing, 3);
     }
@@ -354,15 +367,15 @@ mod tests {
         assert_eq!(ta.cost, 3);
         assert_eq!(tb.cost, 3);
         assert_ne!(ta.final_state, tb.final_state);
-        // A: after FR at (1,-1) f1, TR→f2, TR→f3 → end (1,-1) f3
+        // A: after FR at (0,1) f5, TR→f4, TR→f3 → end (0,1) f3
         assert_eq!(
             ta.final_state,
             PathState {
-                pos: Hex::new(1, -1),
+                pos: Hex::new(0, 1),
                 facing: 3,
             }
         );
-        // B: TR→f1, TR→f2, FR from f2: dir 3 → (-1,0), face 3 → end (-1,0) f3
+        // B: TR→f5, TR→f4, FR from f4: dir 3 → (-1,0), face 3 → end (-1,0) f3
         assert_eq!(
             tb.final_state,
             PathState {

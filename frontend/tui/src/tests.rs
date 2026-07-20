@@ -272,7 +272,7 @@ fn order_commit_maneuver_serializes() {
     let order = Order::commit_maneuver(1, Maneuver::Turn { facing: 2 });
     let json = serde_json::to_string(&order).expect("serialize");
     assert!(json.contains("commit_path"));
-    assert!(json.contains("turn_right"));
+    assert!(json.contains("turn_left"));
     assert!(json.contains("\"ship\":1"));
 }
 

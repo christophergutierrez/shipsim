@@ -359,16 +359,18 @@ impl Order {
 
     /// Legacy test/helper adapter. Interactive input uses `commit_path` with
     /// the actual current facing, so absolute turns are translated there.
+    /// Assumes a facing-0 start; `turn_left` is the +1 (counterclockwise) step,
+    /// so `facing` of them reach the absolute facing from 0.
     pub fn commit_maneuver(ship: i64, maneuver: Maneuver) -> Self {
         let actions = match maneuver {
             Maneuver::Coast => Vec::new(),
             Maneuver::Accel => vec!["move_f".into()],
             Maneuver::Turn { facing } => {
-                std::iter::repeat_n("turn_right".to_string(), facing as usize).collect()
+                std::iter::repeat_n("turn_left".to_string(), facing as usize).collect()
             }
             Maneuver::TurnAccel { facing } => {
                 let mut actions: Vec<String> =
-                    std::iter::repeat_n("turn_right".to_string(), facing as usize).collect();
+                    std::iter::repeat_n("turn_left".to_string(), facing as usize).collect();
                 actions.push("move_f".into());
                 actions
             }

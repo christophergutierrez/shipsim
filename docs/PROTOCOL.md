@@ -58,10 +58,15 @@ Every order is one JSON object per line with `protocol_version: 4`.
 | Action | Position | Facing | Cost |
 |---|---|---|---:|
 | `move_f` | one hex through current F | unchanged | 1 |
-| `move_fr` | one hex through current FR | +1 face | 1 |
-| `move_fl` | one hex through current FL | −1 face | 1 |
-| `turn_right` | unchanged | +1 face | 1 |
-| `turn_left` | unchanged | −1 face | 1 |
+| `move_fr` | one hex through current FR | −1 face | 1 |
+| `move_fl` | one hex through current FL | +1 face | 1 |
+| `turn_right` | unchanged | −1 face | 1 |
+| `turn_left` | unchanged | +1 face | 1 |
+
+**Turn handedness:** `turn_right` rotates **clockwise** (decreases the facing
+index); `turn_left` rotates **counterclockwise** (increases it). On the standard
+map (`r` increases downward, `x ∝ q + r/2`) these read as on-screen right/left.
+Facing 0 = +q (East); turning right from East points Southeast (facing 5 `↘`).
 
 - Path cost ≤ `motion_available`. Empty path is legal (stationary).
 - Resolves when every living ship has committed a path.

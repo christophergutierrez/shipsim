@@ -530,7 +530,7 @@ mod tests {
         // The panic case from review:
         // Ship 1 at (0,0) face 0: [move_f] → claims (1,0)
         // Ship 2 at (1,0) face 0: [move_f] → claims (2,0)
-        // Ship 3 at (0,1) face 0: [move_f, move_fr] → (1,1) then (2,0) face 1
+        // Ship 3 at (0,1) face 0: [move_f, move_fl] → (1,1) then (2,0) face 1
         // Ship 3 beats ship 2 for (2,0); ship 2 falls back to (1,0);
         // ship 1 must cascade to (0,0) so ship 2 can take (1,0) or vice versa.
         let s1 = claim(
@@ -548,7 +548,7 @@ mod tests {
         let s3 = claim(
             3,
             PathState::new(Hex::new(0, 1), 0).unwrap(),
-            &[PathAction::MoveF, PathAction::MoveFr],
+            &[PathAction::MoveF, PathAction::MoveFl],
             2,
         );
         // Confirm ship 3 ends at (2,0)
@@ -573,7 +573,7 @@ mod tests {
                     claim(
                         3,
                         PathState::new(Hex::new(0, 1), 0).unwrap(),
-                        &[PathAction::MoveF, PathAction::MoveFr],
+                        &[PathAction::MoveF, PathAction::MoveFl],
                         2,
                     ),
                 ],
@@ -791,7 +791,7 @@ mod tests {
         let r = resolve_paths(&[mover, block], &mut prng);
         let p1 = r.iter().find(|x| x.ship == 1).unwrap();
         assert_eq!((p1.final_q, p1.final_r), (0, 0));
-        assert_eq!(p1.final_facing, 1);
+        assert_eq!(p1.final_facing, 5);
         assert_eq!(p1.translated_steps, 0);
     }
 

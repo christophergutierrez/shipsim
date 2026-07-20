@@ -200,11 +200,11 @@ pub fn v2_path_decision(game: &GameState, ship_id: u32) -> Option<Vec<PathAction
 }
 
 fn facing_cw_steps(from: u8, to: u8) -> u8 {
-    (to + 6 - from) % 6
+    (from + 6 - to) % 6
 }
 
 fn facing_ccw_steps(from: u8, to: u8) -> u8 {
-    (from + 6 - to) % 6
+    (to + 6 - from) % 6
 }
 
 /// Build a complete legal volley against the seek target.

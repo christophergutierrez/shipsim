@@ -177,8 +177,8 @@ costs **exactly one** motion point from the turn’s motion pool.
 | `f` | `move_f` | one hex through F; facing unchanged |
 | `fr` | `move_fr` | one hex through FR; then turn right |
 | `fl` | `move_fl` | one hex through FL; then turn left |
-| `tr` / `r` | `turn_right` | in-place face +1 |
-| `tl` / `l` | `turn_left` | in-place face −1 |
+| `tr` / `r` | `turn_right` | in-place face −1 (clockwise / starboard) |
+| `tl` / `l` | `turn_left` | in-place face +1 (counterclockwise / port) |
 
 ### Commands
 
