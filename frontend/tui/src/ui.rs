@@ -740,26 +740,22 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 Span::raw(format!("#{} {} profile={}", ship.id, ship.class, ship.size)),
             ]),
         );
-        push(
-            f,
-            &mut y,
-            {
-                // v4 non-inertial kinematics: position + facing, and during the
-                // movement stage the drafted path cost vs available motion.
-                let mut s = format!(
-                    "  @({},{}) face={}{}",
-                    ship.q,
-                    ship.r,
-                    ship.facing,
-                    facing_arrow(ship.facing),
-                );
-                if snap.phase == "movement" {
-                    let cost = app.path_draft.as_ref().map(|d| d.cost()).unwrap_or(0);
-                    s.push_str(&format!("  motion {}/{}", cost, ship.motion_available));
-                }
-                Line::from(s)
-            },
-        );
+        push(f, &mut y, {
+            // v4 non-inertial kinematics: position + facing, and during the
+            // movement stage the drafted path cost vs available motion.
+            let mut s = format!(
+                "  @({},{}) face={}{}",
+                ship.q,
+                ship.r,
+                ship.facing,
+                facing_arrow(ship.facing),
+            );
+            if snap.phase == "movement" {
+                let cost = app.path_draft.as_ref().map(|d| d.cost()).unwrap_or(0);
+                s.push_str(&format!("  motion {}/{}", cost, ship.motion_available));
+            }
+            Line::from(s)
+        });
         // v4: short-fall path resolution notice for the focused ship.
         if let Some(line) = path_notice_for_focus(app, snap) {
             push(
@@ -1996,9 +1992,7 @@ fn render_tutorial_panel(f: &mut Frame, app: &App, area: Rect) {
         let location = app
             .snap
             .as_ref()
-            .map(|s| {
-                format!("Turn {} · {}", s.turn, phase_label(&s.phase))
-            })
+            .map(|s| format!("Turn {} · {}", s.turn, phase_label(&s.phase)))
             .unwrap_or_else(|| "Starting".to_string());
         format!("Coach · {location} · {}/{}", t.current + 1, t.steps.len())
     } else {

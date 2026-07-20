@@ -113,71 +113,22 @@ function preview.fire_line(app)
   }
 end
 
--- Format a maneuver_options response into a cost label for one maneuver type.
--- Mirrors TUI maneuver_cost_label (ui.rs:1507).
--- options = the response .options array; maneuver = {type=, facing=}
--- Returns: "N ok" (affordable), "N NO" (unaffordable), "n/a" (cost null),
--- or "..." (option not found / no preview yet).
-function preview.maneuver_cost_label(options, maneuver)
-  if not options then
-    return "..."
+--- Summarize a path_preview response for the path panel (protocol v4).
+--- Returns a short status string; does not invent legality.
+function preview.path_line(path_preview)
+  if not path_preview then
+    return "…"
   end
-  local found = nil
-  for _, opt in ipairs(options) do
-    local m = opt.maneuver or {}
-    if m.type == maneuver.type then
-      if maneuver.type == "turn" or maneuver.type == "turn_accel" then
-        if m.facing == maneuver.facing then
-          found = opt
-          break
-        end
-      else
-        found = opt
-        break
-      end
-    end
+  if path_preview.error then
+    return "illegal: " .. tostring(path_preview.error)
   end
-  if not found then
-    return "..."
+  local cost = path_preview.cost or 0
+  local rem = path_preview.remaining_motion
+  if rem ~= nil then
+    return string.format("cost %d · %d left · end face %s",
+      cost, rem, tostring(path_preview.final_facing or "?"))
   end
-  if found.affordable then
-    if found.thrust_cost then
-      return tostring(found.thrust_cost) .. " ok"
-    end
-    return "n/a"
-  else
-    if found.thrust_cost then
-      return tostring(found.thrust_cost) .. " NO"
-    end
-    return "n/a"
-  end
-end
-
--- Get the reason string for an unaffordable maneuver (for tooltip text).
--- Returns nil if affordable or not found.
-function preview.maneuver_reason(options, maneuver)
-  if not options then
-    return nil
-  end
-  for _, opt in ipairs(options) do
-    local m = opt.maneuver or {}
-    if m.type == maneuver.type then
-      if maneuver.type == "turn" or maneuver.type == "turn_accel" then
-        if m.facing == maneuver.facing then
-          if not opt.affordable then
-            return opt.reason
-          end
-          return nil
-        end
-      else
-        if not opt.affordable then
-          return opt.reason
-        end
-        return nil
-      end
-    end
-  end
-  return nil
+  return string.format("cost %d · end face %s", cost, tostring(path_preview.final_facing or "?"))
 end
 
 return preview

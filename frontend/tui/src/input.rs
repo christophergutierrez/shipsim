@@ -405,9 +405,7 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
 
     let order_backed = matches!(
         action,
-        ExpectedAction::CommitAllocate
-            | ExpectedAction::PathCommit
-            | ExpectedAction::ReadyFire
+        ExpectedAction::CommitAllocate | ExpectedAction::PathCommit | ExpectedAction::ReadyFire
     );
     let ok = if order_backed {
         app.tutorial.as_mut().unwrap().validate_action(&action)

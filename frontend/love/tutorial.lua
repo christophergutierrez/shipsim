@@ -3,8 +3,8 @@
 -- Pure Lua: no love.* APIs. Runs under plain luajit so it is testable
 -- headless, mirroring selection.lua / events.lua / preview.lua. The
 -- controller (main.lua) owns the tutorial state and calls these functions
--- from its key handler (before command_mapping dispatch) and its snapshot
--- apply path; they mutate the passed `t` table in place.
+-- from its key handler and its snapshot apply path; they mutate the passed
+-- `t` table in place.
 --
 -- UPGRADE-PLAN Phase 6: mirrors frontend/tui/src/tutorial.rs (the
 -- REAR_ATTACK_STEPS sequence, the gate machine, and the two-phase
@@ -176,7 +176,7 @@ local REAR_ATTACK_STEPS = {
   },
   {
     title = "Commit path",
-    text = "Enter / Commit Path submits one commit_path order. When every living ship has committed, paths resolve simultaneously. No cycle 1–4, no accel/coast.",
+    text = "Enter / Commit Path submits one commit_path order (draft must be non-empty). When every living ship has committed, paths resolve simultaneously. Use Hold Position (P) for an intentional empty path.",
     why = "Submit the full path",
     hint = "Enter or Commit Path",
     expected = { kind = "CommitPath" },

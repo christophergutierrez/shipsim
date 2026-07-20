@@ -956,7 +956,10 @@ mod tests {
                 (0, 0),
                 "A must retain origin seed={seed}: {r:?}"
             );
-            assert_eq!(p1.translated_steps, 0, "origin landing has no net translation");
+            assert_eq!(
+                p1.translated_steps, 0,
+                "origin landing has no net translation"
+            );
             assert!(
                 p1.fallback_steps >= 1,
                 "A fell back from blocked final seed={seed}"

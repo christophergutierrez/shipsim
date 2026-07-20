@@ -27,6 +27,7 @@ local status_fmt = require("status_fmt")
 local settings = require("settings")
 local toast = require("toast")
 local camera = require("camera")
+local path_editor = require("path_editor")
 
 local app = {
   screen = "picker",
@@ -1072,17 +1073,9 @@ local function do_allocate(ship_id)
   end
 end
 
--- Protocol v4 path draft (mirrors the volley draft). Movement is one ordered
--- commit_path per ship built from {move_f, move_fr, move_fl, turn_left,
--- turn_right}, each cost 1, total ≤ motion_available (also capped by the hull's
--- max_maneuver_actions). Coast/hold = commit an empty path.
-local PATH_ACTIONS = {
-  move_f = true, move_fr = true, move_fl = true,
-  turn_left = true, turn_right = true,
-}
-
--- The player ship that still owes a path this movement stage, plus its snapshot
--- entry. Returns nil when it is not the player's move.
+-- Protocol v4 path draft: one ordered commit_path per ship. Draft state and
+-- commit intent live in path_editor (shared with headless tests). Engine
+-- path_preview is authoritative for legality; client only enforces UX budget.
 local function active_mover(snap)
   if not snap or snap.phase ~= phases.MOVEMENT then
     return nil
@@ -1094,27 +1087,21 @@ local function active_mover(snap)
   return ship_id, find_ship_in_snap(snap, ship_id)
 end
 
--- Motion points the ship may still spend (already reflects max_maneuver_actions).
-local function path_motion_cap(ship)
-  if not ship then return 0 end
-  local avail = ship.motion_available or 0
-  local cap = ship.max_maneuver_actions
-  if cap and cap < avail then
-    avail = cap
+local function request_path_preview(ship_id)
+  if not app.session or not ship_id then
+    return
   end
-  return avail
+  local actions = path_editor.get(app.path_drafts, ship_id)
+  local req = path_editor.preview_request(ship_id, actions)
+  local resp = select(1, harness.request(app.session, req))
+  app.path_preview = resp
+  app.path_preview_ship = ship_id
 end
 
--- Append one action to the active mover's path draft, gated so the running
--- length never exceeds the motion budget.
 local function do_path_append(action)
   local snap = snap_now()
   if not snap or snap.phase ~= phases.MOVEMENT then
     set_status("warn", "Not movement phase")
-    return
-  end
-  if not PATH_ACTIONS[action] then
-    set_status("warn", "Unknown path action")
     return
   end
   local ship_id, ship = active_mover(snap)
@@ -1122,61 +1109,83 @@ local function do_path_append(action)
     set_status("warn", "Not your move")
     return
   end
-  local draft = app.path_drafts[ship_id] or {}
-  local cap = path_motion_cap(ship)
-  if #draft >= cap then
-    set_status("warn", string.format("Path full (%d/%d motion)", #draft, cap))
+  local cap = path_editor.motion_cap(ship)
+  local ok, reason, draft = path_editor.append(app.path_drafts, ship_id, action, cap)
+  if not ok then
+    if reason == "budget_full" then
+      set_status("warn", string.format("Path full (%d/%d motion)", #draft, cap))
+    else
+      set_status("warn", "Unknown path action")
+    end
     return
   end
-  draft[#draft + 1] = action
-  app.path_drafts[ship_id] = draft
   set_status("info", string.format("Path +%s (%d/%d)", action, #draft, cap))
+  request_path_preview(ship_id)
   advance_local_tutorial({ kind = "PathAppend", action = action })
 end
 
--- Pop the last drafted action (undo).
 local function do_path_undo()
   local snap = snap_now()
   local ship_id = active_mover(snap)
   if not ship_id then
     return
   end
-  local draft = app.path_drafts[ship_id]
-  if draft and #draft > 0 then
-    table.remove(draft)
+  local ok, _, draft = path_editor.undo(app.path_drafts, ship_id)
+  if ok then
     set_status("info", string.format("Path undo (%d left)", #draft))
+    request_path_preview(ship_id)
   end
 end
 
--- Clear the whole path draft for the active mover.
 local function do_path_clear()
   local snap = snap_now()
   local ship_id = active_mover(snap)
   if not ship_id then
     return
   end
-  app.path_drafts[ship_id] = {}
+  path_editor.clear(app.path_drafts, ship_id)
   set_status("info", "Path cleared")
+  request_path_preview(ship_id)
 end
 
--- Commit the drafted path (or an explicit empty path = coast/hold).
-local function do_commit_path(force_empty)
+--- Commit Path (non-empty draft only) or explicit Hold Position (empty path).
+--- hold=true is the sole intentional empty-path action (P / Hold Position).
+local function do_commit_path(hold)
   local snap = snap_now()
   if not snap or snap.phase ~= phases.MOVEMENT then
     set_status("warn", "Not movement phase")
-    return
+    return false
   end
   local ship_id = active_mover(snap)
   if not ship_id then
     set_status("warn", "Not your move")
-    return
+    return false
   end
-  local actions = (not force_empty) and (app.path_drafts[ship_id] or {}) or {}
-  local _, err = submit(orders.commit_path(ship_id, actions), true)
-  if not err then
-    app.path_drafts[ship_id] = nil
+  local kind, actions, reason
+  if hold then
+    kind, actions = path_editor.hold(app.path_drafts, ship_id)
+  else
+    kind, actions, reason = path_editor.try_commit(app.path_drafts, ship_id)
+  end
+  if kind == "blocked" then
+    set_status("warn", "Add a path action or choose Hold Position")
+    return false
+  end
+  local order = path_editor.order(ship_id, actions)
+  local _, err = submit(order, true)
+  if err then
+    -- Keep draft for correction; never auto-convert to Hold Position.
+    set_status("warn", "Path rejected — draft retained")
+    return false
+  end
+  path_editor.accept(app.path_drafts, ship_id)
+  app.path_preview = nil
+  if hold or #(actions or {}) == 0 then
+    set_status("info", status_fmt.order_echo(ship_id, "hold_position"))
+  else
     set_status("info", status_fmt.order_echo(ship_id, "commit_path"))
   end
+  return true
 end
 
 --- Next charged weapon not already in this local protocol-v4 volley draft.
@@ -1435,7 +1444,7 @@ local function handle_ui_hit(hit)
     do_commit_path(false)
     return true
   end
-  if id == "path_coast" then
+  if id == "path_hold" then
     do_commit_path(true)
     return true
   end
@@ -1725,7 +1734,7 @@ function love.keypressed(key)
   elseif app.phase == phases.MOVEMENT and key == "delete" then
     do_path_clear()
   elseif app.phase == phases.MOVEMENT and key == "p" then
-    do_commit_path(true) -- P: coast (commit empty path)
+    do_commit_path(true) -- P: Hold Position (explicit empty path)
   elseif input_policy.fire_weapon_delta(app.phase, key) then
     app.weapon_id = selection.cycle_fireable_weapon(snap_now(), app.selected_id,
       app.weapon_id, input_policy.fire_weapon_delta(app.phase, key))

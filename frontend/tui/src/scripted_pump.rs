@@ -101,7 +101,10 @@ mod tests {
         assert_eq!(v["type"], "allocate");
         assert_eq!(v["ship"], 2);
         assert_eq!(v["movement"], 0);
-        assert!(v.get("weapons").is_none(), "weapons key must be omitted: {json}");
+        assert!(
+            v.get("weapons").is_none(),
+            "weapons key must be omitted: {json}"
+        );
         assert_eq!(v["shields"], serde_json::json!([0, 0, 0, 0, 0, 0]));
     }
 

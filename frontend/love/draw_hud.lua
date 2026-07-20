@@ -113,7 +113,8 @@ end
 -- function (no Love APIs) so it can be unit-tested under plain luajit.
 --
 -- `selected_id` is the Love2D equivalent of the TUI's focused ship.
-function draw_hud.phase_call_to_action(snap, selected_id)
+--- optional path_drafts map [ship_id]=actions for commit-vs-hold CTA wording.
+function draw_hud.phase_call_to_action(snap, selected_id, path_drafts)
   if not snap then
     return ""
   end
@@ -160,9 +161,16 @@ function draw_hud.phase_call_to_action(snap, selected_id)
     if sel and sel.controller == "player" and not sel.destroyed
         and (sel.motion_available or 0) == 0
         and not completed_set(snap.ships_committed_path)[sel.id] then
-      return string.format("%s no motion; P coasts", callsign(sel))
+      return string.format("%s no motion; P = Hold Position", callsign(sel))
     end
-    return pending_cta(completed_set(snap.ships_committed_path), "needs a path")
+    local draft = (path_drafts and selected_id and path_drafts[selected_id]) or {}
+    if type(draft) == "table" and #draft > 0 then
+      return pending_cta(completed_set(snap.ships_committed_path), "needs Commit Path")
+    end
+    return pending_cta(
+      completed_set(snap.ships_committed_path),
+      "needs a path (or Hold Position)"
+    )
   elseif phase == phases.FIRING then
     local committed = completed_set(snap.ships_committed_volley)
     local focused_done = selected_id ~= nil and committed[selected_id] or false
@@ -227,7 +235,7 @@ end
 --- Build the status header without Love APIs so nil focus and ownership stay
 --- testable. "Active" is meaningful only in the simultaneous movement phase.
 --- Never emits raw "#nil" (FIX-PLAN D8 / F2.4).
-function draw_hud.header_text(snap, app_phase, selected_id)
+function draw_hud.header_text(snap, app_phase, selected_id, path_drafts)
   local turn = (snap and snap.turn) or 1
   local phase = app_phase or (snap and snap.phase) or phases.ALLOCATE
   -- v4 movement is a single simultaneous stage (no 4-cycle count).
@@ -240,7 +248,7 @@ function draw_hud.header_text(snap, app_phase, selected_id)
       end)
     end
   end
-  local cta = draw_hud.phase_call_to_action(snap, selected_id)
+  local cta = draw_hud.phase_call_to_action(snap, selected_id, path_drafts)
   if cta and cta ~= "" then
     header = header .. "  │ " .. cta
   end
@@ -281,7 +289,7 @@ function draw_hud.draw(app)
   love.graphics.rectangle("fill", 0, 0, W, slots.top_h)
   ui.use(14)
   love.graphics.setColor(1, 1, 1)
-  local header = draw_hud.header_text(snap, phase, app.selected_id)
+  local header = draw_hud.header_text(snap, phase, app.selected_id, app.path_drafts)
   local font14 = ui.font(14)
   local measure = function(s) return font14:getWidth(s) end
   local left_text = layout.ellipsize(header, slots.left.w, measure)
@@ -641,8 +649,8 @@ end
 
 -- Protocol v4 path editor. Movement is one ordered commit_path per ship built
 -- from move_f / move_fr / move_fl / turn_left / turn_right (cost 1 each), total
--- ≤ motion budget. Buttons append actions to app.path_drafts[ship]; Commit sends
--- the path, Coast commits an empty path (hold position).
+-- ≤ motion budget. Buttons append actions to app.path_drafts[ship]; Commit Path
+-- requires a non-empty draft; Hold Position is the intentional empty path.
 function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   local bh = math.max(math.floor(28 * ui.scale), layout.MIN_HIT)
   local active = first_uncommitted_ship(snap, "player")
@@ -701,8 +709,8 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   ui.button("Undo (Bksp)", px + pad, y, half, bh, "path_undo", nil, false)
   ui.button("Clear (Del)", px + pad + half + 4, y, half, bh, "path_clear", nil, false)
   y = y + bh + 4
-  ui.button("Coast (P)", px + pad, y, half, bh, "path_coast", nil, false)
-  ui.button("Commit (Enter)", px + pad + half + 4, y, half, bh, "path_commit", nil, false)
+  ui.button("Hold Position (P)", px + pad, y, half, bh, "path_hold", nil, false)
+  ui.button("Commit Path (Enter)", px + pad + half + 4, y, half, bh, "path_commit", nil, false)
   y = y + bh + 6
   return y
 end
@@ -848,11 +856,11 @@ function draw_hud.draw_help_overlay()
     "Allocate: +/− steppers (hold to repeat) or +/− keys for movement.",
     "  Quick: Max wpn / Bal sh / Engine / Clear. Power bar sets move fraction.",
     "  Enter or Allocate commits. Weapon charge carries (cannot strip).",
-    "Movement: build a path — W=fwd, A=fwd-left, D=fwd-right, Z/X=turn L/R.",
-    "  Backspace=undo, Del=clear, P=coast(hold), Enter=commit path.",
-    "  Turns advance automatically once every ship commits its volley.",
+    "Path: W=move_f, A=move_fl, D=move_fr, Z/X=turn left/right.",
+    "  Backspace=undo, Del=clear, P=Hold Position, Enter=Commit Path (needs actions).",
+    "  Turn advances automatically after every ship commits its volley.",
     "Firing: enemies only; rows show hit% when available.",
-    "  Up/Down=weapon, Enter=Commit Fire, R=Ready. Board-click sets target.",
+    "  Up/Down=weapon, Enter=queue shot, R=Commit Volley. Board-click sets target.",
     "Right-drag pan, map wheel zoom, sidebar wheel scrolls content.",
     "PageUp/PageDown scroll sidebar; Home/End jump top/bottom.",
     "C=auto-fit, F=toggle follow, Ctrl -/= UI scale.",

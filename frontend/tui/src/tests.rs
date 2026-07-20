@@ -574,7 +574,10 @@ fn fire_target_selection_excludes_player_ships() {
     let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     assert!(matches!(result, KeyResult::Continue));
     assert_eq!(app.fire_draft.as_ref().unwrap().shots[0].target, 3);
-    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char(' ')));
+    let result = handle_key(
+        &mut app,
+        make_key_code(crossterm::event::KeyCode::Char(' ')),
+    );
     let KeyResult::SendOrder(order) = result else {
         panic!("expected commit_volley order");
     };
@@ -945,14 +948,22 @@ fn combat_history_distinguishes_retained_and_terminal_volley_generations() {
     app.update_snapshot(retained.clone());
     app.update_snapshot(retained);
 
-    assert_eq!(app.combat_history.len(), 1, "retained log must not duplicate");
+    assert_eq!(
+        app.combat_history.len(),
+        1,
+        "retained log must not duplicate"
+    );
     assert!(app.combat_history[0].starts_with("T1 "));
 
     let mut terminal = fire_phase_snapshot();
     terminal.status = "Won".into();
     app.update_snapshot(terminal);
 
-    assert_eq!(app.combat_history.len(), 2, "terminal volley must be retained");
+    assert_eq!(
+        app.combat_history.len(),
+        2,
+        "terminal volley must be retained"
+    );
     assert!(app.combat_history[1].starts_with("T2 "));
     assert_eq!(app.combat_events.len(), 2);
 }
@@ -1294,7 +1305,11 @@ fn scripted_pump_advances_combat_toml_full_turn() {
 
     // Player allocate (minimal), then pump drains the scripted escort.
     send_key(&mut app, &mut harness, enter()); // commit allocate (draft may be zeros)
-    assert_eq!(app.last_error, None, "allocate rejected: {:?}", app.last_error);
+    assert_eq!(
+        app.last_error, None,
+        "allocate rejected: {:?}",
+        app.last_error
+    );
     assert_eq!(
         app.snap.as_ref().map(|s| s.phase.as_str()),
         Some("movement"),
@@ -1302,9 +1317,10 @@ fn scripted_pump_advances_combat_toml_full_turn() {
     );
     // Scripted allocate was accepted (stage advanced past allocate).
     assert!(
-        app.snap
-            .as_ref()
-            .is_some_and(|s| s.ships.iter().any(|sh| sh.id == scripted_id && !sh.destroyed)),
+        app.snap.as_ref().is_some_and(|s| s
+            .ships
+            .iter()
+            .any(|sh| sh.id == scripted_id && !sh.destroyed)),
         "scripted escort still living after allocate"
     );
 
@@ -1325,7 +1341,11 @@ fn scripted_pump_advances_combat_toml_full_turn() {
         &mut harness,
         make_key_code(crossterm::event::KeyCode::Char(' ')),
     );
-    assert_eq!(app.last_error, None, "volley rejected: {:?}", app.last_error);
+    assert_eq!(
+        app.last_error, None,
+        "volley rejected: {:?}",
+        app.last_error
+    );
     assert_eq!(
         app.snap.as_ref().map(|s| s.phase.as_str()),
         Some("allocate"),
@@ -2290,7 +2310,10 @@ fn allocate_weapon_digit_does_not_request_path_preview() {
         app.pending_path_preview.is_none(),
         "allocate must not request a path preview"
     );
-    assert_eq!(app.alloc_draft.as_ref().unwrap().weapon_charge("beam_1"), Some(4));
+    assert_eq!(
+        app.alloc_draft.as_ref().unwrap().weapon_charge("beam_1"),
+        Some(4)
+    );
 }
 
 #[test]
@@ -2347,7 +2370,10 @@ fn fire_enter_on_dead_weapon_does_not_emit_commit_fire() {
     // Force into firing phase so fire_draft is populated.
     app.snap.as_mut().unwrap().phase = "firing".into();
     app.mode = Mode::Fire;
-    app.fire_draft = Some(crate::app::FireDraft { shots: vec![], ..Default::default() });
+    app.fire_draft = Some(crate::app::FireDraft {
+        shots: vec![],
+        ..Default::default()
+    });
     // weapon_idx 0 = beam_1 (damaged). Set a target so we reach the emit path.
     app.fire_draft.as_mut().unwrap().weapon_idx = 0;
     app.fire_draft.as_mut().unwrap().target = Some(2);
@@ -2386,7 +2412,10 @@ fn fire_enter_on_operational_weapon_emits_commit_fire() {
     assert_eq!(draft.shots.len(), 1);
     assert_eq!(draft.shots[0].weapon, "beam_1");
     assert_eq!(draft.shots[0].target, 2);
-    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char(' ')));
+    let result = handle_key(
+        &mut app,
+        make_key_code(crossterm::event::KeyCode::Char(' ')),
+    );
     match result {
         KeyResult::SendOrder(order) => match order.body {
             crate::protocol::OrderBody::CommitVolley { shots, .. } => {
@@ -2434,7 +2463,10 @@ fn fire_panel_shows_offline_for_damaged_weapon() {
     snap.ships[0].weapons[0].operational = false;
     app.update_snapshot(snap);
     app.mode = Mode::Fire;
-    app.fire_draft = Some(crate::app::FireDraft { shots: vec![], ..Default::default() });
+    app.fire_draft = Some(crate::app::FireDraft {
+        shots: vec![],
+        ..Default::default()
+    });
     let buf = render_to_string(&mut app, 80, 40);
     assert!(
         buffer_contains(&buf, "OFFLINE"),
@@ -2612,7 +2644,10 @@ fn fire_queue_header_and_panel_agree() {
     ];
     app.update_snapshot(snap);
     app.mode = Mode::Fire;
-    app.fire_draft = Some(crate::app::FireDraft { shots: vec![], ..Default::default() });
+    app.fire_draft = Some(crate::app::FireDraft {
+        shots: vec![],
+        ..Default::default()
+    });
     // Render tall enough that the whole fire panel (controls, queue, commits,
     // targets, weapons) fits without scrolling.
     let buf = render_to_string(&mut app, 80, 80);
@@ -2774,7 +2809,10 @@ fn fire_panel_shows_no_charge_coach() {
     }
     app.update_snapshot(snap);
     app.mode = Mode::Fire;
-    app.fire_draft = Some(crate::app::FireDraft { shots: vec![], ..Default::default() });
+    app.fire_draft = Some(crate::app::FireDraft {
+        shots: vec![],
+        ..Default::default()
+    });
     let buf = render_to_string(&mut app, 80, 40);
     assert!(
         buffer_contains(&buf, "No charge"),
@@ -2820,7 +2858,9 @@ fn cycle_coach_shows_fire_phase_out_of_four() {
         "v4 must not show four-cycle coach; got:\n{buf}"
     );
     assert!(
-        buffer_contains(&buf, "Firing") || buffer_contains(&buf, "volley") || buffer_contains(&buf, "Space"),
+        buffer_contains(&buf, "Firing")
+            || buffer_contains(&buf, "volley")
+            || buffer_contains(&buf, "Space"),
         "fire panel should describe volley flow; got:\n{buf}"
     );
 }
@@ -2868,7 +2908,8 @@ fn fire_shield_facing_persists_across_same_phase_snapshot() {
         weapon_idx: 0,
         target: Some(2),
         shield_facing: 3, // R
-     shots: vec![], });
+        shots: vec![],
+    });
     // Same-phase snapshot (e.g. after commit_fire ack).
     let mut next = three_weapon_fire_snapshot();
     next.fire_commits = vec![FireCommit {
@@ -2915,7 +2956,10 @@ fn fire_shield_facing_persists_when_cycling_weapons_and_emitting() {
     let draft = app.fire_draft.as_ref().unwrap();
     assert_eq!(draft.shots.len(), 3);
     assert!(draft.shots.iter().all(|s| s.shield_facing == 3));
-    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char(' ')));
+    let result = handle_key(
+        &mut app,
+        make_key_code(crossterm::event::KeyCode::Char(' ')),
+    );
     match result {
         KeyResult::SendOrder(order) => match order.body {
             crate::protocol::OrderBody::CommitVolley { shots, .. } => {
@@ -3036,7 +3080,8 @@ fn fire_preview_unique_face_auto_selects_invalid_default() {
         weapon_idx: 0,
         target: Some(2),
         shield_facing: 0, // invalid if only 3 is legal
-     shots: vec![], });
+        shots: vec![],
+    });
     app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![3]));
     assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 3);
 }
@@ -3051,7 +3096,8 @@ fn tutorial_fire_preview_does_not_consume_required_facing_step() {
         weapon_idx: 0,
         target: Some(2),
         shield_facing: 0,
-     shots: vec![], });
+        shots: vec![],
+    });
     let tutorial = app.tutorial.as_mut().unwrap();
     tutorial.current = tutorial
         .steps
@@ -3083,7 +3129,8 @@ fn fire_preview_unique_face_preserves_already_valid() {
         weapon_idx: 0,
         target: Some(2),
         shield_facing: 3,
-     shots: vec![], });
+        shots: vec![],
+    });
     app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![3]));
     assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 3);
 }
@@ -3098,7 +3145,8 @@ fn fire_preview_multi_face_does_not_auto_select() {
         weapon_idx: 0,
         target: Some(2),
         shield_facing: 0,
-     shots: vec![], });
+        shots: vec![],
+    });
     app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![2, 3]));
     assert_eq!(
         app.fire_draft.as_ref().unwrap().shield_facing,
@@ -3117,7 +3165,8 @@ fn fire_preview_stale_weapon_cannot_alter_draft() {
         weapon_idx: 0, // beam_1
         target: Some(2),
         shield_facing: 0,
-     shots: vec![], });
+        shots: vec![],
+    });
     // Stale preview for torp while cursor is on beam.
     app.accept_fire_preview(fire_preview(1, "torp_1", 2, vec![3]));
     assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 0);
@@ -3267,7 +3316,8 @@ fn destroyed_weapon_preview_says_destroyed_not_not_found() {
         weapon_idx: 0,
         target: Some(2),
         shield_facing: 0,
-     shots: vec![], });
+        shots: vec![],
+    });
     let mut preview = fire_preview(1, "beam_1", 2, vec![]);
     preview.legal = false;
     preview.reason = Some("weapon beam_1 was not found".into());
@@ -3293,7 +3343,8 @@ fn fire_preview_line_names_the_attacker() {
         weapon_idx: 0,
         target: Some(2),
         shield_facing: 0,
-     shots: vec![], });
+        shots: vec![],
+    });
     app.fire_preview = Some(fire_preview(1, "beam_1", 2, vec![0]));
     let buf = render_to_string(&mut app, 120, 30);
     assert!(

@@ -1046,10 +1046,7 @@ impl App {
 }
 
 /// Human-readable short-fall path line for the session log / ship panel.
-pub fn format_path_result(
-    snap: &protocol::Snapshot,
-    pr: &protocol::PathResult,
-) -> Option<String> {
+pub fn format_path_result(snap: &protocol::Snapshot, pr: &protocol::PathResult) -> Option<String> {
     if pr.fallback_steps == 0 {
         return None;
     }

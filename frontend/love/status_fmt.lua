@@ -3,36 +3,27 @@
 
 local status_fmt = {}
 
-local MANEUVER_WORDS = {
-  coast = "coasted",
-  accel = "accelerated",
-  turn = "turned to facing",
-  turn_accel = "turned+accelerated to facing",
-}
-
---- Human wording for a successful order echo.
---- action: "coast"|"accel"|"turn"|"turn_accel"|string
---- ship: number, facing: optional number
+--- Human wording for a successful order echo (protocol v4).
 function status_fmt.order_echo(ship, action, facing)
   local id = tostring(ship or "?")
-  if action == "turn" or action == "turn_accel" then
-    local word = MANEUVER_WORDS[action] or action
-    return string.format("Ship #%s %s %s", id, word, tostring(facing or "?"))
-  end
-  if MANEUVER_WORDS[action] then
-    return string.format("Ship #%s %s", id, MANEUVER_WORDS[action])
-  end
+  local _ = facing
   if action == "allocate" then
     return string.format("Ship #%s allocated", id)
   end
-  if action == "ready" or action == "ready_fire" then
-    return string.format("Ship #%s readied fire", id)
+  if action == "commit_path" then
+    return string.format("Ship #%s committed path", id)
   end
-  if action == "end_turn" then
-    return "Turn ended"
+  if action == "hold_position" then
+    return string.format("Ship #%s held position", id)
+  end
+  if action == "commit_volley" then
+    return string.format("Ship #%s committed volley", id)
+  end
+  if action == "ready" or action == "ready_fire" then
+    return string.format("Ship #%s committed volley", id)
   end
   if action == "fire" or action == "commit_fire" then
-    return string.format("Ship #%s fired", id)
+    return string.format("Ship #%s queued fire", id)
   end
   return string.format("Ship #%s %s", id, tostring(action or "acted"))
 end

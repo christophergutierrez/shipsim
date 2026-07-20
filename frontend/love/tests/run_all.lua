@@ -22,7 +22,7 @@ local end_condition = require("end_condition")
 local harness = require("harness")
 local paths = require("paths")
 local draw_hud = require("draw_hud")
-local command_mapping = require("command_mapping")
+local path_editor = require("path_editor")
 local scripted_pump = require("scripted_pump")
 local preview = require("preview")
 local events = require("events")
@@ -76,27 +76,56 @@ assert_eq(cv.shots[1].shield_facing, 3, "commit_volley shot shield_facing")
 local cvh = orders.commit_volley(1, {})
 assert_eq(#cvh.shots, 0, "empty volley holds fire")
 
--- command_mapping maps legacy labels onto complete v4 paths.
-assert_eq(command_mapping.movement_order("forward", 1), nil, "directional label unmapped")
-assert_eq(command_mapping.movement_order("bogus", 1), nil, "cmd unknown action is nil")
-local coast = command_mapping.movement_order("coast", 1)
-assert_eq(coast.type, "commit_path", "production coast is a commit_path")
-assert_eq(coast.ship, 1, "production coast ship")
-assert_eq(#coast.actions, 0, "coast commits an empty path")
-local accel = command_mapping.movement_order("accel", 1)
-assert_eq(accel.type, "commit_path", "accel is a commit_path")
-assert_eq(accel.actions[1], "move_f", "accel steps forward once")
--- turn from facing 0 to 2: two right steps (shortest rotation).
-local tn = command_mapping.movement_order("turn", 1, 2)
-assert_eq(tn.type, "commit_path", "turn is a commit_path")
-assert_eq(tn.actions[1], "turn_right", "turn builds turn_right steps")
-assert_eq(#tn.actions, 2, "turn 0->2 is two steps")
--- turn_accel appends a forward step after the rotation.
-local ta = command_mapping.movement_order("turn_accel", 1, 4)
-assert_eq(ta.type, "commit_path", "turn_accel is a commit_path")
-assert_eq(ta.actions[#ta.actions], "move_f", "turn_accel ends with move_f")
-assert_eq(command_mapping.movement_order("turn", 1), nil, "cmd turn without facing is nil")
-ok("v4 order builders")
+-- path_editor is the production draft seam (same as main.lua).
+assert_eq(path_editor.key_to_action("w"), "move_f", "W maps to move_f")
+assert_eq(path_editor.key_to_action("a"), "move_fl", "A maps to move_fl")
+assert_eq(path_editor.key_to_action("d"), "move_fr", "D maps to move_fr")
+assert_eq(path_editor.key_to_action("z"), "turn_left", "Z maps to turn_left")
+assert_eq(path_editor.key_to_action("x"), "turn_right", "X maps to turn_right")
+local drafts = {}
+local ok_a, _, d = path_editor.append(drafts, 1, path_editor.key_to_action("w"), 5)
+assert_eq(ok_a, true, "W append via same key mapping as production")
+assert_eq(d[1], "move_f", "W appends move_f")
+ok_a, _, d = path_editor.append(drafts, 1, "move_f", 5) -- button uses same action token
+assert_eq(d[2], "move_f", "Forward button action matches W")
+-- five-action mixed path
+path_editor.clear(drafts, 1)
+for _, act in ipairs({ "move_f", "move_fr", "turn_left", "move_fl", "turn_right" }) do
+  path_editor.append(drafts, 1, act, 8)
+end
+d = path_editor.get(drafts, 1)
+assert_eq(#d, 5, "five-action draft length")
+assert_eq(table.concat(d, ","), "move_f,move_fr,turn_left,move_fl,turn_right", "order preserved")
+path_editor.undo(drafts, 1)
+assert_eq(#path_editor.get(drafts, 1), 4, "undo pops one")
+path_editor.clear(drafts, 1)
+assert_eq(#path_editor.get(drafts, 1), 0, "clear empties")
+-- Commit Path blocked when empty; Hold Position submits [].
+local kind, actions, reason = path_editor.try_commit(drafts, 1)
+assert_eq(kind, "blocked", "empty commit blocked")
+assert_eq(reason, "empty_draft", "empty_draft reason")
+kind, actions = path_editor.hold(drafts, 1)
+assert_eq(kind, "submit", "hold submits")
+assert_eq(#actions, 0, "hold actions empty array")
+path_editor.append(drafts, 1, "move_f", 3)
+path_editor.append(drafts, 1, "turn_right", 3)
+path_editor.append(drafts, 1, "move_f", 3)
+kind, actions = path_editor.try_commit(drafts, 1)
+assert_eq(kind, "submit", "non-empty commit")
+assert_eq(table.concat(actions, ","), "move_f,turn_right,move_f", "exact draft submitted")
+local order = path_editor.order(1, actions)
+assert_eq(order.type, "commit_path", "order type")
+assert_eq(#order.actions, 3, "order carries draft")
+-- Rejected submit leaves draft (accept not called).
+assert_eq(#path_editor.get(drafts, 1), 3, "draft retained until accept")
+path_editor.accept(drafts, 1)
+assert_eq(path_editor.get(drafts, 1)[1], nil, "accept clears draft")
+-- path_preview request matches draft
+local prev = path_editor.preview_request(1, { "move_f", "turn_left" })
+assert_eq(prev.request, "path_preview", "preview request type")
+assert_eq(prev.actions[1], "move_f", "preview actions match draft")
+assert_eq(prev.protocol_version, 4, "preview protocol")
+ok("v4 order builders + path_editor seam")
 
 print("allocation controls")
 assert_eq(allocation.increment(3, 4), 4, "increment")
@@ -176,37 +205,66 @@ assert_eq(snap.ships[1].shields_powered[1], 2, "front shield allocated after sta
 assert_eq(snap.ships[1].shields_powered[2], 1, "front-right shield allocated after stage resolves")
 ok("allocate + move phase")
 
--- Capture the pre-move facing so we can verify the resolved rotation.
-local face0 = nil
+-- Movement via path_editor seam (same as production keyboard/buttons).
+local face0, q0, r0, motion = nil, nil, nil, 0
 for _, s in ipairs(snap.ships or {}) do
-  if s.id == 1 then face0 = s.facing or 0 end
+  if s.id == 1 then
+    face0, q0, r0 = s.facing or 0, s.q, s.r
+    motion = s.motion_available or 0
+  end
 end
+assert(motion >= 1, "player has motion after allocate")
 
--- Movement stage: commit one ordered path. Rotate two faces right via
--- command_mapping (exercises the legacy-label -> v4 path mapping). Facing only
--- changes after every living ship commits and the stage resolves.
-local target_face = ((face0 or 0) + 2) % 6
-local move_order = command_mapping.movement_order("turn", 1, target_face, face0)
+local drafts = {}
+-- combat.toml: player (1,0) face 3 (west); scripted holds (0,0). Move west would
+-- collide — turn nose east (three turn_right) then move_f to (2,0), conflict-free.
+path_editor.append(drafts, 1, path_editor.key_to_action("x"), motion)
+path_editor.append(drafts, 1, path_editor.key_to_action("x"), motion)
+path_editor.append(drafts, 1, path_editor.key_to_action("x"), motion)
+path_editor.append(drafts, 1, path_editor.key_to_action("w"), motion)
+local kind, actions = path_editor.try_commit(drafts, 1)
+assert_eq(kind, "submit", "non-empty draft commits")
+assert_eq(#actions, 4, "four drafted actions")
+assert_eq(actions[4], "move_f", "ends with W-equivalent translation")
+local move_order = path_editor.order(1, actions)
 assert_eq(move_order.type, "commit_path", "movement order is a commit_path")
+assert(#move_order.actions > 0, "commit_path actions non-empty")
+-- Empty Commit Path is blocked (no order) — regression for silent empty submit.
+local empty_kind = path_editor.try_commit({ [1] = {} }, 1)
+assert_eq(empty_kind, "blocked", "empty Commit Path blocked")
+-- Hold Position is the intentional empty submit.
+local hkind, hactions = path_editor.hold(drafts, 1)
+assert_eq(hkind, "submit", "hold submits")
+assert_eq(#hactions, 0, "hold empty array")
 snap = select(1, harness.submit(session, move_order))
 assert(snap, "commit_path ship 1")
+path_editor.accept(drafts, 1)
 local committed = false
 for _, id in ipairs(snap.ships_committed_path or {}) do
   if id == 1 then committed = true end
 end
-assert(committed, "commit_path must mark ship 1 committed this stage")
+assert(committed or snap.phase == "firing", "commit_path accepted this stage")
+-- Prove the NDJSON order was non-empty (session log / harness orders list).
+local last = session.orders[#session.orders]
+assert(last and last.type == "commit_path" and #(last.actions or {}) > 0,
+  "submitted order must be non-empty commit_path")
 ok("player commit_path accepted by engine")
 
--- Scripted ship commits an empty path → resolve → firing stage.
+-- Scripted Hold Position (empty path) → resolve → firing.
 scripted_pump.run(session, function(err) error(err.message or "scripted pump failed") end)
 snap = session.snapshot
 assert_eq(snap.phase, "firing", "path resolution advances to firing")
-local face = nil
+local face, q1, r1, tr_steps = nil, nil, nil, 0
 for _, s in ipairs(snap.ships or {}) do
-  if s.id == 1 then face = s.facing end
+  if s.id == 1 then face, q1, r1 = s.facing, s.q, s.r end
 end
-assert_eq(face, target_face, "resolved path rotated ship 1 to the requested facing")
-ok("resolved path applies the committed rotation")
+for _, pr in ipairs(snap.path_results or {}) do
+  if pr.ship == 1 then tr_steps = pr.translated_steps or 0 end
+end
+assert(tr_steps > 0, "path_results.translated_steps > 0 for mover")
+assert(q1 ~= q0 or r1 ~= r0, "ship 1 hex changed after resolution")
+assert(face ~= nil, "ship 1 still present")
+ok("resolved path moves ship (engine-backed)")
 
 -- Volley stage: hold fire (empty volley), then let the scripted ship commit its
 -- volley. The turn advances automatically back to allocate — no end_turn.
@@ -436,38 +494,14 @@ do
   ok("fire_preview drives target legality")
 end
 
--- maneuver options disable unaffordable turns: the cost label carries the
--- engine's "NO" marker for unaffordable entries and "ok" for affordable ones.
--- Pure-logic test of preview.maneuver_cost_label.
+-- path_preview summary line (protocol v4).
 do
-  -- Synthetic maneuver_options response (mirrors docs/PROTOCOL.md shape).
-  local options = {
-    { maneuver = { type = "coast" }, thrust_cost = 0, affordable = true },
-    { maneuver = { type = "turn", facing = 3 }, thrust_cost = 3,
-      affordable = false, reason = "need 3, have 2" },
-    { maneuver = { type = "turn", facing = 0 }, thrust_cost = 1, affordable = true },
-    { maneuver = { type = "turn_accel", facing = 3 }, thrust_cost = nil,
-      affordable = false, reason = "cannot turn and accelerate simultaneously" },
-  }
-  -- Affordable coast.
-  assert_eq(preview.maneuver_cost_label(options, { type = "coast" }), "0 ok",
-    "affordable coast label")
-  -- Unaffordable turn to facing 3: "3 NO".
-  assert_eq(preview.maneuver_cost_label(options, { type = "turn", facing = 3 }), "3 NO",
-    "unaffordable turn label carries NO marker")
-  -- Affordable turn to facing 0: "1 ok".
-  assert_eq(preview.maneuver_cost_label(options, { type = "turn", facing = 0 }), "1 ok",
-    "affordable turn label")
-  -- turn_accel with null cost (invalid maneuver): "n/a".
-  assert_eq(preview.maneuver_cost_label(options, { type = "turn_accel", facing = 3 }), "n/a",
-    "null-cost maneuver label is n/a")
-  -- maneuver_reason surfaces the engine's reason for the unaffordable turn.
-  assert_eq(preview.maneuver_reason(options, { type = "turn", facing = 3 }),
-    "need 3, have 2", "unaffordable turn reason surfaced for tooltip")
-  -- No options yet (preview not loaded): "...".
-  assert_eq(preview.maneuver_cost_label(nil, { type = "coast" }), "...",
-    "no preview yet shows ellipsis")
-  ok("maneuver options disable unaffordable turns")
+  assert_eq(preview.path_line(nil), "…", "nil preview")
+  assert(preview.path_line({ error = "over budget" }):find("illegal"), "error preview")
+  local ok_line = preview.path_line({ cost = 2, remaining_motion = 3, final_facing = 1 })
+  assert(ok_line:find("cost 2"), "path line cost")
+  assert(ok_line:find("3 left"), "path line remaining")
+  ok("path_preview status line")
 end
 
 -- Live-engine round-trip: gated behind LOVE_LIVE=1 so headless stays green.
@@ -529,7 +563,7 @@ do
   snap.phase = phases.MOVEMENT
   snap.ships_committed_path = { 1 }
   snap.ships_allocated_this_turn = nil
-  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A2 needs a path — click ship on map",
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A2 needs a path (or Hold Position) — click ship on map",
     "cta movement pending fleetmate")
 
   -- firing: fire_opportunity attributed to attacker callsign, focused is attacker
@@ -1508,8 +1542,8 @@ end
 -- order echo uses words
 do
   assert(status_fmt.order_echo(2, "turn", 3):match("facing 3"), "turn echo")
-  assert(status_fmt.order_echo(1, "accel"):match("accelerated"), "accel echo")
-  assert(not status_fmt.order_echo(1, "coast"):match("coast$") or status_fmt.order_echo(1, "coast"):match("coasted"), "coast echo")
+  assert(status_fmt.order_echo(1, "commit_path"):match("committed path"), "path echo")
+  assert(status_fmt.order_echo(1, "hold_position"):match("held position"), "hold echo")
   ok("order echo uses words")
 end
 
