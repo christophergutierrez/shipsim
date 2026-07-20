@@ -1,0 +1,407 @@
+{
+  "aliases": {
+    "tutorial_escort": "escort",
+    "tutorial_heavy_cruiser": "heavy_cruiser"
+  },
+  "entries": [
+    {
+      "class_id": "battleship_heavy",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Battleship (Heavy)",
+      "kind": "primary",
+      "size_name": "Battleship",
+      "size_tier": 5,
+      "special": "",
+      "variant": "heavy",
+      "visual_description": "heavy variant of the battleship (Battleship (Heavy)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "battleship_light",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Battleship (Light)",
+      "kind": "primary",
+      "size_name": "Battleship",
+      "size_tier": 5,
+      "special": "",
+      "variant": "light",
+      "visual_description": "light variant of the battleship (Battleship (Light)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "battleship_line",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Battleship (Line)",
+      "kind": "primary",
+      "size_name": "Battleship",
+      "size_tier": 5,
+      "special": "",
+      "variant": "line",
+      "visual_description": "line variant of the battleship (Battleship (Line)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "destroyer_heavy",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Destroyer (Heavy)",
+      "kind": "primary",
+      "size_name": "Destroyer",
+      "size_tier": 2,
+      "special": "",
+      "variant": "heavy",
+      "visual_description": "heavy variant of the destroyer (Destroyer (Heavy)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "destroyer_light",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Destroyer (Light)",
+      "kind": "primary",
+      "size_name": "Destroyer",
+      "size_tier": 2,
+      "special": "",
+      "variant": "light",
+      "visual_description": "light variant of the destroyer (Destroyer (Light)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "destroyer_line",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Destroyer (Line)",
+      "kind": "primary",
+      "size_name": "Destroyer",
+      "size_tier": 2,
+      "special": "",
+      "variant": "line",
+      "visual_description": "line variant of the destroyer (Destroyer (Line)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "dreadnought_heavy",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Dreadnought (Heavy)",
+      "kind": "primary",
+      "size_name": "Dreadnought",
+      "size_tier": 6,
+      "special": "",
+      "variant": "heavy",
+      "visual_description": "heavy variant of the dreadnought (Dreadnought (Heavy)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "dreadnought_light",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Dreadnought (Light)",
+      "kind": "primary",
+      "size_name": "Dreadnought",
+      "size_tier": 6,
+      "special": "",
+      "variant": "light",
+      "visual_description": "light variant of the dreadnought (Dreadnought (Light)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "dreadnought_line",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Dreadnought (Line)",
+      "kind": "primary",
+      "size_name": "Dreadnought",
+      "size_tier": 6,
+      "special": "",
+      "variant": "line",
+      "visual_description": "line variant of the dreadnought (Dreadnought (Line)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "escort",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Escort",
+      "kind": "primary",
+      "size_name": "Fighter",
+      "size_tier": 1,
+      "special": "pilot",
+      "variant": "",
+      "visual_description": "a fighter (Escort), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "fighter_heavy",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Fighter (Heavy)",
+      "kind": "primary",
+      "size_name": "Fighter",
+      "size_tier": 1,
+      "special": "",
+      "variant": "heavy",
+      "visual_description": "heavy variant of the fighter (Fighter (Heavy)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "fighter_light",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Fighter (Light)",
+      "kind": "primary",
+      "size_name": "Fighter",
+      "size_tier": 1,
+      "special": "",
+      "variant": "light",
+      "visual_description": "light variant of the fighter (Fighter (Light)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "fighter_line",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Fighter (Line)",
+      "kind": "primary",
+      "size_name": "Fighter",
+      "size_tier": 1,
+      "special": "",
+      "variant": "line",
+      "visual_description": "line variant of the fighter (Fighter (Line)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "heavy_cruiser",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Heavy Cruiser",
+      "kind": "primary",
+      "size_name": "Destroyer",
+      "size_tier": 2,
+      "special": "pilot",
+      "variant": "",
+      "visual_description": "a destroyer (Heavy Cruiser), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "heavy_cruiser_heavy",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Heavy Cruiser (Heavy)",
+      "kind": "primary",
+      "size_name": "Heavy Cruiser",
+      "size_tier": 4,
+      "special": "",
+      "variant": "heavy",
+      "visual_description": "heavy variant of the heavy cruiser (Heavy Cruiser (Heavy)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "heavy_cruiser_light",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Heavy Cruiser (Light)",
+      "kind": "primary",
+      "size_name": "Heavy Cruiser",
+      "size_tier": 4,
+      "special": "",
+      "variant": "light",
+      "visual_description": "light variant of the heavy cruiser (Heavy Cruiser (Light)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "heavy_cruiser_line",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Heavy Cruiser (Line)",
+      "kind": "primary",
+      "size_name": "Heavy Cruiser",
+      "size_tier": 4,
+      "special": "",
+      "variant": "line",
+      "visual_description": "line variant of the heavy cruiser (Heavy Cruiser (Line)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "huge",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Huge",
+      "kind": "primary",
+      "size_name": "Heavy Cruiser",
+      "size_tier": 4,
+      "special": "pilot",
+      "variant": "",
+      "visual_description": "a heavy cruiser (Huge), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "light_cruiser_heavy",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Light Cruiser (Heavy)",
+      "kind": "primary",
+      "size_name": "Light Cruiser",
+      "size_tier": 3,
+      "special": "",
+      "variant": "heavy",
+      "visual_description": "heavy variant of the light cruiser (Light Cruiser (Heavy)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "light_cruiser_light",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Light Cruiser (Light)",
+      "kind": "primary",
+      "size_name": "Light Cruiser",
+      "size_tier": 3,
+      "special": "",
+      "variant": "light",
+      "visual_description": "light variant of the light cruiser (Light Cruiser (Light)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "light_cruiser_line",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Light Cruiser (Line)",
+      "kind": "primary",
+      "size_name": "Light Cruiser",
+      "size_tier": 3,
+      "special": "",
+      "variant": "line",
+      "visual_description": "line variant of the light cruiser (Light Cruiser (Line)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "starbase",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Generic Starbase",
+      "kind": "primary",
+      "size_name": "Heavy Cruiser",
+      "size_tier": 4,
+      "special": "immobile",
+      "variant": "",
+      "visual_description": "a heavy cruiser (Generic Starbase), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "titan_double",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Titan (Double Armament)",
+      "kind": "primary",
+      "size_name": "Titan",
+      "size_tier": 7,
+      "special": "",
+      "variant": "double armament",
+      "visual_description": "double armament variant of the titan (Titan (Double Armament)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "titan_heavy",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Titan (Heavy)",
+      "kind": "primary",
+      "size_name": "Titan",
+      "size_tier": 7,
+      "special": "",
+      "variant": "heavy",
+      "visual_description": "heavy variant of the titan (Titan (Heavy)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "titan_light",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Titan (Light)",
+      "kind": "primary",
+      "size_name": "Titan",
+      "size_tier": 7,
+      "special": "",
+      "variant": "light",
+      "visual_description": "light variant of the titan (Titan (Light)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "class_id": "titan_line",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Titan (Line)",
+      "kind": "primary",
+      "size_name": "Titan",
+      "size_tier": 7,
+      "special": "",
+      "variant": "line",
+      "visual_description": "line variant of the titan (Titan (Line)), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "alias_target": "escort",
+      "class_id": "tutorial_escort",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Escort",
+      "kind": "alias",
+      "size_name": "Destroyer",
+      "size_tier": 2,
+      "special": "tutorial",
+      "variant": "",
+      "visual_description": "tutorial variant of a destroyer (Escort), top-down view, pointing upward, clean silhouette on transparent background"
+    },
+    {
+      "alias_target": "heavy_cruiser",
+      "class_id": "tutorial_heavy_cruiser",
+      "desired_states": [
+        "top_down",
+        "portrait"
+      ],
+      "display_name": "Heavy Cruiser",
+      "kind": "alias",
+      "size_name": "Destroyer",
+      "size_tier": 2,
+      "special": "tutorial",
+      "variant": "",
+      "visual_description": "tutorial variant of a destroyer (Heavy Cruiser), top-down view, pointing upward, clean silhouette on transparent background"
+    }
+  ],
+  "p0_states": [
+    "top_down",
+    "portrait"
+  ],
+  "version": 1
+}
