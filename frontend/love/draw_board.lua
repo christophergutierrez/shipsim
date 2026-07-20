@@ -2,10 +2,20 @@ local hex = require("hex")
 local fx = require("fx")
 local geom = require("geom")
 local slide = require("slide")
+local ship_art = require("ship_art")
 
 local draw_board = {}
 
 local SIZE = 36
+
+-- Ship art runtime state. Initialized lazily on first draw; nil until then.
+-- When the manifest is empty (P0 default), every lookup returns fallback=true
+-- and the circle marker is drawn. This is the release rollback path: an empty
+-- manifest disables all art without code changes.
+local art_state = nil
+local art_cache = nil
+local art_aliases = nil
+local art_tried = false
 
 -- UPGRADE-PLAN Phase 3: color map for event kinds, used by the ticker and
 -- floater spawning. Pure data (no Love APIs) so it is testable headless.
@@ -25,6 +35,76 @@ draw_board.EVENT_COLORS = {
 
 function draw_board.hex_size()
   return SIZE
+end
+
+-- Ship art: lazily load the manifest and catalog aliases on first draw.
+-- Uses love.filesystem/love.graphics if available; under luajit tests (no
+-- love.*), art stays nil and all ships fall back to the geometric marker.
+-- This is the release rollback path: an empty manifest disables all art.
+local function init_art()
+  if art_tried then return end
+  art_tried = true
+  if not love or not love.filesystem then return end
+  -- Load manifest (runtime art records). Empty records = all-fallback.
+  local mpath = "assets/ship_art/manifest.json"
+  local ok, mdata = pcall(love.filesystem.read, mpath)
+  if ok and mdata and mdata ~= "" then
+    local json = require("json")
+    local pok, manifest = pcall(json.decode, mdata)
+    if pok and manifest then
+      art_state = ship_art.load_manifest(manifest)
+    end
+  end
+  -- Load catalog aliases (for tutorial_* -> base class resolution).
+  local cpath = "assets/ship_art/catalog.json"
+  local cok, cdata = pcall(love.filesystem.read, cpath)
+  if cok and cdata and cdata ~= "" then
+    local json = require("json")
+    local pok, catalog = pcall(json.decode, cdata)
+    if pok and catalog and catalog.aliases then
+      art_aliases = catalog.aliases
+    end
+  end
+  -- Build the image cache with a Love-backed image loader.
+  if art_state then
+    art_cache = ship_art.new_cache(art_state, art_aliases, function(path)
+      if not love.graphics or not love.graphics.newImage then return nil end
+      local ok, img = pcall(love.graphics.newImage, path)
+      if ok then return img end
+      return nil
+    end)
+  end
+end
+
+-- Draw a ship sprite with rotation, or return false to signal fallback.
+-- The sprite is scaled to fit within the marker footprint (SIZE * 0.45 radius)
+-- and rotated by geom.facing_angle(facing) + source-orientation offset.
+-- Source art points UP (canonical); the offset maps "up" to the facing angle.
+local function draw_ship_sprite(ship, cx, cy)
+  if not art_state or not art_cache then return false end
+  local class_id = ship.class_id or ""
+  if class_id == "" then return false end
+  -- Destroyed ships try a "destroyed" state asset first; if none exists,
+  -- fall back to the gray circle marker (exit gate: "Destroyed ship without
+  -- a destroyed asset renders the existing gray marker").
+  local want_state = ship.destroyed and "destroyed" or "top_down"
+  local desc = art_cache:get(art_state, class_id, want_state)
+  if desc.fallback or not desc.image then
+    return false
+  end
+  local img = desc.image
+  local iw, ih = img:getDimensions()
+  if iw <= 0 or ih <= 0 then return false end
+  -- Scale to fit within the marker footprint (diameter = SIZE * 0.9).
+  local target = SIZE * 0.9
+  local scale = target / math.max(iw, ih)
+  -- Rotation: source art points up (-pi/2). We rotate so "up" aligns with
+  -- the facing direction. geom.facing_angle gives the pixel angle for the
+  -- facing; the source offset is +pi/2 (from up to facing_angle).
+  local angle = geom.facing_angle(ship.facing or 0) - ship_art.SOURCE_UP_ANGLE
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, cx, cy, angle, scale, scale, iw / 2, ih / 2)
+  return true
 end
 
 local function weapon_def(ship, weapon_id)
@@ -77,11 +157,20 @@ local function arc_ok(arc, rel)
   return rel == 0
 end
 
+-- Expose the loaded art state/cache/aliases so other modules (e.g. draw_hud
+-- portraits) can reuse the same manifest and image cache without re-reading
+-- the manifest. Returns nils until init_art() has run (i.e. after the first
+-- board draw). Callers must handle the all-nil case (no art available).
+function draw_board.art_handle()
+  return art_state, art_cache, art_aliases
+end
+
 function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
   opts = opts or {}
   if not snapshot or not snapshot.map then
     return
   end
+  init_art()
   local w = snapshot.map.width or 0
   local h = snapshot.map.height or 0
   local selected = nil
@@ -259,7 +348,14 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
     else
       love.graphics.setColor(0.95, 0.75, 0.2)
     end
-    love.graphics.circle("fill", cx, cy, SIZE * 0.45)
+    -- UPGRADE-PLAN Phase 4: try ship art sprite first; fall back to the
+    -- original circle marker if art is unavailable (empty manifest, missing
+    -- image, load failure, or destroyed ship without a destroyed-state asset).
+    -- draw_ship_sprite returns false to signal fallback. The circle block is
+    -- the named fallback retained from the pre-art board (exit gate §6/§7).
+    if not draw_ship_sprite(ship, cx, cy) then
+      love.graphics.circle("fill", cx, cy, SIZE * 0.45)
+    end
 
     -- UPGRADE-PLAN Phase 3: damage pulse — hull loss flashes the marker red.
     -- fx.pulse_alpha returns 0 when no pulse is active, so this is a no-op

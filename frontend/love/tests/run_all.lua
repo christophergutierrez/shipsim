@@ -30,6 +30,7 @@ local fx = require("fx")
 local slide = require("slide")
 local tutorial = require("tutorial")
 local input_policy = require("input_policy")
+local ship_art = require("ship_art")
 
 local pass = 0
 local function ok(msg)
@@ -1794,6 +1795,155 @@ do
   allocation.all_engine(ship, a)
   assert_eq(a.movement, 17, "engine residual after weapons") -- 22-4-1
   ok("quick-set max weapons then engine")
+end
+
+-- ---- Phase 4: ship art runtime loader + fallback ----
+print("phase 4: ship art")
+do
+  -- Empty manifest (P0 fallback state): every lookup falls back to geometry.
+  local st, err = ship_art.load_manifest({ version = 1, records = {} })
+  assert(st, "empty manifest loads")
+  assert_eq(err, nil, "empty manifest no error")
+  local d = ship_art.lookup(st, "escort", nil, "top_down")
+  assert_eq(d.fallback, true, "empty manifest -> fallback")
+  assert_eq(d.found, false, "empty manifest -> not found")
+  assert_eq(d.class_id, "escort", "class_id preserved on fallback")
+  ok("empty manifest falls back to geometry")
+end
+
+do
+  -- Alias resolution: tutorial_* borrows base class art.
+  local aliases = { tutorial_escort = "escort", tutorial_heavy_cruiser = "heavy_cruiser" }
+  assert_eq(ship_art.resolve_alias("tutorial_escort", aliases), "escort", "alias resolves to base")
+  assert_eq(ship_art.resolve_alias("escort", aliases), "escort", "non-alias passes through")
+  assert_eq(ship_art.resolve_alias("battleship_heavy", aliases), "battleship_heavy", "unaliased id unchanged")
+  -- nil aliases is safe
+  assert_eq(ship_art.resolve_alias("escort", nil), "escort", "nil aliases safe")
+  ok("alias resolution")
+end
+
+do
+  -- Manifest with a real record: lookup finds it and is not fallback.
+  local st = ship_art.load_manifest({
+    version = 1,
+    records = {
+      { class_id = "escort", state = "top_down", image = "escort_top.png" },
+    },
+  })
+  local d = ship_art.lookup(st, "escort", nil, "top_down")
+  assert_eq(d.found, true, "record found")
+  assert_eq(d.fallback, false, "record with image is not fallback")
+  assert_eq(d.record.image, "escort_top.png", "record image path exposed")
+  ok("manifest record lookup")
+end
+
+do
+  -- Alias lookup resolves through the alias map before hitting the manifest.
+  local aliases = { tutorial_escort = "escort" }
+  local st = ship_art.load_manifest({
+    version = 1,
+    records = {
+      { class_id = "escort", state = "top_down", image = "escort_top.png" },
+    },
+  })
+  local d = ship_art.lookup(st, "tutorial_escort", aliases, "top_down")
+  assert_eq(d.found, true, "alias resolves to base record")
+  assert_eq(d.class_id, "escort", "canonical class_id is the base")
+  assert_eq(d.fallback, false, "alias art is not fallback")
+  ok("alias lookup hits base record")
+end
+
+do
+  -- Record registered but image not generated (empty image path) -> fallback.
+  local st = ship_art.load_manifest({
+    version = 1,
+    records = {
+      { class_id = "escort", state = "top_down", image = "" },
+    },
+  })
+  local d = ship_art.lookup(st, "escort", nil, "top_down")
+  assert_eq(d.fallback, true, "empty image path -> fallback")
+  assert_eq(d.found, false, "empty image path -> not found")
+  ok("ungenerated record falls back")
+end
+
+do
+  -- Missing state degrades to top_down before falling back to geometry.
+  local st = ship_art.load_manifest({
+    version = 1,
+    records = {
+      { class_id = "escort", state = "top_down", image = "escort_top.png" },
+    },
+  })
+  local d = ship_art.lookup(st, "escort", nil, "portrait")
+  assert_eq(d.found, true, "portrait missing degrades to top_down")
+  assert_eq(d.state, "top_down", "degraded state reported as top_down")
+  assert_eq(d.fallback, false, "degraded state still usable")
+  ok("missing state degrades to top_down")
+end
+
+do
+  -- Diagnostic dedup: at most one diagnostic per (class_id, state).
+  local st = ship_art.load_manifest({ version = 1, records = {} })
+  ship_art.diagnostic(st, "escort", "top_down", "load failed")
+  ship_art.diagnostic(st, "escort", "top_down", "load failed again")
+  ship_art.diagnostic(st, "escort", "top_down", "third time")
+  assert_eq(#st.diagnostics, 1, "diagnostic deduped per asset")
+  ship_art.diagnostic(st, "battleship_heavy", "top_down", "different asset")
+  assert_eq(#st.diagnostics, 2, "different asset gets its own diagnostic")
+  ok("diagnostic emitted at most once per asset")
+end
+
+do
+  -- Cache with injected image loader: success path caches the image.
+  local load_count = 0
+  local function load_image(path)
+    load_count = load_count + 1
+    return { handle = path } -- stub image
+  end
+  local st = ship_art.load_manifest({
+    version = 1,
+    records = {
+      { class_id = "escort", state = "top_down", image = "escort_top.png" },
+    },
+  })
+  local cache = ship_art.new_cache(st, nil, load_image)
+  local d1 = cache:get(st, "escort", nil, "top_down")
+  assert_eq(d1.fallback, false, "cache returns non-fallback on success")
+  assert_eq(type(d1.image), "table", "cache returns image handle")
+  local d2 = cache:get(st, "escort", nil, "top_down")
+  assert_eq(load_count, 1, "image loaded only once (cached)")
+  ok("cache loads image once")
+end
+
+do
+  -- Cache with failing image loader: falls back + diagnostic, no crash.
+  local function load_image(path)
+    return nil, "file not found"
+  end
+  local st = ship_art.load_manifest({
+    version = 1,
+    records = {
+      { class_id = "escort", state = "top_down", image = "missing.png" },
+    },
+  })
+  local cache = ship_art.new_cache(st, nil, load_image)
+  local d = cache:get(st, "escort", nil, "top_down")
+  assert_eq(d.fallback, true, "load failure -> fallback")
+  assert_eq(d.image, nil, "no image on failure")
+  assert_eq(#st.diagnostics, 1, "load failure emits one diagnostic")
+  -- Second lookup does not re-attempt or re-diagnose.
+  local d2 = cache:get(st, "escort", nil, "top_down")
+  assert_eq(d2.fallback, true, "cached failure stays fallback")
+  assert_eq(#st.diagnostics, 1, "no second diagnostic for same asset")
+  ok("cache load failure falls back safely")
+end
+
+do
+  -- Source-up angle contract: art points up, runtime combines facing_angle.
+  -- This is a documentation-as-test of the frozen contract (PHASE0 §4).
+  assert_eq(ship_art.SOURCE_UP_ANGLE, -math.pi / 2, "source up is -pi/2 (screen up)")
+  ok("source orientation contract")
 end
 
 print(string.format("\nAll %d checks passed.", pass))

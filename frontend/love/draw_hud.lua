@@ -10,6 +10,7 @@ local tutorial = require("tutorial")
 local layout = require("layout")
 local status_fmt = require("status_fmt")
 local allocation = require("allocation")
+local ship_art = require("ship_art")
 
 local draw_hud = {}
 
@@ -262,6 +263,49 @@ function draw_hud.board_camera_origin(width, height, panel_w, top_h, bottom_h, m
   return layout.board_camera_origin(width, height, panel_w, top_h, bottom_h, map_x, map_y, zoom)
 end
 
+-- UPGRADE-PLAN / SHIP-ART Phase 4: optional portrait decoration for the
+-- selected ship. Draws a small thumbnail in the sidebar content area using the
+-- "portrait" state art from the board's shared art handle. When no portrait is
+-- available (empty manifest, missing image, no selected ship, or window too
+-- small), this is a no-op that consumes zero height — the HUD remains the
+-- current text-only layout (exit gate: "Portrait absence produces the current
+-- text-only HUD"). Portraits disappear before controls are clipped at the
+-- minimum window size (Phase 0 contract).
+--
+-- Returns the height consumed (0 if nothing was drawn).
+local PORTRAIT_PX = 48
+function draw_hud.draw_portrait(app, snap, px, pad, y, content_w)
+  if not snap then return 0 end
+  local ship = find_ship(snap, app.selected_id)
+  if not ship or not ship.class_id then return 0 end
+  -- Yield space at small window sizes: skip the portrait entirely below a
+  -- content-width threshold so command controls are never clipped.
+  if content_w < 180 then return 0 end
+  -- Lazy-require draw_board to avoid a hard load-time dependency and keep
+  -- draw_hud unit-testable in isolation. art_handle returns nils until the
+  -- board has drawn at least once (init_art runs on first board draw).
+  local draw_board = require("draw_board")
+  local art_state, art_cache = draw_board.art_handle()
+  if not art_state or not art_cache then return 0 end
+  -- aliases are captured in the cache closure at new_cache time; get() takes
+  -- (loader_state, class_id, want_state).
+  local desc = art_cache:get(art_state, ship.class_id, "portrait")
+  if desc.fallback or not desc.image then return 0 end
+  local img = desc.image
+  local iw, ih = img:getDimensions()
+  if iw <= 0 or ih <= 0 then return 0 end
+  -- Scale to fit within a PORTRAIT_PX square, preserving aspect ratio.
+  local scale = PORTRAIT_PX / math.max(iw, ih)
+  local dw = iw * scale
+  local dh = ih * scale
+  -- Right-align the thumbnail in the content area.
+  local dx = px + pad + content_w - dw
+  local dy = y
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, dx, dy, 0, scale, scale)
+  return dh
+end
+
 function draw_hud.draw(app)
   local snap = app.session and app.session.snapshot
   local W = love.graphics.getWidth()
@@ -317,6 +361,11 @@ function draw_hud.draw(app)
   love.graphics.setScissor(regions.content.x, regions.content.y,
     regions.content.w, regions.content.h)
   ui.push_hit_clip(regions.content)
+
+  -- SHIP-ART Phase 4: optional portrait thumbnail for the selected ship.
+  -- Right-aligned in the content area; no-op (returns 0) when no portrait art
+  -- is available, so the text-only HUD layout is preserved on absence.
+  y = y + draw_hud.draw_portrait(app, snap, px, pad, y, content_w)
 
   -- Fixed roster: all ships every phase (dead dimmed) so panel y is stable (D5).
   section("Ships", px + pad)
