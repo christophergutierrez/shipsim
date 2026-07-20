@@ -54,8 +54,7 @@ function toast.phase_label(snap, prev_phase)
   end
   local phase = snap.phase
   if phase == "movement" then
-    local c = snap.movement_phase or 1
-    return string.format("Movement %d/4", c)
+    return "Plan paths"
   elseif phase == "firing" then
     return "Firing"
   elseif phase == "allocate" then
@@ -63,8 +62,6 @@ function toast.phase_label(snap, prev_phase)
       return "Allocate power"
     end
     return "Allocate power"
-  elseif phase == "turn_end" then
-    return "End of turn"
   end
   return phase
 end

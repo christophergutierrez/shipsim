@@ -23,8 +23,12 @@ class CommandPolicyTests(unittest.TestCase):
         self.assertIn(f"game log saved: {path.resolve()}", output.getvalue())
 
     def test_terminal_guard_is_authoritative(self):
-        workflows = ("allocate", "move", "pass_move", "commit_fire", "ready_fire",
-                     "end_turn", "expert_raw")
+        workflows = (
+            "allocate",
+            "commit_path",
+            "commit_volley",
+            "expert_raw",
+        )
         for workflow in workflows:
             with self.subTest(workflow=workflow):
                 snap = snapshot(status="Lost")
@@ -41,8 +45,16 @@ class CommandPolicyTests(unittest.TestCase):
                 self.snapshot = {**self.snapshot, "status": "Won"}
                 return self.snapshot
         session = TransitionSession(snapshot())
-        send_orders(FakeUI(), session, ReplContext(),
-                    [{"type": "move"}, {"type": "move"}], prev_log_len=0)
+        send_orders(
+            FakeUI(),
+            session,
+            ReplContext(),
+            [
+                {"type": "commit_path", "ship": 1, "actions": []},
+                {"type": "commit_path", "ship": 1, "actions": []},
+            ],
+            prev_log_len=0,
+        )
         self.assertEqual(1, len(session.sent))
 
     def test_terminal_hint_and_banner_are_once(self):
@@ -75,20 +87,20 @@ class CommandPolicyTests(unittest.TestCase):
         self.assertIn("engine terminated", stderr.getvalue())
         self.assertIn("stderr-test.log", stderr.getvalue())
 
-    def test_move_and_pass_require_movement_phase(self):
+    def test_path_and_pass_require_movement_phase(self):
         snap = snapshot(phase="firing")
         ctx = ReplContext(selected=1)
-        for command in ("m f", "pass"):
+        for command in ("path f", "pass", "hold"):
             with self.subTest(command=command):
                 with contextlib.redirect_stdout(io.StringIO()):
                     self.assertFalse(build_action(command, snap, ctx).orders)
 
-    def test_legacy_forward_explains_inertial_commands(self):
+    def test_legacy_accel_explains_path_commands(self):
         snap = snapshot(phase="movement")
         with contextlib.redirect_stdout(io.StringIO()) as output:
-            action = build_action("m forward", snap, ReplContext(selected=1))
+            action = build_action("accel", snap, ReplContext(selected=1))
         self.assertFalse(action.orders)
-        self.assertIn("inertial movement", output.getvalue())
+        self.assertIn("path", output.getvalue().lower())
 
     def test_ad_does_not_replace_dirty_draft(self):
         snap = snapshot(phase="allocate")

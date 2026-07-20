@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Sub};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Hex {
     pub q: i32,
     pub r: i32,

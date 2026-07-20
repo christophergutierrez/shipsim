@@ -89,8 +89,8 @@ local function classify(obj)
   if obj.type == "error" then
     return "error", obj
   end
-  if obj.type == "movement_preview"
-     or obj.type == "maneuver_options"
+  if obj.type == "path_preview"
+     or obj.type == "reach_preview"
      or obj.type == "fire_preview" then
     return "response", obj
   end

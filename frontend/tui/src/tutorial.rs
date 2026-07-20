@@ -22,9 +22,12 @@ pub enum ExpectedAction {
         target: u32,
     },
     CommitAllocate,
-    Accel,
-    TurnTo(u32),
-    Coast,
+    /// v4 path editor: lay this many total `move_f` steps into the draft path.
+    PathForward(u32),
+    /// v4 path editor: turn the draft path's projected facing to this value.
+    PathFace(u32),
+    /// v4 path editor: submit the drafted `commit_path`.
+    PathCommit,
     EnterMap,
     PanMap,
     ZoomOut,
@@ -33,10 +36,11 @@ pub enum ExpectedAction {
     ExitMap,
     EnterFire,
     ShieldFacing(u32),
+    /// v4 volley builder: queue the selected weapon into the draft volley.
     FireWeapon,
     TabWeapon,
+    /// v4 volley builder: submit the drafted `commit_volley`.
     ReadyFire,
-    EndTurn,
     Dismiss,
 }
 
@@ -223,11 +227,13 @@ impl Tutorial {
             ExpectedAction::CommitAllocate => {
                 format!("{why} · Enter (lock plan, open movement)")
             }
-            ExpectedAction::Accel => format!("{why} · t (accel along nose)"),
-            ExpectedAction::TurnTo(f) => {
-                format!("{why} · press {f} (face {f} only — course unchanged)")
+            ExpectedAction::PathForward(n) => {
+                format!("{why} · press w to add forward steps (need {n})")
             }
-            ExpectedAction::Coast => format!("{why} · c (coast / free slide)"),
+            ExpectedAction::PathFace(f) => {
+                format!("{why} · press {f} to turn the path's nose to facing {f}")
+            }
+            ExpectedAction::PathCommit => format!("{why} · Enter (commit the path)"),
             ExpectedAction::EnterMap => format!("{why} · v (focus the map)"),
             ExpectedAction::PanMap => format!("{why} · a (pan west / left)"),
             ExpectedAction::ZoomOut => format!("{why} · - (zoom out)"),
@@ -241,9 +247,8 @@ impl Tutorial {
             ExpectedAction::FireWeapon => format!("{why} · Enter (queue shot)"),
             ExpectedAction::TabWeapon => format!("{why} · ↓ (next weapon)"),
             ExpectedAction::ReadyFire => {
-                format!("{why} · Space (ready — resolve or skip fire)")
+                format!("{why} · Space (fire the volley)")
             }
-            ExpectedAction::EndTurn => format!("{why} · e (end turn)"),
             ExpectedAction::Dismiss => format!("{why} · Enter or q"),
         }
     }
@@ -309,9 +314,9 @@ fn action_matches(expected: &ExpectedAction, actual: &ExpectedAction) -> bool {
     match (expected, actual) {
         (ExpectedAction::NavField(e), ExpectedAction::NavField(a)) => e == a,
         (ExpectedAction::CommitAllocate, ExpectedAction::CommitAllocate) => true,
-        (ExpectedAction::Accel, ExpectedAction::Accel) => true,
-        (ExpectedAction::TurnTo(e), ExpectedAction::TurnTo(a)) => e == a,
-        (ExpectedAction::Coast, ExpectedAction::Coast) => true,
+        (ExpectedAction::PathForward(e), ExpectedAction::PathForward(a)) => e == a,
+        (ExpectedAction::PathFace(e), ExpectedAction::PathFace(a)) => e == a,
+        (ExpectedAction::PathCommit, ExpectedAction::PathCommit) => true,
         (ExpectedAction::EnterMap, ExpectedAction::EnterMap) => true,
         (ExpectedAction::PanMap, ExpectedAction::PanMap) => true,
         (ExpectedAction::ZoomOut, ExpectedAction::ZoomOut) => true,
@@ -323,7 +328,6 @@ fn action_matches(expected: &ExpectedAction, actual: &ExpectedAction) -> bool {
         (ExpectedAction::FireWeapon, ExpectedAction::FireWeapon) => true,
         (ExpectedAction::TabWeapon, ExpectedAction::TabWeapon) => true,
         (ExpectedAction::ReadyFire, ExpectedAction::ReadyFire) => true,
-        (ExpectedAction::EndTurn, ExpectedAction::EndTurn) => true,
         (ExpectedAction::Dismiss, ExpectedAction::Dismiss) => true,
         _ => false,
     }
@@ -339,17 +343,18 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     // ── Turn 1 allocate ────────────────────────────────────────────────
     TutorialStep {
         title: "Engine power (Movement)",
-        text: "Each turn you split a power pool. Movement is not distance — it \
-               buys a **thrust pool** for this turn only. You will spend thrust \
-               later to accel and turn. Velocity (speed/course) persists after \
-               end-turn; thrust does not.\n\n\
+        text: "Each turn you split a power pool. Movement buys **motion points** \
+               for this turn only — one point per path step. There is no \
+               inertia: your ship ends exactly where the path you draw ends, \
+               then motion resets next turn.\n\n\
                Yellow bar shows why + keys. ▶ marks the selected allocate field. \
-               Set Movement to 10 so we can race past the escort.",
-        why: "Engine = thrust this turn (not permanent speed)",
-        hint: "→ until Movement = 10, or type 10",
+               Set Movement to 8 (this hull's cap) so we can lay a long path \
+               past the escort.",
+        why: "Movement = motion points for this turn's path",
+        hint: "→ until Movement = 8, or type 8",
         expected: ExpectedAction::ReachValue {
             field: 0,
-            target: 10,
+            target: 8,
         },
     },
     TutorialStep {
@@ -406,7 +411,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     TutorialStep {
         title: "Power forward shield",
         text: "Put 6 on F (max per face). Hits on your forward arc spend this \
-               before hull. Budget: 10 engine + 4+1+1 weapons + 6 F = 22 (full pool).",
+               before hull. Budget: 8 engine + 4+1+1 weapons + 6 F = 20 of 22.",
         why: "Shield F=6 so bow hits soak before hull",
         hint: "→ until F = 6, or type 6",
         expected: ExpectedAction::ReachValue {
@@ -417,59 +422,48 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     TutorialStep {
         title: "Commit allocate",
         text: "Nothing is spent in the engine until you commit. Enter sends the \
-               allocate order and opens movement cycle 1 of 4.",
+               allocate order and opens the movement stage, where you draw one \
+               path for the whole turn.",
         why: "Commit power plan — draft becomes real",
         hint: "Enter",
         expected: ExpectedAction::CommitAllocate,
     },
-    // ── Turn 1 movement ────────────────────────────────────────────────
+    // ── Turn 1 movement — draw one path ─────────────────────────────────
     TutorialStep {
-        title: "Accel — leave the pier",
-        text: "t = accel: spend 1 thrust along your **facing** (nose). From a \
-               stop, that sets course = facing and speed 1, then you slide 1 hex \
-               on course. Each cycle you slide `speed` hexes.",
-        why: "Build eastbound speed — race past the escort",
-        hint: "t",
-        expected: ExpectedAction::Accel,
+        title: "Draw the run east",
+        text: "Movement is a single path you draw, then commit. Each step spends \
+               one motion point (you have 8). Press w to add a forward step \
+               (move_f). The escort will rush west toward you; lay **five** \
+               forward steps so you shoot past and end up on its eastern side.",
+        why: "Lay 5 forward steps to cross the escort",
+        hint: "press w five times",
+        expected: ExpectedAction::PathForward(5),
     },
     TutorialStep {
-        title: "Hold fire — cycle 1",
-        text: "You can bear on them, but you would hit their forward shields. \
-               Space = ready fire: leave the fire window **without** spending \
-               weapon charge. (e would end the whole turn — wrong here.)",
-        why: "Don't waste charged weapons on their bow",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
+        title: "Turn the nose onto its stern",
+        text: "Your guns are forward-arc, so the path's final facing decides \
+               where they point. After crossing, the escort is west of you and \
+               its unshielded stern faces east — toward you. Press 3 to append \
+               the turns that leave your nose facing west (3). That spends your \
+               last 3 motion points (5 forward + 3 turn = 8).",
+        why: "End the path facing west — guns onto the stern",
+        hint: "press 3",
+        expected: ExpectedAction::PathFace(3),
     },
     TutorialStep {
-        title: "Accel — speed 2",
-        text: "Accel again: speed 2, slide 2 hexes east. Range collapses fast.",
-        why: "More speed = longer slides east each cycle",
-        hint: "t",
-        expected: ExpectedAction::Accel,
-    },
-    TutorialStep {
-        title: "Hold fire — cycle 2",
-        text: "Still not a stern shot. Hold charge.",
-        why: "Still wrong geometry — hold the volley",
-        hint: "Space",
-        expected: ExpectedAction::ReadyFire,
-    },
-    TutorialStep {
-        title: "Turn nose west",
-        text: "Facing and course are different. **Turn** only changes facing \
-               (guns/nose); course/speed keep you sliding east. Face 3 = west. \
-               Cost is hex-ring distance (0→3 costs 3 thrust). Inertia carries \
-               you past the escort while your guns turn onto its stern.",
-        why: "Point guns west while still flying east (stern shot)",
-        hint: "3",
-        expected: ExpectedAction::TurnTo(3),
+        title: "Commit the path",
+        text: "The path is [w w w w w, turn to 3]. Enter submits it as one \
+               commit_path. Both ships move simultaneously; then the firing \
+               stage opens with everyone in their final positions.",
+        why: "Commit the path — movement resolves",
+        hint: "Enter",
+        expected: ExpectedAction::PathCommit,
     },
     TutorialStep {
         title: "Focus the tactical map",
         text: "You crossed the escort and now have its unshielded stern in front \
                of your guns. Before firing, press v to focus the map. Map focus \
-               is read-only: it never spends thrust or advances the phase.",
+               is read-only: it never spends motion or advances the phase.",
         why: "Inspect the pass without issuing an order",
         hint: "v",
         expected: ExpectedAction::EnterMap,
@@ -591,10 +585,11 @@ mod tests {
     #[test]
     fn reach_value_requires_target() {
         let mut t = Tutorial::new();
+        // Step 0 targets movement = 8 (protocol v4 motion pool).
         let (ok, adv) = t.check_reach_value(0, 0, 1);
         assert!(ok);
         assert!(!adv);
-        let (ok, adv) = t.check_reach_value(0, 9, 10);
+        let (ok, adv) = t.check_reach_value(0, 7, 8);
         assert!(ok);
         assert!(adv);
         assert_eq!(t.current, 1);
@@ -603,10 +598,10 @@ mod tests {
     #[test]
     fn reach_value_allows_left_to_correct_overshoot() {
         let mut t = Tutorial::new();
-        let (ok, adv) = t.check_reach_value(0, 10, 11);
+        let (ok, adv) = t.check_reach_value(0, 8, 9);
         assert!(ok);
         assert!(!adv);
-        let (ok, adv) = t.check_reach_value(0, 11, 10);
+        let (ok, adv) = t.check_reach_value(0, 9, 8);
         assert!(ok);
         assert!(adv);
     }
@@ -648,7 +643,7 @@ mod tests {
     #[test]
     fn wrong_action_blocked() {
         let mut t = Tutorial::new();
-        assert!(!t.check_action(&ExpectedAction::Coast));
+        assert!(!t.check_action(&ExpectedAction::PathCommit));
         assert_eq!(t.current, 0);
         assert!(t.error_msg.is_some());
     }
@@ -677,7 +672,7 @@ mod tests {
         assert!(t.is_complete());
         assert!(REAR_ATTACK_STEPS
             .iter()
-            .any(|s| matches!(s.expected, ExpectedAction::TurnTo(3))));
+            .any(|s| matches!(s.expected, ExpectedAction::PathFace(3))));
         assert!(
             REAR_ATTACK_STEPS
                 .iter()

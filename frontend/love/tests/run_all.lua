@@ -48,64 +48,55 @@ assert_eq(type(draw_hud), "table", "draw_hud module contract")
 print("order builders (gate 3)")
 local a = orders.allocate(1, 4, { beam_1 = 1 }, { 0, 0, 0, 0, 0, 0 })
 assert_eq(a.type, "allocate", "allocate type")
-assert_eq(a.protocol_version, 3, "allocate protocol version")
+assert_eq(a.protocol_version, 4, "allocate protocol version")
 assert_eq(a.ship, 1, "allocate ship")
 assert_eq(a.movement, 4, "allocate movement")
 assert_eq(a.weapons.beam_1, 1, "allocate weapons")
 assert_eq(#a.shields, 6, "allocate shields len")
 
-assert_eq(command_mapping.movement_order("forward", 1), nil, "directional movement disabled in M6")
-local coast = command_mapping.movement_order("coast", 1)
-assert_eq(coast.type, "commit_maneuver", "production coast type")
-assert_eq(coast.ship, 1, "production coast ship")
-assert_eq(coast.maneuver.type, "coast", "production coast maneuver")
+-- v4 motion model: one ordered commit_path per ship (no per-cycle maneuver).
+local cp = orders.commit_path(1, { "move_f", "turn_left" })
+assert_eq(cp.type, "commit_path", "commit_path type")
+assert_eq(cp.ship, 1, "commit_path ship")
+assert_eq(cp.protocol_version, 4, "commit_path protocol version")
+assert_eq(cp.actions[1], "move_f", "commit_path first action")
+assert_eq(cp.actions[2], "turn_left", "commit_path second action")
+local cpe = orders.commit_path(1, {})
+assert_eq(cpe.type, "commit_path", "empty commit_path type")
+assert_eq(#cpe.actions, 0, "empty path is legal (stationary)")
 
-local cm = orders.commit_maneuver(1, { type = "coast" })
-assert_eq(cm.type, "commit_maneuver", "commit_maneuver type")
-assert_eq(cm.maneuver.type, "coast", "commit_maneuver maneuver")
+-- v4 fire model: one commit_volley per ship (empty = hold fire).
+local cv = orders.commit_volley(1, { { weapon = "beam_1", target = 2, shield_facing = 3 } })
+assert_eq(cv.type, "commit_volley", "commit_volley type")
+assert_eq(cv.ship, 1, "commit_volley ship")
+assert_eq(cv.protocol_version, 4, "commit_volley protocol version")
+assert_eq(cv.shots[1].weapon, "beam_1", "commit_volley shot weapon")
+assert_eq(cv.shots[1].target, 2, "commit_volley shot target")
+assert_eq(cv.shots[1].shield_facing, 3, "commit_volley shot shield_facing")
+local cvh = orders.commit_volley(1, {})
+assert_eq(#cvh.shots, 0, "empty volley holds fire")
 
-local co = orders.coast(2)
-assert_eq(co.type, "commit_maneuver", "coast is commit_maneuver")
-assert_eq(co.maneuver.type, "coast", "coast maneuver")
-
--- v3 motion model: accel / turn / turn_accel builders (src/motion.rs::Maneuver).
-local ac = orders.accel(1)
-assert_eq(ac.type, "commit_maneuver", "accel is commit_maneuver")
-assert_eq(ac.maneuver.type, "accel", "accel maneuver")
-assert_eq(ac.protocol_version, 3, "accel protocol version")
-
-local tn = orders.turn(1, 3)
-assert_eq(tn.type, "commit_maneuver", "turn is commit_maneuver")
-assert_eq(tn.maneuver.type, "turn", "turn maneuver")
-assert_eq(tn.maneuver.facing, 3, "turn facing")
-
-local ta = orders.turn_accel(1, 5)
-assert_eq(ta.type, "commit_maneuver", "turn_accel is commit_maneuver")
-assert_eq(ta.maneuver.type, "turn_accel", "turn_accel maneuver")
-assert_eq(ta.maneuver.facing, 5, "turn_accel facing")
-
--- command_mapping builds all four maneuver variants.
-assert_eq(command_mapping.movement_order("coast", 1).maneuver.type, "coast", "cmd coast")
-assert_eq(command_mapping.movement_order("accel", 1).maneuver.type, "accel", "cmd accel")
-assert_eq(command_mapping.movement_order("turn", 1, 2).maneuver.type, "turn", "cmd turn")
-assert_eq(command_mapping.movement_order("turn", 1, 2).maneuver.facing, 2, "cmd turn facing")
-assert_eq(command_mapping.movement_order("turn_accel", 1, 4).maneuver.type, "turn_accel", "cmd turn_accel")
-assert_eq(command_mapping.movement_order("turn_accel", 1, 4).maneuver.facing, 4, "cmd turn_accel facing")
-assert_eq(command_mapping.movement_order("turn", 1), nil, "cmd turn without facing is nil")
+-- command_mapping maps legacy labels onto complete v4 paths.
+assert_eq(command_mapping.movement_order("forward", 1), nil, "directional label unmapped")
 assert_eq(command_mapping.movement_order("bogus", 1), nil, "cmd unknown action is nil")
-
-local cf = orders.commit_fire(1, "beam_1", 2, 3)
-assert_eq(cf.type, "commit_fire", "commit_fire type")
-assert_eq(cf.weapon, "beam_1", "commit_fire weapon")
-assert_eq(cf.target, 2, "commit_fire target")
-assert_eq(cf.shield_facing, 3, "commit_fire shield_facing")
-
-local rf = orders.ready_fire(1)
-assert_eq(rf.type, "ready_fire", "ready_fire type")
-
-local et = orders.end_turn()
-assert_eq(et.type, "end_turn", "end_turn type")
-ok("v2 order builders")
+local coast = command_mapping.movement_order("coast", 1)
+assert_eq(coast.type, "commit_path", "production coast is a commit_path")
+assert_eq(coast.ship, 1, "production coast ship")
+assert_eq(#coast.actions, 0, "coast commits an empty path")
+local accel = command_mapping.movement_order("accel", 1)
+assert_eq(accel.type, "commit_path", "accel is a commit_path")
+assert_eq(accel.actions[1], "move_f", "accel steps forward once")
+-- turn from facing 0 to 2: two right steps (shortest rotation).
+local tn = command_mapping.movement_order("turn", 1, 2)
+assert_eq(tn.type, "commit_path", "turn is a commit_path")
+assert_eq(tn.actions[1], "turn_right", "turn builds turn_right steps")
+assert_eq(#tn.actions, 2, "turn 0->2 is two steps")
+-- turn_accel appends a forward step after the rotation.
+local ta = command_mapping.movement_order("turn_accel", 1, 4)
+assert_eq(ta.type, "commit_path", "turn_accel is a commit_path")
+assert_eq(ta.actions[#ta.actions], "move_f", "turn_accel ends with move_f")
+assert_eq(command_mapping.movement_order("turn", 1), nil, "cmd turn without facing is nil")
+ok("v4 order builders")
 
 print("allocation controls")
 assert_eq(allocation.increment(3, 4), 4, "increment")
@@ -118,23 +109,23 @@ print("parse_stream")
 -- Engine error envelopes (type:"error") are classified as errors.
 local _, errs = harness.parse_stream('{"type":"error","ok":false,"code":"order_illegal","message":"nope"}')
 assert_eq(errs[1].code, "order_illegal", "error envelope parsed")
--- v3 snapshots (no type:"error") are classified as snapshots, not version-gated.
-local snaps, _ = harness.parse_stream('{"protocol_version":3,"turn":1,"phase":"allocate","ships":[]}')
-assert_eq(snaps[1].turn, 1, "v3 snapshot parsed")
+-- Snapshots (no type:"error") are classified as snapshots, not version-gated.
+local snaps, _ = harness.parse_stream('{"protocol_version":4,"turn":1,"phase":"allocate","ships":[]}')
+assert_eq(snaps[1].turn, 1, "v4 snapshot parsed")
 ok("parse_stream")
 
 print("phases")
 assert_eq(phases.ALLOCATE, "allocate", "phase allocate")
 assert_eq(phases.MOVEMENT, "movement", "phase movement")
 assert_eq(phases.FIRING, "firing", "phase firing")
-assert_eq(phases.TURN_END, "turn_end", "phase turn_end")
 assert_eq(phases.next(phases.ALLOCATE), phases.MOVEMENT, "phase next")
+assert_eq(phases.next(phases.FIRING), phases.ALLOCATE, "firing wraps to allocate")
 assert_eq(phases.allows(phases.ALLOCATE, "allocate"), true, "allows allocate")
 assert_eq(phases.allows(phases.MOVEMENT, "move"), false, "legacy move disabled")
 assert_eq(phases.allows(phases.MOVEMENT, "pass_move"), false, "legacy pass disabled")
-assert_eq(phases.allows(phases.MOVEMENT, "commit_maneuver"), true, "allows maneuver")
-assert_eq(phases.allows(phases.FIRING, "commit_fire"), true, "allows commit_fire")
-assert_eq(phases.allows(phases.ALLOCATE, "commit_fire"), false, "disallows commit_fire in allocate")
+assert_eq(phases.allows(phases.MOVEMENT, "commit_path"), true, "allows commit_path")
+assert_eq(phases.allows(phases.FIRING, "commit_volley"), true, "allows commit_volley")
+assert_eq(phases.allows(phases.ALLOCATE, "commit_volley"), false, "disallows commit_volley in allocate")
 ok("phases")
 
 print("hex")
@@ -171,63 +162,64 @@ assert_eq(snap.turn, 1, "turn")
 assert_eq(snap.phase, "allocate", "phase")
 ok("load")
 
--- Allocate the player ship; Love must pump the scripted ship automatically.
+-- Allocate the player ship; Love pumps the scripted ship automatically. In v4
+-- a partial allocation does NOT mutate public ship state — it is staged until
+-- every living ship commits, so shields become visible only after the stage
+-- resolves and the phase advances to movement.
 snap = select(1, harness.submit(session, orders.allocate(1, 4, { beam_1 = 1 }, { 2, 1, 0, 0, 0, 1 })))
 assert(snap, "allocate ship 1")
-assert_eq(snap.ships[1].shields_powered[1], 2, "front shield allocated")
-assert_eq(snap.ships[1].shields_powered[2], 1, "front-right shield allocated")
+assert_eq(snap.phase, "allocate", "staged allocation stays in allocate until all commit")
 scripted_pump.run(session, function(err) error(err.message or "scripted pump failed") end)
 snap = session.snapshot
 assert_eq(snap.phase, "movement", "phase after allocate")
+assert_eq(snap.ships[1].shields_powered[1], 2, "front shield allocated after stage resolves")
+assert_eq(snap.ships[1].shields_powered[2], 1, "front-right shield allocated after stage resolves")
 ok("allocate + move phase")
 
--- Movement cycle 1: non-coast commit (accel) accepted by the engine.
--- Velocity only changes after all living ships commit and the phase resolves.
-snap = select(1, harness.submit(session, command_mapping.movement_order("accel", 1)))
-assert(snap, "accel ship 1")
+-- Capture the pre-move facing so we can verify the resolved rotation.
+local face0 = nil
+for _, s in ipairs(snap.ships or {}) do
+  if s.id == 1 then face0 = s.facing or 0 end
+end
+
+-- Movement stage: commit one ordered path. Rotate two faces right via
+-- command_mapping (exercises the legacy-label -> v4 path mapping). Facing only
+-- changes after every living ship commits and the stage resolves.
+local target_face = ((face0 or 0) + 2) % 6
+local move_order = command_mapping.movement_order("turn", 1, target_face, face0)
+assert_eq(move_order.type, "commit_path", "movement order is a commit_path")
+snap = select(1, harness.submit(session, move_order))
+assert(snap, "commit_path ship 1")
 local committed = false
-for _, id in ipairs(snap.ships_committed_this_phase or {}) do
+for _, id in ipairs(snap.ships_committed_path or {}) do
   if id == 1 then committed = true end
 end
-assert(committed, "accel must mark ship 1 committed this phase")
-ok("player accel accepted by engine")
+assert(committed, "commit_path must mark ship 1 committed this stage")
+ok("player commit_path accepted by engine")
 
--- Scripted coast completes the simultaneous commit set → resolve → firing.
+-- Scripted ship commits an empty path → resolve → firing stage.
 scripted_pump.run(session, function(err) error(err.message or "scripted pump failed") end)
 snap = session.snapshot
-assert_eq(snap.phase, "firing", "accel + scripted coast completes movement cycle to firing")
-local vel = 0
+assert_eq(snap.phase, "firing", "path resolution advances to firing")
 local face = nil
 for _, s in ipairs(snap.ships or {}) do
-  if s.id == 1 then
-    vel = s.velocity or 0
-    face = s.facing
-  end
+  if s.id == 1 then face = s.facing end
 end
-assert(vel >= 1, "resolved accel should leave ship 1 with velocity >= 1")
-ok("resolved accel raises velocity")
+assert_eq(face, target_face, "resolved path rotated ship 1 to the requested facing")
+ok("resolved path applies the committed rotation")
 
--- Ready both ships and end turn so a later cycle can exercise turn.
-snap = select(1, harness.submit(session, orders.ready_fire(1)))
-assert(snap, "ready ship 1")
+-- Volley stage: hold fire (empty volley), then let the scripted ship commit its
+-- volley. The turn advances automatically back to allocate — no end_turn.
+snap = select(1, harness.submit(session, orders.commit_volley(1, {})))
+assert(snap, "commit_volley ship 1")
 scripted_pump.run(session, function(err) error(err.message or "scripted pump failed") end)
 snap = session.snapshot
--- May be turn_end or next movement depending on NPC ready.
-if snap.phase == "turn_end" or snap.phase == "firing" then
-  -- try end turn if needed to continue; not required for core assertions
+assert(snap.phase == "allocate" or snap.status == "Won" or snap.status == "Lost",
+  "turn advances automatically after volleys resolve")
+if snap.phase == "allocate" then
+  assert(snap.turn >= 2, "auto-advance reaches the next turn")
 end
-ok("ready after accel cycle")
-
--- Turn builder round-trip (JSON already unit-tested; engine accept if still movement).
-if snap.phase == "movement" then
-  local turn_face = ((face or 0) + 1) % 6
-  local turn_snap = select(1, harness.submit(session, command_mapping.movement_order("turn", 1, turn_face)))
-  assert(turn_snap, "turn ship 1")
-  ok("player turn accepted by engine")
-else
-  -- Order shape already covered; phase may have advanced past movement.
-  ok("player turn skipped (not in movement; shape tested above)")
-end
+ok("volley resolves and turn auto-advances")
 
 -- Soft-status field contract (draw_hud reads message/level).
 local st = { level = "error", message = "test soft error", ticks = 0 }
@@ -253,18 +245,18 @@ do
   -- most recent 3 should be turns 58, 59, 60 (oldest-first in the slice)
   assert_eq(rec[1].turn, 58, "recent slice oldest is turn 58")
   assert_eq(rec[3].turn, 60, "recent slice newest is turn 60")
+  local emitted = events.feed(ev, { turn = 61, combat_log = {
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 1, shield_absorbed = 0, hull_damage = 1, kind = "hit" },
+  } }, { [1] = true })
+  assert_eq(#emitted, 1, "new events are reported after the ring reaches capacity")
+  assert_eq(events.count(ev), 50, "ring remains capped after reporting new event")
   ok("events ring buffer caps and orders")
 end
 
 -- Classifies hit_dealt / hit_taken / miss by player_ids.
 do
   local ev = events.new()
-  -- player 1 hits ship 2 (player attacker) -> hit_dealt
-  events.feed(ev, { turn = 1, combat_log = {
-    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
-      damage = 5, shield_absorbed = 0, hull_damage = 5, kind = "hit" },
-  } }, { [1] = true })
-  -- ship 3 hits player 1 (player target) -> hit_taken
   events.feed(ev, { turn = 1, combat_log = {
     { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
       damage = 5, shield_absorbed = 0, hull_damage = 5, kind = "hit" },
@@ -274,7 +266,7 @@ do
       damage = 0, shield_absorbed = 0, hull_damage = 0, kind = "miss" },
   } }, { [1] = true })
   local all = events.recent(ev)
-  assert_eq(#all, 3, "three events fed (entry 1 not re-emitted)")
+  assert_eq(#all, 3, "three combat events fed")
   assert_eq(all[1].kind, "hit_dealt", "player attacker -> hit_dealt")
   assert_eq(all[2].kind, "hit_taken", "player target -> hit_taken")
   assert_eq(all[2].text:match("shield"), "shield", "shield-only hit text says shield")
@@ -282,7 +274,7 @@ do
   ok("events classify hit_dealt vs hit_taken vs miss")
 end
 
--- Does not re-emit already-seen combat_log entries (diff by count).
+-- Does not re-emit an already-seen combat generation.
 do
   local ev = events.new()
   local log = {
@@ -294,41 +286,74 @@ do
   -- feed the same snapshot again (no new log entries) -> no new event
   events.feed(ev, { turn = 1, combat_log = log }, { [1] = true })
   assert_eq(events.count(ev), 1, "re-feed emits nothing new")
-  ok("events diff combat_log by count")
+  ok("events dedupe a combat generation")
 end
 
--- Blocked translation becomes a "blocked" event.
+-- Identical-sized and identical-content volleys on later turns remain distinct.
+-- In-progress snapshots have already auto-advanced; terminal snapshots have not.
 do
   local ev = events.new()
-  events.feed(ev, { turn = 2, translation_results = {
-    { ship = 1, requested = 3, moved = 1, blocked = { kind = "occupied", ships = { 2 } } },
-    { ship = 2, requested = 2, moved = 2 }, -- not blocked, no event
+  local log = {
+    { attacker = 1, target = 2, weapon = "beam_1", shield = 0,
+      damage = 1, shield_absorbed = 0, hull_damage = 1, kind = "hit" },
+  }
+  events.feed(ev, { turn = 2, status = "InProgress", combat_log = log }, { [1] = true })
+  events.feed(ev, { turn = 2, status = "InProgress", combat_log = log }, { [1] = true })
+  assert_eq(events.count(ev), 1, "retained volley is not duplicated")
+  assert_eq(events.recent(ev)[1].turn, 1, "auto-advanced volley attributed to prior turn")
+  events.feed(ev, { turn = 2, status = "Won", combat_log = log }, { [1] = true })
+  assert_eq(events.count(ev), 2, "terminal same-shape volley is retained")
+  assert_eq(events.recent(ev)[2].turn, 2, "terminal volley attributed to current turn")
+
+  local continuing = events.new()
+  events.feed(continuing, { turn = 2, status = "InProgress", combat_log = log }, { [1] = true })
+  events.feed(continuing, { turn = 3, status = "InProgress", combat_log = log }, { [1] = true })
+  assert_eq(events.count(continuing), 2, "identical later-turn volley is retained")
+  assert_eq(events.recent(continuing)[2].turn, 2, "later auto-advanced volley turn")
+  ok("combat generations survive equal lengths and terminal rollover")
+end
+
+-- path_results fallback becomes a "blocked" event (protocol v4).
+do
+  local ev = events.new()
+  events.feed(ev, { turn = 2, path_results = {
+    { ship = 1, submitted_cost = 2, translated_steps = 0, final_q = 0, final_r = 0,
+      final_facing = 0, fallback_steps = 1, blocked_kind = "contested",
+      conflicting_ships = { 2 } },
+    { ship = 2, submitted_cost = 1, translated_steps = 1, final_q = 1, final_r = 0,
+      final_facing = 0, fallback_steps = 0 },
   } }, {})
   assert_eq(events.count(ev), 1, "one blocked event")
   local rec = events.recent(ev)
   assert_eq(rec[1].kind, "blocked", "blocked kind")
-  assert_eq(rec[1].text:match("moved 1/3"), "moved 1/3", "blocked text has moved/requested")
-  ok("blocked translation becomes an event")
+  assert(rec[1].text:match("fallback"), "blocked text mentions fallback")
+  events.feed(ev, { turn = 3, path_results = {} }, {})
+  events.feed(ev, { turn = 3, path_results = {
+    { ship = 1, submitted_cost = 2, translated_steps = 0, final_q = 0, final_r = 0,
+      final_facing = 0, fallback_steps = 1, blocked_kind = "contested",
+      conflicting_ships = { 2 } },
+  } }, {})
+  assert_eq(events.count(ev), 2, "same fallback on a later turn is retained")
+  ok("path_results fallback becomes an event")
 end
 
--- Snapshot field surfacing: a synthetic snapshot with the additive fields
--- is classified correctly by the harness line classifier (parse_stream).
+-- Snapshot field surfacing: additive v4 fields via harness line classifier.
 do
   local snaps, _ = harness.parse_stream(
-    '{"protocol_version":3,"turn":1,"phase":"firing","ships":[],' ..
-    '"rules_id":"default","rules_fingerprint":"fnv1a-deadbeef","end_turn_warning":true,' ..
+    '{"protocol_version":4,"turn":1,"phase":"firing","ships":[],' ..
+    '"rules_id":"default","rules_fingerprint":"fnv1a-deadbeef",' ..
     '"fire_opportunity":{"ship":1,"weapon":"beam_1","target":2,"legal_shield_facings":[0,1]},' ..
-    '"translation_results":[{"ship":1,"requested":2,"moved":2}],"combat_log":[]}')
+    '"path_results":[{"ship":1,"submitted_cost":1,"translated_steps":1,"final_q":1,"final_r":0,"final_facing":0,"fallback_steps":0,"conflicting_ships":[]}],' ..
+    '"combat_log":[]}')
   local s = snaps[1]
   assert(s, "synthetic snapshot parsed")
   assert_eq(s.rules_id, "default", "rules_id surfaced")
   assert_eq(s.rules_fingerprint, "fnv1a-deadbeef", "rules_fingerprint surfaced")
-  assert_eq(s.end_turn_warning, true, "end_turn_warning surfaced")
   assert_eq(type(s.fire_opportunity), "table", "fire_opportunity surfaced")
   assert_eq(s.fire_opportunity.ship, 1, "fire_opportunity.ship")
   assert_eq(s.fire_opportunity.weapon, "beam_1", "fire_opportunity.weapon")
-  assert_eq(type(s.translation_results), "table", "translation_results surfaced")
-  ok("snapshot exposes fire_opportunity fields")
+  assert_eq(type(s.path_results), "table", "path_results surfaced")
+  ok("snapshot exposes fire_opportunity and path_results fields")
 end
 
 -- Rules provenance label format (UPGRADE-PLAN Phase 0 task 4).
@@ -451,12 +476,12 @@ if os.getenv("LOVE_LIVE") then
   local live = harness.new({ repo_root = repo, bin = paths.find_shipsim_bin(repo) })
   local lsnap = harness.load_scenario(live, "scenarios/combat.toml")
   assert(lsnap, "live load")
-  -- Allocate so movement_preview is meaningful.
+  -- Allocate so reach_preview (v4; movement_preview is retired) is meaningful.
   harness.submit(live, orders.allocate(1, 4, { beam_1 = 1 }, { 2, 1, 0, 0, 0, 1 }))
   local resp, rerr = harness.request(live,
-    { protocol_version = 3, request = "movement_preview", ship = 1 })
-  assert(resp, "live movement_preview failed: " .. tostring(rerr and rerr.message))
-  assert_eq(resp.type, "movement_preview", "live response type")
+    { protocol_version = 4, request = "reach_preview", ship = 1, budget = 4 })
+  assert(resp, "live reach_preview failed: " .. tostring(rerr and rerr.message))
+  assert_eq(resp.type, "reach_preview", "live response type")
   assert_eq(resp.ok, true, "live response ok")
   assert(resp.endpoints and #resp.endpoints > 0, "live endpoints non-empty")
   -- request must not pollute the order log
@@ -493,42 +518,41 @@ do
     "cta callsign player prefix")
   -- Focused ship done, fleetmate pending → Tab hint.
   snap.ships_allocated_this_turn = { 1 }
-  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A2 needs power allocation — Tab to switch",
-    "cta names pending fleetmate with tab hint")
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A2 needs power allocation — click ship on map",
+    "cta names pending fleetmate with mouse hint")
   -- Focused ship pending → no Tab hint.
   snap.ships_allocated_this_turn = { 2 }
   assert_eq(draw_hud.phase_call_to_action(snap, 1), "A1 needs power allocation",
     "cta names focused pending ship")
 
-  -- movement phase
+  -- movement phase (v4: commit_path completion tracked by ships_committed_path)
   snap.phase = phases.MOVEMENT
-  snap.ships_committed_this_phase = { 1 }
+  snap.ships_committed_path = { 1 }
   snap.ships_allocated_this_turn = nil
-  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A2 needs a maneuver — Tab to switch",
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A2 needs a path — click ship on map",
     "cta movement pending fleetmate")
 
   -- firing: fire_opportunity attributed to attacker callsign, focused is attacker
   snap.phase = phases.FIRING
-  snap.ships_committed_this_phase = nil
-  snap.ships_ready_fire = {}
-  snap.fire_commits = {}
+  snap.ships_committed_path = nil
+  snap.ships_committed_volley = {}
   snap.fire_opportunity = { ship = 1, weapon = "beam_1", target = 3 }
-  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A1 beam_1>B3 available",
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A1 beam_1>B3 · queue then R",
     "cta fire opportunity focused attacker")
 
-  -- firing: focused is NOT the attacker → Tab>attacker
-  assert_eq(draw_hud.phase_call_to_action(snap, 2), "A2 active; Tab>A1 beam_1>B3",
-    "cta fire opportunity tab to attacker")
+  -- firing: focused is NOT the attacker → click to switch (no Tab handler)
+  assert_eq(draw_hud.phase_call_to_action(snap, 2), "A2 active; click A1 for beam_1>B3",
+    "cta fire opportunity click to attacker")
 
-  -- firing: no opportunity, no queued → pass fire
+  -- firing: no opportunity → needs a volley (R holds fire)
   snap.fire_opportunity = nil
-  assert_eq(draw_hud.phase_call_to_action(snap, 1), "No legal shot; Space passes fire",
-    "cta no legal shot")
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A1 needs a volley (R holds fire)",
+    "cta no legal shot still needs volley commit")
 
-  -- turn_end
-  snap.phase = phases.TURN_END
-  assert_eq(draw_hud.phase_call_to_action(snap, 1), "Turn complete; e",
-    "cta turn end")
+  -- firing: focused ship already committed volley
+  snap.ships_committed_volley = { 1 }
+  assert_eq(draw_hud.phase_call_to_action(snap, 1), "A1 volley sent; focus A2",
+    "cta after volley auto-focus hint")
 
   -- game over
   snap.status = "Won"
@@ -539,6 +563,21 @@ do
     "cta game over lost")
 
   ok("phase_call_to_action mirrors TUI")
+end
+
+do
+  local queued = draw_hud.queued_weapons({
+    volley_drafts = {
+      [1] = {
+        { weapon = "beam_1", target = 3, shield_facing = 0 },
+        { weapon = "torp_1", target = 3, shield_facing = 0 },
+      },
+    },
+  }, 1)
+  assert_eq(queued.beam_1, true, "beam queue shown from local volley draft")
+  assert_eq(queued.torp_1, true, "torpedo queue shown from local volley draft")
+  assert_eq(queued.plasma_1, nil, "unqueued weapon remains clear")
+  ok("firing panel queue source is protocol-v4 local draft")
 end
 
 -- ─── Phase 2: dead-focus recovery + auto-advance (selection module) ──────
@@ -588,7 +627,7 @@ do
     shield_facing = 0, alloc = {} }
   local snap = { phase = "movement",
     ships = { mkship(1, "player"), mkship(2, "player") },
-    ships_committed_this_phase = { 1 } }
+    ships_committed_path = { 1 } }
   selection.ensure(state, snap)
   assert_eq(state.selected_id, 2, "auto-advance to uncommitted ship")
   ok("selection auto-advances to pending ship")
@@ -606,7 +645,9 @@ do
   ok("selection clears focus when no living players")
 end
 
--- Fire weapon cycling follows ship order and skips already queued mounts.
+-- Fire weapon cycling follows ship order and skips non-fireable mounts.
+-- v4: a shot's queued state lives in the local volley draft (app.volley_drafts),
+-- not the snapshot; keyboard cycling walks charged, operational weapons.
 do
   local snap = {
     ships = {
@@ -616,17 +657,19 @@ do
         { id = "plasma_1", charge = 1, operational = true },
       } },
     },
-    fire_commits = {},
   }
   assert_eq(selection.cycle_fireable_weapon(snap, 1, "beam_1", 1), "torp_1",
     "down selects next weapon")
   assert_eq(selection.cycle_fireable_weapon(snap, 1, "beam_1", -1), "plasma_1",
     "up selects previous weapon")
-  snap.fire_commits = { { ship = 1, weapon = "beam_1" } }
-  assert_eq(selection.cycle_fireable_weapon(snap, 1, "beam_1", 1), "torp_1",
-    "queued weapon is skipped")
+  -- A discharged weapon (charge 0) is not fireable and is skipped.
+  snap.ships[1].weapons[2].charge = 0
+  assert_eq(selection.cycle_fireable_weapon(snap, 1, "beam_1", 1), "plasma_1",
+    "uncharged weapon is skipped")
+  snap.ships[1].weapons[2].charge = 1
+  -- A disabled weapon (operational=false) is skipped.
   snap.ships[1].weapons[2].operational = false
-  assert_eq(selection.cycle_fireable_weapon(snap, 1, "torp_1", 1), "plasma_1",
+  assert_eq(selection.cycle_fireable_weapon(snap, 1, "beam_1", 1), "plasma_1",
     "disabled weapon is skipped")
   ok("fire weapon keyboard cycling")
 end
@@ -1160,7 +1203,7 @@ ok("tutorial module contract")
 -- new() returns a controller at step 1, not complete.
 do
   local t = tutorial.new()
-  assert_eq(tutorial.step_count(t), 26, "rear-attack has 26 steps")
+  assert_eq(tutorial.step_count(t), 28, "rear-attack has 28 v4 steps")
   assert_eq(t.current, 1, "new starts at step 1")
   assert_eq(tutorial.is_complete(t), false, "new is not complete")
   local step = tutorial.current_step(t)
@@ -1214,7 +1257,7 @@ do
   assert_eq(ok_v, true, "validate: correct CommitAllocate returns true")
   assert_eq(t.current, 7, "validate: does NOT advance (order-backed)")
   -- Wrong action: validates false, sets error.
-  ok_v = tutorial.validate_action(t, { kind = "Accel" })
+  ok_v = tutorial.validate_action(t, { kind = "PathAppend", action = "move_f" })
   assert_eq(ok_v, false, "validate: wrong action returns false")
   assert(t.error_msg, "validate: wrong action sets error")
   ok("validate_action order-backed no-advance")
@@ -1283,7 +1326,7 @@ do
   local t = tutorial.new()
   local body = tutorial.narration(t)
   assert(body and body ~= "", "narration: step 1 non-empty")
-  assert(body:match("thrust"), "narration: step 1 mentions thrust")
+  assert(body:match("motion") or body:match("path"), "narration: step 1 mentions motion/path")
   -- Set an error; narration should prefix it.
   tutorial.set_error(t, "test error")
   body = tutorial.narration(t)
@@ -1318,65 +1361,40 @@ do
   ok("state_error game-over detection")
 end
 
--- Full walkthrough: advance all 26 steps via the gate functions, confirming
--- the machine reaches completion. This is a smoke test of the whole sequence.
+-- Full walkthrough: drive every step via gate functions (protocol v4 path/volley).
 do
   local t = tutorial.new()
-  -- Steps 1-4: ReachValue (fields 0,1,2,3).
-  tutorial.check_reach_value(t, 0, 0, 10) -- step 1 -> 2
-  tutorial.check_reach_value(t, 1, 0, 4)  -- step 2 -> 3
-  tutorial.check_reach_value(t, 2, 0, 1)  -- step 3 -> 4
-  tutorial.check_reach_value(t, 3, 0, 1)  -- step 4 -> 5
-  -- Step 5: NavField (field 4).
-  tutorial.check_action(t, { kind = "NavField", field = 4 }) -- 5 -> 6
-  -- Step 6: ReachValue (field 4, target 6).
-  tutorial.check_reach_value(t, 4, 0, 6) -- 6 -> 7
-  -- Step 7: CommitAllocate (order-backed — validate then advance).
-  tutorial.validate_action(t, { kind = "CommitAllocate" })
-  tutorial.advance(t) -- 7 -> 8 (caller advances after engine accepts)
-  -- Steps 8-26: a mix of order-backed (validate+advance) and discrete
-  -- (check_action). We drive them all via validate_action + advance for
-  -- order-backed, and check_action for discrete, matching the integration.
-  -- Step 8: Accel (order-backed)
-  tutorial.validate_action(t, { kind = "Accel" }); tutorial.advance(t)
-  -- Step 9: ReadyFire (order-backed)
-  tutorial.validate_action(t, { kind = "ReadyFire" }); tutorial.advance(t)
-  -- Step 10: Accel
-  tutorial.validate_action(t, { kind = "Accel" }); tutorial.advance(t)
-  -- Step 11: ReadyFire
-  tutorial.validate_action(t, { kind = "ReadyFire" }); tutorial.advance(t)
-  -- Step 12: TurnTo facing 3 (order-backed)
-  tutorial.validate_action(t, { kind = "TurnTo", facing = 3 }); tutorial.advance(t)
-  -- Step 13: EnterMap (discrete)
+  tutorial.check_reach_value(t, 0, 0, 10)
+  tutorial.check_reach_value(t, 1, 0, 4)
+  tutorial.check_reach_value(t, 2, 0, 1)
+  tutorial.check_reach_value(t, 3, 0, 1)
+  tutorial.check_action(t, { kind = "NavField", field = 4 })
+  tutorial.check_reach_value(t, 4, 0, 6)
+  tutorial.validate_action(t, { kind = "CommitAllocate" }); tutorial.advance(t)
+  -- Path appends (draft-local) + commit
+  for _ = 1, 3 do
+    tutorial.validate_action(t, { kind = "PathAppend", action = "move_f" }); tutorial.advance(t)
+  end
+  for _ = 1, 3 do
+    tutorial.validate_action(t, { kind = "PathAppend", action = "turn_left" }); tutorial.advance(t)
+  end
+  tutorial.validate_action(t, { kind = "CommitPath" }); tutorial.advance(t)
   tutorial.check_action(t, { kind = "EnterMap" })
-  -- Step 14: PanMap (discrete)
   tutorial.check_action(t, { kind = "PanMap" })
-  -- Step 15: ZoomOut
   tutorial.check_action(t, { kind = "ZoomOut" })
-  -- Step 16: ZoomIn
   tutorial.check_action(t, { kind = "ZoomIn" })
-  -- Step 17: RecenterMap
   tutorial.check_action(t, { kind = "RecenterMap" })
-  -- Step 18: ExitMap
   tutorial.check_action(t, { kind = "ExitMap" })
-  -- Step 19: ShieldFacing facing 3 (discrete, advances on ==)
   tutorial.check_action(t, { kind = "ShieldFacing", facing = 3 })
-  -- Step 20: FireWeapon (order-backed)
   tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
-  -- Step 21: TabWeapon (discrete)
   tutorial.check_action(t, { kind = "TabWeapon", weapon = "torp_1" })
-  -- Step 22: FireWeapon
   tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
-  -- Step 23: TabWeapon
   tutorial.check_action(t, { kind = "TabWeapon", weapon = "plasma_1" })
-  -- Step 24: FireWeapon
   tutorial.validate_action(t, { kind = "FireWeapon" }); tutorial.advance(t)
-  -- Step 25: ReadyFire
-  tutorial.validate_action(t, { kind = "ReadyFire" }); tutorial.advance(t)
-  -- Step 26: Dismiss (discrete)
+  tutorial.validate_action(t, { kind = "CommitVolley" }); tutorial.advance(t)
   tutorial.check_action(t, { kind = "Dismiss" })
-  assert_eq(tutorial.is_complete(t), true, "walkthrough: all 26 steps complete")
-  ok("full 26-step walkthrough reaches completion")
+  assert_eq(tutorial.is_complete(t), true, "walkthrough: all v4 steps complete")
+  ok("full v4 path/volley walkthrough reaches completion")
 end
 
 --------------------------------------------------------------------
@@ -1504,7 +1522,7 @@ do
   local h2 = draw_hud.header_text({
     turn = 2, phase = "movement", movement_phase = 1,
     ships = { { id = 1, controller = "player", destroyed = false } },
-    ships_committed_this_phase = {},
+    ships_committed_path = {},
   }, "movement", 1)
   assert(h2:match("Active"), "movement has Active when ship pending")
   assert(not h2:match("#nil"), "no #nil on movement")
@@ -1645,6 +1663,13 @@ do
   toast.update(t, 0.7)
   assert(not toast.active(t), "toast expired")
   ok("toast phase banner lifecycle")
+end
+
+do
+  assert_eq(toast.phase_label({ phase = "movement" }), "Plan paths",
+    "v4 movement toast has no retired cycle counter")
+  assert_eq(toast.phase_label({ phase = "firing" }), "Firing", "firing toast")
+  ok("toast labels use protocol-v4 stages")
 end
 
 -- camera auto-follow pause

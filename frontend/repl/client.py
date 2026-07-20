@@ -1,4 +1,4 @@
-"""Spawn and talk to the shipsim NDJSON harness (protocol v2).
+"""Spawn and talk to the shipsim NDJSON harness (protocol v4).
 
 All paths for logs and session orders resolve under frontend/repl/local/.
 """
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 
 HERE = Path(__file__).resolve().parent
 LOCAL = HERE / "local"
@@ -138,6 +138,29 @@ class ShipsimSession:
         self.last_error = None
         self.orders.append(order)
         self.snapshot = msg
+        return msg
+
+    def send_request(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Read-only engine request (path_preview / reach_preview / fire_preview).
+
+        Does not mutate the local snapshot on success; errors return type=error.
+        """
+        if self._proc is None or self._proc.stdin is None:
+            raise RuntimeError("session not started")
+        if "protocol_version" not in body:
+            body = {**body, "protocol_version": PROTOCOL_VERSION}
+        line = json.dumps(body, separators=(",", ":"))
+        try:
+            self._proc.stdin.write(line + "\n")
+            self._proc.stdin.flush()
+        except OSError as exc:
+            raise self._transport_error(f"could not write request: {exc}") from exc
+        msg = self._read_message()
+        if msg is None:
+            code = self._proc.poll()
+            raise self._transport_error(f"shipsim closed after request (exit={code})")
+        if msg.get("type") == "error":
+            self.last_error = msg
         return msg
 
     def _read_message(self) -> Optional[dict[str, Any]]:

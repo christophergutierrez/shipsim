@@ -4,8 +4,7 @@ use shipsim_core::simulation::{run_match, MatchConfig};
 
 fn config() -> MatchConfig {
     MatchConfig::from_scenario(
-        PathBuf::from(Path::new(env!("CARGO_MANIFEST_DIR")))
-            .join("scenarios/simulation_duel.toml"),
+        PathBuf::from(Path::new(env!("CARGO_MANIFEST_DIR"))).join("scenarios/simulation_duel.toml"),
         4242,
         "random".into(),
         "greedy".into(),

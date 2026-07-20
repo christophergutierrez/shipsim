@@ -12,7 +12,6 @@ local draw_board = require("draw_board")
 local draw_hud = require("draw_hud")
 local hex = require("hex")
 local ui = require("ui")
-local command_mapping = require("command_mapping")
 local scripted_pump = require("scripted_pump")
 local preview = require("preview")
 local events = require("events")
@@ -54,7 +53,6 @@ local app = {
   show_help = false,
   ghost_path = {},
   alloc = {},
-  show_end_warning = false,
   fire_preview = nil,
   maneuver_options = nil,
   events = events.new(),
@@ -71,6 +69,8 @@ local app = {
   -- FIX-PLAN F2/F4
   target_previews = {}, -- [target_id] = fire_preview response (cached)
   target_previews_key = nil,
+  volley_drafts = {}, -- [ship_id] = complete protocol-v4 shot list
+  path_drafts = {}, -- [ship_id] = ordered protocol-v4 path action list
   toast = toast.new(),
   cam_sys = nil, -- filled in love.load
   settings = settings.defaults(),
@@ -209,8 +209,6 @@ local function sync_phase()
   -- Surface additive snapshot fields onto app state (UPGRADE-PLAN Phase 0).
   if snap then
     app.fire_opportunity = snap.fire_opportunity or nil
-    app.translation_results = snap.translation_results or nil
-    app.end_turn_warning = snap.end_turn_warning or false
     app.rules_id = snap.rules_id
     app.rules_fingerprint = snap.rules_fingerprint
     app.attack_accuracy = {}
@@ -226,10 +224,8 @@ local function sync_phase()
     for _, s in ipairs(snap.ships or {}) do
       if s.controller == "player" then pids[s.id] = true end
     end
-    local prev_count = events.count(app.events)
-    events.feed(app.events, snap, pids)
-    local new_count = events.count(app.events)
-    if new_count > prev_count then
+    local new_events = events.feed(app.events, snap, pids)
+    if #new_events > 0 then
       app.last_event_time = love.timer.getTime()
       -- Spawn floaters + pulses for new combat events.
       local size = draw_board.hex_size()
@@ -237,8 +233,7 @@ local function sync_phase()
       for _, s in ipairs(snap.ships or {}) do
         ship_pos[s.id] = { hex.to_pixel(s.q, s.r, size) }
       end
-      local rec = events.recent(app.events, new_count - prev_count)
-      for _, ev in ipairs(rec) do
+      for _, ev in ipairs(new_events) do
         if ev.meta and ev.meta.target_id and ship_pos[ev.meta.target_id] then
           local px, py = unpack(ship_pos[ev.meta.target_id])
           -- Floater text + color by event kind.
@@ -373,7 +368,7 @@ local function request_fire_preview()
   end
   app.fire_preview = nil
   local resp, err = harness.request(app.session, {
-    protocol_version = 3,
+    protocol_version = 4,
     request = "fire_preview",
     ship = ship_id,
     weapon = weapon_id,
@@ -408,7 +403,7 @@ local function request_target_previews()
   local enemies = layout.enemy_targets(snap, ship_id)
   for _, s in ipairs(enemies) do
     local resp = harness.request(app.session, {
-      protocol_version = 3,
+      protocol_version = 4,
       request = "fire_preview",
       ship = ship_id,
       weapon = weapon_id,
@@ -421,29 +416,9 @@ local function request_target_previews()
 end
 
 local function request_maneuver_options()
-  local snap = snap_now()
-  if not snap or snap.phase ~= phases.MOVEMENT then
-    app.maneuver_options = nil
-    return
-  end
-  local ship_id = app.selected_id
-  if not ship_id then
-    app.maneuver_options = nil
-    return
-  end
-  local ship = find_ship_in_snap(snap, ship_id)
-  if not ship or ship.destroyed or ship.controller ~= "player" then
-    app.maneuver_options = nil
-    return
-  end
-  local resp, err = harness.request(app.session, {
-    protocol_version = 3,
-    request = "maneuver_options",
-    ship = ship_id,
-  })
-  if resp and resp.ok and resp.ship == ship_id then
-    app.maneuver_options = resp
-  end
+  -- Protocol v4 has a path editor, not one-step maneuver options. The HUD
+  -- retains its static controls until it is replaced by that editor.
+  app.maneuver_options = nil
 end
 
 local function request_previews()
@@ -491,15 +466,14 @@ local function request_movement_preview()
     return
   end
   local a = alloc_for(ship_id)
+  local numerator = (a.movement or 0) * (ship.thrust_per_power or 1)
+  local budget = math.floor(numerator / math.max(1, ship.power_per_thrust or 1))
+  budget = math.min(budget, ship.max_maneuver_actions or budget)
   local resp, err = harness.request(app.session, {
-    protocol_version = 3,
-    request = "movement_preview",
+    protocol_version = 4,
+    request = "reach_preview",
     ship = ship_id,
-    movement = a.movement or 0,
-    -- Must be JSON object {} not [] (engine BTreeMap) — see json.object.
-    weapons = json.object(a.weapons or {}),
-    shields = a.shields or { 0, 0, 0, 0, 0, 0 },
-    clamp = true,
+    budget = budget,
   })
   if resp and resp.ok and resp.ship == ship_id then
     app.reach = resp
@@ -542,7 +516,7 @@ local function compute_threats()
         if w.operational and (w.charge or 0) >= (w.max_charge or 1)
            and (w.max_range or 0) > 0 then
           local resp = harness.request(app.session, {
-            protocol_version = 3,
+            protocol_version = 4,
             request = "fire_preview",
             ship = enemy.id,
             weapon = w.id,
@@ -614,11 +588,45 @@ end
 -- intercepts both handle_ui_hit (mouse) and love.keypressed (keyboard)
 -- before the normal dispatch. Returns true if the input is blocked.
 --
--- Order-backed steps (CommitAllocate, Accel, TurnTo, Coast, FireWeapon,
--- ReadyFire, EndTurn) validate but do NOT advance — the caller advances only
--- after submit() returns an accepted snapshot (confirm_tutorial_order above).
--- Discrete steps (NavField, ShieldFacing, EnterMap, PanMap, etc.) advance
--- immediately via check_action.
+-- Engine-backed steps validate but do NOT advance until submit() succeeds.
+-- Draft-local steps validate before dispatch and advance only after the draft
+-- mutation succeeds.
+
+local function allocation_edit(hit)
+  local id = hit.id
+  local p = hit.payload or {}
+  local draft = alloc_for(p.id)
+  if id == "alloc_movement_up" then
+    return 0, draft.movement, draft.movement + 1
+  elseif id == "alloc_movement_dn" then
+    return 0, draft.movement, math.max(0, draft.movement - 1)
+  elseif id == "alloc_weapon_up" or id == "alloc_weapon_dn" then
+    local fields = { beam_1 = 1, torp_1 = 2, plasma_1 = 3 }
+    local field = fields[p.weapon]
+    local old = draft.weapons[p.weapon] or 0
+    local new = id == "alloc_weapon_up"
+      and allocation.increment(old, p.max)
+      or allocation.decrement(old)
+    return field, old, new
+  elseif id == "alloc_shield_up" or id == "alloc_shield_dn" then
+    local field = 4 + (p.face or 0)
+    local old = draft.shields[(p.face or 0) + 1] or 0
+    local new = id == "alloc_shield_up"
+      and allocation.increment(old, p.max)
+      or allocation.decrement(old)
+    return field, old, new
+  end
+  return nil
+end
+
+local function advance_local_tutorial(action)
+  if not app.tutorial or tutorial.is_complete(app.tutorial) then
+    return
+  end
+  if tutorial.validate_action(app.tutorial, action) then
+    tutorial.advance(app.tutorial)
+  end
+end
 
 -- Gate a mouse/UI hit. Returns true if blocked.
 local function tutorial_gate_ui(hit)
@@ -641,28 +649,12 @@ local function tutorial_gate_ui(hit)
     return false
   end
 
-  -- ReachValue steps: allow the up/down button for the correct field only.
+  -- ReachValue steps validate the exact value that the click would produce.
   if expected.kind == "ReachValue" then
-    local need_field = expected.field
-    if id == "alloc_movement_up" or id == "alloc_movement_dn" then
-      if need_field == 0 then return false end
-      tutorial.set_error(app.tutorial, ("Wrong field (need %s). %s"):format(
-        ({[0]="Movement",[1]="beam_1",[2]="torp_1",[3]="plasma_1",
-          [4]="shield F"})[need_field] or ("field "..need_field), step.hint))
-      return true
-    end
-    if id == "alloc_weapon_up" or id == "alloc_weapon_dn" then
-      local wmap = { beam_1 = 1, torp_1 = 2, plasma_1 = 3 }
-      if wmap[p.weapon] == need_field then return false end
-      tutorial.set_error(app.tutorial, ("Wrong field (need %s). %s"):format(
-        ({[0]="Movement",[1]="beam_1",[2]="torp_1",[3]="plasma_1",
-          [4]="shield F"})[need_field] or ("field "..need_field), step.hint))
-      return true
-    end
-    if id == "alloc_shield_up" or id == "alloc_shield_dn" then
-      if 4 + (p.face or 0) == need_field then return false end
-      tutorial.set_error(app.tutorial, ("Wrong shield face (need field %d). %s"):format(need_field, step.hint))
-      return true
+    local field, old, new = allocation_edit(hit)
+    if field ~= nil then
+      local allow = tutorial.check_reach_value(app.tutorial, field, old, new)
+      return not allow
     end
     if id == "alloc_confirm" then
       tutorial.set_error(app.tutorial, ("Set %s to %d first. %s"):format(
@@ -675,9 +667,15 @@ local function tutorial_gate_ui(hit)
     return true
   end
 
-  -- NavField: allow alloc buttons (check_action handles advance on ==).
+  -- Love has no allocation cursor. Clicking a control selects its field and
+  -- applies the edit, so use that click as the NavField action.
   if expected.kind == "NavField" then
-    return false
+    local field = allocation_edit(hit)
+    if field ~= nil then
+      return not tutorial.check_action(app.tutorial, { kind = "NavField", field = field })
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
   end
 
   -- CommitAllocate: allow the confirm button.
@@ -692,11 +690,23 @@ local function tutorial_gate_ui(hit)
     return true
   end
 
-  -- Accel: allow the accel button.
-  if expected.kind == "Accel" then
-    if id == "accel" then
-      if tutorial.validate_action(app.tutorial, { kind = "Accel" }) then
-        app.tutorial_order_candidate = { kind = "Accel" }
+  -- PathAppend: allow path_action buttons (payload.action = move_f / …).
+  if expected.kind == "PathAppend" then
+    if id == "path_action" then
+      local act = p and p.action
+      if tutorial.validate_action(app.tutorial, { kind = "PathAppend", action = act }) then
+        return false
+      end
+    end
+    tutorial.set_error(app.tutorial, ("Expected: %s. %s"):format(step.title, step.hint))
+    return true
+  end
+
+  -- CommitPath: allow path_commit.
+  if expected.kind == "CommitPath" then
+    if id == "path_commit" then
+      if tutorial.validate_action(app.tutorial, { kind = "CommitPath" }) then
+        app.tutorial_order_candidate = { kind = "CommitPath" }
         return false
       end
     end
@@ -708,7 +718,6 @@ local function tutorial_gate_ui(hit)
   if expected.kind == "FireWeapon" then
     if id == "fire_confirm" then
       if tutorial.validate_action(app.tutorial, { kind = "FireWeapon" }) then
-        app.tutorial_order_candidate = { kind = "FireWeapon" }
         return false
       end
     end
@@ -716,11 +725,11 @@ local function tutorial_gate_ui(hit)
     return true
   end
 
-  -- ReadyFire: allow the ready_fire button.
-  if expected.kind == "ReadyFire" then
+  -- CommitVolley: allow ready_fire (submits commit_volley in v4).
+  if expected.kind == "CommitVolley" then
     if id == "ready_fire" then
-      if tutorial.validate_action(app.tutorial, { kind = "ReadyFire" }) then
-        app.tutorial_order_candidate = { kind = "ReadyFire" }
+      if tutorial.validate_action(app.tutorial, { kind = "CommitVolley" }) then
+        app.tutorial_order_candidate = { kind = "CommitVolley" }
         return false
       end
     end
@@ -765,22 +774,25 @@ local function tutorial_gate_key(key)
   local expected = step.expected
   local phase = app.phase or snap.phase
 
-  -- Map key → action (mirrors map_key_to_action, input.rs:946-1026).
+  -- Map key → tutorial action (protocol v4 path/volley).
   local action = nil
   if key == "v" then
     action = { kind = "EnterMap" }
-  elseif key == "c" then
+  elseif key == "c" and phase ~= phases.MOVEMENT then
+    -- In movement, c is not recenter while drafting (path clear elsewhere).
     action = { kind = "RecenterMap" }
-  elseif key == "e" then
-    action = { kind = "EndTurn" }
   elseif phase == phases.MOVEMENT then
-    if key == "t" then action = { kind = "Accel" }
-    elseif key == "p" then action = { kind = "Coast" }
-    elseif key:match("^[0-5]$") then action = { kind = "TurnTo", facing = tonumber(key) }
+    if key == "w" then action = { kind = "PathAppend", action = "move_f" }
+    elseif key == "a" then action = { kind = "PathAppend", action = "move_fl" }
+    elseif key == "d" then action = { kind = "PathAppend", action = "move_fr" }
+    elseif key == "z" then action = { kind = "PathAppend", action = "turn_left" }
+    elseif key == "x" then action = { kind = "PathAppend", action = "turn_right" }
+    elseif key == "return" or key == "kpenter" then action = { kind = "CommitPath" }
+    elseif key == "c" then action = { kind = "RecenterMap" }
     end
   elseif phase == phases.FIRING then
     if key == "return" or key == "kpenter" then action = { kind = "FireWeapon" }
-    elseif key == "r" or key == "space" then action = { kind = "ReadyFire" }
+    elseif key == "r" or key == "space" then action = { kind = "CommitVolley" }
     elseif key == "down" or key == "up" then
       action = {
         kind = "TabWeapon",
@@ -788,8 +800,23 @@ local function tutorial_gate_key(key)
           app.weapon_id, key == "up" and -1 or 1),
       }
     end
-  elseif phase == phases.TURN_END then
-    if key == "return" or key == "kpenter" or key == "e" then action = { kind = "EndTurn" } end
+  elseif phase == phases.ALLOCATE then
+    if key == "return" or key == "kpenter" then action = { kind = "CommitAllocate" }
+    end
+  end
+  -- Map-focus steps can fire in any phase when expected is map-related.
+  if expected.kind == "EnterMap" or expected.kind == "ExitMap" then
+    if key == "v" then action = { kind = expected.kind } end
+  elseif expected.kind == "PanMap" and key == "a" then
+    action = { kind = "PanMap" }
+  elseif expected.kind == "ZoomOut" and (key == "-" or key == "kp-") then
+    action = { kind = "ZoomOut" }
+  elseif expected.kind == "ZoomIn" and (key == "=" or key == "+" or key == "kp+") then
+    action = { kind = "ZoomIn" }
+  elseif expected.kind == "RecenterMap" and key == "c" then
+    action = { kind = "RecenterMap" }
+  elseif expected.kind == "Dismiss" and (key == "return" or key == "kpenter" or key == "q") then
+    action = { kind = "Dismiss" }
   end
 
   if not action then
@@ -799,11 +826,22 @@ local function tutorial_gate_key(key)
     return true
   end
 
-  -- Order-backed steps: validate but don't advance.
+  -- Draft-local steps advance in their mutators, after the edit succeeds.
+  if expected.kind == "PathAppend" and action.kind == "PathAppend" then
+    if tutorial.validate_action(app.tutorial, action) then
+      return false
+    end
+    return true
+  end
+
+  if expected.kind == "FireWeapon" and action.kind == "FireWeapon" then
+    return not tutorial.validate_action(app.tutorial, action)
+  end
+
+  -- Order-backed steps: validate but don't advance until engine accepts.
   local order_backed = (expected.kind == "CommitAllocate"
-    or expected.kind == "Accel" or expected.kind == "TurnTo"
-    or expected.kind == "Coast" or expected.kind == "FireWeapon"
-    or expected.kind == "ReadyFire" or expected.kind == "EndTurn")
+    or expected.kind == "CommitPath"
+    or expected.kind == "CommitVolley")
 
   if order_backed then
     if tutorial.validate_action(app.tutorial, action) then
@@ -976,9 +1014,12 @@ local function start_scenario(entry)
   app.shield_facing = 0
   app.maneuver_facing = 0
   app.alloc = {}
+  -- Drafts are per-scenario: an abandoned volley/path must not leak into a new
+  -- scenario that happens to reuse the same ship ids.
+  app.volley_drafts = {}
+  app.path_drafts = {}
   app.picker_first = 1
   reset_sidebar_scroll()
-  app.show_end_warning = false
   -- UPGRADE-PLAN Phase 6: detect the tutorial scenario by filename (mirrors
   -- the TUI's --tutorial flag, main.rs:32-39). The TUI uses a CLI flag; the
   -- Love2D frontend has no CLI args, so we match the scenario basename.
@@ -999,7 +1040,7 @@ local function start_scenario(entry)
   if app.tutorial then
     ui_status.set(app.status, "info", "Tutorial: " .. tutorial.OBJECTIVE)
   else
-    ui_status.set(app.status, "info", "Allocate power for your ships, then End turn to move.")
+    ui_status.set(app.status, "info", "Allocate power, then build a path and commit to move.")
   end
   apply_requested_scale()
 end
@@ -1031,45 +1072,124 @@ local function do_allocate(ship_id)
   end
 end
 
-local function do_movement(action, facing)
+-- Protocol v4 path draft (mirrors the volley draft). Movement is one ordered
+-- commit_path per ship built from {move_f, move_fr, move_fl, turn_left,
+-- turn_right}, each cost 1, total ≤ motion_available (also capped by the hull's
+-- max_maneuver_actions). Coast/hold = commit an empty path.
+local PATH_ACTIONS = {
+  move_f = true, move_fr = true, move_fl = true,
+  turn_left = true, turn_right = true,
+}
+
+-- The player ship that still owes a path this movement stage, plus its snapshot
+-- entry. Returns nil when it is not the player's move.
+local function active_mover(snap)
+  if not snap or snap.phase ~= phases.MOVEMENT then
+    return nil
+  end
+  local ship_id = first_uncommitted_ship(snap, "player")
+  if not ship_id or not is_player_ship(ship_id) then
+    return nil
+  end
+  return ship_id, find_ship_in_snap(snap, ship_id)
+end
+
+-- Motion points the ship may still spend (already reflects max_maneuver_actions).
+local function path_motion_cap(ship)
+  if not ship then return 0 end
+  local avail = ship.motion_available or 0
+  local cap = ship.max_maneuver_actions
+  if cap and cap < avail then
+    avail = cap
+  end
+  return avail
+end
+
+-- Append one action to the active mover's path draft, gated so the running
+-- length never exceeds the motion budget.
+local function do_path_append(action)
   local snap = snap_now()
   if not snap or snap.phase ~= phases.MOVEMENT then
     set_status("warn", "Not movement phase")
     return
   end
-  local ship_id = first_uncommitted_ship(snap, "player")
-  if not ship_id or not is_player_ship(ship_id) then
+  if not PATH_ACTIONS[action] then
+    set_status("warn", "Unknown path action")
+    return
+  end
+  local ship_id, ship = active_mover(snap)
+  if not ship_id then
     set_status("warn", "Not your move")
     return
   end
-  local ship = find_ship_in_snap(snap, ship_id)
-  -- Engine rejects turn/turn_accel to the current facing as a no-op.
-  if (action == "turn" or action == "turn_accel") and ship
-      and facing ~= nil and facing == (ship.facing or 0) then
-    set_status("warn", string.format(
-      "Already facing %d — pick another facing, or Coast (P)", facing))
+  local draft = app.path_drafts[ship_id] or {}
+  local cap = path_motion_cap(ship)
+  if #draft >= cap then
+    set_status("warn", string.format("Path full (%d/%d motion)", #draft, cap))
     return
   end
-  local order = command_mapping.movement_order(action, ship_id, facing)
-  if not order then
-    set_status("warn", "Unknown maneuver")
+  draft[#draft + 1] = action
+  app.path_drafts[ship_id] = draft
+  set_status("info", string.format("Path +%s (%d/%d)", action, #draft, cap))
+  advance_local_tutorial({ kind = "PathAppend", action = action })
+end
+
+-- Pop the last drafted action (undo).
+local function do_path_undo()
+  local snap = snap_now()
+  local ship_id = active_mover(snap)
+  if not ship_id then
     return
   end
-  local _, err = submit(order, true)
-  if not err then
-    set_status("info", status_fmt.order_echo(ship_id, action, facing))
+  local draft = app.path_drafts[ship_id]
+  if draft and #draft > 0 then
+    table.remove(draft)
+    set_status("info", string.format("Path undo (%d left)", #draft))
   end
 end
 
---- Next charged weapon not already in fire_commits for this ship (multi-volley).
+-- Clear the whole path draft for the active mover.
+local function do_path_clear()
+  local snap = snap_now()
+  local ship_id = active_mover(snap)
+  if not ship_id then
+    return
+  end
+  app.path_drafts[ship_id] = {}
+  set_status("info", "Path cleared")
+end
+
+-- Commit the drafted path (or an explicit empty path = coast/hold).
+local function do_commit_path(force_empty)
+  local snap = snap_now()
+  if not snap or snap.phase ~= phases.MOVEMENT then
+    set_status("warn", "Not movement phase")
+    return
+  end
+  local ship_id = active_mover(snap)
+  if not ship_id then
+    set_status("warn", "Not your move")
+    return
+  end
+  local actions = (not force_empty) and (app.path_drafts[ship_id] or {}) or {}
+  local _, err = submit(orders.commit_path(ship_id, actions), true)
+  if not err then
+    app.path_drafts[ship_id] = nil
+    set_status("info", status_fmt.order_echo(ship_id, "commit_path"))
+  end
+end
+
+--- Next charged weapon not already in this local protocol-v4 volley draft.
 next_fireable_weapon = function(snap, ship_id, exclude)
   local ship = find_ship_in_snap(snap, ship_id)
   if not ship then
     return nil
   end
   local committed = {}
-  for _, c in ipairs(snap.fire_commits or {}) do
-    if c.ship == ship_id and c.weapon then
+  -- Draft shot entries are {weapon,target,shield_facing} (no .ship field); the
+  -- draft is already keyed by ship_id, so any entry with a weapon is committed.
+  for _, c in ipairs(app.volley_drafts[ship_id] or {}) do
+    if c.weapon then
       committed[c.weapon] = true
     end
   end
@@ -1114,12 +1234,22 @@ local function do_commit_fire()
   apply_legal_shield_facing()
   local weapon = app.weapon_id
   local target = app.target_id
-  local snap2, err = submit(orders.commit_fire(ship, weapon, target, app.shield_facing), true)
-  if not err then
-    set_status("info", fire_result_message(snap2 or snap_now(), weapon, target))
+  local draft = app.volley_drafts[ship] or {}
+  for _, shot in ipairs(draft) do
+    if shot.weapon == weapon then
+      set_status("warn", weapon .. " is already in this volley")
+      return
+    end
+  end
+  draft[#draft + 1] = { weapon = weapon, target = target, shield_facing = app.shield_facing }
+  app.volley_drafts[ship] = draft
+  advance_local_tutorial({ kind = "FireWeapon" })
+  do
+    set_status("info", string.format("Queued %s for volley (%d shot%s)", weapon, #draft,
+      #draft == 1 and "" or "s"))
     -- Advance to next charged weapon so a full volley is clickable without
     -- re-picking each mount (FIX-PLAN playtest: hard to fire all weapons).
-    local snap = snap2 or snap_now()
+    local snap = snap_now()
     local nxt = app.tutorial and weapon or next_fireable_weapon(snap, ship, weapon)
     app.weapon_id = nxt
     if app.tutorial then
@@ -1127,8 +1257,7 @@ local function do_commit_fire()
     elseif nxt then
       request_previews()
       apply_legal_shield_facing()
-      set_status("info", fire_result_message(snap, weapon, target)
-        .. string.format(" · next: %s", nxt))
+      set_status("info", string.format("Queued %s · next: %s", weapon, nxt))
     else
       request_previews()
     end
@@ -1141,23 +1270,10 @@ local function do_ready_fire()
     set_status("warn", "Select one of your ships")
     return
   end
-  local _, err = submit(orders.ready_fire(ship), true)
+  local _, err = submit(orders.commit_volley(ship, app.volley_drafts[ship] or {}), true)
   if not err then
-    set_status("info", status_fmt.order_echo(ship, "ready_fire"))
-  end
-end
-
-local function do_end_turn()
-  local snap = snap_now()
-  if snap and snap.end_turn_warning and not app.show_end_warning then
-    app.show_end_warning = true
-    return
-  end
-  app.show_end_warning = false
-  local _, err = submit(orders.end_turn(), true)
-  if not err then
-    app.alloc = {}
-    set_status("info", status_fmt.order_echo(nil, "end_turn"))
+    app.volley_drafts[ship] = nil
+    set_status("info", status_fmt.order_echo(ship, "commit_volley"))
   end
 end
 
@@ -1303,24 +1419,24 @@ local function handle_ui_hit(hit)
     end
     return true
   end
-  if id == "coast" then
-    do_movement("coast")
+  if id == "path_action" then
+    do_path_append(p.action)
     return true
   end
-  if id == "accel" then
-    do_movement("accel")
+  if id == "path_undo" then
+    do_path_undo()
     return true
   end
-  if id == "turn" then
-    do_movement("turn", app.maneuver_facing or 0)
+  if id == "path_clear" then
+    do_path_clear()
     return true
   end
-  if id == "turn_accel" then
-    do_movement("turn_accel", app.maneuver_facing or 0)
+  if id == "path_commit" then
+    do_commit_path(false)
     return true
   end
-  if id == "pick_maneuver_facing" then
-    app.maneuver_facing = p.face
+  if id == "path_coast" then
+    do_commit_path(true)
     return true
   end
   if id == "pick_weapon" then
@@ -1346,20 +1462,6 @@ local function handle_ui_hit(hit)
   end
   if id == "ready_fire" then
     do_ready_fire()
-    return true
-  end
-  if id == "end_turn" then
-    do_end_turn()
-    return true
-  end
-  if id == "end_warning_confirm" then
-    app.show_end_warning = false
-    submit(orders.end_turn(), true)
-    app.alloc = {}
-    return true
-  end
-  if id == "end_warning_cancel" then
-    app.show_end_warning = false
     return true
   end
   if id == "select_active" then
@@ -1447,9 +1549,6 @@ function love.draw()
     end
     draw_hud.draw(app)
     draw_hud.rules_provenance(app)
-    if app.show_end_warning then
-      draw_hud.draw_end_warning(app)
-    end
     draw_hud.draw_toast(app)
   elseif app.screen == "end" then
     draw_hud.draw_game_over(app)
@@ -1572,10 +1671,10 @@ function love.keypressed(key)
       if ship then
         do_allocate(ship)
       end
+    elseif app.phase == phases.MOVEMENT then
+      do_commit_path(false)
     elseif app.phase == phases.FIRING then
       do_commit_fire()
-    elseif app.phase == phases.TURN_END then
-      do_end_turn()
     end
   elseif key == "f" then
     if app.cam_sys then
@@ -1588,8 +1687,6 @@ function love.keypressed(key)
       camera.set_auto(app.cam_sys, true)
       set_status("info", "Auto-fit camera")
     end
-  elseif key == "e" then
-    do_end_turn()
   elseif app.phase == phases.ALLOCATE and (key == "=" or key == "kp+" or key == "+") then
     -- Keyboard allocate draft: + / - nudge movement for selected ship.
     local ship = app.selected_id
@@ -1613,19 +1710,22 @@ function love.keypressed(key)
       a.movement = math.max(0, a.movement - 1)
       debounce.trip(app.reach_debounce)
     end
-  elseif key == "p" and app.phase == phases.MOVEMENT then
-    do_movement("coast")
-  elseif key == "t" and app.phase == phases.MOVEMENT then
-    do_movement("accel")
-  elseif key:match("^[0-5]$") and app.phase == phases.MOVEMENT then
-    local face = tonumber(key)
-    app.maneuver_facing = face
-    -- Digit commits turn (help: "0-5=turn"). Same-facing is blocked in do_movement.
-    if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
-      do_movement("turn_accel", face)
-    else
-      do_movement("turn", face)
-    end
+  elseif app.phase == phases.MOVEMENT and key == "w" then
+    do_path_append("move_f") -- W: step forward
+  elseif app.phase == phases.MOVEMENT and key == "a" then
+    do_path_append("move_fl") -- A: step forward-left
+  elseif app.phase == phases.MOVEMENT and key == "d" then
+    do_path_append("move_fr") -- D: step forward-right
+  elseif app.phase == phases.MOVEMENT and key == "z" then
+    do_path_append("turn_left") -- Z: turn left in place
+  elseif app.phase == phases.MOVEMENT and key == "x" then
+    do_path_append("turn_right") -- X: turn right in place
+  elseif app.phase == phases.MOVEMENT and key == "backspace" then
+    do_path_undo()
+  elseif app.phase == phases.MOVEMENT and key == "delete" then
+    do_path_clear()
+  elseif app.phase == phases.MOVEMENT and key == "p" then
+    do_commit_path(true) -- P: coast (commit empty path)
   elseif input_policy.fire_weapon_delta(app.phase, key) then
     app.weapon_id = selection.cycle_fireable_weapon(snap_now(), app.selected_id,
       app.weapon_id, input_policy.fire_weapon_delta(app.phase, key))

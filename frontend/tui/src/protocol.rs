@@ -1,4 +1,4 @@
-//! NDJSON protocol model for shipsim v3.
+//! NDJSON protocol model for shipsim v4.
 //!
 //! These types mirror the JSON shapes produced by the `shipsim` binary
 //! (`docs/PROTOCOL.md`). The TUI never recomputes rules — it only reads
@@ -16,15 +16,17 @@ pub struct Snapshot {
     pub protocol_version: u32,
     pub turn: u32,
     pub status: String,
+    /// `allocate` | `movement` | `firing`.
     pub phase: String,
-    #[serde(default)]
-    pub movement_phase: u32,
-    #[serde(default)]
-    pub ships_committed_this_phase: Vec<i64>,
-    #[serde(default)]
-    pub ships_ready_fire: Vec<i64>,
+    /// Ships that have committed allocate this turn.
     #[serde(default)]
     pub ships_allocated_this_turn: Vec<i64>,
+    /// Ships that have committed a path this turn.
+    #[serde(default)]
+    pub ships_committed_path: Vec<i64>,
+    /// Ships that have committed a volley this turn.
+    #[serde(default)]
+    pub ships_committed_volley: Vec<i64>,
     #[serde(default)]
     pub seed: u64,
     #[serde(default)]
@@ -35,16 +37,12 @@ pub struct Snapshot {
     pub ships: Vec<Ship>,
     #[serde(default)]
     pub combat_log: Vec<CombatEvent>,
-    #[serde(default)]
-    pub fire_commits: Vec<FireCommit>,
-    #[serde(default)]
-    pub end_turn_warning: bool,
     /// Engine-authoritative legal fire opportunity (additive protocol field).
     #[serde(default)]
     pub fire_opportunity: Option<FireOpportunity>,
-    /// Structured translation outcomes from the last resolved movement phase.
+    /// Structured movement-resolution telemetry from the last resolved path stage.
     #[serde(default)]
-    pub translation_results: Vec<TranslationResult>,
+    pub path_results: Vec<PathResult>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -56,20 +54,32 @@ pub struct FireOpportunity {
     pub legal_shield_facings: Vec<u32>,
 }
 
+/// One ship's movement-resolution telemetry from the last resolved path stage
+/// (protocol v4 `path_results` entry).
 #[derive(Debug, Clone, Deserialize)]
-pub struct TranslationResult {
+pub struct PathResult {
     pub ship: i64,
-    pub requested: u32,
-    pub moved: u32,
+    /// Motion points the submitted path cost.
     #[serde(default)]
-    pub blocked: Option<TranslationBlock>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TranslationBlock {
-    pub kind: String,
+    pub submitted_cost: u32,
+    /// Steps actually applied after simultaneous resolution.
     #[serde(default)]
-    pub ships: Vec<i64>,
+    pub translated_steps: u32,
+    #[serde(default)]
+    pub final_q: i32,
+    #[serde(default)]
+    pub final_r: i32,
+    #[serde(default)]
+    pub final_facing: u32,
+    /// Steps the ship was forced to give back (fell short of the submitted path).
+    #[serde(default)]
+    pub fallback_steps: u32,
+    /// Why the ship fell short, if it did: `edge` | `occupied` | `contested`.
+    #[serde(default)]
+    pub blocked_kind: Option<String>,
+    /// Other ships implicated in a block/contest.
+    #[serde(default)]
+    pub conflicting_ships: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,8 +100,6 @@ pub struct Ship {
     pub r: i32,
     pub facing: u32,
     #[serde(default)]
-    pub speed: u32,
-    #[serde(default)]
     pub power: u32,
     #[serde(default)]
     pub attack_accuracy_bonus: u32,
@@ -99,6 +107,18 @@ pub struct Ship {
     pub power_available: u32,
     #[serde(default)]
     pub movement_allocated: u32,
+    /// Usable motion points in the movement stage (v4).
+    #[serde(default)]
+    pub motion_available: u32,
+    /// Hull cap on path length (v4).
+    #[serde(default)]
+    pub max_maneuver_actions: u32,
+    /// Motion points produced per unit of engine power (v4).
+    #[serde(default)]
+    pub thrust_per_power: u32,
+    /// Engine power consumed per motion point (v4).
+    #[serde(default)]
+    pub power_per_thrust: u32,
     #[serde(default)]
     pub shields_powered: Vec<u32>,
     #[serde(default)]
@@ -116,15 +136,6 @@ pub struct Ship {
     pub weapon_boxes: Vec<u32>,
     pub destroyed: bool,
     pub weapons: Vec<Weapon>,
-    /// Protocol 3 motion — optional so older fixtures still parse.
-    #[serde(default)]
-    pub max_velocity: u32,
-    #[serde(default)]
-    pub velocity: u32,
-    #[serde(default)]
-    pub course: u32,
-    #[serde(default)]
-    pub thrust_remaining: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -172,52 +183,7 @@ pub struct FireCommit {
     pub shield_facing: u32,
 }
 
-// ── Movement preview (read-only query response) ──────────────────────────
-
-/// One reachable endpoint after the four movement cycles.
-#[derive(Debug, Clone, Deserialize)]
-pub struct PreviewEndpoint {
-    pub q: i32,
-    pub r: i32,
-    pub facing: u32,
-    pub course: u32,
-    pub speed: u32,
-    pub thrust_remaining: u32,
-}
-
-/// The `movement_preview` response envelope (`type: "movement_preview"`).
-#[derive(Debug, Clone, Deserialize)]
-pub struct MovementPreview {
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub ok: bool,
-    pub ship: i64,
-    pub endpoints: Vec<PreviewEndpoint>,
-    pub coast: PreviewEndpoint,
-    #[serde(default)]
-    pub occupied: Vec<HexCoord>,
-    /// Present only when `clamp: true` was requested.
-    #[serde(default)]
-    pub clamped_movement: Option<u32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ManeuverOptionsPreview {
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub ok: bool,
-    pub ship: i64,
-    pub options: Vec<ManeuverOptionPreview>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ManeuverOptionPreview {
-    pub maneuver: Maneuver,
-    pub thrust_cost: Option<u32>,
-    pub affordable: bool,
-    #[serde(default)]
-    pub reason: Option<String>,
-}
+// ── Fire preview (read-only query response) ───────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FireDecisionPreview {
@@ -250,6 +216,45 @@ pub struct HexCoord {
     pub r: i32,
 }
 
+// ── Path preview (read-only v4 query response) ────────────────────────────
+
+/// One traced step of a previewed path.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PathStep {
+    #[serde(default)]
+    pub action: String,
+    pub q: i32,
+    pub r: i32,
+    #[serde(default)]
+    pub facing: u32,
+}
+
+/// The `path_preview` response envelope (`type: "path_preview"`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PathPreview {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub ok: bool,
+    pub ship: i64,
+    #[serde(default)]
+    pub cost: u32,
+    #[serde(default)]
+    pub remaining_motion: u32,
+    #[serde(default)]
+    pub final_q: i32,
+    #[serde(default)]
+    pub final_r: i32,
+    #[serde(default)]
+    pub final_facing: u32,
+    #[serde(default)]
+    pub steps: Vec<PathStep>,
+    /// First illegal-action reason, if the path exceeds what the ship can do.
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub error_index: Option<usize>,
+}
+
 // ── Soft error ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
@@ -265,8 +270,8 @@ pub struct ErrorResponse {
 
 // ── Orders ────────────────────────────────────────────────────────────────
 
-/// Every order carries `protocol_version: 3`.
-pub const PROTOCOL_VERSION: u32 = 3;
+/// Every order carries `protocol_version: 4`.
+pub const PROTOCOL_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Order {
@@ -286,23 +291,21 @@ pub enum OrderBody {
         #[serde(skip_serializing_if = "Option::is_none")]
         shields: Option<Vec<u32>>,
     },
-    CommitManeuver {
+    CommitPath {
         ship: i64,
-        maneuver: Maneuver,
+        actions: Vec<String>,
     },
-    PassMove {
+    CommitVolley {
         ship: i64,
+        shots: Vec<VolleyShot>,
     },
-    CommitFire {
-        ship: i64,
-        weapon: String,
-        target: i64,
-        shield_facing: u32,
-    },
-    ReadyFire {
-        ship: i64,
-    },
-    EndTurn,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VolleyShot {
+    pub weapon: String,
+    pub target: i64,
+    pub shield_facing: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -340,43 +343,61 @@ impl Order {
         }
     }
 
-    pub fn commit_maneuver(ship: i64, maneuver: Maneuver) -> Self {
+    pub fn commit_path(ship: i64, actions: Vec<String>) -> Self {
         Order {
             protocol_version: PROTOCOL_VERSION,
-            body: OrderBody::CommitManeuver { ship, maneuver },
+            body: OrderBody::CommitPath { ship, actions },
         }
+    }
+
+    pub fn commit_volley(ship: i64, shots: Vec<VolleyShot>) -> Self {
+        Order {
+            protocol_version: PROTOCOL_VERSION,
+            body: OrderBody::CommitVolley { ship, shots },
+        }
+    }
+
+    /// Legacy test/helper adapter. Interactive input uses `commit_path` with
+    /// the actual current facing, so absolute turns are translated there.
+    pub fn commit_maneuver(ship: i64, maneuver: Maneuver) -> Self {
+        let actions = match maneuver {
+            Maneuver::Coast => Vec::new(),
+            Maneuver::Accel => vec!["move_f".into()],
+            Maneuver::Turn { facing } => {
+                std::iter::repeat_n("turn_right".to_string(), facing as usize).collect()
+            }
+            Maneuver::TurnAccel { facing } => {
+                let mut actions: Vec<String> =
+                    std::iter::repeat_n("turn_right".to_string(), facing as usize).collect();
+                actions.push("move_f".into());
+                actions
+            }
+        };
+        Self::commit_path(ship, actions)
     }
 
     pub fn pass_move(ship: i64) -> Self {
-        Order {
-            protocol_version: PROTOCOL_VERSION,
-            body: OrderBody::PassMove { ship },
-        }
+        Self::commit_path(ship, Vec::new())
     }
 
-    pub fn commit_fire(ship: i64, weapon: &str, target: i64, shield_facing: u32) -> Self {
+    /// Hold fire: an empty volley. Every living ship must commit a volley for
+    /// the firing stage to resolve.
+    pub fn hold_fire(ship: i64) -> Self {
+        Self::commit_volley(ship, Vec::new())
+    }
+
+    /// Passive allocation for a frontend-driven scripted ship: zero engine power,
+    /// zero shields, and NO weapons map (omitting it leaves carried charge intact;
+    /// sending explicit zeros would be rejected as an illegal strip).
+    pub fn passive_allocate(ship: i64) -> Self {
         Order {
             protocol_version: PROTOCOL_VERSION,
-            body: OrderBody::CommitFire {
+            body: OrderBody::Allocate {
                 ship,
-                weapon: weapon.into(),
-                target,
-                shield_facing,
+                movement: 0,
+                weapons: None,
+                shields: Some(vec![0; 6]),
             },
-        }
-    }
-
-    pub fn ready_fire(ship: i64) -> Self {
-        Order {
-            protocol_version: PROTOCOL_VERSION,
-            body: OrderBody::ReadyFire { ship },
-        }
-    }
-
-    pub fn end_turn() -> Self {
-        Order {
-            protocol_version: PROTOCOL_VERSION,
-            body: OrderBody::EndTurn,
         }
     }
 }

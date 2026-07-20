@@ -5,7 +5,7 @@ use crate::hex::Hex;
 pub enum MapMode {
     /// Off-map is illegal (plots rejected).
     Hard,
-    /// Formation may drift; board recenters after movement.
+    /// Formation may drift. Its nominal dimensions are a client camera hint.
     Floating,
     /// No edges: negative and large coordinates are legal. No recentering,
     /// no clamping. Width/height are metadata only (ADR-0022 unbounded world).
@@ -23,8 +23,8 @@ impl MapMode {
     }
 
     /// True iff off-map destinations are illegal (edge exits blocked).
-    /// `Floating` and `Unbounded` both allow movement beyond the nominal box;
-    /// `Floating` recenters afterward, `Unbounded` does not.
+    /// `Floating` and `Unbounded` both allow movement beyond the nominal box.
+    /// Clients, not the engine, choose how to recenter a floating-map camera.
     pub fn blocks_edges(self) -> bool {
         matches!(self, MapMode::Hard)
     }
@@ -55,8 +55,8 @@ impl Board {
         hex.q >= 0 && hex.r >= 0 && hex.q < self.width as i32 && hex.r < self.height as i32
     }
 
-    /// Translate a set of positions so the bounding box fits on the board when possible.
-    /// Returns the delta applied (dq, dr).
+    /// Calculate a presentation-only camera offset that fits a formation on a
+    /// nominal board when possible. Never apply this to game coordinates.
     pub fn float_delta(positions: &[Hex], width: u32, height: u32) -> (i32, i32) {
         if positions.is_empty() {
             return (0, 0);
@@ -82,7 +82,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_float_delta_centers() {
+    fn float_delta_centers_a_presentation_view() {
         let pos = [Hex::new(10, 10), Hex::new(11, 10)];
         let (dq, dr) = Board::float_delta(&pos, 8, 8);
         let shifted: Vec<Hex> = pos.iter().map(|h| Hex::new(h.q + dq, h.r + dr)).collect();

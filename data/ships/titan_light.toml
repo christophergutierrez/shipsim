@@ -3,7 +3,7 @@
 id = "titan_light"
 name = "Titan (Light)"
 size = 7
-speed = 3
+max_maneuver_actions = 3
 power = 82
 max_shield_per_facing = 8
 structure = 97
@@ -11,7 +11,6 @@ power_sys = 5
 engine_boxes = 5
 weapon_boxes = 5
 attack_accuracy_bonus = 12
-max_velocity = 3
 thrust_per_power = 1
 power_per_thrust = 4
 cost = 762

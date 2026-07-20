@@ -1,0 +1,6 @@
+{"protocol_version":4,"type":"allocate","ship":1,"movement":1,"weapons":{},"shields":[0,0,0,0,0,0]}
+{"protocol_version":4,"type":"allocate","ship":2,"movement":1,"weapons":{},"shields":[0,0,0,0,0,0]}
+{"protocol_version":4,"type":"commit_path","ship":1,"actions":["move_f"]}
+{"protocol_version":4,"type":"commit_path","ship":2,"actions":["move_f"]}
+{"protocol_version":4,"type":"commit_volley","ship":1,"shots":[]}
+{"protocol_version":4,"type":"commit_volley","ship":2,"shots":[]}

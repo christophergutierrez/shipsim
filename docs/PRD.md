@@ -13,8 +13,8 @@ The product needs one coherent loop that is playable, deterministic under test, 
 ## Goals
 
 - Make turn-start power allocation a consequential tradeoff among movement, weapons, and shields.
-- Reward maintaining momentum while preserving useful turning and reversal choices.
-- Alternate small movement decisions with opportunities for simultaneous fire.
+- Reward deliberate path planning while preserving useful turning and facing choices.
+- Keep movement and simultaneous fire decisions readable and compact.
 - Give beam, plasma, and torpedo weapons distinct range and damage profiles.
 - Make facing and powered shields central to survival.
 - Support complete battles against a basic AI in the Love2D client.
@@ -22,47 +22,47 @@ The product needs one coherent loop that is playable, deterministic under test, 
 
 ## Player experience
 
-At the start of a turn, each ship converts its fixed power budget into a
-turn-scoped thrust reserve, weapon charges, and shields. During each of four
-movement phases, every living ship commits one inertial maneuver and maneuvers
-and translations resolve simultaneously. A firing window follows each movement
-phase, then the fixed schedule advances to the next window.
+At the start of a turn, each ship converts its fixed power budget into motion
+points, weapon charges, and shields. Every living ship then submits one ordered
+path and the paths resolve simultaneously. Ships next submit one complete
+volley, which resolves simultaneously before the engine advances to the next
+turn.
 
-Players can inspect hull, shields, weapon readiness, thrust, velocity, phase, and
+Players can inspect hull, shields, weapon readiness, motion, facing, phase, and
 recent combat results. Illegal input is rejected without losing the session. A
 battle ends when its destruction objective is met.
 
 ## Functional requirements
 
-### Power and inertial movement
+### Power and path movement
 
-- A ship allocates no more than its available power among movement, individual weapons, and six shield facings.
+- A ship allocates no more than its available power among motion, individual weapons, and six shield facings.
 - Allocation is locked until the next turn.
-- Engine power converts to thrust according to hull efficiency; simultaneous
-  commitment means raw engine-power allocation does not establish initiative.
+- Engine power converts to motion points according to hull efficiency; simultaneous
+  commitment means raw motion allocation does not establish initiative.
 
 ### Movement
 
-- Each living ship takes exactly one maneuver decision per movement phase.
-- Continuing with momentum is cheaper than reversing it.
+- Each living ship submits exactly one ordered path per turn.
+- Every path action costs one motion point from the allocation.
 - Turning and occupancy obey hex-grid geometry and board policy.
-- Coasting is a valid zero-thrust decision and cannot strand the phase.
+- An empty path is valid and leaves the ship stationary.
 
 ### Combat
 
-- A ship may commit multiple charged, unfired weapons during a firing phase.
+- A ship may commit multiple charged, unfired weapons during the volley stage.
 - Range, mount arc, target geometry, shield-facing geometry, and charge determine legality.
 - Beam damage scales with charge and declines gradually with range; half-up rounding applies and zero-damage shots are illegal.
 - Plasma has strong close damage and steep range falloff.
 - Torpedoes have flat damage within range.
 - To-hit rolls use d20 range tables and the seeded PRNG.
-- All commitments in a firing phase resolve simultaneously, including mutual kills.
+- All commitments in a volley resolve simultaneously, including mutual kills.
 - Powered facing shields deplete before overflow damages hull; hull zero destroys the ship.
 - Each weapon fires at most once per turn.
 
 ### Interface and automation
 
-- The Love2D client supports movement, weapon, and six-facing shield allocation; movement and passing; multi-weapon fire commitment; target-facing selection; turn ending; and battle outcome display.
+- Clients support allocation, ordered paths, complete volleys, target-facing selection, and battle outcome display through the protocol-v4 order boundary.
 - The CLI accepts NDJSON orders and emits snapshots suitable for clients, fixtures, and agents.
 - Invalid orders yield structured soft errors and do not mutate state.
 - Generic TOML ship and scenario data can define new battles without source changes.
@@ -78,7 +78,7 @@ battle ends when its destruction objective is met.
 
 ## Current scope
 
-The shipped MVP includes generic escort and heavy-cruiser data, v2 power/momentum combat, multi-ship scenarios, deterministic AI, a Love2D thin client, campaigns at the core/CLI level, and golden replay coverage.
+The shipped MVP includes generic escort and heavy-cruiser data, v2 power/path combat, multi-ship scenarios, deterministic AI, protocol-v4 replay coverage, and a reference REPL client. Graphical protocol-v4 clients remain migration work.
 
 ## Out of scope
 
@@ -86,7 +86,6 @@ The shipped MVP includes generic escort and heavy-cruiser data, v2 power/momentu
 - Sensors, cloak, crew skills, electronic warfare, and detailed critical-hit charts.
 - Full campaign persistence and campaign UI.
 - Network multiplayer.
-- A stable, versioned save-game format.
 - Exact reproduction of a commercial tabletop ruleset.
 
 ## Success criteria

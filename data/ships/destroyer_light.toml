@@ -3,13 +3,12 @@
 id = "destroyer_light"
 name = "Destroyer (Light)"
 size = 2
-speed = 8
+max_maneuver_actions = 8
 power = 11
 max_shield_per_facing = 3
 structure = 6
 power_sys = 3
 engine_boxes = 3
-max_velocity = 8
 thrust_per_power = 3
 power_per_thrust = 1
 cost = 93

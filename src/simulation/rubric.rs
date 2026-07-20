@@ -318,20 +318,22 @@ pub fn evaluate_rubric(
         ));
     }
     if let Some(expected) = spec.max_blocked_translation_rate {
-        let actual = rate(metrics.blocked_translations, metrics.scheduled_translations);
+        // Protocol v4: blocked path rate (legacy rubric field name retained).
+        let actual = rate(metrics.blocked_paths, metrics.scheduled_paths);
         checks.push(maximum("blocked_translation_rate", actual, expected));
     }
     if let Some(expected) = spec.max_zero_translation_rate {
         let actual = rate(
             metrics.zero_translation_observations,
-            metrics.scheduled_translations,
+            metrics.scheduled_paths,
         );
         checks.push(maximum("zero_translation_rate", actual, expected));
     }
     if let Some(expected) = spec.min_coasting_distance {
+        // Protocol v4: total hexes translated along submitted paths.
         checks.push(minimum(
-            "coasting_distance",
-            metrics.coasting_distance as f64,
+            "path_translated_steps",
+            metrics.path_translated_steps as f64,
             expected,
         ));
     }
@@ -351,7 +353,7 @@ pub fn evaluate_rubric(
         }
         if let Some(expected) = spec.max_hull_zero_translation_rate {
             let actual = values
-                .map(|v| rate(v.zero_translation_observations, v.scheduled_translations))
+                .map(|v| rate(v.zero_translation_observations, v.scheduled_paths))
                 .unwrap_or(0.0);
             checks.push(maximum(
                 &format!("hull_zero_translation_rate[{class}]"),
@@ -370,11 +372,12 @@ pub fn evaluate_rubric(
             ));
         }
         if let Some(expected) = spec.max_hull_zero_velocity_rate {
+            // Legacy name: zero-motion path rate (path cost 0 with motion available).
             let actual = values
-                .map(|v| rate(v.zero_velocity_observations, v.velocity_observations))
+                .map(|v| rate(v.zero_motion_path_observations, v.path_observations))
                 .unwrap_or(0.0);
             checks.push(maximum(
-                &format!("hull_zero_velocity_rate[{class}]"),
+                &format!("hull_zero_motion_path_rate[{class}]"),
                 actual,
                 expected,
             ));
@@ -592,7 +595,7 @@ mod tests {
             hull_efficiency: [(
                 "Huge".into(),
                 crate::simulation::metrics::HullEfficiencyMetrics {
-                    scheduled_translations: 10,
+                    scheduled_paths: 10,
                     zero_translation_observations: 8,
                     ..Default::default()
                 },

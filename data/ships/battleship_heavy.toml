@@ -3,13 +3,12 @@
 id = "battleship_heavy"
 name = "Battleship (Heavy)"
 size = 5
-speed = 5
+max_maneuver_actions = 5
 power = 58
 max_shield_per_facing = 9
 structure = 57
 power_sys = 4
 engine_boxes = 4
-max_velocity = 5
 thrust_per_power = 1
 power_per_thrust = 3
 cost = 501

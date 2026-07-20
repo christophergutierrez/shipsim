@@ -45,9 +45,10 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None, destroyed=Fals
 
 def _snap(ships, **kw):
     snap = {
-        "protocol_version": 3, "phase": "firing", "status": "Playing",
-        "turn": 1, "active_ship": ships[0]["id"] if ships else None,
+        "protocol_version": 4, "phase": "firing", "status": "Playing",
+        "turn": 1,
         "ships": ships, "combat_log": [],
+        "ships_committed_path": [], "ships_committed_volley": [],
     }
     snap.update(kw)
     return snap
@@ -193,13 +194,14 @@ class C5FireTargetingSanity(unittest.TestCase):
 
         self.assertIsNone(order, "weapon with no in-range/in-arc target was silently queued")
 
-    def test_c5_done_emits_ready_fire_not_none(self):
-        """Selecting "Done" (-1) at the weapon menu must finish the fire phase
-        directly by returning a ready_fire order, not drop the player back to
-        the main prompt with None."""
+    def test_c5_done_emits_commit_volley_not_none(self):
+        """Selecting "Done" (-1) at the weapon menu must submit the volley
+        directly by returning a commit_volley order, not drop the player back
+        to the main prompt with None."""
         shooter = _ship(1, 0, 0, 0, "player", [_weapon("forward", max_range=5, id="L1")])
         enemy = _ship(2, 3, 0, 3, "ai")
         snap = _snap([shooter, enemy], phase="firing")
+        ctx = ReplContext(selected=1)
 
         buf = io.StringIO()
         import builtins
@@ -208,13 +210,14 @@ class C5FireTargetingSanity(unittest.TestCase):
         builtins.input = lambda *_a, **_k: next(answers)
         try:
             with contextlib.redirect_stdout(buf):
-                order = interactive_fire(snap, 1)
+                order = interactive_fire(snap, 1, ctx)
         finally:
             builtins.input = orig_input
 
-        self.assertIsNotNone(order, "Done returned None instead of a ready_fire order")
-        self.assertEqual("ready_fire", order.get("type"))
+        self.assertIsNotNone(order, "Done returned None instead of a commit_volley order")
+        self.assertEqual("commit_volley", order.get("type"))
         self.assertEqual(1, order.get("ship"))
+        self.assertEqual([], order.get("shots"))
 
 
 class C6KillShotAnnouncesDestruction(unittest.TestCase):

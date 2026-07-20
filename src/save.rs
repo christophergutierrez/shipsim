@@ -91,9 +91,9 @@ impl SaveDocument {
             path: path.to_path_buf(),
             source,
         })?;
-        // M6 (ADR-0022): reject unsupported document versions *before* deserializing
-        // the order stream. A v1 save may carry an order shape that is no longer
-        // parseable; checking the version first guarantees such a save fails with
+        // Reject unsupported document versions before deserializing the order
+        // stream. An older save may carry an order shape that is no longer
+        // parseable; checking the version first guarantees it fails with
         // `UnsupportedVersion` rather than `Parse`.
         let version_probe: SaveVersionProbe =
             serde_json::from_str(&text).map_err(|source| SaveError::Parse {
@@ -219,5 +219,46 @@ mod tests {
     fn scenario_error_preserves_its_source_chain() {
         let error = SaveError::from(LoadError::InvalidFacing { facing: 9 });
         assert!(std::error::Error::source(&error).is_some());
+    }
+
+    #[test]
+    fn replay_with_recorded_ai_orders_reaches_same_phase() {
+        use crate::movement::{apply_order, Order};
+        use crate::path::PathAction;
+        use std::collections::BTreeMap;
+
+        let scenario = PathBuf::from("scenarios/ai.toml");
+        let mut game = load_scenario(&scenario).expect("scenario");
+        let mut orders = Vec::new();
+
+        // Player allocate then AI fill-in (as the harness would record).
+        let player_alloc = Order::Allocate {
+            ship: 1,
+            movement: 2,
+            weapons: BTreeMap::from([("beam_1".into(), 2)]),
+            shields: [1, 0, 0, 0, 0, 0],
+        };
+        apply_order(&mut game, player_alloc.clone()).expect("player alloc");
+        orders.push(player_alloc);
+        orders.extend(game.resolve_v2_npc_actions());
+
+        // Player path (empty hold) + AI path commits recorded.
+        let player_path = Order::CommitPath {
+            ship: 1,
+            actions: vec![PathAction::MoveF],
+        };
+        apply_order(&mut game, player_path.clone()).expect("player path");
+        orders.push(player_path);
+        orders.extend(game.resolve_v2_npc_actions());
+
+        let expected_phase = game.phase_name().to_string();
+        let expected_turn = game.turn_number();
+        let expected_prng = game.prng_state();
+
+        let save = SaveDocument::capture(scenario, orders, &game);
+        let replayed = save.replay().expect("replay with AI orders");
+        assert_eq!(replayed.phase_name(), expected_phase);
+        assert_eq!(replayed.turn_number(), expected_turn);
+        assert_eq!(replayed.prng_state(), expected_prng);
     }
 }

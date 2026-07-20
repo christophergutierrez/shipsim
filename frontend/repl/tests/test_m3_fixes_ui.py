@@ -44,7 +44,7 @@ def _ship(sid, controller="player", weapons=None, destroyed=False, power=22,
 
 def _snap(ships, **kw):
     snap = {
-        "protocol_version": 3, "phase": "allocate", "status": "Playing",
+        "protocol_version": 4, "phase": "allocate", "status": "Playing",
         "turn": 1, "active_ship": 1, "ships": ships, "combat_log": [],
     }
     snap.update(kw)
@@ -71,21 +71,21 @@ class C7DefaultAllocateSurvivable(unittest.TestCase):
         self.assertEqual(22, total)
 
 
-class C8LeftoverWarningPhaseGated(unittest.TestCase):
-    """The '⚠ leftover useful actions' header warning must only show during
-    firing/turn_end, not during allocate (alarm fatigue on nearly every frame)."""
+class C8NoEndTurnWarningInV4(unittest.TestCase):
+    """Protocol v4 removed end_turn / end_turn_warning; header must not alarm."""
 
-    def test_c8_leftover_warning_hidden_during_allocate(self):
-        snap = {"status": "Playing", "phase": "allocate", "turn": 1,
-                "active_ship": 1, "end_turn_warning": True}
-        out = ANSI.sub("", format_header(snap))
-        self.assertNotIn("⚠ leftover", out)
-
-    def test_c8_leftover_warning_shown_during_firing(self):
-        snap = {"status": "Playing", "phase": "firing", "turn": 1,
-                "active_ship": 1, "end_turn_warning": True}
-        out = ANSI.sub("", format_header(snap))
-        self.assertIn("⚠ end skips unresolved actions", out)
+    def test_c8_no_end_turn_warning_field(self):
+        for phase in ("allocate", "movement", "firing"):
+            with self.subTest(phase=phase):
+                snap = {
+                    "status": "Playing",
+                    "phase": phase,
+                    "turn": 1,
+                    "end_turn_warning": True,
+                }
+                out = ANSI.sub("", format_header(snap))
+                self.assertNotIn("end skips", out)
+                self.assertNotIn("⚠ leftover", out)
 
 
 class C9PanelGeometry(unittest.TestCase):

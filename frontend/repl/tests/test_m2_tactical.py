@@ -37,8 +37,9 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None, destroyed=Fals
 
 def _snap(ships, **kw):
     snap = {
-        "protocol_version": 3, "phase": "firing", "status": "Playing",
-        "turn": 1, "active_ship": 1, "ships": ships, "combat_log": [],
+        "protocol_version": 4, "phase": "firing", "status": "Playing",
+        "turn": 1, "ships": ships, "combat_log": [],
+        "ships_committed_path": [], "ships_committed_volley": [],
     }
     snap.update(kw)
     return snap
@@ -169,25 +170,32 @@ class UnspentPowerTests(unittest.TestCase):
 
 
 class CallsignInitiativeTests(unittest.TestCase):
-    """Movement/fire-ready queues display callsigns, not raw ship IDs."""
+    """Path/volley committed queues display callsigns, not raw ship IDs."""
 
-    def test_move_order_uses_callsigns(self):
-        snap = _snap([
-            _ship(1, 0, 0, 0, "player"),
-            _ship(2, 3, 0, 3, "ai"),
-        ], move_order=[1, 2], ships_moved_this_phase=[])
+    def test_path_queue_uses_callsigns(self):
+        snap = _snap(
+            [
+                _ship(1, 0, 0, 0, "player"),
+                _ship(2, 3, 0, 3, "ai"),
+            ],
+            phase="movement",
+            ships_committed_path=[],
+        )
         out = ANSI.sub("", format_tactical(snap, selected=1))
-        # callsign for player ship id=1 is "A1", ai id=2 is "B2"
         self.assertIn("A1", out)
         self.assertIn("B2", out)
+        self.assertIn("path committed", out)
 
-    def test_fire_ready_uses_callsigns(self):
-        snap = _snap([
-            _ship(1, 0, 0, 0, "player"),
-            _ship(2, 3, 0, 3, "ai"),
-        ], ships_ready_fire=[1])
+    def test_volley_queue_uses_callsigns(self):
+        snap = _snap(
+            [
+                _ship(1, 0, 0, 0, "player"),
+                _ship(2, 3, 0, 3, "ai"),
+            ],
+            ships_committed_volley=[1],
+        )
         out = ANSI.sub("", format_tactical(snap, selected=1))
-        self.assertIn("fire ready:", out)
+        self.assertIn("volley committed", out)
         self.assertIn("A1", out)
 
     def test_callsign_is_controller_letter_plus_index(self):

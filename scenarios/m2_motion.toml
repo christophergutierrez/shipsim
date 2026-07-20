@@ -13,9 +13,6 @@ q = 2
 r = 5
 facing = 0
 controller = "player"
-velocity = 2
-course = 0
-
 [[ships]]
 id = 2
 class = "starbase"

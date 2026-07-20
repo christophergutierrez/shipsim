@@ -3,13 +3,12 @@
 id = "destroyer_heavy"
 name = "Destroyer (Heavy)"
 size = 2
-speed = 8
+max_maneuver_actions = 8
 power = 16
 max_shield_per_facing = 5
 structure = 10
 power_sys = 3
 engine_boxes = 3
-max_velocity = 8
 thrust_per_power = 1
 power_per_thrust = 1
 cost = 126

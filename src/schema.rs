@@ -17,10 +17,10 @@ pub struct ShipDef {
     /// `data/rules/default.toml`); smaller ships are harder to hit and larger
     /// ships easier.
     pub size: u32,
-    pub speed: u32,
-    /// Energy per turn; defaults to `speed` when omitted (full movement available).
-    #[serde(default)]
-    pub power: Option<u32>,
+    /// Design maximum path actions per turn (hull cap).
+    pub max_maneuver_actions: u8,
+    /// Energy per turn.
+    pub power: u32,
     pub max_shield_per_facing: u32,
     #[serde(default)]
     pub structure: u32,
@@ -36,21 +36,13 @@ pub struct ShipDef {
     pub attack_accuracy_bonus: u8,
     #[serde(default)]
     pub weapons: Vec<WeaponDef>,
-    /// Design maximum velocity in hexes per turn (ADR-0022 §1). When omitted,
-    /// the loader derives it from the legacy `speed` field (so a legacy speed-1
-    /// hull becomes max velocity 1, etc.); an immobile hull sets this to 0.
-    /// Explicit values override the legacy `speed` derivation.
-    #[serde(default)]
-    pub max_velocity: Option<u8>,
-    /// Thrust produced per unit of engine power (ADR-0022 §5). Defaults to 1
-    /// (1:1 cruiser-class conversion). Immobile hulls set this to 0.
+    /// Motion produced per unit of engine power. Defaults to 1.
     #[serde(default = "default_thrust_per_power")]
     pub thrust_per_power: u32,
-    /// Engine power required per unit of thrust (ADR-0022 §5). Defaults to 1.
+    /// Engine power required per unit of motion. Defaults to 1.
     #[serde(default = "default_power_per_thrust")]
     pub power_per_thrust: u32,
     /// Construction / fleet-budget cost (catalog). Not consumed by combat rules yet.
-    /// Frame/module model: destroyer_line = 100 (docs/BALANCE-COST.md).
     #[serde(default)]
     pub cost: u32,
 }
@@ -97,13 +89,6 @@ pub struct ShipPlacementDef {
     pub facing: u8,
     #[serde(default)]
     pub controller: String,
-    /// Initial velocity speed for inertial movement (ADR-0022 §1). Defaults to
-    /// 0 (stationary). Must not exceed the hull's `max_velocity`.
-    #[serde(default)]
-    pub velocity: Option<u8>,
-    /// Initial course (hex direction 0..=5). Defaults to `facing` when omitted.
-    #[serde(default)]
-    pub course: Option<u8>,
     /// Override design power for this placement (balance sweeps / scenarios).
     #[serde(default)]
     pub power: Option<u32>,

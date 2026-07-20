@@ -71,28 +71,14 @@ pub enum LoadError {
         source: crate::thrust::ConversionError,
     },
     #[error(
-        "ship class {class:?} max_velocity {max_velocity} exceeds global maximum {global_max}"
+        "ship class {class:?} cannot buy one motion point with its design power {power} (conversion {thrust_per_power}:{power_per_thrust})"
     )]
-    MaxVelocityExceedsGlobal {
-        class: String,
-        max_velocity: u8,
-        global_max: u8,
-    },
-    #[error("ship class {class:?} cannot buy one thrust with its design power {power} (conversion {thrust_per_power}:{power_per_thrust})")]
     MobileHullCannotBuyThrust {
         class: String,
         power: u32,
         thrust_per_power: u32,
         power_per_thrust: u32,
     },
-    #[error("ship {ship_id} initial velocity {velocity} exceeds max_velocity {max_velocity}")]
-    InitialVelocityExceedsMax {
-        ship_id: u32,
-        velocity: u8,
-        max_velocity: u8,
-    },
-    #[error("ship {ship_id} initial course {course} is not a valid hex direction (0..=5)")]
-    InvalidInitialCourse { ship_id: u32, course: u8 },
 }
 
 pub fn load_scenario(path: &Path) -> Result<GameState, LoadError> {
@@ -113,9 +99,7 @@ pub fn load_scenario_def(def: &ScenarioDef, data_root: &Path) -> Result<GameStat
     load_scenario_def_with_rules(def, data_root, rules)
 }
 
-/// Load a scenario with an already validated ruleset. Keeping the ruleset on
-/// the resulting game makes simulations and replays deterministic even when
-/// multiple content roots are used in one process.
+/// Load a scenario with an already validated ruleset.
 pub fn load_scenario_def_with_rules(
     def: &ScenarioDef,
     data_root: &Path,
@@ -189,7 +173,7 @@ pub fn load_scenario_def_with_rules(
         let is_ai = matches!(ctrl.as_str(), "ai" | "greedy");
         let is_scripted = !is_ai && ctrl == "scripted";
 
-        let power = placement.power.or(ship_def.power).unwrap_or(ship_def.speed);
+        let power = placement.power.unwrap_or(ship_def.power);
         let structure = placement.structure.unwrap_or(ship_def.structure);
         let max_shield_per_facing = placement
             .max_shield_per_facing
@@ -218,8 +202,6 @@ pub fn load_scenario_def_with_rules(
                 Ok(weapon)
             })
             .collect::<Result<Vec<_>, LoadError>>()?;
-        // Subsystem box counts are explicit frame properties; reject invalid
-        // configured values rather than silently clamping them to 1.
         if ship_def.engine_boxes == 0 {
             return Err(LoadError::InvalidEngineBoxes {
                 class: placement.class.clone(),
@@ -235,44 +217,28 @@ pub fn load_scenario_def_with_rules(
                 class: placement.class.clone(),
             });
         }
-        let engine_boxes = ship_def.engine_boxes;
-        let power_sys_boxes = ship_def.power_sys;
         let ssd = crate::ssd::Ssd::with_weapon_boxes(
             structure,
-            engine_boxes,
-            power_sys_boxes,
+            ship_def.engine_boxes,
+            ship_def.power_sys,
             weapons.len(),
             ship_def.weapon_boxes,
         );
 
-        // Inertial movement: resolve the hull's design maximum velocity
-        // (ADR-0022 §1). An explicit `max_velocity` overrides the legacy `speed`
-        // derivation; when omitted, `max_velocity` is derived from `speed` so a
-        // legacy speed-1 hull becomes max velocity 1, etc.
-        let max_velocity = ship_def
-            .max_velocity
-            .unwrap_or_else(|| ship_def.speed.try_into().unwrap_or(u8::MAX));
-        if max_velocity > crate::motion::MAX_VELOCITY {
-            return Err(LoadError::MaxVelocityExceedsGlobal {
-                class: placement.class.clone(),
-                max_velocity,
-                global_max: crate::motion::MAX_VELOCITY,
-            });
-        }
-
+        let max_maneuver_actions = ship_def.max_maneuver_actions;
         let thrust_conversion = crate::thrust::ThrustConversion::new(
             ship_def.thrust_per_power,
             ship_def.power_per_thrust,
-            max_velocity,
+            max_maneuver_actions,
         )
         .map_err(|source| LoadError::InvalidThrustConversion {
             class: placement.class.clone(),
             source,
         })?;
 
-        if max_velocity > 0 {
-            let (thrust_at_full_power, _remainder) = thrust_conversion.convert(power);
-            if thrust_at_full_power < 1 {
+        if max_maneuver_actions > 0 {
+            let (motion_at_full_power, _remainder) = thrust_conversion.convert(power);
+            if motion_at_full_power < 1 {
                 return Err(LoadError::MobileHullCannotBuyThrust {
                     class: placement.class.clone(),
                     power,
@@ -282,35 +248,12 @@ pub fn load_scenario_def_with_rules(
             }
         }
 
-        let init_speed = placement.velocity.unwrap_or(0);
-        if init_speed > max_velocity {
-            return Err(LoadError::InitialVelocityExceedsMax {
-                ship_id: placement.id,
-                velocity: init_speed,
-                max_velocity,
-            });
-        }
-        let init_course = placement.course.unwrap_or(placement.facing);
-        if init_course > 5 {
-            return Err(LoadError::InvalidInitialCourse {
-                ship_id: placement.id,
-                course: init_course,
-            });
-        }
-        let velocity = crate::motion::Velocity::new(init_speed, init_course).map_err(|_| {
-            LoadError::InvalidInitialCourse {
-                ship_id: placement.id,
-                course: init_course,
-            }
-        })?;
-
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name,
             size: ship_def.size,
             pos,
             facing: placement.facing,
-            speed: ship_def.speed,
             power,
             attack_accuracy_bonus: ship_def.attack_accuracy_bonus,
             weapons,
@@ -321,10 +264,9 @@ pub fn load_scenario_def_with_rules(
             weapon_charges: BTreeMap::new(),
             ssd,
             destroyed: false,
-            max_velocity,
+            max_maneuver_actions,
             thrust_conversion,
-            velocity,
-            thrust_remaining: 0,
+            motion_available: 0,
         });
         if is_ai {
             npcs.insert(placement.id, NpcController::GreedySeek);
@@ -447,7 +389,7 @@ mod tests {
             assert!(ship.power_sys > 0, "{class} power_sys");
             assert!(ship.engine_boxes > 0, "{class} engine_boxes");
             assert!(ship.max_shield_per_facing > 0, "{class} shield cap");
-            for weapon in ship.weapons {
+            for weapon in &ship.weapons {
                 assert!(weapon.max_range > 0, "{class}/{} max_range", weapon.id);
                 assert!(weapon.max_charge > 0, "{class}/{} max_charge", weapon.id);
             }
@@ -485,16 +427,34 @@ controller = "player"
         .expect("scenario parses")
     }
 
+    const MIN_SHIP: &str = r#"
+name = "Test"
+size = 2
+max_maneuver_actions = 4
+power = 8
+max_shield_per_facing = 1
+structure = 1
+power_sys = 1
+engine_boxes = 1
+"#;
+
     #[test]
     fn zero_engine_boxes_is_rejected_at_load_time() {
         let dir = tempfile::tempdir().expect("tempdir");
         write_ship(
             dir.path(),
             "bad_engine",
+            &format!("{MIN_SHIP}\nengine_boxes = 0\n"),
+        );
+        // Override: rewrite cleanly
+        write_ship(
+            dir.path(),
+            "bad_engine",
             r#"
 name = "Bad Engine"
 size = 2
-speed = 1
+max_maneuver_actions = 1
+power = 4
 max_shield_per_facing = 1
 structure = 1
 power_sys = 1
@@ -519,7 +479,8 @@ engine_boxes = 0
             r#"
 name = "Bad Power"
 size = 2
-speed = 1
+max_maneuver_actions = 1
+power = 4
 max_shield_per_facing = 1
 structure = 1
 power_sys = 0
@@ -544,7 +505,8 @@ engine_boxes = 1
             r#"
 name = "Bad Weapon Boxes"
 size = 2
-speed = 1
+max_maneuver_actions = 1
+power = 4
 max_shield_per_facing = 1
 structure = 1
 power_sys = 1
@@ -570,7 +532,8 @@ weapon_boxes = 0
             r#"
 name = "Default Weapon Boxes"
 size = 2
-speed = 1
+max_maneuver_actions = 1
+power = 4
 max_shield_per_facing = 1
 structure = 1
 power_sys = 1
@@ -590,7 +553,8 @@ engine_boxes = 1
             "no_size",
             r#"
 name = "No Size"
-speed = 1
+max_maneuver_actions = 1
+power = 4
 max_shield_per_facing = 1
 structure = 1
 power_sys = 1

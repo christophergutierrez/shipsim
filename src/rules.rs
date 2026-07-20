@@ -326,6 +326,11 @@ impl Ruleset {
                 "accuracy.ceiling_floor cannot exceed ceiling_max".into(),
             ));
         }
+        if accuracy.ceiling_max == 0 {
+            return Err(RulesError::Invalid(
+                "accuracy.ceiling_max must be at least 1".into(),
+            ));
+        }
         if accuracy.ceiling_max >= combat.die_sides {
             return Err(RulesError::Invalid(
                 "accuracy.ceiling_max must be below combat.die_sides".into(),
@@ -441,6 +446,11 @@ mod tests {
                 "ceiling_floor = 15",
                 "ceiling_floor = 20",
                 "ceiling floor",
+            ),
+            (
+                "ceiling_floor = 15\nceiling_max = 19",
+                "ceiling_floor = 0\nceiling_max = 0",
+                "zero ceiling",
             ),
             (
                 "dac = [\n  \"hull\", \"hull\", \"engine\", \"weapon\",\n  \"hull\", \"power\", \"weapon\", \"hull\",\n  \"hull\", \"engine\", \"hull\", \"weapon\",\n  \"power\", \"hull\", \"hull\", \"engine\",\n]",

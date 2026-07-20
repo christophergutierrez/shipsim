@@ -13,7 +13,7 @@ use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, 
 use ratatui::Frame;
 
 use crate::app::{App, Mode};
-use crate::protocol::{callsign, facing_arrow, shield_label, Maneuver, Ship, Snapshot};
+use crate::protocol::{callsign, facing_arrow, shield_label, Ship, Snapshot};
 
 /// Render the full frame.
 pub fn render(f: &mut Frame, app: &mut App) {
@@ -134,14 +134,34 @@ fn tutorial_prompt(app: &App) -> Option<String> {
     Some(t.do_now_line(cursor, value))
 }
 
-fn phase_label(phase: &str, movement_phase: u32) -> String {
+fn phase_label(phase: &str) -> String {
     match phase {
         "allocate" => "Allocate".into(),
-        "movement" => format!("Move {movement_phase}/4"),
-        "firing" => format!("Fire {movement_phase}/4"),
+        "movement" => "Movement".into(),
+        "firing" => "Firing".into(),
         "turn_end" => "Turn end".into(),
         other => other.to_string(),
     }
+}
+
+/// Living player-ship count and how many have completed the current stage,
+/// used for the header "path N/M" style progress readout.
+fn stage_progress(snap: &Snapshot) -> Option<(&'static str, usize, usize)> {
+    let living = snap
+        .ships
+        .iter()
+        .filter(|s| s.controller == "player" && !s.destroyed)
+        .count();
+    if living == 0 {
+        return None;
+    }
+    let (label, done) = match snap.phase.as_str() {
+        "allocate" => ("alloc", snap.ships_allocated_this_turn.len()),
+        "movement" => ("path", snap.ships_committed_path.len()),
+        "firing" => ("volley", snap.ships_committed_volley.len()),
+        _ => return None,
+    };
+    Some((label, done, living))
 }
 
 fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
@@ -150,15 +170,15 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     } else {
         Color::Green
     };
-    // M5: header `queued=N` must agree with the fire panel's `Queued:` count.
-    // Both count fire_commits for the *focused* ship (not all ships), so the
-    // player always knows what *their* ship will fire on Space.
-    let focused_id = app.focused().map(|s| s.id);
-    let queued = match focused_id {
-        Some(id) => snap.fire_commits.iter().filter(|c| c.ship == id).count(),
-        None => 0,
+    // v4: header `queued=N` counts the *focused* ship's drafted volley shots
+    // (not yet committed) so the player always knows what their ship will fire
+    // on Space. The draft lives entirely client-side now (app.fire_draft).
+    let queued = if snap.phase == "firing" {
+        app.fire_draft.as_ref().map(|d| d.shots.len()).unwrap_or(0)
+    } else {
+        0
     };
-    let phase = phase_label(&snap.phase, snap.movement_phase);
+    let phase = phase_label(&snap.phase);
 
     let mut status_spans = vec![
         Span::styled(
@@ -172,13 +192,19 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             format!(" {} ", snap.status),
             Style::default().fg(status_color),
         ),
-        Span::raw("│"),
-        Span::styled(
-            if queued > 0 {
-                format!(" queued={queued} ")
-            } else {
-                " queued=0 ".to_string()
-            },
+    ];
+    // v4 stage progress: how many living player ships have committed this stage.
+    if let Some((label, done, total)) = stage_progress(snap) {
+        status_spans.push(Span::raw("│"));
+        status_spans.push(Span::styled(
+            format!(" {label} {done}/{total} "),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    if snap.phase == "firing" {
+        status_spans.push(Span::raw("│"));
+        status_spans.push(Span::styled(
+            format!(" queued={queued} "),
             if queued > 0 {
                 Style::default()
                     .fg(Color::Yellow)
@@ -186,8 +212,8 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             } else {
                 Style::default().fg(Color::DarkGray)
             },
-        ),
-    ];
+        ));
+    }
     // Fable Phase 4: concrete next-action guidance (replaces "actions remain").
     let cta = if app.tutorial.is_none() {
         phase_call_to_action(app, snap)
@@ -237,36 +263,6 @@ fn render_confirm_modal(f: &mut Frame, app: &App, area: Rect) {
             "Confirm quit",
             "Leave this game?\n\ny = quit · n / Esc = cancel".to_string(),
         ),
-        crate::app::Confirmation::EndTurn => {
-            let queued = app
-                .snap
-                .as_ref()
-                .map(|snap| {
-                    snap.fire_commits
-                        .iter()
-                        .filter(|commit| {
-                            snap.ship(commit.ship)
-                                .is_some_and(|ship| ship.controller == "player")
-                        })
-                        .count()
-                })
-                .unwrap_or(0);
-            let warning = if queued > 0 {
-                format!("{queued} queued shot(s) will be discarded.")
-            } else if app
-                .snap
-                .as_ref()
-                .is_some_and(|snap| snap.phase == "firing" && snap.fire_opportunity.is_some())
-            {
-                "Unused legal shot will be forfeited.".to_string()
-            } else {
-                "No queued fire or unfinished actions.".to_string()
-            };
-            (
-                "Confirm end turn",
-                format!("End the whole turn?\n{warning}\n\ny = end turn · n / Esc = cancel"),
-            )
-        }
     };
     let width = 48u16.min(area.width.saturating_sub(4));
     let height = 8u16.min(area.height.saturating_sub(2));
@@ -551,17 +547,13 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     );
     let shade = selected_weapon_shade(app);
 
-    // Collect movement-preview endpoint coordinates for the focused ship.
-    // These are the reachable hexes after the four movement cycles.
-    let preview_endpoints: std::collections::HashSet<(i32, i32)> = app
-        .movement_preview_for_focus()
-        .as_ref()
-        .map(|p| p.endpoints.iter().map(|e| (e.q, e.r)).collect())
+    // v4: trace the focused ship's drafted path from `path_preview`. Each
+    // step's hex is a faint route marker; the final hex is highlighted.
+    let preview = app.path_preview_for_focus();
+    let preview_endpoints: std::collections::HashSet<(i32, i32)> = preview
+        .map(|p| p.steps.iter().map(|s| (s.q, s.r)).collect())
         .unwrap_or_default();
-    let preview_coast = app
-        .movement_preview_for_focus()
-        .as_ref()
-        .map(|p| (p.coast.q, p.coast.r));
+    let preview_coast = preview.map(|p| (p.final_q, p.final_r));
 
     // Title: always keep `→ callsign d=N` when present; drop optional chrome
     // first so range is not clipped off the Block title.
@@ -644,24 +636,9 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                     let extra = ships_here.len().saturating_sub(1);
                     pad_cell(format!("{short_cs}+{extra}"), metrics.cell_width)
                 } else {
+                    // v4 is non-inertial: callsign + facing arrow only.
                     let arrow = facing_arrow(s.facing);
-                    if s.velocity > 0 && s.course != s.facing {
-                        pad_cell(
-                            format!(
-                                "{}{}{}{}",
-                                short_cs,
-                                arrow,
-                                facing_arrow(s.course),
-                                s.velocity
-                            ),
-                            metrics.cell_width,
-                        )
-                    } else {
-                        pad_cell(
-                            format!("{}{}{}", short_cs, arrow, s.velocity),
-                            metrics.cell_width,
-                        )
-                    }
+                    pad_cell(format!("{short_cs}{arrow}"), metrics.cell_width)
                 };
                 (cell, ship_fg(s, focused))
             } else if is_coast {
@@ -701,9 +678,9 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A1→3 = ship/facing/speed; +N = more ships here. ◆ coast ◇ reach"
+        "A1→ = ship/facing; +N = more ships here. ◆ final ◇ route"
     } else {
-        "A1→3 = ship/facing/speed; +N = more ships here. Shade = weapon arc"
+        "A1→ = ship/facing; +N = more ships here. Shade = weapon arc"
     };
     lines.push(Line::from(Span::styled(
         legend,
@@ -766,20 +743,25 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         push(
             f,
             &mut y,
-            Line::from(format!(
-                "  @({},{}) face={}{} course={}{} vel={} thrust={}",
-                ship.q,
-                ship.r,
-                ship.facing,
-                facing_arrow(ship.facing),
-                ship.course,
-                facing_arrow(ship.course),
-                ship.velocity,
-                ship.thrust_remaining
-            )),
+            {
+                // v4 non-inertial kinematics: position + facing, and during the
+                // movement stage the drafted path cost vs available motion.
+                let mut s = format!(
+                    "  @({},{}) face={}{}",
+                    ship.q,
+                    ship.r,
+                    ship.facing,
+                    facing_arrow(ship.facing),
+                );
+                if snap.phase == "movement" {
+                    let cost = app.path_draft.as_ref().map(|d| d.cost()).unwrap_or(0);
+                    s.push_str(&format!("  motion {}/{}", cost, ship.motion_available));
+                }
+                Line::from(s)
+            },
         );
-        // Fable Phase 3: partial translation notice for the focused ship.
-        if let Some(line) = translation_notice_for_focus(app, snap) {
+        // v4: short-fall path resolution notice for the focused ship.
+        if let Some(line) = path_notice_for_focus(app, snap) {
             push(
                 f,
                 &mut y,
@@ -792,35 +774,30 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             );
         }
 
-        // Show the projected position from the movement preview (if available).
-        if let Some(preview) = app.movement_preview_for_focus() {
-            let c = &preview.coast;
+        // Show the projected final position from the drafted path preview.
+        if let Some(preview) = app.path_preview_for_focus() {
             push(
                 f,
                 &mut y,
                 Line::from(vec![
                     Span::styled("  ▶ projected: ", Style::default().fg(Color::Cyan)),
                     Span::raw(format!(
-                        "({},{}) face={}{} vel={}",
-                        c.q,
-                        c.r,
-                        c.facing,
-                        facing_arrow(c.facing),
-                        c.speed
+                        "({},{}) face={}{}  motion left {}",
+                        preview.final_q,
+                        preview.final_r,
+                        preview.final_facing,
+                        facing_arrow(preview.final_facing),
+                        preview.remaining_motion,
                     )),
-                    Span::styled(
-                        format!("  [{} endpoints]", preview.endpoints.len()),
-                        Style::default().fg(Color::DarkGray),
-                    ),
                 ]),
             );
-            if let Some(cm) = preview.clamped_movement {
+            if let Some(err) = &preview.error {
                 push(
                     f,
                     &mut y,
                     Line::from(Span::styled(
-                        format!("    (thrust clamped to {} for preview)", cm),
-                        Style::default().fg(Color::Yellow),
+                        format!("    illegal: {err}"),
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     )),
                 );
             }
@@ -921,7 +898,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             "Help",
             vec![
                 Line::from(" q: quit  Tab: cycle focus  Enter: act in phase"),
-                Line::from(" a: allocate  m: move  f: fire  e: end turn"),
+                Line::from(" a: allocate  m: move  f: fire  v: map"),
                 Line::from(" v: map-focus (WASD pan, +/- zoom, [/] inspect contacts)"),
                 Line::from(""),
             ],
@@ -1165,23 +1142,17 @@ fn fire_scroll(app: &App, area: Rect) -> u16 {
         None => return 0,
     };
     // Mirror render_fire_panel's line layout so the selected weapon stays in
-    // view: 3 control lines (↑↓, Space, Cycle coach), one line per pending
-    // commit for this ship, an optional "No charge" coach line, blank, Targets
-    // header, one line per enemy, blank, Weapons header, then the weapon rows.
-    // (The `Queued:` summary is a fixed header rendered by render_input_panel,
-    //  not part of the scrollable body — do not count it here.)
-    let mine_count = snap
-        .fire_commits
-        .iter()
-        .filter(|c| c.ship == ship.id)
-        .count();
+    // view: 2 legend lines, the volley summary line, an optional "No charge"
+    // coach line, blank, Targets header, one line per enemy, blank, Weapons
+    // header, then the weapon rows. (The `Queued:` summary is a fixed header
+    // rendered by render_input_panel, not part of the scrollable body.)
     let has_charge = ship.weapons.iter().any(|w| w.operational && w.charge > 0);
     let no_charge = if !has_charge && snap.phase == "firing" {
         1
     } else {
         0
     };
-    let selected_line = 3 + mine_count + no_charge + 1 + 1 + enemy_count + 1 + 1 + draft.weapon_idx;
+    let selected_line = 2 + 1 + no_charge + 1 + 1 + enemy_count + 1 + 1 + draft.weapon_idx;
     let visible = area.height.max(1) as usize;
     selected_line
         .saturating_sub(visible.saturating_sub(1))
@@ -1256,13 +1227,9 @@ fn allocate_budget_line(app: &App) -> Option<Line<'static>> {
 /// shot count stays visible even when the weapon list scrolls (Phase 4 /
 /// criterion 4.1). Returns `None` when there is no focused ship or snapshot.
 fn fire_queue_line(app: &App) -> Option<Line<'static>> {
-    let snap = app.snap.as_ref()?;
-    let ship = app.focused()?;
-    let mine_count = snap
-        .fire_commits
-        .iter()
-        .filter(|c| c.ship == ship.id)
-        .count();
+    let _snap = app.snap.as_ref()?;
+    let _ship = app.focused()?;
+    let mine_count = app.fire_draft.as_ref().map(|d| d.shots.len()).unwrap_or(0);
     let style = if mine_count == 0 {
         Style::default().fg(Color::DarkGray)
     } else {
@@ -1504,23 +1471,15 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     ("Allocate", lines)
 }
 
-fn maneuver_cost_label(app: &App, maneuver: &Maneuver) -> String {
-    let option = app.maneuver_options.as_ref().and_then(|preview| {
-        preview
-            .options
-            .iter()
-            .find(|option| &option.maneuver == maneuver)
-    });
-    match option {
-        Some(option) if option.affordable => option
-            .thrust_cost
-            .map(|cost| format!("{cost} ok"))
-            .unwrap_or_else(|| "n/a".to_string()),
-        Some(option) => option
-            .thrust_cost
-            .map(|cost| format!("{cost} NO"))
-            .unwrap_or_else(|| "n/a".to_string()),
-        None => "…".to_string(),
+/// Short display token for one path action.
+fn action_token(action: &str) -> &'static str {
+    match action {
+        "move_f" => "F",
+        "move_fl" => "FL",
+        "move_fr" => "FR",
+        "turn_left" => "◄",
+        "turn_right" => "►",
+        _ => "?",
     }
 }
 
@@ -1529,64 +1488,79 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         Some(s) => s,
         None => return ("Movement", vec![Line::from(" (no ship focused)")]),
     };
-    // Cycle coach needs the current movement_phase (0 in allocate/turn_end).
-    let cycle = app
-        .snap
-        .as_ref()
-        .map(|s| s.movement_phase.min(4))
-        .unwrap_or(0);
 
-    let lines = vec![
-        Line::from(format!(
-            " {} @({},{}) face={}{}  course={}{}  vel={}  thrust={}",
-            callsign(ship),
-            ship.q,
-            ship.r,
-            ship.facing,
-            facing_arrow(ship.facing),
-            ship.course,
-            facing_arrow(ship.course),
-            ship.velocity,
-            ship.thrust_remaining
-        )),
-        // M6: cycle coach — where the player is in the 4-cycle move/fire loop.
-        Line::from(Span::styled(
-            format!(" Cycle {cycle}/4 · commit maneuver (c/t/0–5) · e ends the whole turn"),
-            Style::default().fg(Color::Cyan),
-        )),
-        Line::from(Span::styled(
+    let draft_actions: Vec<String> = app
+        .path_draft
+        .as_ref()
+        .map(|d| d.actions.clone())
+        .unwrap_or_default();
+    let cost = draft_actions.len() as u32;
+
+    let mut lines = vec![Line::from(format!(
+        " {} @({},{}) face={}{}",
+        callsign(ship),
+        ship.q,
+        ship.r,
+        ship.facing,
+        facing_arrow(ship.facing),
+    ))];
+
+    // Drafted path as a row of short tokens.
+    let path_tokens = if draft_actions.is_empty() {
+        "(empty — will hold position)".to_string()
+    } else {
+        draft_actions
+            .iter()
+            .map(|a| action_token(a))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    lines.push(Line::from(vec![
+        Span::styled(" Path: ", Style::default().fg(Color::Cyan)),
+        Span::raw(path_tokens),
+    ]));
+
+    // Running motion cost vs available.
+    let over = cost > ship.motion_available;
+    lines.push(Line::from(Span::styled(
+        format!(" motion {}/{}", cost, ship.motion_available),
+        if over {
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Green)
+        },
+    )));
+
+    // Projected final position/facing and any illegality from the preview.
+    if let Some(preview) = app.path_preview_for_focus() {
+        lines.push(Line::from(Span::styled(
             format!(
-                " t accel: cost {} · c coast: cost {}",
-                maneuver_cost_label(app, &Maneuver::Accel),
-                maneuver_cost_label(app, &Maneuver::Coast)
+                " ▶ final ({},{}) face={}{}  motion left {}",
+                preview.final_q,
+                preview.final_r,
+                preview.final_facing,
+                facing_arrow(preview.final_facing),
+                preview.remaining_motion,
             ),
-            Style::default().fg(Color::Yellow),
-        )),
-        Line::from(format!(
-            " Turn costs: {}",
-            (0..=5)
-                .map(|facing| {
-                    if facing == ship.facing {
-                        format!("{facing}:here")
-                    } else {
-                        format!(
-                            "{facing}:{}",
-                            maneuver_cost_label(app, &Maneuver::Turn { facing })
-                        )
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("  ")
-        )),
-        Line::from(""),
-        Line::from(" c: coast (slide only, free)"),
-        Line::from(" t: accel along facing · NO = insufficient/illegal"),
-        Line::from(" 0–5: turn to that facing (course stays)"),
-        Line::from(" Alt+0–5: turn then accel to that facing"),
-        Line::from(" r: turn +1 facing"),
-        Line::from(""),
-        Line::from(" Space (fire phase): ready · e: end turn"),
-    ];
+            Style::default().fg(Color::Cyan),
+        )));
+        if let Some(err) = &preview.error {
+            lines.push(Line::from(Span::styled(
+                format!(" illegal: {err}"),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            )));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " w/↑ forward · a veer-left · d veer-right · ←/→ turn",
+        Style::default().fg(Color::Yellow),
+    )));
+    lines.push(Line::from(Span::styled(
+        " 0–5 face · Backspace undo · x clear · Enter commit · Space hold",
+        Style::default().fg(Color::Yellow),
+    )));
 
     ("Movement", lines)
 }
@@ -1606,43 +1580,53 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         None => return ("Fire", vec![Line::from(" (no draft)")]),
     };
 
+    // v4 volley builder: the whole volley is assembled client-side in
+    // `app.fire_draft.shots` and submitted as one `commit_volley` on Space.
     let mut lines = vec![
         Line::from(Span::styled(
-            " ↑↓ weapon · digits target · Enter queue",
+            " ↑↓ weapon · 1–9 target · ←→ shield face",
             Style::default().fg(Color::Yellow),
         )),
         Line::from(Span::styled(
-            " Space ready · ←→ shield · Esc cancel",
+            " Enter queue/unqueue · Backspace remove · Space fire volley",
             Style::default().fg(Color::Yellow),
-        )),
-        // M6: cycle coach — charge only refills on allocate, so once guns are
-        // empty mid-turn the player must pass fire with Space.
-        Line::from(Span::styled(
-            format!(
-                " Cycle {}/4 · queue shots then Space (ready); charge refills on allocate",
-                snap.movement_phase.min(4)
-            ),
-            Style::default().fg(Color::Cyan),
         )),
     ];
 
-    // M5: list the pending commits for the focused ship so the player can see
-    // exactly what will fire on Space (weapon → target face F). The `Queued:`
-    // summary count is rendered as a fixed header by `fire_queue_line` (see
-    // render_input_panel) so it stays visible when the weapon list scrolls.
-    for c in snap.fire_commits.iter().filter(|c| c.ship == ship.id) {
-        let target_cs = snap
-            .ships
+    // Assembled-volley summary: e.g. "Volley: beam_1→B2(R), torp_1→B2(R)".
+    let volley_summary = if draft.shots.is_empty() {
+        "Volley: (empty — Space holds fire)".to_string()
+    } else {
+        let parts: Vec<String> = draft
+            .shots
             .iter()
-            .find(|s| s.id == c.target)
-            .map(callsign)
-            .unwrap_or_else(|| format!("#{}", c.target));
-        lines.push(Line::from(Span::styled(
-            format!("   {} → {} face {}", c.weapon, target_cs, c.shield_facing),
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-    // "No charge" coach (4.2): if every operational weapon is out of charge
+            .map(|shot| {
+                let tgt = snap
+                    .ship(shot.target)
+                    .map(callsign)
+                    .unwrap_or_else(|| format!("#{}", shot.target));
+                format!(
+                    "{}→{}({})",
+                    shot.weapon,
+                    tgt,
+                    shield_label(shot.shield_facing)
+                )
+            })
+            .collect();
+        format!("Volley: {}", parts.join(", "))
+    };
+    lines.push(Line::from(Span::styled(
+        format!(" {volley_summary}"),
+        if draft.shots.is_empty() {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        },
+    )));
+
+    // "No charge" coach: if every operational weapon is out of charge
     // mid-fire-phase, tell the player Space passes instead of firing.
     let has_charge = ship.weapons.iter().any(|w| w.operational && w.charge > 0);
     if !has_charge && snap.phase == "firing" {
@@ -1686,10 +1670,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     for (i, w) in ship.weapons.iter().enumerate() {
         let selected = i == draft.weapon_idx;
         let marker = if selected { "▶" } else { " " };
-        let queued = snap
-            .fire_commits
-            .iter()
-            .any(|c| c.ship == ship.id && c.weapon == w.id);
+        let queued = draft.is_queued(&w.id);
         let queued_str = if queued { " [QUEUED]" } else { "" };
         let charge_str = if !w.operational {
             "OFFLINE".to_string()
@@ -2016,11 +1997,7 @@ fn render_tutorial_panel(f: &mut Frame, app: &App, area: Rect) {
             .snap
             .as_ref()
             .map(|s| {
-                format!(
-                    "Turn {} · {}",
-                    s.turn,
-                    phase_label(&s.phase, s.movement_phase)
-                )
+                format!("Turn {} · {}", s.turn, phase_label(&s.phase))
             })
             .unwrap_or_else(|| "Starting".to_string());
         format!("Coach · {location} · {}/{}", t.current + 1, t.steps.len())
@@ -2123,20 +2100,21 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
             if app.focused().is_some_and(|ship| {
                 ship.controller == "player"
                     && !ship.destroyed
-                    && ship.thrust_remaining == 0
-                    && !snap.ships_committed_this_phase.contains(&ship.id)
+                    && ship.motion_available == 0
+                    && !snap.ships_committed_path.contains(&ship.id)
             }) {
                 let cs = app.focused().map(callsign).unwrap_or_else(|| "Ship".into());
-                format!("{cs} no thrust; Space coasts")
+                format!("{cs} no motion; Space holds")
             } else {
-                pending_cta(&snap.ships_committed_this_phase, "needs a maneuver")
+                pending_cta(&snap.ships_committed_path, "needs a path")
             }
         }
         "firing" => {
-            let focused_ready = focused_id.is_some_and(|id| snap.ships_ready_fire.contains(&id));
+            let focused_ready =
+                focused_id.is_some_and(|id| snap.ships_committed_volley.contains(&id));
             if focused_ready {
                 let cs = app.focused().map(callsign).unwrap_or_else(|| "Ship".into());
-                // Opportunity scan already skips ready ships; if another ship
+                // Opportunity scan already skips committed ships; if another ship
                 // still has a shot, point Tab there instead of re-offering this one.
                 if let Some(opp) = &snap.fire_opportunity {
                     if focused_id != Some(opp.ship) {
@@ -2145,7 +2123,7 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
                             .map(callsign)
                             .unwrap_or_else(|| format!("#{}", opp.ship));
                         return format!(
-                            "{cs} ready; Tab>{other} {}>{}",
+                            "{cs} committed; Tab>{other} {}>{}",
                             opp.weapon,
                             snap.ship(opp.target)
                                 .map(callsign)
@@ -2153,11 +2131,13 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
                         );
                     }
                 }
-                return format!("{cs} ready");
+                return format!("{cs} committed");
             }
-            let queued = focused_id
-                .map(|id| snap.fire_commits.iter().filter(|c| c.ship == id).count())
-                .unwrap_or(0);
+            let queued = if focused_id.is_some() {
+                app.fire_draft.as_ref().map(|d| d.shots.len()).unwrap_or(0)
+            } else {
+                0
+            };
             if queued > 0 {
                 format!("{queued} queued; Space fires")
             } else if let Some(opp) = &snap.fire_opportunity {
@@ -2185,10 +2165,10 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
     }
 }
 
-fn translation_notice_for_focus(app: &App, snap: &Snapshot) -> Option<String> {
+fn path_notice_for_focus(app: &App, snap: &Snapshot) -> Option<String> {
     let id = app.focused()?.id;
-    let tr = snap.translation_results.iter().find(|r| r.ship == id)?;
-    crate::app::format_translation_result(snap, tr)
+    let pr = snap.path_results.iter().find(|r| r.ship == id)?;
+    crate::app::format_path_result(snap, pr)
 }
 
 fn render_game_over_summary(app: &App, status: &str) -> Vec<Line<'static>> {

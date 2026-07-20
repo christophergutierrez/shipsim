@@ -3,13 +3,12 @@
 id = "light_cruiser_light"
 name = "Light Cruiser (Light)"
 size = 3
-speed = 7
+max_maneuver_actions = 7
 power = 16
 max_shield_per_facing = 4
 structure = 10
 power_sys = 3
 engine_boxes = 3
-max_velocity = 7
 thrust_per_power = 2
 power_per_thrust = 1
 cost = 162

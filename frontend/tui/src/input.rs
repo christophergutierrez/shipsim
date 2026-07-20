@@ -2,10 +2,10 @@
 //!
 //! Translates key events into app state changes and pending orders.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{App, Confirmation, Mode};
-use crate::protocol::{Maneuver, Order};
+use crate::protocol::{Order, VolleyShot};
 use crate::tutorial::ExpectedAction;
 
 /// Result of handling a key.
@@ -43,7 +43,7 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
             .tutorial
             .as_ref()
             .and_then(|tutorial| tutorial.current_step())
-            .is_some_and(|step| matches!(step.expected, ExpectedAction::TurnTo(3)))
+            .is_some_and(|step| matches!(step.expected, ExpectedAction::PathFace(3)))
     {
         key.code = KeyCode::Char('3');
     }
@@ -97,14 +97,6 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
         _ => {}
     }
 
-    // End turn is guarded because it can discard queued fire and skip useful
-    // actions. The engine's end_turn_warning is shown alongside this prompt.
-    if key.code == KeyCode::Char('e') && app.mode != Mode::GameOver && app.snap.is_some() {
-        app.confirmation = Some(Confirmation::EndTurn);
-        app.log("end turn requested — press y to confirm, n/Esc to cancel");
-        return KeyResult::Continue;
-    }
-
     // `v` enters map-focus from any active phase mode (not just Normal). The
     // phase auto-switch in update_snapshot leaves the app in Allocate/Movement/
     // Fire, so gating `v` on Normal alone would make it unreachable during
@@ -141,16 +133,6 @@ fn handle_confirmation(app: &mut App, confirmation: Confirmation, key: KeyEvent)
             app.confirmation = None;
             match confirmation {
                 Confirmation::Quit => KeyResult::Quit,
-                Confirmation::EndTurn => {
-                    let synthetic = KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE);
-                    if app.tutorial.is_some() {
-                        if let Some(result) = tutorial_gate(app, &synthetic) {
-                            return result;
-                        }
-                    }
-                    app.log("end_turn");
-                    emit_order(app, Order::end_turn())
-                }
             }
         }
         KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -182,6 +164,9 @@ fn reopen_tutorial_mode(app: &mut App, message: &str) {
         "movement" => {
             app.alloc_draft = None;
             app.fire_draft = None;
+            if app.path_draft.is_none() {
+                app.path_draft = Some(crate::app::PathDraft::default());
+            }
             app.mode = Mode::Movement;
         }
         "firing" => {
@@ -334,6 +319,77 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
         return Some(KeyResult::Continue);
     }
 
+    // ── Movement: PathForward — lay N forward steps ────────────────────
+    if let ExpectedAction::PathForward(target) = step_expected {
+        if app.mode != Mode::Movement {
+            reopen_tutorial_mode(app, "Movement reopened; keep drawing the path.");
+            return Some(KeyResult::Continue);
+        }
+        match key.code {
+            KeyCode::Up | KeyCode::Char('w') | KeyCode::Char('f') => {
+                path_append(app, "move_f");
+            }
+            KeyCode::Backspace => {
+                if let Some(d) = app.path_draft.as_mut() {
+                    d.pop();
+                }
+                app.request_path_preview();
+            }
+            _ => {
+                app.tutorial
+                    .as_mut()
+                    .unwrap()
+                    .set_error("Press w to add a forward step (Backspace to undo).");
+                return Some(KeyResult::Continue);
+            }
+        }
+        let count = app
+            .path_draft
+            .as_ref()
+            .map(|d| d.actions.iter().filter(|a| a.as_str() == "move_f").count() as u32)
+            .unwrap_or(0);
+        if count >= target {
+            app.tutorial.as_mut().unwrap().advance();
+        }
+        return Some(KeyResult::Continue);
+    }
+
+    // ── Movement: PathFace — turn the path's nose to a facing ──────────
+    if let ExpectedAction::PathFace(target) = step_expected {
+        if app.mode != Mode::Movement {
+            reopen_tutorial_mode(app, "Movement reopened; keep drawing the path.");
+            return Some(KeyResult::Continue);
+        }
+        let start = app.focused().map(|s| s.facing).unwrap_or(0);
+        match key.code {
+            KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
+                path_turn_to(app, (c as u8 - b'0') as u32);
+            }
+            KeyCode::Left => {
+                path_append(app, "turn_left");
+            }
+            KeyCode::Right => {
+                path_append(app, "turn_right");
+            }
+            KeyCode::Backspace => {
+                if let Some(d) = app.path_draft.as_mut() {
+                    d.pop();
+                }
+                app.request_path_preview();
+            }
+            _ => {
+                app.tutorial.as_mut().unwrap().set_error(format!(
+                    "Press {target} to turn the path's nose to facing {target}."
+                ));
+                return Some(KeyResult::Continue);
+            }
+        }
+        if projected_current_facing(app, start) == target {
+            app.tutorial.as_mut().unwrap().advance();
+        }
+        return Some(KeyResult::Continue);
+    }
+
     // ── Map key → discrete ExpectedAction ──────────────────────────────
     let action = match map_key_to_action(app, &snap, key) {
         Some(a) => a,
@@ -350,12 +406,8 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
     let order_backed = matches!(
         action,
         ExpectedAction::CommitAllocate
-            | ExpectedAction::Accel
-            | ExpectedAction::TurnTo(_)
-            | ExpectedAction::Coast
-            | ExpectedAction::FireWeapon
+            | ExpectedAction::PathCommit
             | ExpectedAction::ReadyFire
-            | ExpectedAction::EndTurn
     );
     let ok = if order_backed {
         app.tutorial.as_mut().unwrap().validate_action(&action)
@@ -387,7 +439,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
         }
         KeyCode::Char('m') => {
             if phase == "movement" {
-                app.mode = Mode::Movement;
+                app.open_movement_for_focus();
             }
             KeyResult::Continue
         }
@@ -397,26 +449,10 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
             }
             KeyResult::Continue
         }
-        // Maneuvers also work from Normal during movement (quick keys).
-        KeyCode::Char('c') if phase == "movement" => send_coast(app),
-        KeyCode::Char('t') if phase == "movement" => send_accel(app),
-        KeyCode::Char(c)
-            if phase == "movement"
-                && key.modifiers.contains(KeyModifiers::ALT)
-                && c.is_ascii_digit()
-                && c <= '5' =>
-        {
-            send_turn_accel(app, (c as u8 - b'0') as u32)
-        }
-        KeyCode::Char(c) if phase == "movement" && c.is_ascii_digit() && c <= '5' => {
-            let facing = (c as u8 - b'0') as u32;
-            send_turn(app, facing)
-        }
-        KeyCode::Char(' ') if phase == "firing" => send_ready(app),
         KeyCode::Enter => {
             match phase.as_str() {
                 "allocate" => app.open_allocate_for_focus(),
-                "movement" => app.mode = Mode::Movement,
+                "movement" => app.open_movement_for_focus(),
                 "firing" => app.open_fire_for_focus(),
                 _ => {}
             }
@@ -558,9 +594,6 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                 notice_dead_weapon_edit(app);
             } else {
                 adjust_field(app, -1);
-                if cursor_affects_movement_or_shields(app) {
-                    app.request_movement_preview();
-                }
             }
             KeyResult::Continue
         }
@@ -570,9 +603,6 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                 notice_dead_weapon_edit(app);
             } else {
                 adjust_field(app, 1);
-                if cursor_affects_movement_or_shields(app) {
-                    app.request_movement_preview();
-                }
             }
             KeyResult::Continue
         }
@@ -585,9 +615,6 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                     let d = (c as u8 - b'0') as u32;
                     let new = digit_entry(app, cursor, d);
                     set_allocate_field(app, new);
-                    if cursor_affects_movement_or_shields(app) {
-                        app.request_movement_preview();
-                    }
                 }
             }
             KeyResult::Continue
@@ -598,9 +625,6 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                 notice_dead_weapon_edit(app);
             } else {
                 set_allocate_field(app, 0);
-                if cursor_affects_movement_or_shields(app) {
-                    app.request_movement_preview();
-                }
             }
             KeyResult::Continue
         }
@@ -680,18 +704,6 @@ fn notice_dead_weapon_edit(app: &mut App) {
     }
 }
 
-/// True when the field under the allocate cursor affects the coast envelope
-/// (movement or shields). Weapon-charge edits do not, so they should not
-/// trigger a movement preview request (M9: quiet allocate previews).
-fn cursor_affects_movement_or_shields(app: &App) -> bool {
-    let Some(draft) = &app.alloc_draft else {
-        return false;
-    };
-    let weapon_count = draft.weapons.len();
-    // cursor 0 = movement; cursor > weapon_count = shield facing.
-    draft.cursor == 0 || draft.cursor > weapon_count
-}
-
 fn allocation_field_bounds(
     draft: &crate::app::AllocDraft,
     ship: &crate::protocol::Ship,
@@ -734,78 +746,159 @@ fn allocation_field_bounds(
     (0, 0)
 }
 
+/// Movement stage: an interactive path editor. The player assembles an ordered
+/// list of motion actions (each costs one motion point), previews it, then
+/// submits one `commit_path`.
+///
+/// Keys: `w`/↑ = forward, `a` = veer fore-left, `d` = veer fore-right,
+/// ←/→ = turn in place, `0`–`5` = turn to that facing, Backspace = undo,
+/// `x` = clear, Enter = commit, Space = hold (commit empty path).
 fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
+    if app.focused_ship.is_none() {
+        return KeyResult::Continue;
+    }
     match key.code {
-        KeyCode::Char(' ') if app.focused().is_some_and(|ship| ship.thrust_remaining == 0) => {
-            send_coast(app)
-        }
-        KeyCode::Char('c') => send_coast(app),
-        KeyCode::Char('t') => send_accel(app),
-        KeyCode::Char(c)
-            if key.modifiers.contains(KeyModifiers::ALT) && c.is_ascii_digit() && c <= '5' =>
-        {
-            send_turn_accel(app, (c as u8 - b'0') as u32)
-        }
-        // Absolute facing 0–5 (preferred for multi-hex turns).
+        KeyCode::Up | KeyCode::Char('w') | KeyCode::Char('f') => path_append(app, "move_f"),
+        KeyCode::Char('a') => path_append(app, "move_fl"),
+        KeyCode::Char('d') => path_append(app, "move_fr"),
+        KeyCode::Left => path_append(app, "turn_left"),
+        KeyCode::Right => path_append(app, "turn_right"),
         KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
-            let facing = (c as u8 - b'0') as u32;
-            send_turn(app, facing)
+            path_turn_to(app, (c as u8 - b'0') as u32)
         }
-        // `r` = turn +1 facing (short ring step).
-        KeyCode::Char('r') => {
-            let facing = app.focused().map(|s| (s.facing + 1) % 6).unwrap_or(0);
-            send_turn(app, facing)
+        KeyCode::Backspace => {
+            if let Some(d) = app.path_draft.as_mut() {
+                d.pop();
+            }
+            app.request_path_preview();
+            KeyResult::Continue
+        }
+        KeyCode::Char('x') => {
+            if let Some(d) = app.path_draft.as_mut() {
+                d.clear();
+            }
+            app.request_path_preview();
+            KeyResult::Continue
+        }
+        KeyCode::Enter => commit_path(app),
+        KeyCode::Char(' ') => {
+            if let Some(d) = app.path_draft.as_mut() {
+                d.clear();
+            }
+            commit_path(app)
         }
         _ => KeyResult::Continue,
     }
 }
 
-fn send_coast(app: &mut App) -> KeyResult {
-    let sid = match app.focused_ship {
-        Some(id) => id,
-        None => return KeyResult::Continue,
-    };
-    app.log("maneuver: coast");
-    emit_order(app, Order::commit_maneuver(sid, Maneuver::Coast))
+/// Motion points the focused ship can spend on a path this stage.
+fn motion_budget(app: &App) -> u32 {
+    app.focused().map(|s| s.motion_available).unwrap_or(0)
 }
 
-fn send_accel(app: &mut App) -> KeyResult {
-    let sid = match app.focused_ship {
-        Some(id) => id,
-        None => return KeyResult::Continue,
-    };
-    app.log("maneuver: accel");
-    emit_order(app, Order::commit_maneuver(sid, Maneuver::Accel))
+/// Append one action to the draft path, gated by the motion budget.
+fn path_append(app: &mut App, action: &str) -> KeyResult {
+    let budget = motion_budget(app);
+    let over = app
+        .path_draft
+        .as_ref()
+        .map(|d| d.cost() >= budget)
+        .unwrap_or(true);
+    if over {
+        app.log(format!("path: no motion left (cap {budget})"));
+        return KeyResult::Continue;
+    }
+    if let Some(d) = app.path_draft.as_mut() {
+        d.push(action);
+    }
+    app.request_path_preview();
+    KeyResult::Continue
 }
 
-fn send_turn(app: &mut App, facing: u32) -> KeyResult {
-    let sid = match app.focused_ship {
-        Some(id) => id,
-        None => return KeyResult::Continue,
-    };
-    app.log(format!("maneuver: turn facing {facing}"));
-    emit_order(app, Order::commit_maneuver(sid, Maneuver::Turn { facing }))
+/// Append the minimal turns needed to point the draft path's projected facing
+/// at `target` (respecting the motion budget).
+fn path_turn_to(app: &mut App, target: u32) -> KeyResult {
+    let start = app.focused().map(|s| s.facing).unwrap_or(0);
+    let current = app
+        .path_draft
+        .as_ref()
+        .map(|d| projected_facing(start, &d.actions))
+        .unwrap_or(start);
+    for action in turn_actions(current, target) {
+        if let KeyResult::Continue = path_append(app, &action) {
+            // Stop early if the budget is exhausted mid-turn.
+            let over = app
+                .path_draft
+                .as_ref()
+                .map(|d| d.cost() >= motion_budget(app))
+                .unwrap_or(true);
+            if over && projected_current_facing(app, start) != target {
+                break;
+            }
+        }
+    }
+    KeyResult::Continue
 }
 
-fn send_turn_accel(app: &mut App, facing: u32) -> KeyResult {
-    let sid = match app.focused_ship {
-        Some(id) => id,
-        None => return KeyResult::Continue,
-    };
-    app.log(format!("maneuver: turn_accel facing {facing}"));
-    emit_order(
-        app,
-        Order::commit_maneuver(sid, Maneuver::TurnAccel { facing }),
-    )
+fn projected_current_facing(app: &App, start: u32) -> u32 {
+    app.path_draft
+        .as_ref()
+        .map(|d| projected_facing(start, &d.actions))
+        .unwrap_or(start)
 }
 
-fn send_ready(app: &mut App) -> KeyResult {
+fn commit_path(app: &mut App) -> KeyResult {
     let sid = match app.focused_ship {
         Some(id) => id,
         None => return KeyResult::Continue,
     };
-    app.log("ready_fire");
-    emit_order(app, Order::ready_fire(sid))
+    let actions = app
+        .path_draft
+        .as_ref()
+        .map(|d| d.actions.clone())
+        .unwrap_or_default();
+    app.log(format!("commit_path: {} step(s)", actions.len()));
+    emit_order(app, Order::commit_path(sid, actions))
+}
+
+/// Submit the assembled volley (empty `shots` = hold fire).
+fn commit_volley(app: &mut App) -> KeyResult {
+    let sid = match app.focused_ship {
+        Some(id) => id,
+        None => return KeyResult::Continue,
+    };
+    let shots = app
+        .fire_draft
+        .as_ref()
+        .map(|d| d.shots.clone())
+        .unwrap_or_default();
+    app.log(format!("commit_volley: {} shot(s)", shots.len()));
+    emit_order(app, Order::commit_volley(sid, shots))
+}
+
+/// Fold a path's actions over a starting facing to get the projected facing.
+/// `move_fr`/`turn_right` add a face; `move_fl`/`turn_left` subtract one.
+fn projected_facing(start: u32, actions: &[String]) -> u32 {
+    let mut f = start as i32;
+    for a in actions {
+        match a.as_str() {
+            "turn_right" | "move_fr" => f += 1,
+            "turn_left" | "move_fl" => f -= 1,
+            _ => {}
+        }
+    }
+    f.rem_euclid(6) as u32
+}
+
+fn turn_actions(current: u32, target: u32) -> Vec<String> {
+    let right = (target + 6 - current) % 6;
+    let left = (current + 6 - target) % 6;
+    let (action, count) = if right <= left {
+        ("turn_right", right)
+    } else {
+        ("turn_left", left)
+    };
+    std::iter::repeat_n(action.to_string(), count as usize).collect()
 }
 
 fn emit_order(app: &mut App, order: Order) -> KeyResult {
@@ -878,50 +971,66 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
             }
             KeyResult::Continue
         }
+        // Enter queues (or un-queues) the selected weapon into the volley.
+        // Nothing is sent to the engine until Space commits the whole volley.
         KeyCode::Enter => {
-            let draft = match &app.fire_draft {
-                Some(d) => d.clone(),
-                None => return KeyResult::Continue,
-            };
             let ship = match snap.ship(sid) {
                 Some(s) => s,
                 None => return KeyResult::Continue,
             };
-            let weapon = match ship.weapons.get(draft.weapon_idx) {
-                Some(w) => w,
-                None => return KeyResult::Continue,
-            };
-            // Do not queue fire on a non-operational weapon (M2): the engine
-            // would reject it and the player gains nothing. Soft-notice instead.
-            if !weapon.operational {
-                app.log(format!("fire: {} OFFLINE — cannot queue", weapon.id));
-                return KeyResult::Continue;
-            }
-            let weapon = weapon.id.clone();
-            let target = match draft.target {
-                Some(t) => t,
-                None => {
-                    let enemy = snap
-                        .ships
-                        .iter()
-                        .find(|s| s.controller != "player" && !s.destroyed);
-                    match enemy {
-                        Some(e) => e.id,
-                        None => return KeyResult::Continue,
-                    }
+            let (weapon, shield_facing, target) = {
+                let draft = match &app.fire_draft {
+                    Some(d) => d,
+                    None => return KeyResult::Continue,
+                };
+                let weapon = match ship.weapons.get(draft.weapon_idx) {
+                    Some(w) => w,
+                    None => return KeyResult::Continue,
+                };
+                if !weapon.operational {
+                    app.log(format!("fire: {} OFFLINE — cannot queue", weapon.id));
+                    return KeyResult::Continue;
                 }
+                let target = draft.target.or_else(|| {
+                    snap.ships
+                        .iter()
+                        .find(|s| s.controller != "player" && !s.destroyed)
+                        .map(|s| s.id)
+                });
+                let target = match target {
+                    Some(t) => t,
+                    None => return KeyResult::Continue,
+                };
+                (weapon.id.clone(), draft.shield_facing, target)
             };
-
-            app.log(format!(
-                "fire: {} → #{} shield={}",
-                weapon, target, draft.shield_facing
-            ));
-            emit_order(
-                app,
-                Order::commit_fire(sid, &weapon, target, draft.shield_facing),
-            )
+            if let Some(draft) = app.fire_draft.as_mut() {
+                let queued = draft.toggle_shot(VolleyShot {
+                    weapon: weapon.clone(),
+                    target,
+                    shield_facing,
+                });
+                if queued {
+                    app.log(format!(
+                        "volley: queued {weapon} → #{target} face {shield_facing}"
+                    ));
+                } else {
+                    app.log(format!("volley: removed {weapon}"));
+                }
+            }
+            app.request_fire_preview();
+            KeyResult::Continue
         }
-        KeyCode::Char(' ') => send_ready(app),
+        // Backspace un-queues the most recently added shot.
+        KeyCode::Backspace => {
+            if let Some(draft) = app.fire_draft.as_mut() {
+                if draft.shots.pop().is_some() {
+                    app.log("volley: removed last shot");
+                }
+            }
+            KeyResult::Continue
+        }
+        // Space commits the assembled volley (empty = hold fire).
+        KeyCode::Char(' ') => commit_volley(app),
         KeyCode::Char(c) if c.is_ascii_digit() && c != '0' => {
             let idx = (c as u8 - b'1') as usize;
             let enemies: Vec<i64> = snap
@@ -948,20 +1057,14 @@ fn map_key_to_action(
     snap: &crate::protocol::Snapshot,
     key: &KeyEvent,
 ) -> Option<ExpectedAction> {
-    // End-turn is global.
-    if key.code == KeyCode::Char('e') && app.mode != Mode::GameOver {
-        return Some(ExpectedAction::EndTurn);
-    }
     if key.code == KeyCode::Char('v') && app.mode != Mode::Map && app.mode != Mode::GameOver {
         return Some(ExpectedAction::EnterMap);
     }
 
     match app.mode {
         Mode::Normal => match key.code {
-            KeyCode::Char('c') if snap.phase == "movement" => Some(ExpectedAction::Coast),
-            KeyCode::Char('t') if snap.phase == "movement" => Some(ExpectedAction::Accel),
-            KeyCode::Char(c) if snap.phase == "movement" && c.is_ascii_digit() && c <= '5' => {
-                Some(ExpectedAction::TurnTo((c as u8 - b'0') as u32))
+            KeyCode::Char('m') | KeyCode::Enter if snap.phase == "movement" => {
+                Some(ExpectedAction::PathCommit)
             }
             KeyCode::Char(' ') if snap.phase == "firing" => Some(ExpectedAction::ReadyFire),
             KeyCode::Char('f') | KeyCode::Enter if snap.phase == "firing" => {
@@ -982,18 +1085,10 @@ fn map_key_to_action(
                 _ => None,
             }
         }
+        // PathForward / PathFace steps are handled inline in `tutorial_gate`.
+        // The only discrete movement action is committing the drawn path.
         Mode::Movement => match key.code {
-            KeyCode::Char('c') => Some(ExpectedAction::Coast),
-            KeyCode::Char('t') => Some(ExpectedAction::Accel),
-            KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
-                Some(ExpectedAction::TurnTo((c as u8 - b'0') as u32))
-            }
-            KeyCode::Char('r') => {
-                let facing = app.focused().map(|s| (s.facing + 1) % 6).unwrap_or(0);
-                Some(ExpectedAction::TurnTo(facing))
-            }
-            // Space during movement shouldn't appear; if phase already advanced, handle below.
-            KeyCode::Char(' ') if snap.phase == "firing" => Some(ExpectedAction::ReadyFire),
+            KeyCode::Enter => Some(ExpectedAction::PathCommit),
             _ => None,
         },
         Mode::Fire => match key.code {

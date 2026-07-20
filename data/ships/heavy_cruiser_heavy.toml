@@ -3,13 +3,12 @@
 id = "heavy_cruiser_heavy"
 name = "Heavy Cruiser (Heavy)"
 size = 4
-speed = 6
+max_maneuver_actions = 6
 power = 33
 max_shield_per_facing = 7
 structure = 25
 power_sys = 4
 engine_boxes = 4
-max_velocity = 6
 thrust_per_power = 1
 power_per_thrust = 2
 cost = 327

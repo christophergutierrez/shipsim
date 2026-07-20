@@ -49,7 +49,7 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None,
         "destroyed": destroyed, "q": q, "r": r, "facing": facing,
         "structure": structure, "keel": 12, "bridge": bridge, "engine": engine,
         "power_sys": power_sys, "power": power, "size": size,
-        "velocity": 0, "course": 0, "thrust_remaining": 4, "max_velocity": 4,
+        "motion_available": 4, "max_maneuver_actions": 4,
         "weapons": weapons or [], "max_shield_per_facing": 6,
         "shields_remaining": [6, 6, 6, 6, 6, 6],
     }
@@ -58,10 +58,10 @@ def _ship(sid, q, r, facing=0, controller="player", weapons=None,
 def _snap(ships, *, phase="firing", status="Playing", turn=1, combat_log=None,
           **kw):
     snap = {
-        "protocol_version": 3, "phase": phase, "status": status, "turn": turn,
-        "active_ship": ships[0]["id"] if ships else None,
+        "protocol_version": 4, "phase": phase, "status": status, "turn": turn,
         "ships": ships, "combat_log": combat_log or [],
         "map": {"width": 4, "height": 4},
+        "ships_committed_path": [], "ships_committed_volley": [],
     }
     snap.update(kw)
     return snap

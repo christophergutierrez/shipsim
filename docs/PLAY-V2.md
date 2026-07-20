@@ -1,60 +1,78 @@
-# Playing shipsim (Combat Model v3 / protocol 3)
+# Playing shipsim (simplified turns / protocol 4)
 
 Product rules for interactive play. Wire details: `docs/PROTOCOL.md`.
 Play types (UI / API / sim): `docs/AGENT-PLAY.md`.
+ADR: `docs/adr/0025-simplified-simultaneous-turns.md`.
 
 ## Turn structure
 
-Each **turn**:
+Each **turn** has three collection stages:
 
-1. **Allocate** — split power into engine (→ thrust), weapon charge **top-ups**, and
-   six shield facings. Shields always start at **0** this turn. Weapon charge
-   **carries** from last turn (you may only raise it, never strip it).
-2. **Four movement/fire cycles** (fixed):
-   - **Movement** — every living ship commits one maneuver (`coast` / `accel` /
-     `turn` / `turn_accel`). Then every ship slides **`speed` hexes** along course
-     (constant rate). Opposite-course ships may pass through the same hex.
-   - **Firing** — optional `commit_fire`s, then all ships `ready_fire`; resolve
-     simultaneously (hit **or miss** spends charge).
-3. **End Turn** — next turn’s allocate. Velocity/course persist; thrust and
-   shields do not; unspent weapon charge persists.
+1. **Allocate** — split reactor power into motion power, weapon charge
+   **top-ups**, and six shield facings. Shields always start at **0**. Weapon
+   charge **carries** (raise only). Orders are staged until every living ship
+   commits, then applied together.
+2. **Path** — each living ship submits one ordered list of path actions
+   (`move_f` / `move_fr` / `move_fl` / `turn_right` / `turn_left`). Cost is 1
+   motion point each, capped by converted allocation and
+   `max_maneuver_actions`. All paths resolve simultaneously.
+3. **Volley** — each living ship submits one complete volley (zero or more
+   shots). Empty volley = hold fire. Resolve simultaneously, then the engine
+   **automatically** advances to the next turn's allocate.
+
+There is **no** `end_turn`, **no** four-cycle impulses, **no** persistent
+velocity/course, and **no** `ready_fire`.
 
 ## Allocate
 
 | Bucket | Notes |
 |---|---|
-| **Engine** | Power → thrust via hull `thrust_per_power` / `power_per_thrust` |
+| **Motion** | Power → motion points via hull `thrust_per_power` / `power_per_thrust` |
 | **Weapons** | Desired totals ≤ max; cost = **increase** over carried charge only |
 | **Shields** | Always rebuy from 0; unpowered face = no protection |
 
-## Movement (protocol 3)
+## Path language
 
-| Order | Effect |
-|---|---|
-| **coast** | 0 thrust; keep speed/course/facing; still slide `speed` hexes |
-| **accel** | Thrust along **nose**: +1 speed if aligned (1); −1 if reverse (1); **oblique revector** costs `speed+1` → course=face, speed=1 |
-| **turn N** | Face absolute 0..5; cost 1/2/3 by hex-ring distance; course unchanged |
-| **turn N accel** | Turn then accel in **one** commit; cost = turn + accel |
+| Action | Position | Facing |
+|---|---|---|
+| `move_f` | one hex through current F | unchanged |
+| `move_fr` | through FR | rotate right |
+| `move_fl` | through FL | rotate left |
+| `turn_right` | unchanged | rotate right |
+| `turn_left` | unchanged | rotate left |
 
-**Course** = travel direction. **Facing** = nose/weapons/thrust axis. Max speed 8 (per-hull cap may be lower).
+- Cannot translate through R/RR/RL without turning first (or successive
+  F/FR/FL moves).
+- Facing persists between turns. Position + facing are the full motion state.
+- Stationary ships (no `move_*`) cannot be displaced.
+- Contested endpoints: higher path cost wins; equal cost uses seeded PRNG;
+  losers fall back along translated history.
 
-## Fire
+## Fire (volley)
 
-- Queue zero or more legal shots (`commit_fire`), then **ready**.
-- Miss still spends charge.
+- One `commit_volley` per ship with zero or more shots.
+- Miss still spends charge for weapons in the volley.
+- Geometry frozen at fire start; ships alive at start complete their volley
+  even if destroyed mid-resolution.
 - Hit chance uses range and target size tables (`docs/combat-v2-tables.md`).
-  Hull sizes are the seven tiers in `data/sizes.toml` (Fighter … Titan);
-  baseline silhouette is size 2.
 
 ## Running
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml          # UI play
+python3 frontend/repl/repl.py scenarios/ai.toml          # UI play (reference)
 python3 frontend/repl/client.py                            # API smoke
 (cd frontend/repl && python3 -m unittest discover -s tests)
-cargo test
-# Love2D is protocol-2 and not supported until the TUI path is solid
+cargo test -q
+cargo run --release --bin shipsim-sim -- --suite simulation/suites/smoke.toml
 ```
 
+**Clients:** REPL is the protocol-v4 reference. Ratatui TUI and Love2D still
+need full path/volley UX migration (see plan Phases 7–8).
+
 Session logs: `frontend/<name>/local/` only.
+
+## Balance note
+
+Protocol-v3 balance reports and win rates are **not comparable** to v4.
+Post-migration baselines are advisory until a separate retuning campaign.

@@ -1,13 +1,8 @@
-//! Pure motion rules for combat model v3 (protocol 3).
+//! LEGACY (protocol v3 inertial model). Superseded by `path` / `path_resolve`
+//! for protocol v4 (ADR-0025). Kept only for pure unit tests of the old
+//! maneuver math; no production order path should call into this module.
 //!
-//! Simplified inertial flight:
-//! - Velocity is scalar speed (0..=MAX_VELOCITY) + course (0..=5).
-//! - Facing is independent; thrust is applied only along facing.
-//! - Each movement cycle: commit coast / accel / turn, then slide `speed`
-//!   hexes along course (constant rate unless accel changes speed).
-//! - Turn cost = hex-ring distance (1 adjacent, 2 for 120°, 3 for reverse).
-//! - Accel (1 thrust) along facing: +speed if aligned with course, −speed if
-//!   opposite (cancel momentum); from a stop, course becomes facing.
+//! Prefer: `crate::path` and `crate::path_resolve`.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -73,14 +68,10 @@ pub enum Maneuver {
     /// Thrust along current facing (see `resolve_maneuver` for costs).
     Accel,
     /// Turn hull to absolute facing 0..=5. Cost = ring distance (1..=3).
-    Turn {
-        facing: u8,
-    },
+    Turn { facing: u8 },
     /// Turn to `facing`, then apply one Accel from the new facing (one commit).
     /// Cost = turn cost + accel cost after the turn (same as separate turn then accel).
-    TurnAccel {
-        facing: u8,
-    },
+    TurnAccel { facing: u8 },
 }
 
 /// Outcome of resolving a maneuver against velocity and facing.
@@ -187,7 +178,10 @@ pub fn resolve_maneuver(
     maneuver: Maneuver,
 ) -> Result<ManeuverResult, ManeuverError> {
     if max_speed > MAX_VELOCITY {
-        return Err(ManeuverError::MaxSpeedExceedsGlobal(max_speed, MAX_VELOCITY));
+        return Err(ManeuverError::MaxSpeedExceedsGlobal(
+            max_speed,
+            MAX_VELOCITY,
+        ));
     }
     if facing > 5 {
         return Err(ManeuverError::InvalidFacing(facing));

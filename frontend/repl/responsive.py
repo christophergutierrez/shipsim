@@ -161,9 +161,11 @@ def _facing(ship: dict[str, Any]) -> str:
 
 
 def _motion(ship: dict[str, Any]) -> str:
-    velocity = int(ship.get("velocity") or ship.get("speed") or 0)
-    course = int(ship.get("course") or 0) % 6
-    return f"v={velocity}/{course}{FACING_GLYPH.get(course, '?')}"
+    motion = int(ship.get("motion_available") or 0)
+    cap = int(ship.get("max_maneuver_actions") or 0)
+    if cap:
+        return f"mot={motion}/{cap}"
+    return f"mot={motion}"
 
 
 def render_compact_player(
@@ -336,8 +338,14 @@ def make_full_blocks(
         )
     )
     blocks.extend(optional)
+    phase = str(snap.get("phase") or "")
+    draft_title = {
+        "allocate": "ALLOCATE DRAFT (local until commit)",
+        "movement": "PATH DRAFT (local until commit_path)",
+        "firing": "VOLLEY DRAFT (local until commit_volley)",
+    }.get(phase, "DRAFT (local until commit)")
     if draft_text:
-        blocks.append(FrameBlock("draft", panel("ALLOCATE DRAFT (local until commit)", draft_text, width=72)))
+        blocks.append(FrameBlock("draft", panel(draft_title, draft_text, width=72)))
     if hint:
         from style import muted
 
@@ -380,8 +388,13 @@ def make_compact_blocks(
     map_text = render_compact_map(snap, selected=selected, active=active, width=max(24, width - 4))
     if map_text:
         blocks.append(FrameBlock("map", panel("MAP", map_text, width=min(width, 72))))
+    draft_title = {
+        "allocate": "ALLOCATE DRAFT",
+        "movement": "PATH DRAFT",
+        "firing": "VOLLEY DRAFT",
+    }.get(phase, "DRAFT")
     if draft_text:
-        blocks.append(FrameBlock("draft", panel("ALLOCATE DRAFT", render_compact_draft(draft_text, width=max(24, width - 4)), width=min(width, 72)), required=phase == "allocate"))
+        blocks.append(FrameBlock("draft", panel(draft_title, render_compact_draft(draft_text, width=max(24, width - 4)), width=min(width, 72)), required=phase == "allocate"))
     if hint:
         blocks.append(FrameBlock("hint", render_compact_hint(hint, width=width), required=True))
     blocks.extend(optional)

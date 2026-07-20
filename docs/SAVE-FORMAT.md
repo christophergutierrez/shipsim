@@ -1,10 +1,10 @@
-# Save and Resume Format v3
+# Save and Resume Format v4
 
 Save files are deterministic replay documents. They preserve scenario identity, every accepted order, and the PRNG checkpoint reached after replay. They do not serialize private `GameState` fields.
 
 ```json
 {
-  "protocol_version": 3,
+  "protocol_version": 4,
   "scenario": "scenarios/combat.toml",
   "orders": [
     {
@@ -31,7 +31,9 @@ cargo run -q --bin shipsim -- \
   --save tmp/duel.save.json
 ```
 
-Only accepted orders are stored. Soft-rejected input remains in harness output but is not persisted.
+Only accepted orders are stored. This includes automatically applied AI
+orders, so replay does not need to invent hidden barrier-stage actions.
+Soft-rejected input remains in harness output but is not persisted.
 
 ## Resume
 
@@ -45,14 +47,13 @@ Resume loads the saved scenario, replays stored orders without emitting intermed
 
 ## Validation and limits
 
-- Unsupported document versions (anything other than 3) fail **before** order deserialization or scenario load — the version is probed first so an incompatible order shape yields `UnsupportedVersion`, not `Parse`.
+- Unsupported document versions (anything other than 4) fail **before** order deserialization or scenario load — the version is probed first so an incompatible order shape yields `UnsupportedVersion`, not `Parse`.
 - Illegal saved orders and PRNG mismatches fail rather than loading ambiguous state.
 - New saves record the semantic fingerprint of `data/rules/default.toml` (ADR-0024);
   replay rejects a mismatched fingerprint before applying orders. The field is
-  optional when reading older protocol-v3 saves created before rules
-  fingerprints were added (`SaveDocument::rules_fingerprint: None`) — those
-  remain readable, and resuming and rewriting one (`SaveDocument::update_from_checkpoint`)
-  upgrades it to carry a fingerprint from then on.
+  optional when reading older protocol-v4 saves created before rules
+  fingerprints were added (`SaveDocument::rules_fingerprint: None`). Protocol-v3
+  save documents are rejected by the version check above.
 - Scenario and ship data must still be available and compatible with the recorded order stream.
-- Campaign save/resume is not supported in protocol v3.
+- Campaign save/resume is not supported in protocol v4.
 - Replay time grows with order history; checkpointed aggregate serialization can be added in a future version if profiling justifies it.

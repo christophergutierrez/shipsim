@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::game_state::ScenarioStatus;
-use crate::motion::{self, Maneuver};
 use crate::movement::Order;
+use crate::path_resolve::PathResult;
 use crate::snapshot::{ShipSnapshot, StateSnapshot};
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -14,8 +14,14 @@ pub struct MatchMetrics {
     pub orders: u64,
     /// Orders proposed by a policy or the runner, including rejected orders.
     pub attempted_orders: u64,
-    pub movement_orders: u64,
-    pub fire_commits: u64,
+    /// Accepted `CommitPath` orders.
+    pub path_orders: u64,
+    /// Accepted `CommitVolley` orders.
+    pub volley_orders: u64,
+    /// Sum of action counts across accepted paths.
+    pub path_cost_total: u64,
+    /// Sum of shot counts across accepted volleys.
+    pub volley_shots: u64,
     pub hits: u64,
     pub misses: u64,
     pub damage: u64,
@@ -25,20 +31,20 @@ pub struct MatchMetrics {
     pub shield_power_allocated: u64,
     pub rejected_orders: u64,
     pub terminated: bool,
-    /// Velocity observations sampled after each resolved movement phase.
-    pub velocity_distribution: BTreeMap<u8, u64>,
-    /// Thrust consumed by accepted non-coast maneuvers.
-    pub thrust_spent: u64,
-    /// Hexes translated by accepted Coast maneuvers.
-    pub coasting_distance: u64,
-    pub course_changes: u64,
-    pub facing_rotations: u64,
-    /// Scheduled translations whose position remained unchanged.
-    pub blocked_translations: u64,
-    pub scheduled_translations: u64,
+    /// Path cost histogram sampled from resolved path results.
+    pub path_cost_distribution: BTreeMap<u32, u64>,
+    /// Volley size histogram sampled from accepted `CommitVolley` orders.
+    pub volley_size_distribution: BTreeMap<u32, u64>,
+    /// Sum of `translated_steps` across resolved path results.
+    pub path_translated_steps: u64,
+    /// Path results that reported a blocked kind or non-zero fallback.
+    pub blocked_paths: u64,
+    /// Path results with `submitted_cost > 0` (attempted translation/turn spend).
+    pub scheduled_paths: u64,
+    /// Path results with `translated_steps == 0` among scheduled paths.
     pub zero_translation_observations: u64,
-    pub reversals: u64,
-    pub velocity_observations: u64,
+    /// Path observations (one per living ship per resolved movement stage).
+    pub path_observations: u64,
     pub hull_efficiency: BTreeMap<String, HullEfficiencyMetrics>,
     /// Match diagnostics are copied to `MatchResult` and remain out of the
     /// serialized metrics object. Keeping them here lets aggregate metrics use
@@ -49,10 +55,6 @@ pub struct MatchMetrics {
     pub closest_approach: Option<u32>,
     #[serde(skip)]
     pub turns_in_weapon_range: u32,
-    #[serde(skip)]
-    last_velocity: BTreeMap<u32, (u8, u8)>,
-    #[serde(skip)]
-    stopped_course: BTreeMap<u32, u8>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -70,10 +72,13 @@ pub struct HullEfficiencyMetrics {
     pub power_available_total: u64,
     /// Allocates where power_available was 0 (power-dead hull).
     pub zero_power_allocations: u64,
-    pub velocity_observations: u64,
-    pub zero_velocity_observations: u64,
-    pub scheduled_translations: u64,
+    /// Path resolution observations for this class.
+    pub path_observations: u64,
+    /// Paths submitted with cost 0 while the ship still had motion available.
+    pub zero_motion_path_observations: u64,
+    pub scheduled_paths: u64,
     pub zero_translation_observations: u64,
+    pub path_cost_total: u64,
 }
 
 impl HullEfficiencyMetrics {
@@ -99,19 +104,27 @@ impl MatchMetrics {
         self.orders += 1;
         match order {
             Order::Allocate {
-                movement,
-                weapons,
-                shields,
-                ..
+                movement, shields, ..
             } => {
+                // Weapon charge increases are recorded in `record_allocation`
+                // (needs pre-allocate snapshot). Here only motion + shields are
+                // known without prior charge.
                 self.engine_power_allocated += u64::from(*movement);
-                self.weapon_power_allocated +=
-                    weapons.values().copied().map(u64::from).sum::<u64>();
                 self.shield_power_allocated += shields.iter().copied().map(u64::from).sum::<u64>();
             }
-            Order::CommitManeuver { .. } | Order::PassMove { .. } => self.movement_orders += 1,
-            Order::CommitFire { .. } => self.fire_commits += 1,
-            _ => {}
+            Order::CommitPath { actions, .. } => {
+                self.path_orders += 1;
+                let cost = actions.len() as u32;
+                self.path_cost_total += u64::from(cost);
+                *self.path_cost_distribution.entry(cost).or_default() += 1;
+            }
+            Order::CommitVolley { shots, .. } => {
+                self.volley_orders += 1;
+                let size = shots.len() as u32;
+                self.volley_shots += u64::from(size);
+                *self.volley_size_distribution.entry(size).or_default() += 1;
+            }
+            Order::RetiredUnknown => {}
         }
     }
 
@@ -126,7 +139,17 @@ impl MatchMetrics {
             return;
         };
         let entry = self.hull_efficiency.entry(ship.class.clone()).or_default();
-        let weapon_power = weapons.values().copied().map(u64::from).sum::<u64>();
+        // Power is spent only on *increases* over carried charge, matching allocate.
+        let mut weapon_power = 0u64;
+        for (weapon_id, want) in weapons {
+            let have = ship
+                .weapons
+                .iter()
+                .find(|w| w.id == *weapon_id)
+                .map(|w| u64::from(w.charge))
+                .unwrap_or(0);
+            weapon_power += u64::from(*want).saturating_sub(have);
+        }
         let shield_power = shields.iter().copied().map(u64::from).sum::<u64>();
         let spent = u64::from(*movement) + weapon_power + shield_power;
         let available = u64::from(ship.power_available);
@@ -134,6 +157,8 @@ impl MatchMetrics {
         entry.engine_power_allocated += u64::from(*movement);
         entry.weapon_power_allocated += weapon_power;
         entry.shield_power_allocated += shield_power;
+        // Aggregate weapon accounting (charge increases only).
+        self.weapon_power_allocated += weapon_power;
         entry.power_spent_total += spent;
         entry.power_available_total += available;
         if available == 0 {
@@ -144,73 +169,37 @@ impl MatchMetrics {
         }
     }
 
-    pub fn record_maneuver(&mut self, ship: &ShipSnapshot, maneuver: Maneuver) {
-        if let Ok(result) = motion::resolve_maneuver(
-            motion::Velocity {
-                speed: ship.velocity,
-                course: ship.course,
-            },
-            ship.facing,
-            ship.max_velocity,
-            maneuver,
-        ) {
-            self.thrust_spent += u64::from(result.thrust_cost);
-        }
-        match maneuver {
-            Maneuver::Turn { .. } | Maneuver::TurnAccel { .. } => {
-                self.course_changes += 1; // facing change (turn-in-place)
-                self.facing_rotations += 1;
-            }
-            Maneuver::Coast | Maneuver::Accel => {}
-        }
-    }
+    /// Record path resolution telemetry after the movement stage completes.
+    pub fn record_path_resolution(&mut self, before: &StateSnapshot, path_results: &[PathResult]) {
+        for result in path_results {
+            self.path_observations += 1;
+            self.path_translated_steps += u64::from(result.translated_steps);
 
-    pub fn record_movement_resolution(
-        &mut self,
-        before: &StateSnapshot,
-        after: &StateSnapshot,
-        maneuvers: &BTreeMap<u32, Maneuver>,
-        translation_outcomes: &BTreeMap<u32, bool>,
-    ) {
-        for ship in after.ships.iter().filter(|ship| !ship.destroyed) {
-            *self.velocity_distribution.entry(ship.velocity).or_default() += 1;
-            self.velocity_observations += 1;
-            let hull = self.hull_efficiency.entry(ship.class.clone()).or_default();
-            hull.velocity_observations += 1;
-            if ship.velocity == 0 {
-                hull.zero_velocity_observations += 1;
+            let prior = before.ships.iter().find(|ship| ship.id == result.ship);
+            let class = prior
+                .map(|ship| ship.class.clone())
+                .unwrap_or_else(|| "unknown".into());
+            let hull = self.hull_efficiency.entry(class).or_default();
+            hull.path_observations += 1;
+            hull.path_cost_total += u64::from(result.submitted_cost);
+
+            let had_motion = prior.is_some_and(|ship| ship.motion_available > 0);
+            if had_motion && result.submitted_cost == 0 {
+                hull.zero_motion_path_observations += 1;
             }
-            let prior = before.ships.iter().find(|old| old.id == ship.id);
-            if let Some(old) = prior {
-                // Protocol 3: any ship with speed > 0 is scheduled to slide this cycle.
-                let scheduled = ship.velocity > 0;
-                if scheduled {
-                    self.scheduled_translations += 1;
-                    hull.scheduled_translations += 1;
-                    if !translation_outcomes.get(&ship.id).copied().unwrap_or(false) {
-                        self.blocked_translations += 1;
-                        self.zero_translation_observations += 1;
-                        hull.zero_translation_observations += 1;
-                    }
+
+            let scheduled = result.submitted_cost > 0;
+            if scheduled {
+                self.scheduled_paths += 1;
+                hull.scheduled_paths += 1;
+                if result.translated_steps == 0 {
+                    self.zero_translation_observations += 1;
+                    hull.zero_translation_observations += 1;
                 }
-                let previous = self
-                    .last_velocity
-                    .insert(ship.id, (old.velocity, old.course))
-                    .unwrap_or((old.velocity, old.course));
-                if previous.0 > 0 && ship.velocity == 0 {
-                    self.stopped_course.insert(ship.id, previous.1);
-                }
-                if ship.velocity > 0 {
-                    if let Some(course) = self.stopped_course.remove(&ship.id) {
-                        if ship.course == (course + 3) % 6 {
-                            self.reversals += 1;
-                        }
-                    }
-                }
-                if maneuvers.get(&ship.id) == Some(&Maneuver::Coast) {
-                    self.coasting_distance +=
-                        u64::from(translation_outcomes.get(&ship.id).copied().unwrap_or(false));
-                }
+            }
+
+            if result.blocked_kind.is_some() || result.fallback_steps > 0 {
+                self.blocked_paths += 1;
             }
         }
     }
@@ -230,16 +219,17 @@ pub struct AggregateMetrics {
     pub average_turns: f64,
     pub average_damage: f64,
     pub rejected_orders: u64,
-    pub velocity_distribution: BTreeMap<u8, u64>,
-    pub thrust_spent: u64,
-    pub coasting_distance: u64,
-    pub course_changes: u64,
-    pub facing_rotations: u64,
-    pub blocked_translations: u64,
-    pub scheduled_translations: u64,
+    pub path_orders: u64,
+    pub volley_orders: u64,
+    pub path_cost_total: u64,
+    pub volley_shots: u64,
+    pub path_cost_distribution: BTreeMap<u32, u64>,
+    pub volley_size_distribution: BTreeMap<u32, u64>,
+    pub path_translated_steps: u64,
+    pub blocked_paths: u64,
+    pub scheduled_paths: u64,
     pub zero_translation_observations: u64,
-    pub reversals: u64,
-    pub velocity_observations: u64,
+    pub path_observations: u64,
     pub closest_approach_distribution: BTreeMap<u32, u64>,
     pub turns_in_weapon_range_distribution: BTreeMap<u32, u64>,
     pub hull_efficiency: BTreeMap<String, HullEfficiencyMetrics>,
@@ -257,15 +247,15 @@ impl AggregateMetrics {
             turns += u64::from(metrics.turns);
             damage += metrics.damage;
             aggregate.rejected_orders += metrics.rejected_orders;
-            aggregate.thrust_spent += metrics.thrust_spent;
-            aggregate.coasting_distance += metrics.coasting_distance;
-            aggregate.course_changes += metrics.course_changes;
-            aggregate.facing_rotations += metrics.facing_rotations;
-            aggregate.blocked_translations += metrics.blocked_translations;
-            aggregate.scheduled_translations += metrics.scheduled_translations;
+            aggregate.path_orders += metrics.path_orders;
+            aggregate.volley_orders += metrics.volley_orders;
+            aggregate.path_cost_total += metrics.path_cost_total;
+            aggregate.volley_shots += metrics.volley_shots;
+            aggregate.path_translated_steps += metrics.path_translated_steps;
+            aggregate.blocked_paths += metrics.blocked_paths;
+            aggregate.scheduled_paths += metrics.scheduled_paths;
             aggregate.zero_translation_observations += metrics.zero_translation_observations;
-            aggregate.reversals += metrics.reversals;
-            aggregate.velocity_observations += metrics.velocity_observations;
+            aggregate.path_observations += metrics.path_observations;
             if let Some(closest) = metrics.closest_approach {
                 *aggregate
                     .closest_approach_distribution
@@ -276,11 +266,11 @@ impl AggregateMetrics {
                 .turns_in_weapon_range_distribution
                 .entry(metrics.turns_in_weapon_range)
                 .or_default() += 1;
-            for (velocity, count) in &metrics.velocity_distribution {
-                *aggregate
-                    .velocity_distribution
-                    .entry(*velocity)
-                    .or_default() += count;
+            for (cost, count) in &metrics.path_cost_distribution {
+                *aggregate.path_cost_distribution.entry(*cost).or_default() += count;
+            }
+            for (size, count) in &metrics.volley_size_distribution {
+                *aggregate.volley_size_distribution.entry(*size).or_default() += count;
             }
             for (class, values) in &metrics.hull_efficiency {
                 let entry = aggregate.hull_efficiency.entry(class.clone()).or_default();
@@ -292,10 +282,11 @@ impl AggregateMetrics {
                 entry.power_spent_total += values.power_spent_total;
                 entry.power_available_total += values.power_available_total;
                 entry.zero_power_allocations += values.zero_power_allocations;
-                entry.velocity_observations += values.velocity_observations;
-                entry.zero_velocity_observations += values.zero_velocity_observations;
-                entry.scheduled_translations += values.scheduled_translations;
+                entry.path_observations += values.path_observations;
+                entry.zero_motion_path_observations += values.zero_motion_path_observations;
+                entry.scheduled_paths += values.scheduled_paths;
                 entry.zero_translation_observations += values.zero_translation_observations;
+                entry.path_cost_total += values.path_cost_total;
             }
             match status {
                 ScenarioStatus::Won => aggregate.wins += 1,
@@ -314,8 +305,7 @@ impl AggregateMetrics {
         if aggregate.matches > 0 {
             let count = aggregate.matches as f64;
             aggregate.termination_rate = (aggregate.wins + aggregate.losses) as f64 / count;
-            aggregate.decided_equivalent_rate =
-                aggregate.decided_equivalent_matches as f64 / count;
+            aggregate.decided_equivalent_rate = aggregate.decided_equivalent_matches as f64 / count;
             aggregate.win_rate = aggregate.wins as f64 / count;
             aggregate.average_turns = turns as f64 / count;
             aggregate.average_damage = damage as f64 / count;

@@ -15,9 +15,6 @@ q = 1
 r = 0
 facing = 0
 controller = "player"
-velocity = 0
-course = 0
-
 [[ships]]
 id = 2
 class = "heavy_cruiser"
@@ -25,9 +22,6 @@ q = 1
 r = 1
 facing = 0
 controller = "player"
-velocity = 1
-course = 0
-
 [[ships]]
 id = 3
 class = "heavy_cruiser"
@@ -35,9 +29,6 @@ q = 1
 r = 2
 facing = 0
 controller = "player"
-velocity = 2
-course = 0
-
 [[ships]]
 id = 4
 class = "heavy_cruiser"
@@ -45,9 +36,6 @@ q = 1
 r = 3
 facing = 0
 controller = "player"
-velocity = 3
-course = 0
-
 [[ships]]
 id = 5
 class = "heavy_cruiser"
@@ -55,5 +43,3 @@ q = 1
 r = 4
 facing = 0
 controller = "player"
-velocity = 4
-course = 0

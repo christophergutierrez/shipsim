@@ -132,9 +132,24 @@ def pick_scenario(repo: Path, preferred: str | None, ui: TerminalUI) -> str:
 
 
 def draft_panel(ctx: ReplContext) -> str | None:
-    if ctx.draft is None:
-        return None
-    return ctx.draft.summary()
+    parts: list[str] = []
+    if ctx.draft is not None:
+        parts.append(ctx.draft.summary())
+    if ctx.path_draft:
+        short = " ".join(a for a in ctx.path_draft)
+        parts.append(
+            f"  path draft ship=#{ctx.path_ship}: {short} "
+            f"({len(ctx.path_draft)} actions) — commit or hold"
+        )
+    if ctx.volley_draft:
+        lines = [f"  volley draft ship=#{ctx.volley_ship}:"]
+        for shot in ctx.volley_draft:
+            lines.append(
+                f"    {shot.get('weapon')} → #{shot.get('target')} "
+                f"face={shot.get('shield_facing')}"
+            )
+        parts.append("\n".join(lines))
+    return "\n".join(parts) if parts else None
 
 
 def paint_frame(
@@ -186,8 +201,8 @@ def _auto_fire_offer(
     ship = next((s for s in snap.get("ships") or [] if s.get("id") == sid), None)
     if ship is None or ship.get("controller") != "player":
         return None
-    ready = set(snap.get("ships_ready_fire") or [])
-    if sid in ready:
+    committed = set(snap.get("ships_committed_volley") or [])
+    if sid in committed:
         return None
     charged = [
         w
@@ -196,61 +211,53 @@ def _auto_fire_offer(
         and not w.get("fired")
         and int(w.get("charge") or 0) > 0
     ]
-    # Exclude already-queued commits so we don't re-offer spent slots.
-    already = {
-        str(c.get("weapon"))
-        for c in (snap.get("fire_commits") or [])
-        if int(c.get("ship") or -1) == int(sid)
-    }
-    charged = [
-        w
-        for w in charged
-        if str(w.get("id")) not in already
-    ]
+    already = {str(s.get("weapon")) for s in ctx.volley_draft}
+    charged = [w for w in charged if str(w.get("id")) not in already]
     if not charged:
         if already:
             ui.log(
-                "  shots already queued — type r / ready / nofire / done "
-                "to leave fire phase (not f)"
+                "  shots already in volley draft — type r / ready / nofire / done "
+                "to submit commit_volley"
             )
         else:
-            ui.log("  no charged weapons on focus — r/nofire to leave fire phase")
+            ui.log("  no charged weapons on focus — r/nofire to hold fire (empty volley)")
         return None
     ui.log(
-        "  firing: pick weapons to fire, [-1] Done to stop. "
-        "You may fire multiple weapons this phase."
+        "  firing: pick weapons for the volley draft, [-1] Done submits commit_volley. "
+        "You may draft multiple weapons before submitting."
     )
     while True:
         with ui.dialog():
             paint_frame(ui, session, ctx)
             try:
-                order = interactive_fire(session.snapshot or {}, sid)
+                result = interactive_fire(session.snapshot or {}, sid, ctx)
             except (EOFError, KeyboardInterrupt):
-                ui.log("  fire input ended; leaving the fire phase safely with no shot")
+                ui.log("  fire input ended; volley draft kept — type r to submit or clear")
                 return log_len
-        if order is None:
+        if result is None:
             ui.log(
-                "  done firing — type f to add more, or r/ready/done "
-                "to finish fire phase"
+                "  left weapon menu — type f to add more, or r/ready/done "
+                "to submit the volley"
             )
             return log_len
-        log_len = send_orders(ui, session, ctx, [order], prev_log_len=log_len)
-        # "Done" from the weapon menu returns a ready_fire order: the ship is
-        # now committed and the fire phase is ending for it, so stop looping.
-        if order.get("type") == "ready_fire":
+        if result.get("type") == "commit_volley":
+            log_len = send_orders(ui, session, ctx, [result], prev_log_len=log_len)
             return log_len
-        # Refresh and check for remaining chargeable weapons on this ship.
+        # Shot dict for the local draft.
+        if "weapon" in result and "type" not in result:
+            ctx.ensure_volley_ship(sid)
+            ctx.volley_draft.append(result)
+            ui.log(
+                f"  drafted {result.get('weapon')} → #{result.get('target')} "
+                f"({len(ctx.volley_draft)} in volley)"
+            )
         snap = session.snapshot
         if not snap:
             return log_len
         ship = next((s for s in snap.get("ships") or [] if s.get("id") == sid), None)
         if ship is None:
             return log_len
-        already = {
-            str(c.get("weapon"))
-            for c in (snap.get("fire_commits") or [])
-            if int(c.get("ship") or -1) == int(sid)
-        }
+        already = {str(s.get("weapon")) for s in ctx.volley_draft}
         remaining = [
             w
             for w in (ship.get("weapons") or [])
@@ -261,7 +268,7 @@ def _auto_fire_offer(
         ]
         if not remaining:
             ui.log(
-                "  no more charged weapons — r/ready/done to finish fire phase"
+                "  no more charged weapons — r/ready/done to submit the volley"
             )
             return log_len
 
@@ -310,17 +317,21 @@ def send_orders(
                 ui.log(
                     f"  engine accepted allocate #{sid}: "
                     f"engine={sh.get('movement_allocated')} power → "
-                    f"thrust={sh.get('thrust_remaining')}  weapons: {weps}  "
+                    f"motion={sh.get('motion_available')}  weapons: {weps}  "
                     f"shields={sh.get('shields_powered')}"
                 )
                 if int(sh.get("movement_allocated") or 0) == 0 and weps == "(none charged)":
                     ui.log(
-                        "  note: zero engine power does not stop existing velocity; "
-                        "the ship can still coast, but fire has nothing charged"
+                        "  note: zero engine power means empty motion pool; "
+                        "commit an empty path (hold) and hold fire if unarmed"
                     )
                 ctx.draft = None
                 ctx.draft_group = None
                 break
+        if order.get("type") == "commit_path":
+            ctx.clear_path_draft()
+        if order.get("type") == "commit_volley":
+            ctx.clear_volley_draft()
         new_log = msg.get("combat_log") or []
         if len(new_log) < log_len:
             log_len = 0
@@ -351,17 +362,28 @@ def send_orders(
                 (highlights + "\n" + fire_text) if highlights else fire_text
             )
             log_len = len(new_log)
-        if order.get("type") == "commit_fire":
-            # Fire is queued, not resolved yet — tell the player so they know
-            # the HIT/MISS line arrives after ready_fire ends the phase.
+        if order.get("type") == "commit_path":
             ship = next(
                 (s for s in (msg.get("ships") or []) if s.get("id") == order.get("ship")),
                 None,
             )
             cs = ship_callsign(ship) if ship else f"#{order.get('ship')}"
+            actions = order.get("actions") or []
             ui.log(
-                f"  {cs} shot queued — resolves once every ship readies "
-                f"(r/ready/done to fire; end_turn instead will DISCARD it)"
+                f"  {cs} path committed ({len(actions)} actions) — "
+                f"resolves once every living ship has committed a path"
+            )
+        if order.get("type") == "commit_volley":
+            ship = next(
+                (s for s in (msg.get("ships") or []) if s.get("id") == order.get("ship")),
+                None,
+            )
+            cs = ship_callsign(ship) if ship else f"#{order.get('ship')}"
+            n = len(order.get("shots") or [])
+            ui.log(
+                f"  {cs} volley committed ({n} shot(s)) — "
+                f"resolves once every living ship has committed; "
+                f"then allocate begins automatically"
             )
         delta = snapshot_delta(before, msg)
         if delta:
@@ -471,6 +493,10 @@ def run_repl(
                 if phase != "allocate" and ctx.draft is not None:
                     ctx.draft = None
                     ctx.draft_group = None
+                if phase != "movement":
+                    ctx.clear_path_draft()
+                if phase != "firing":
+                    ctx.clear_volley_draft()
                 last_phase = phase
                 if not ui.scroll:
                     paint_frame(ui, session, ctx)
@@ -497,19 +523,21 @@ def run_repl(
             if phase == "movement" and active is not None:
                 prompt += f"*{active}"
             if phase == "firing":
-                ready = snap.get("ships_ready_fire") or []
-                if focus is not None and focus in ready:
-                    prompt += "/ready"
+                committed = set(snap.get("ships_committed_volley") or [])
+                if focus is not None and focus in committed:
+                    prompt += "/volley_ok"
                 else:
-                    prompt += "/r=done"
+                    prompt += f"/v={len(ctx.volley_draft)}"
             if ctx.draft is not None:
                 prompt += f" draft{ctx.draft.used()}/{ctx.draft.power}"
                 if ctx.draft_group:
                     prompt += f"/{ctx.draft_group}"
+            elif ctx.path_draft:
+                prompt += f" path{len(ctx.path_draft)}"
             else:
                 ship = next((s for s in snap.get("ships") or [] if s.get("id") == focus), None)
                 if phase == "movement" and ship is not None:
-                    prompt += f" actions=thrust:{int(ship.get('thrust_remaining') or 0)}"
+                    prompt += f" actions=motion:{int(ship.get('motion_available') or 0)}"
                 elif phase == "firing" and ship is not None:
                     charged = sum(
                         1 for w in (ship.get("weapons") or [])
@@ -601,16 +629,49 @@ def run_repl(
                                 "turn",
                                 "phase",
                                 "status",
-                                "movement_phase",
-                                "ships_committed_this_phase",
-                                "ships_ready_fire",
-                                "end_turn_warning",
+                                "ships_allocated_this_turn",
+                                "ships_committed_path",
+                                "ships_committed_volley",
                                 "prng_state",
                             )
                         },
                         indent=2,
                     )
                 )
+                paint_frame(ui, session, ctx)
+                continue
+            if act.side == "path_preview":
+                if act.note:
+                    ui.log(act.note)
+                if act.request is not None:
+                    try:
+                        preview = session.send_request(act.request)
+                    except TransportError as exc:
+                        ui.log(f"  path_preview failed: {exc}")
+                    else:
+                        if preview.get("type") == "error":
+                            ui.log(format_error(preview))
+                        else:
+                            ui.log(
+                                "  path_preview: "
+                                + json.dumps(
+                                    {
+                                        k: preview.get(k)
+                                        for k in (
+                                            "ok",
+                                            "cost",
+                                            "remaining_motion",
+                                            "final_q",
+                                            "final_r",
+                                            "final_facing",
+                                            "error",
+                                            "error_index",
+                                        )
+                                        if k in preview
+                                    },
+                                    separators=(",", ":"),
+                                )
+                            )
                 paint_frame(ui, session, ctx)
                 continue
             if act.side == "empty":
@@ -627,7 +688,7 @@ def run_repl(
                 paint_frame(ui, session, ctx)
                 continue
             if act.side == "fire_loop":
-                # Looping fire menu: fire multiple weapons, refresh each commit.
+                # Looping fire menu: draft multiple weapons, then submit volley.
                 log_len = _auto_fire_offer(ui, session, ctx, log_len) or log_len
                 phase_after = str(
                     (session.snapshot or {}).get("phase") or phase
@@ -700,7 +761,7 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
                 continue
             orders.append(
                 {
-                    "protocol_version": 3,
+                    "protocol_version": 4,
                     "type": "allocate",
                     "ship": int(ship["id"]),
                     "movement": 0,
@@ -715,7 +776,7 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
         return orders
 
     if phase == "movement":
-        committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
+        committed = {int(sid) for sid in snap.get("ships_committed_path") or []}
         pending_players = [
             s for s in living
             if s.get("controller") == "player" and int(s["id"]) not in committed
@@ -724,10 +785,10 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
             return []
         return [
             {
-                "protocol_version": 3,
-                "type": "commit_maneuver",
+                "protocol_version": 4,
+                "type": "commit_path",
                 "ship": int(ship["id"]),
-                "maneuver": {"type": "coast"},
+                "actions": [],
             }
             for ship in living
             if ship.get("controller") == "scripted"
@@ -735,11 +796,11 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
         ]
 
     if phase == "firing":
-        ready = set(snap.get("ships_ready_fire") or [])
+        committed = set(snap.get("ships_committed_volley") or [])
         pending_players = [
             s
             for s in living
-            if s.get("controller") == "player" and int(s["id"]) not in ready
+            if s.get("controller") == "player" and int(s["id"]) not in committed
         ]
         if pending_players:
             return []
@@ -747,13 +808,14 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
         for ship in living:
             if ship.get("controller") != "scripted":
                 continue
-            if int(ship["id"]) in ready:
+            if int(ship["id"]) in committed:
                 continue
             orders.append(
                 {
-                    "protocol_version": 3,
-                    "type": "ready_fire",
+                    "protocol_version": 4,
+                    "type": "commit_volley",
                     "ship": int(ship["id"]),
+                    "shots": [],
                 }
             )
         return orders

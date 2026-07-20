@@ -9,6 +9,8 @@ pub mod hex;
 pub mod motion;
 pub mod movement;
 pub mod movement_preview;
+pub mod path;
+pub mod path_resolve;
 pub mod prng;
 pub mod protocol;
 pub mod rules;

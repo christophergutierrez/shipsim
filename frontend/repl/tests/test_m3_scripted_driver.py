@@ -1,13 +1,9 @@
-"""M3 scripted-ship auto-driver (combat.toml deadlock, task #8).
+"""M3 scripted-ship auto-driver (combat.toml deadlock, task #8) — protocol v4.
 
 Design decision under test: the engine does NOT auto-advance ships with
-controller "scripted" (they are externally driven, e.g. by a recorded
-orders file). In interactive play the REPL is the only order source, so a
-phase blocked ONLY on scripted-controller ships is driven passively by
-`repl.auto_drive_scripted` / `plan_scripted_orders` (and the live loop's
-`pump_scripted`).
-
-Never drives AI (harness) or pending player ships.
+controller "scripted". In interactive play the REPL drives them passively with
+empty allocate / empty path / empty volley when the stage is blocked ONLY on
+scripted ships.
 """
 
 import unittest
@@ -19,9 +15,14 @@ from tests.test_characterization import FakeSession, FakeUI
 
 def _weapon(mount="forward", max_range=5, charge=1, **kw):
     w = {
-        "id": kw.get("id", "beam_1"), "mount": mount, "max_range": max_range,
-        "max_charge": 1, "charge": charge, "operational": True,
-        "fired": False, "kind": "Laser",
+        "id": kw.get("id", "beam_1"),
+        "mount": mount,
+        "max_range": max_range,
+        "max_charge": 1,
+        "charge": charge,
+        "operational": True,
+        "fired": False,
+        "kind": "Laser",
     }
     w.update(kw)
     return w
@@ -29,9 +30,18 @@ def _weapon(mount="forward", max_range=5, charge=1, **kw):
 
 def _ship(sid, controller, q=0, r=0, facing=0, destroyed=False, weapons=None):
     return {
-        "id": sid, "class": "Escort", "controller": controller,
-        "destroyed": destroyed, "q": q, "r": r, "facing": facing,
-        "structure": 4, "power": 4, "power_available": 4,
+        "id": sid,
+        "class": "Escort",
+        "controller": controller,
+        "destroyed": destroyed,
+        "q": q,
+        "r": r,
+        "facing": facing,
+        "structure": 4,
+        "power": 4,
+        "power_available": 4,
+        "motion_available": 0,
+        "max_maneuver_actions": 4,
         "weapons": weapons if weapons is not None else [_weapon()],
         "max_shield_per_facing": 2,
     }
@@ -39,17 +49,21 @@ def _ship(sid, controller, q=0, r=0, facing=0, destroyed=False, weapons=None):
 
 def _snap(ships, phase, **kw):
     snap = {
-        "protocol_version": 3, "phase": phase, "status": "Playing",
-        "turn": 1, "active_ship": None, "ships": ships, "combat_log": [],
-        "ships_allocated_this_turn": [], "ships_committed_this_phase": [],
-        "ships_ready_fire": [], "fire_commits": [],
+        "protocol_version": 4,
+        "phase": phase,
+        "status": "Playing",
+        "turn": 1,
+        "ships": ships,
+        "combat_log": [],
+        "ships_allocated_this_turn": [],
+        "ships_committed_path": [],
+        "ships_committed_volley": [],
     }
     snap.update(kw)
     return snap
 
 
 def _drive(session):
-    """Call the (not-yet-existing) client-side scripted driver."""
     ui = FakeUI()
     ctx = ReplContext()
     repl.auto_drive_scripted(ui, session, ctx)
@@ -57,13 +71,11 @@ def _drive(session):
 
 
 class AllocatePhaseTests(unittest.TestCase):
-    """Only the scripted ship is unallocated -> client sends its allocate."""
-
     def test_c8_allocate_drives_scripted_ship_passively(self):
         snap = _snap(
             [_ship(1, "player"), _ship(2, "scripted")],
             phase="allocate",
-            ships_allocated_this_turn=[1],  # player already allocated
+            ships_allocated_this_turn=[1],
         )
         sent = _drive(FakeSession(snap))
         self.assertEqual(1, len(sent))
@@ -81,9 +93,7 @@ class AllocatePhaseTests(unittest.TestCase):
             phase="allocate",
             ships_allocated_this_turn=[1],
         )
-
         sent = _drive(FakeSession(snap))
-
         self.assertEqual({}, sent[0]["weapons"])
 
     def test_pump_stops_when_passive_order_makes_no_progress(self):
@@ -93,49 +103,41 @@ class AllocatePhaseTests(unittest.TestCase):
             ships_allocated_this_turn=[1],
         )
         session = FakeSession(snap)
-
         repl.pump_scripted(FakeUI(), session, ReplContext(), 0, max_steps=10)
-
         self.assertEqual(1, len(session.sent))
 
 
 class MovementPhaseTests(unittest.TestCase):
-    """Active ship is the scripted one -> client sends a v2 coast maneuver."""
-
-    def test_c8_movement_drives_scripted_ship_with_coast(self):
+    def test_c8_movement_drives_scripted_ship_with_empty_path(self):
         snap = _snap(
             [_ship(1, "player"), _ship(2, "scripted")],
             phase="movement",
-            ships_committed_this_phase=[1],
+            ships_committed_path=[1],
         )
         sent = _drive(FakeSession(snap))
         self.assertEqual(1, len(sent))
-        self.assertEqual({"type": "commit_maneuver", "ship": 2}, {
-            k: v for k, v in sent[0].items() if k in ("type", "ship")
-        })
-        self.assertEqual({"type": "coast"}, sent[0]["maneuver"])
+        self.assertEqual(
+            {"type": "commit_path", "ship": 2, "actions": []},
+            {k: v for k, v in sent[0].items() if k in ("type", "ship", "actions")},
+        )
 
 
 class FiringPhaseTests(unittest.TestCase):
-    """Only the scripted ship isn't ready_fire -> client sends its ready_fire."""
-
-    def test_c8_firing_drives_scripted_ship_with_ready_fire(self):
+    def test_c8_firing_drives_scripted_ship_with_empty_volley(self):
         snap = _snap(
             [_ship(1, "player"), _ship(2, "scripted")],
             phase="firing",
-            ships_ready_fire=[1],
+            ships_committed_volley=[1],
         )
         sent = _drive(FakeSession(snap))
         self.assertEqual(1, len(sent))
-        self.assertEqual({"type": "ready_fire", "ship": 2}, {
-            k: v for k, v in sent[0].items() if k in ("type", "ship")
-        })
+        self.assertEqual(
+            {"type": "commit_volley", "ship": 2, "shots": []},
+            {k: v for k, v in sent[0].items() if k in ("type", "ship", "shots")},
+        )
 
 
 class NegativeControlTests(unittest.TestCase):
-    """The client must never drive ai ships (harness advances those) or
-    pending player ships (only the human drives those)."""
-
     def test_c8_ai_controller_not_auto_driven(self):
         snap = _snap(
             [_ship(1, "player"), _ship(2, "ai")],
@@ -155,13 +157,10 @@ class NegativeControlTests(unittest.TestCase):
         self.assertEqual([], sent)
 
     def test_c8_mixed_scripted_and_player_pending_not_driven(self):
-        """Blocked on BOTH a scripted and a still-pending player ship: the
-        client must not drive the scripted one out of turn, since the phase
-        isn't blocked ONLY on scripted ships."""
         snap = _snap(
             [_ship(1, "player"), _ship(2, "player"), _ship(3, "scripted")],
             phase="allocate",
-            ships_allocated_this_turn=[],  # nobody has allocated yet
+            ships_allocated_this_turn=[],
         )
         sent = _drive(FakeSession(snap))
         self.assertEqual([], sent)

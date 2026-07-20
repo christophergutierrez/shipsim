@@ -8,6 +8,7 @@ mod app;
 mod harness;
 mod input;
 mod protocol;
+mod scripted_pump;
 mod tutorial;
 mod ui;
 
@@ -64,6 +65,7 @@ fn main() -> std::io::Result<()> {
     if let Some(line) = harness.read_line() {
         apply_engine_line(&mut app, line);
     }
+    pump_scripted(&mut app, &mut harness);
 
     // Set up the terminal.
     enable_raw_mode()?;
@@ -133,6 +135,7 @@ fn run(
 ) -> std::io::Result<()> {
     loop {
         drain_pending_previews(app, harness);
+        pump_scripted(app, harness);
         terminal.draw(|f| ui::render(f, app))?;
 
         // Poll for input with a short timeout so we can also drain engine
@@ -155,18 +158,68 @@ fn run(
                 if let Some(line) = harness.read_line() {
                     apply_engine_line(app, line);
                 }
+                pump_scripted(app, harness);
             }
             KeyResult::Continue => {}
         }
     }
 }
 
+/// Drive scripted ships until the current stage needs a player action or makes
+/// no further progress. Bounded to avoid an infinite retry loop on rejection.
+fn pump_scripted(app: &mut App, harness: &mut Harness) {
+    for _ in 0..64 {
+        let Some(snap) = app.snap.as_ref() else {
+            return;
+        };
+        let before = (snap.turn, snap.phase.clone(), pending_scripted_count(snap));
+        let orders = crate::scripted_pump::plan_scripted_orders(snap);
+        if orders.is_empty() {
+            return;
+        }
+        for order in orders {
+            if harness.send(&order.to_json()).is_err() {
+                return;
+            }
+            match harness.read_line() {
+                Some(line) => apply_engine_line(app, line),
+                None => return,
+            }
+            // Stop immediately on a rejected order (avoids retry loop).
+            if app.last_error.is_some() {
+                return;
+            }
+        }
+        // No-progress guard: if the batch didn't advance turn/phase and didn't
+        // shrink the pending-scripted set, stop.
+        let after = app
+            .snap
+            .as_ref()
+            .map(|s| (s.turn, s.phase.clone(), pending_scripted_count(s)));
+        if after.as_ref() == Some(&before) {
+            return;
+        }
+    }
+}
+
+fn pending_scripted_count(snap: &crate::protocol::Snapshot) -> usize {
+    let done: &[i64] = match snap.phase.as_str() {
+        "allocate" => &snap.ships_allocated_this_turn,
+        "movement" => &snap.ships_committed_path,
+        "firing" => &snap.ships_committed_volley,
+        _ => return 0,
+    };
+    snap.ships
+        .iter()
+        .filter(|s| !s.destroyed && s.controller == "scripted" && !done.contains(&s.id))
+        .count()
+}
+
 /// Send queued previews before drawing so allocation opens with the coast
 /// endpoint already visible, rather than waiting for an unrelated keypress.
 fn drain_pending_previews(app: &mut App, harness: &mut Harness) {
     let requests = [
-        app.pending_preview.take(),
-        app.pending_maneuver_preview.take(),
+        app.pending_path_preview.take(),
         app.pending_fire_preview.take(),
     ];
     for request in requests.into_iter().flatten() {
@@ -182,8 +235,7 @@ fn drain_pending_previews(app: &mut App, harness: &mut Harness) {
 fn apply_engine_line(app: &mut App, line: EngineLine) {
     match line {
         EngineLine::Snapshot(s) => app.update_snapshot(s),
-        EngineLine::MovementPreview(p) => app.accept_movement_preview(p),
-        EngineLine::ManeuverOptions(p) => app.accept_maneuver_options(p),
+        EngineLine::PathPreview(p) => app.accept_path_preview(p),
         EngineLine::FirePreview(p) => app.accept_fire_preview(p),
         EngineLine::Error(e) => app.record_error(&e),
         EngineLine::Raw(r) => app.log(format!("engine: {r}")),

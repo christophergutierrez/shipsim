@@ -4,7 +4,9 @@
 
 shipsim is a deterministic, turn-based hex-grid starship combat simulator. The Rust crate owns all game rules and exposes a JSON-friendly state and order boundary. A Love2D application renders that state and submits orders without reimplementing combat logic.
 
-The current product rules are Combat Model v2 as accepted in ADR-0020. Earlier impulse and FASA loops are historical context only.
+The current product rules are Combat Model v2 as accepted in ADR-0020, with
+the simplified protocol-v4 turn loop defined by ADR-0025. Earlier impulse and
+inertial loops are historical context only.
 
 ## System boundaries
 
@@ -15,7 +17,7 @@ The current product rules are Combat Model v2 as accepted in ADR-0020. Earlier i
 - scenario and ship-data loading from TOML;
 - ruleset loading, fingerprinting, and per-game rules ownership;
 - board, hex, facing, arc, and movement validation;
-- turn phases, power allocation, inertial movement, and maneuver resolution;
+- turn stages, power allocation, path resolution, and simultaneous movement;
 - weapon legality, deterministic hit resolution, shields, and hull damage;
 - AI decisions, victory state, campaigns, and snapshots.
 
@@ -50,22 +52,21 @@ order, the harness runs `GameState::resolve_v2_npc_actions` so
 
 ## Core model
 
-The v2 turn progresses through:
+The protocol-v4 turn progresses through:
 
-1. `Allocation`: each ship converts fixed power into thrust, weapon charges, and six shield facings.
-2. `Movement`: every living ship commits one maneuver; maneuvers and scheduled translations resolve simultaneously.
-3. `Firing`: ships commit legal weapon shots or declare readiness; committed fire resolves simultaneously.
-4. Exactly four movement/firing windows occur per turn.
-5. `EndTurn` resets turn-scoped resources and begins the next allocation phase.
+1. `Allocate`: each ship converts fixed power into motion points, weapon charges, and six shield facings.
+2. `Path`: every living ship commits one ordered path; paths resolve simultaneously.
+3. `Volley`: ships commit legal weapon shots or an empty volley; fire resolves simultaneously.
+4. The engine automatically resets turn-scoped resources and begins the next allocation phase.
 
-Movement cost depends on momentum. Weapon charge and firing are limited per turn. Powered shields absorb damage by legal facing before overflow reaches hull. Destroyed ships remain eligible to deal already-committed simultaneous damage.
+Every path action costs one motion point. Weapon charge and firing are limited per turn. Powered shields absorb damage by legal facing before overflow reaches hull. Destroyed ships remain eligible to deal already-committed simultaneous damage.
 
 ## Module map
 
 | Area | Modules | Responsibility |
 |---|---|---|
 | Aggregate and protocol | `game_state`, `movement`, `snapshot` | State machine, orders, validation, serialized views |
-| Geometry | `hex`, `board`, `arc`, `momentum` | Coordinates, occupancy, facings, firing arcs, movement cost |
+| Geometry | `hex`, `board`, `arc`, `path`, `path_resolve` | Coordinates, occupancy, facings, firing arcs, path cost and resolution |
 | Combat | `combat`, `combat_tables`, `rules`, `ssd`, `prng` | Typed evaluators, configured tables, damage application, determinism |
 | Content | `schema`, `scenario`, `ship`, `campaign` | TOML schemas, loading, ship instances, campaign setup |
 | Orchestration | `turn`, `ai` | Turn counter and NPC actions |
@@ -97,24 +98,28 @@ See `docs/combat-v2-tables.md` and `docs/TODO.md` (hull size / construction).
 ## Invariants
 
 - Rust is the sole rules authority; clients may project but not decide legality.
-- Power allocation cannot exceed ship power (and per-facing shield max) and is locked for the turn.
-- **Movement allocation is power units**, converted to a turn-scoped thrust reserve;
-  thrust is spent on inertial maneuvers and does not directly buy distance.
-- There is no movement initiative queue; all living ships commit once per phase
-  and resolve simultaneously.
-- Movement phase is **simultaneous**: every living ship commits one maneuver per
-  phase, then maneuvers and translation resolve as a batch. Legacy Move/Pass
-  variants are deserialization-only compatibility cases and are rejected.
-- Firing phase: `CommitFire` then `ReadyFire` per ship; when **all living ships** are ready, resolve simultaneously. AI must ReadyFire (core `resolve_v2_npc_actions` does).
-- **Miss still consumes charge** and marks the weapon fired this turn.
-- The turn always follows four movement/fire cycles; coasting ships can therefore
-  translate on their schedule without an open-ended heuristic.
-- `end_turn_warning` reflects remaining legal fire actions; EndTurn still always
-  advances after allocation.
+- Power allocation cannot exceed ship power (and per-facing shield max). Allocation
+  is **staged** until every living ship commits, then applied together.
+- **Motion allocation is power units**, converted to per-turn motion points via
+  hull `thrust_per_power` / `power_per_thrust`, capped by `max_maneuver_actions`
+  (engine SSD may lower the cap). No persistent velocity or course.
+- Turn structure is three collection stages: **allocate → path → volley**, then
+  automatic next-turn allocate. No `end_turn`, no four-cycle impulses, no
+  `ready_fire`.
+- Path stage: every living ship commits one ordered path (`move_f` / `move_fr` /
+  `move_fl` / `turn_right` / `turn_left`). Simultaneous resolve with stationary
+  priority, cost-then-seeded ties, and cascading displacement fallback.
+- Volley stage: every living ship commits one complete volley (empty = hold fire).
+  Simultaneous resolve; ships alive at fire start complete their accepted volley
+  even if destroyed mid-resolution. Overkill still records.
+- **Miss still consumes charge** for weapons included in the volley.
+- `combat_log` from the last volley remains visible after auto turn advance until
+  the next volley resolves (so clients and sim metrics can observe ordinary hits).
 - Fire resolution uses pre-resolution ship snapshot; mutual destruction possible.
 - Random outcomes use seeded PRNG (`roll(20)` is 1..=20 for to-hit).
 - Content remains generic and does not copy protected game data.
-- Invalid external orders soft-fail without partial mutation (ADR-0018 / protocol v1).
+- Invalid external orders soft-fail without partial mutation (ADR-0018).
+- Protocol version is **4** (`docs/PROTOCOL.md`).
 
 ## Local agent state (not in git)
 

@@ -19,8 +19,6 @@ q = 4
 r = 10
 facing = 0
 controller = "scripted"
-velocity = 2
-
 [[ships]]
 id = 2
 class = "heavy_cruiser"

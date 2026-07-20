@@ -1,13 +1,12 @@
 id = "starbase"
 name = "Generic Starbase"
 size = 4
-speed = 0
+max_maneuver_actions = 0
 power = 20
 max_shield_per_facing = 8
 structure = 20
 power_sys = 2
 engine_boxes = 1
-max_velocity = 8
 thrust_per_power = 0
 power_per_thrust = 1
 

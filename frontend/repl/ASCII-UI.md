@@ -112,17 +112,15 @@ new color for decoration; a new entry here needs a new *meaning*.
 | Map cell ` x  ` | Destroyed ship wreck (muted; living ship takes precedence) |
 | `@` / `*` in lists | Focus / next pending maneuver |
 | `[####....]` | Quantity bar (power, charge, hull, shield rem) |
-| `CHG n/m (available)` | Still free to commit this fire phase |
-| `QUEUED →#t` | `commit_fire` done; charge still on ship until all ready |
+| `CHG n/m (available)` | Charged and available for the current volley |
+| `QUEUED →#t` | Local volley draft contains this shot; submit with `ready` |
 | `FIRED HIT/MISS` | Phase resolved; charge spent (`chg=0`) |
 | `DEAD` | Weapon box gone |
 | `←` on a shield row | That face is relevant to the observer (e.g. facing you) |
 | `arc=… rng≤…` on a weapon line | Mount arc + max range (engine data, frozen tables) |
 | `rel bearing: N` | Direction to focus target relative to your nose (0 = F) |
-| `⚠ leftover useful actions` | `end_turn_warning` — useful move/fire still existed |
 | `status=Won` / `status=Lost` | Endgame; painted ok / err in the header |
-| `committed=[…] pending=[…]` | Maneuver commitments for the current phase (muted) |
-| `ready_fire=[…]` | Ships already readied this fire phase (muted) |
+| `committed=[…] pending=[…]` | Path or volley commitments for the current phase (muted) |
 
 Prompt fragments (`*1`, `draft11/22`, `/ready`, …) have their canonical table
 in `GAMEPLAY.md` §7 — update both together when the prompt language changes.
@@ -278,15 +276,14 @@ knows where to stack power without doing hex math in their head.
 
 ### Maneuver commitments
 
-Movement is simultaneous: each living ship commits once per phase. The display
-shows short callsigns in muted `committed=[…] pending=[…]` lists. The same idea
-applies to `ready_fire=[…]` during firing: who is still holding up the resolve.
+Movement and firing are simultaneous: each living ship commits one full path,
+then one full volley. The display shows short callsigns in muted
+`committed=[…] pending=[…]` lists for whichever collection stage is active.
 
-### Endgame and turn_end
+### Endgame
 
-Snapshot `status` is `InProgress` / `Won` / `Lost`, and `phase` includes
-`turn_end` — presentation must handle all of them, not just the three
-interactive phases:
+Snapshot `status` is `InProgress` / `Won` / `Lost`; the three interactive
+phases are `allocate`, `movement`, and `firing`.
 
 - `Won` paints ok-green, `Lost` paints err-red in the header
   (`view.format_header`). On the transition, be at least as loud as FIRE

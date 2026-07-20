@@ -1,0 +1,19 @@
+width = 10
+height = 10
+seed = 42
+
+[[ships]]
+id = 1
+class = "escort"
+q = 0
+r = 4
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 2
+class = "escort"
+q = 2
+r = 4
+facing = 3
+controller = "player"

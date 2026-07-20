@@ -19,7 +19,7 @@
 --   alloc         — map ship_id -> alloc draft table (per-ship)
 --
 -- `snap` shape: { ships = { {id, controller, destroyed, ...} }, phase,
---   ships_committed_this_phase = {id,...} }
+--   ships_committed_path / ships_committed_volley = {id,...} }
 
 local phases = require("phases")
 
@@ -54,11 +54,6 @@ function selection.fireable_weapons(snap, ship_id)
   end
 
   local committed = {}
-  for _, fire in ipairs(snap.fire_commits or {}) do
-    if fire.ship == ship_id and fire.weapon then
-      committed[fire.weapon] = true
-    end
-  end
 
   local weapons = {}
   for _, weapon in ipairs(ship.weapons or {}) do
@@ -90,13 +85,22 @@ function selection.cycle_fireable_weapon(snap, ship_id, current, delta)
   return weapons[((index - 1 + step) % #weapons) + 1]
 end
 
---- First uncommitted player ship id in movement phase, or nil.
+--- First uncommitted living ship for the current collection stage, or nil.
+--- movement → ships_committed_path; firing → ships_committed_volley.
 function selection.first_uncommitted(snap, controller)
-  if not snap or snap.phase ~= "movement" then
+  if not snap then
+    return nil
+  end
+  local list_key
+  if snap.phase == "movement" then
+    list_key = "ships_committed_path"
+  elseif snap.phase == "firing" then
+    list_key = "ships_committed_volley"
+  else
     return nil
   end
   local committed = {}
-  for _, id in ipairs(snap.ships_committed_this_phase or {}) do
+  for _, id in ipairs(snap[list_key] or {}) do
     committed[id] = true
   end
   for _, s in ipairs(snap.ships or {}) do
@@ -149,12 +153,19 @@ function selection.ensure(state, snap)
       return
     end
   end
-  -- Auto-advance: in movement, follow the first uncommitted player ship.
+  -- Auto-advance: movement and firing follow the first uncommitted player ship
+  -- so keyboard users are not stuck on an already-committed focus.
   local active = selection.first_uncommitted(snap, "player")
   if active then
     for _, id in ipairs(ids) do
       if id == active then
-        state.selected_id = active
+        if state.selected_id ~= active then
+          -- Clear fire draft when hopping to the next ship in firing.
+          if snap.phase == phases.FIRING then
+            selection.clear_drafts_for(state, state.selected_id)
+          end
+          state.selected_id = active
+        end
         return
       end
     end

@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -56,11 +55,12 @@ fn run() -> Result<(), String> {
                 ));
             }
             // Let AI ships act before the first human order when the opening
-            // phase is entirely NPC-driven (e.g. AI-only allocate).
-            game.resolve_v2_npc_actions();
+            // phase is entirely NPC-driven (e.g. AI-only allocate). Persist
+            // those orders so save/resume can replay barrier stages exactly.
+            let mut orders = game.resolve_v2_npc_actions();
             // Post-load snapshot so a thin client can paint before any order (D8).
             emit_snapshot(&game)?;
-            let orders = apply_orders(&mut game, &args.orders)?;
+            orders.extend(apply_orders(&mut game, &args.orders)?);
             if let Some(save_path) = args.save {
                 SaveDocument::capture(path, orders, &game)
                     .write(&save_path)
@@ -91,9 +91,16 @@ fn run() -> Result<(), String> {
         }
         Mode::Resume(path) => {
             let mut document = SaveDocument::read(&path).map_err(|error| error.to_string())?;
+            // Replay includes every barrier-stage AI order from the save; do not
+            // invent additional NPC actions before continuing, or the stream
+            // diverges from the checkpoint.
             let mut game = document.replay().map_err(|error| error.to_string())?;
-            game.resolve_v2_npc_actions();
+            // Only auto-act for AI when the resumed state is still waiting on
+            // NPC collection and the save did not already include those orders
+            // (legacy safety). Prefer recorded orders on the happy path.
+            let mut pending_npc = game.resolve_v2_npc_actions();
             emit_snapshot(&game)?;
+            document.orders.append(&mut pending_npc);
             document
                 .orders
                 .extend(apply_orders(&mut game, &args.orders)?);
@@ -157,16 +164,16 @@ fn apply_orders(game: &mut GameState, orders: &OrderSource) -> Result<Vec<Order>
             let text = std::fs::read_to_string(path)
                 .map_err(|error| format!("cannot read orders {path:?}: {error}"))?;
             for line in text.lines() {
-                if let Some(order) = apply_order_line(game, line)? {
-                    accepted.push(order);
+                if let Some(batch) = apply_order_line(game, line)? {
+                    accepted.extend(batch);
                 }
             }
         }
         OrderSource::Stdin => {
             for line in io::stdin().lock().lines() {
                 let line = line.map_err(|error| format!("cannot read stdin: {error}"))?;
-                if let Some(order) = apply_order_line(game, &line)? {
-                    accepted.push(order);
+                if let Some(batch) = apply_order_line(game, &line)? {
+                    accepted.extend(batch);
                 }
             }
         }
@@ -243,7 +250,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     })
 }
 
-fn apply_order_line(game: &mut GameState, line: &str) -> Result<Option<Order>, String> {
+fn apply_order_line(game: &mut GameState, line: &str) -> Result<Option<Vec<Order>>, String> {
     if line.trim().is_empty() {
         return Ok(None);
     }
@@ -302,10 +309,11 @@ fn apply_order_line(game: &mut GameState, line: &str) -> Result<Option<Order>, S
     match apply_order(game, order.clone()) {
         Ok(()) => {
             // Drive greedy AI until a human must act or the scenario ends.
-            // Clients (REPL, Love) never reimplement AI; they only send player orders.
-            game.resolve_v2_npc_actions();
+            // Record AI orders in the save stream so resume/replay is exact.
+            let mut batch = vec![order];
+            batch.extend(game.resolve_v2_npc_actions());
             emit_snapshot(game)?;
-            Ok(Some(order))
+            Ok(Some(batch))
         }
         Err(error) => {
             emit_error(
@@ -328,11 +336,20 @@ fn handle_request(
     game: &GameState,
     request: &str,
     order_val: &serde_json::Value,
-) -> Result<Option<Order>, String> {
+) -> Result<Option<Vec<Order>>, String> {
     match request {
-        "movement_preview" => handle_movement_preview(game, order_val),
-        "maneuver_options" => handle_maneuver_options(game, order_val),
+        "path_preview" => handle_path_preview(game, order_val),
+        "reach_preview" => handle_reach_preview(game, order_val),
         "fire_preview" => handle_fire_preview(game, order_val),
+        "movement_preview" | "maneuver_options" => {
+            emit_error(
+                "retired_request",
+                &format!("{request} was removed in protocol v4; use path_preview / reach_preview"),
+                Some(order_val.clone()),
+                "harness",
+            )?;
+            Ok(None)
+        }
         other => {
             emit_error(
                 "unknown_request",
@@ -367,7 +384,7 @@ fn request_ship(order_val: &serde_json::Value, request: &str) -> Result<Option<u
     Ok(Some(ship))
 }
 
-fn emit_request_body(body: &serde_json::Value) -> Result<Option<Order>, String> {
+fn emit_request_body(body: &serde_json::Value) -> Result<Option<Vec<Order>>, String> {
     let mut out = io::stdout().lock();
     writeln!(
         out,
@@ -379,21 +396,96 @@ fn emit_request_body(body: &serde_json::Value) -> Result<Option<Order>, String> 
     Ok(None)
 }
 
-/// Immediate maneuver costs and affordability for one ship.
-fn handle_maneuver_options(
+/// Validate a drafted path without committing it.
+fn handle_path_preview(
     game: &GameState,
     order_val: &serde_json::Value,
-) -> Result<Option<Order>, String> {
-    let Some(ship) = request_ship(order_val, "maneuver_options")? else {
+) -> Result<Option<Vec<Order>>, String> {
+    let Some(ship) = request_ship(order_val, "path_preview")? else {
         return Ok(None);
     };
-    match game.maneuver_options(ship) {
-        Ok(options) => emit_request_body(&serde_json::json!({
-            "type": "maneuver_options",
+    let mut actions = Vec::new();
+    match order_val.get("actions") {
+        None => {} // absent field == empty path (unchanged)
+        Some(v) if v.is_array() => {
+            for item in v.as_array().expect("checked is_array") {
+                let Some(s) = item.as_str() else {
+                    emit_error(
+                        "preview_invalid",
+                        "path_preview actions must be strings",
+                        Some(order_val.clone()),
+                        "harness",
+                    )?;
+                    return Ok(None);
+                };
+                let Some(action) = shipsim_core::path::PathAction::parse(s) else {
+                    emit_error(
+                        "preview_invalid",
+                        &format!("unknown path action: {s}"),
+                        Some(order_val.clone()),
+                        "harness",
+                    )?;
+                    return Ok(None);
+                };
+                actions.push(action);
+            }
+        }
+        Some(_) => {
+            emit_error(
+                "preview_invalid",
+                "path_preview actions must be an array",
+                Some(order_val.clone()),
+                "harness",
+            )?;
+            return Ok(None);
+        }
+    }
+    match game.path_preview(ship, &actions) {
+        Ok(preview) => emit_request_body(&serde_json::json!({
+            "type": "path_preview",
+            "protocol_version": PROTOCOL_VERSION,
+            "ok": true,
+            "ship": preview.ship,
+            "cost": preview.cost,
+            "remaining_motion": preview.remaining_motion,
+            "final_q": preview.final_q,
+            "final_r": preview.final_r,
+            "final_facing": preview.final_facing,
+            "steps": preview.steps,
+            "error_index": preview.error_index,
+            "error": preview.error,
+        })),
+        Err(error) => {
+            emit_error(
+                "preview_invalid",
+                &error.to_string(),
+                Some(order_val.clone()),
+                "harness",
+            )?;
+            Ok(None)
+        }
+    }
+}
+
+/// Reachable endpoints for shading (optional budget override).
+fn handle_reach_preview(
+    game: &GameState,
+    order_val: &serde_json::Value,
+) -> Result<Option<Vec<Order>>, String> {
+    let Some(ship) = request_ship(order_val, "reach_preview")? else {
+        return Ok(None);
+    };
+    let budget = order_val
+        .get("budget")
+        .and_then(|v| v.as_u64())
+        .map(|v| u32::try_from(v).unwrap_or(u32::MAX));
+    match game.reach_preview(ship, budget) {
+        Ok(endpoints) => emit_request_body(&serde_json::json!({
+            "type": "reach_preview",
             "protocol_version": PROTOCOL_VERSION,
             "ok": true,
             "ship": ship,
-            "options": options,
+            "endpoints": endpoints,
         })),
         Err(error) => {
             emit_error(
@@ -412,7 +504,7 @@ fn handle_maneuver_options(
 fn handle_fire_preview(
     game: &GameState,
     order_val: &serde_json::Value,
-) -> Result<Option<Order>, String> {
+) -> Result<Option<Vec<Order>>, String> {
     let Some(ship) = request_ship(order_val, "fire_preview")? else {
         return Ok(None);
     };
@@ -472,162 +564,4 @@ fn handle_fire_preview(
         }),
     };
     emit_request_body(&body)
-}
-
-/// `movement_preview` request (ADR-0022 preview contract).
-///
-/// Request shape (one JSON object per line, `protocol_version: 3`):
-/// ```json
-/// {"protocol_version":3,"request":"movement_preview","ship":1,
-///  "movement":4,"weapons":{"beam_1":2},"shields":[2,0,0,0,0,2]}
-/// ```
-///
-/// The fields mirror the `allocate` order exactly (engine owns the
-/// power→thrust conversion). The response is a `movement_preview` envelope:
-/// `ok: true`, the queried `ship`, the sorted reachable `endpoints`, the
-/// single `coast` endpoint, and the `occupied` endpoint list. State is
-/// unchanged; nothing is appended to the save/replay stream.
-fn handle_movement_preview(
-    game: &GameState,
-    order_val: &serde_json::Value,
-) -> Result<Option<Order>, String> {
-    let ship = match order_val.get("ship").and_then(serde_json::Value::as_u64) {
-        Some(value) => value as u32,
-        None => {
-            emit_error(
-                "preview_invalid",
-                "movement_preview requires integer `ship`",
-                Some(order_val.clone()),
-                "harness",
-            )?;
-            return Ok(None);
-        }
-    };
-    let movement = order_val
-        .get("movement")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0) as u32;
-
-    // `clamp: true` relaxes the total power budget: movement is clamped down to
-    // the affordable residual (after weapons + shields) instead of hard-rejecting.
-    // Used by the TUI for live slider-drag previews. Defaults to false (strict).
-    let clamp = order_val
-        .get("clamp")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
-
-    // `weapons` is a map of weapon_id → desired total charge, same as `allocate`.
-    let mut weapons: BTreeMap<String, u32> = BTreeMap::new();
-    if let Some(map) = order_val
-        .get("weapons")
-        .and_then(serde_json::Value::as_object)
-    {
-        for (key, value) in map {
-            let charge = value.as_u64().unwrap_or(0) as u32;
-            weapons.insert(key.clone(), charge);
-        }
-    }
-
-    // `shields` is six face powers, same as `allocate`. Missing or short
-    // arrays are zero-padded; over-long arrays are truncated to six.
-    let mut shields: [u32; 6] = [0; 6];
-    if let Some(array) = order_val
-        .get("shields")
-        .and_then(serde_json::Value::as_array)
-    {
-        for (slot, value) in shields.iter_mut().zip(array.iter()) {
-            *slot = value.as_u64().unwrap_or(0) as u32;
-        }
-    }
-
-    // Report the clamped movement power so the client can show the effective
-    // thrust even when the draft exceeds the budget.
-    let clamped_movement = if clamp {
-        match game.clamp_movement_power(ship, movement, &weapons, &shields) {
-            Ok(value) => Some(value),
-            Err(error) => {
-                emit_error(
-                    "preview_invalid",
-                    &error.to_string(),
-                    Some(order_val.clone()),
-                    "harness",
-                )?;
-                return Ok(None);
-            }
-        }
-    } else {
-        None
-    };
-
-    let result = if clamp {
-        game.movement_preview_clamped(ship, movement, weapons, shields)
-    } else {
-        game.movement_preview(ship, movement, weapons, shields)
-    };
-    let result = match result {
-        Ok(result) => result,
-        Err(error) => {
-            emit_error(
-                "preview_invalid",
-                &error.to_string(),
-                Some(order_val.clone()),
-                "harness",
-            )?;
-            return Ok(None);
-        }
-    };
-
-    // `PreviewResult`/`PreviewEndpoint` are not Serialize by design (the
-    // preview is a read-only projection, not a persisted snapshot), so build
-    // the response envelope by hand.
-    let endpoints: Vec<serde_json::Value> = result
-        .endpoints
-        .iter()
-        .map(|endpoint| {
-            serde_json::json!({
-                "q": endpoint.q,
-                "r": endpoint.r,
-                "facing": endpoint.facing,
-                "course": endpoint.course,
-                "speed": endpoint.speed,
-                "thrust_remaining": endpoint.thrust_remaining,
-            })
-        })
-        .collect();
-    let coast = serde_json::json!({
-        "q": result.coast.q,
-        "r": result.coast.r,
-        "facing": result.coast.facing,
-        "course": result.coast.course,
-        "speed": result.coast.speed,
-        "thrust_remaining": result.coast.thrust_remaining,
-    });
-    let occupied: Vec<serde_json::Value> = result
-        .occupied
-        .iter()
-        .map(|(q, r)| serde_json::json!({"q": q, "r": r}))
-        .collect();
-
-    let mut body = serde_json::json!({
-        "type": "movement_preview",
-        "protocol_version": PROTOCOL_VERSION,
-        "ok": true,
-        "ship": ship,
-        "endpoints": endpoints,
-        "coast": coast,
-        "occupied": occupied,
-    });
-    if let Some(cm) = clamped_movement {
-        body["clamped_movement"] = serde_json::json!(cm);
-    }
-
-    let mut out = io::stdout().lock();
-    writeln!(
-        out,
-        "{}",
-        serde_json::to_string(&body).map_err(|error| error.to_string())?
-    )
-    .map_err(|error| error.to_string())?;
-    out.flush().map_err(|error| error.to_string())?;
-    Ok(None)
 }

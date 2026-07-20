@@ -8,9 +8,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use crate::protocol::{
-    ErrorResponse, FireDecisionPreview, ManeuverOptionsPreview, MovementPreview, Snapshot,
-};
+use crate::protocol::{ErrorResponse, FireDecisionPreview, PathPreview, Snapshot};
 
 /// Manages the shipsim engine subprocess.
 pub struct Harness {
@@ -24,8 +22,7 @@ pub struct Harness {
 #[allow(clippy::large_enum_variant)]
 pub enum EngineLine {
     Snapshot(Snapshot),
-    MovementPreview(MovementPreview),
-    ManeuverOptions(ManeuverOptionsPreview),
+    PathPreview(PathPreview),
     FirePreview(FireDecisionPreview),
     Error(ErrorResponse),
     /// A line that didn't parse as either (shouldn't happen in normal play).
@@ -85,14 +82,9 @@ impl Harness {
                     return Some(EngineLine::Error(err));
                 }
             }
-            Some("movement_preview") => {
-                if let Ok(preview) = serde_json::from_str::<MovementPreview>(trimmed) {
-                    return Some(EngineLine::MovementPreview(preview));
-                }
-            }
-            Some("maneuver_options") => {
-                if let Ok(preview) = serde_json::from_str::<ManeuverOptionsPreview>(trimmed) {
-                    return Some(EngineLine::ManeuverOptions(preview));
+            Some("path_preview") => {
+                if let Ok(preview) = serde_json::from_str::<PathPreview>(trimmed) {
+                    return Some(EngineLine::PathPreview(preview));
                 }
             }
             Some("fire_preview") => {

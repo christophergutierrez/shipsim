@@ -1,11 +1,11 @@
 use std::path::Path;
 
+use shipsim_core::scenario::load_scenario_def;
+use shipsim_core::simulation::fleet::build_engagement_scenario;
 use shipsim_core::simulation::{
     fleet::{engagement_costs, validate_engagement_costs},
     run_match, run_suite, EngagementSpec, FleetLine, FleetMapSpec, MatchConfig, SuiteSpec,
 };
-use shipsim_core::scenario::load_scenario_def;
-use shipsim_core::simulation::fleet::build_engagement_scenario;
 
 #[test]
 fn smoke_suite_satisfies_blocking_rubrics() {

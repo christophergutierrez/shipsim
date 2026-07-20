@@ -22,9 +22,11 @@ pub struct ThrustConversion {
 pub enum ConversionError {
     #[error("thrust_per_power and power_per_thrust are both zero")]
     ZeroRatio,
-    #[error("mobile hull (max_velocity {0} > 0) must have a nonzero thrust_per_power")]
+    #[error("mobile hull (max_maneuver_actions {0} > 0) must have a nonzero thrust_per_power")]
     ImmobileRatioForMobile(u8),
-    #[error("immobile hull (max_velocity 0) must not produce thrust (thrust_per_power {0} > 0)")]
+    #[error(
+        "immobile hull (max_maneuver_actions 0) must not produce thrust (thrust_per_power {0} > 0)"
+    )]
     MobileRatioForImmobile(u32),
     #[error("power_per_thrust must be nonzero (got {0}); a zero denominator is not a valid ratio")]
     ZeroDenominator(u32),
@@ -47,15 +49,15 @@ impl ThrustConversion {
     /// - `power_per_thrust` must be nonzero (a zero denominator is not a valid
     ///   ratio; `ThrustConversion::new(1, 0, 4)` is rejected).
     /// - At most one component may exceed one.
-    /// - A mobile hull (`max_velocity > 0`) must have a nonzero conversion
+    /// - A mobile hull (`max_maneuver_actions > 0`) must have a nonzero conversion
     ///   numerator (`thrust_per_power >= 1`) and must produce at least one
-    ///   thrust when allocated its design power (enforced at scenario load).
-    /// - An immobile hull (`max_velocity == 0`) must produce no thrust
+    ///   motion point when allocated its design power (enforced at scenario load).
+    /// - An immobile hull (`max_maneuver_actions == 0`) must produce no motion
     ///   (`thrust_per_power == 0`).
     pub fn new(
         thrust_per_power: u32,
         power_per_thrust: u32,
-        max_velocity: u8,
+        max_maneuver_actions: u8,
     ) -> Result<Self, ConversionError> {
         if thrust_per_power == 0 && power_per_thrust == 0 {
             return Err(ConversionError::ZeroRatio);
@@ -74,15 +76,17 @@ impl ThrustConversion {
                 power_per_thrust,
             ));
         }
-        if max_velocity == 0 {
-            // Immobile hulls produce no thrust.
+        if max_maneuver_actions == 0 {
+            // Immobile hulls produce no motion.
             if thrust_per_power > 0 {
                 return Err(ConversionError::MobileRatioForImmobile(thrust_per_power));
             }
         } else {
-            // Mobile hulls must be able to buy at least one thrust per power.
+            // Mobile hulls must be able to buy at least one motion point per power.
             if thrust_per_power == 0 {
-                return Err(ConversionError::ImmobileRatioForMobile(max_velocity));
+                return Err(ConversionError::ImmobileRatioForMobile(
+                    max_maneuver_actions,
+                ));
             }
         }
         Ok(Self {

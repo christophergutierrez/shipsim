@@ -3,13 +3,12 @@
 id = "fighter_light"
 name = "Fighter (Light)"
 size = 1
-speed = 8
+max_maneuver_actions = 8
 power = 5
 max_shield_per_facing = 2
 structure = 2
 power_sys = 2
 engine_boxes = 2
-max_velocity = 8
 thrust_per_power = 3
 power_per_thrust = 1
 cost = 43

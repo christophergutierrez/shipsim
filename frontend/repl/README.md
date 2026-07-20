@@ -48,7 +48,7 @@ python3 frontend/repl/repl.py --tutorial rear-attack                 # strict na
 python3 frontend/repl/client.py                                      # non-interactive smoke
 ```
 
-**Rear-attack tutorial (protocol 3):** `--tutorial rear-attack` is a strict
+**Rear-attack tutorial (protocol 4):** `--tutorial rear-attack` is a strict
 narrated pass — accelerate east, `turn 3` to aim west, stern volleys to Won.
 See `tutorial.py` (sequence verified against the dedicated deterministic
 `scenarios/tutorial_rear_attack.toml`) through the live engine. Guidance
@@ -96,23 +96,22 @@ the frame header stays on a 40-row terminal (I3).
 Full detail: **[`GAMEPLAY.md`](GAMEPLAY.md)**.
 
 ```
-allocate (draft → commit) → movement (one decision / ship) → firing (queue → ready)
-    ↑________________________ move/fire may repeat _________________________|
+allocate (draft → commit) → movement (commit one path) → firing (commit one volley)
+    ↑____________________________ auto next turn ___________________________|
 ```
 
 | Phase | Typical commands |
 |---|---|
 | Allocate | `a` → `mov` / `w` / `sh` → `commit` |
-| Movement | `motion`, then `accel`, `turn 0..5`, or `coast` (**one** per ship) |
-| Firing | `f` (optional) → `r` / `done` / `nofire` (not `e`) |
-| End turn | `e` (whole turn; confirm in firing) |
+| Movement | `path f fr tl` → `commit` (one complete path per ship) |
+| Firing | `fire beam_1 #2` to draft shots, then `ready` / `nofire` submits the volley |
 
 **Essentials:**
 
 - Facing arrows match **forward on the board** (0→ is +q / right). See GAMEPLAY.
-- `m N` is **one** turn *or* one step — not turn-then-step in one command.
-- `commit_fire` **queues**; charge drops when **all** ships **ready**.
-- Weapon lines: `CHG` → `QUEUED` → `FIRED HIT/MISS`.
+- Each path action costs one allocated motion; velocity and course do not exist.
+- Weapon charge carries between turns; shields and unused motion do not.
+- After every living ship submits a volley, the next allocate phase begins automatically.
 
 ## Isolation
 

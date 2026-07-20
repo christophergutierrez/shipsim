@@ -9,7 +9,7 @@ prompts so everyone picks the same path.
 | Name | What drives the rules | When to use | Not for |
 |---|---|---|---|
 | **UI play** | A frontend (REPL, Love, …) as a user | Feel, UX, “play until win/loss”, command traps | Thousands of matches |
-| **API play** | NDJSON harness (`shipsim`) + client/tests (protocol **v3**) | Protocol, smoke, regressions, scripted flows | Screen layout / menus |
+| **API play** | NDJSON harness (`shipsim`) + client/tests (protocol **v4**) | Protocol, smoke, regressions, scripted flows | Screen layout / menus |
 | **Sim play** | Rust core in-process (`shipsim-sim` / policies) | Hundreds–thousands of seeded matches, balance, rubrics | Interactive UX |
 
 Architecture:
@@ -69,8 +69,9 @@ python3 frontend/repl/repl.py scenarios/ai.toml
 1. Build and start the REPL. Prefer a real TTY/PTY so the play frame works.
 2. Use on-screen hints + `GAMEPLAY.md` — do not hand-write raw JSON unless
    debugging transport.
-3. Loop: allocate (`mov` / `w` / `sh` → `commit`) → one maneuver per ship
-   (`coast`, `accel`, or `turn N`) → fire menus or `r`/`nofire` → `e` at turn end.
+3. Loop: allocate (`mov` / `w` / `sh` → `commit`) → draft a path
+   (`path f fr tl` / `commit` or `hold`) → draft a volley (`fire …` then
+   `r`/`nofire`). Turn advances automatically after volleys — no `end_turn`.
 4. Play until `Won` / `Lost`, or until stuck (`status` / `cls`, then `quit`).
    If `quit` fails, stop and report a bug.
 5. Report phase, focus, last commands, session log path, expected vs actual.
@@ -85,14 +86,11 @@ python3 frontend/repl/repl.py scenarios/ai.toml --no-session-log
 
 Logs: `frontend/repl/local/session-*.log`, `orders-*.jsonl`.
 
-### Secondary: Love2D
+### Secondary: Ratatui TUI / Love2D
 
-**Not supported on protocol 3 yet** (still v2). Prefer REPL, or the in-progress
-TUI under `frontend/tui/`. Port Love after TUI is solid.
-
-### Future: ratatui TUI
-
-Not implemented (`frontend/tui/`). Will be another UI-play client on the same API.
+Protocol **v4** engine is live; REPL is the reference client. TUI and Love2D
+still need path-editor / volley-builder UX (plan Phases 7–8). Prefer REPL for
+UI play until those land.
 
 ### Screen grid audit (UI presentation, not a full game)
 

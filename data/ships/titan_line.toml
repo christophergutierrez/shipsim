@@ -3,13 +3,12 @@
 id = "titan_line"
 name = "Titan (Line)"
 size = 7
-speed = 3
+max_maneuver_actions = 3
 power = 95
 max_shield_per_facing = 10
 structure = 120
 power_sys = 5
 engine_boxes = 5
-max_velocity = 3
 thrust_per_power = 1
 power_per_thrust = 4
 cost = 822

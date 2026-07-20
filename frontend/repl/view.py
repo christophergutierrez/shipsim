@@ -81,22 +81,27 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
     status = snap.get("status", "?")
     phase = snap.get("phase", "?")
     turn = snap.get("turn", "?")
-    warn_s = ""
-    if snap.get("end_turn_warning") and phase in ("firing", "turn_end"):
-        warn_s = sty_warn("  ⚠ end skips unresolved actions")
     active = movement_focus_id(snap) if phase == "movement" else None
+    if phase == "firing":
+        active = volley_focus_id(snap)
     active_s = f" pending=#{active}" if active is not None else ""
     sel_s = sty_focus(f"  focus=#{selected}") if selected is not None else ""
     actions_s = ""
     selected_ship = ship_by_id(snap, selected) if selected is not None else None
     if selected_ship is not None:
         if phase == "allocate":
-            actions_s = f"  actions=power:{int(selected_ship.get('power_available') or selected_ship.get('power') or 0)}"
+            actions_s = (
+                f"  actions=power:"
+                f"{int(selected_ship.get('power_available') or selected_ship.get('power') or 0)}"
+            )
         elif phase == "movement":
-            actions_s = f"  actions=thrust:{int(selected_ship.get('thrust_remaining') or 0)}"
+            actions_s = (
+                f"  actions=motion:{int(selected_ship.get('motion_available') or 0)}"
+            )
         elif phase == "firing":
             charged = sum(
-                1 for w in (selected_ship.get("weapons") or [])
+                1
+                for w in (selected_ship.get("weapons") or [])
                 if int(w.get("charge") or 0) > 0 and not w.get("fired")
             )
             actions_s = f"  actions=charged:{charged}"
@@ -106,32 +111,46 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
         status_s = sty_ok(status_s)
     elif status == "Lost":
         status_s = sty_err(status_s)
-    # Legend clarifying the *=active vs @=focus distinction (UX_ANALYSIS.md §2d):
-    # active = the ship the engine is currently processing; focus = the ship
-    # your view is centered on. They often differ during the enemy's turn.
     legend = ""
     if selected is not None:
         if active is not None and active != selected:
-            legend = muted(
-                "  (* = next pending maneuver, @ = your focused ship)"
-            )
+            legend = muted("  (* = next pending commit, @ = your focused ship)")
         else:
             legend = muted("  (@ = your focused ship)")
     return (
         f"{rule('shipsim')}\n"
-        f"turn {turn}  phase={phase_s}  status={status_s}{active_s}{sel_s}{actions_s}{warn_s}"
+        f"turn {turn}  phase={phase_s}  status={status_s}{active_s}{sel_s}{actions_s}"
         f"{legend}"
     )
 
 
 def movement_pending_ids(snap: dict[str, Any]) -> list[int]:
-    """Living ships without a maneuver commitment in the current phase."""
-    committed = {int(sid) for sid in snap.get("ships_committed_this_phase") or []}
+    """Living ships without a path commitment in the movement stage."""
+    committed = {int(sid) for sid in snap.get("ships_committed_path") or []}
     return [
         int(ship["id"])
         for ship in snap.get("ships") or []
         if not ship.get("destroyed") and int(ship["id"]) not in committed
     ]
+
+
+def volley_pending_ids(snap: dict[str, Any]) -> list[int]:
+    """Living ships without a volley commitment in the firing stage."""
+    committed = {int(sid) for sid in snap.get("ships_committed_volley") or []}
+    return [
+        int(ship["id"])
+        for ship in snap.get("ships") or []
+        if not ship.get("destroyed") and int(ship["id"]) not in committed
+    ]
+
+
+def volley_focus_id(snap: dict[str, Any]) -> Optional[int]:
+    pending = volley_pending_ids(snap)
+    for sid in pending:
+        ship = ship_by_id(snap, sid)
+        if ship and ship.get("controller") == "player":
+            return sid
+    return pending[0] if pending else None
 
 
 def movement_focus_id(snap: dict[str, Any]) -> Optional[int]:
@@ -159,12 +178,15 @@ def weapon_outcomes_for_ship(
     return out
 
 
-def queued_weapons_for_ship(snap: dict[str, Any], ship_id: int) -> dict[str, dict[str, Any]]:
-    """weapon_id → pending fire_commit (not resolved yet)."""
+def queued_weapons_for_ship(
+    snap: dict[str, Any],
+    ship_id: int,
+    volley_draft: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, dict[str, Any]]:
+    """weapon_id → local volley-draft shot (not on the engine until commit_volley)."""
     out: dict[str, dict[str, Any]] = {}
-    for c in snap.get("fire_commits") or []:
-        if int(c.get("ship") or -1) != int(ship_id):
-            continue
+    # Protocol v4: opponent payloads are never in the snapshot; only local draft.
+    for c in volley_draft or []:
         wid = c.get("weapon")
         if wid:
             out[str(wid)] = c
@@ -237,12 +259,13 @@ def format_weapons(
     """Weapon lines from live snapshot.
 
     Timing (easy to misread):
-    - CHARGED = power allocated and available to commit this fire phase
-    - QUEUED = commit_fire done; charge still on the ship until the phase resolves
-    - FIRED HIT/MISS = phase resolved; charge spent (always empty bar)
+    - CHARGED = power allocated and available for this volley
+    - QUEUED = in local volley draft; charge still on the ship until commit_volley resolves
+    - FIRED HIT/MISS = volley resolved; charge spent (always empty bar)
     """
     sid = int(ship.get("id") or 0)
     outcomes = weapon_outcomes_for_ship(snap, sid) if snap is not None else {}
+    # Snapshot no longer carries fire_commits; queued state is client-local.
     queued = queued_weapons_for_ship(snap, sid) if snap is not None else {}
     lines = []
     for w in ship.get("weapons") or []:
@@ -556,20 +579,28 @@ def format_tactical_blocks(
     if snap.get("phase") == "movement":
         committed = [
             ship_callsign(ship_by_id(snap, int(sid)) or {"id": sid, "controller": "?"})
-            for sid in snap.get("ships_committed_this_phase") or []
+            for sid in snap.get("ships_committed_path") or []
         ]
         pending = [
             ship_callsign(ship_by_id(snap, sid) or {"id": sid, "controller": "?"})
             for sid in movement_pending_ids(snap)
         ]
-        queue = f"committed={', '.join(committed) or '-'} pending={', '.join(pending) or '-'}"
+        queue = f"path committed={', '.join(committed) or '-'} pending={', '.join(pending) or '-'}"
         parts.append(("action", muted(f"movement: {queue}")))
-    if snap.get("ships_ready_fire"):
-        ready = ", ".join(
+    if snap.get("phase") == "firing":
+        committed = [
             ship_callsign(ship_by_id(snap, int(sid)) or {"id": sid, "controller": "?"})
-            for sid in snap.get("ships_ready_fire") or []
+            for sid in snap.get("ships_committed_volley") or []
+        ]
+        pending = [
+            ship_callsign(ship_by_id(snap, sid) or {"id": sid, "controller": "?"})
+            for sid in volley_pending_ids(snap)
+        ]
+        queue = (
+            f"volley committed={', '.join(committed) or '-'} "
+            f"pending={', '.join(pending) or '-'}"
         )
-        parts.append(("action", muted(f"fire ready: {ready}")))
+        parts.append(("action", muted(f"firing: {queue}")))
 
     you_body = format_ship_card(
         me,
@@ -866,41 +897,52 @@ def format_board(
     return "\n".join(lines)
 
 
-def format_commits(snap: dict[str, Any]) -> str:
-    """Player's own queued fire orders (not yet resolved).
+def format_commits(
+    snap: dict[str, Any],
+    *,
+    volley_draft: Optional[list[dict[str, Any]]] = None,
+    volley_ship: Optional[int] = None,
+) -> str:
+    """Local volley draft shots (not yet committed to the engine).
 
-    Only the player's own commits are shown — an enemy's queued shots are
-    internal state the player cannot observe until resolution (UX_ANALYSIS.md
-    §2g). The header no longer claims charge is "still listed on ship" since
-    enemy charge is now hidden in contacts.
+    Protocol v4 never exposes opponent volley payloads in the snapshot — only
+    committed/pending ship IDs. The local draft is the only pre-resolve shot list.
     """
-    commits = [
-        c for c in (snap.get("fire_commits") or [])
-        if _is_player_commit(snap, c)
-    ]
+    commits = list(volley_draft or [])
     if not commits:
         return ""
-    lines = ["your queued shots (not yet resolved):"]
+    lines = ["your volley draft (local until commit_volley):"]
+    atk = ship_by_id(snap, int(volley_ship)) if volley_ship is not None else None
+    cs = ship_callsign(atk) if atk else (f"#{volley_ship}" if volley_ship else "?")
     for c in commits:
         face = int(c.get("shield_facing") or 0)
         lab = SHIELD_LABELS[face] if 0 <= face < 6 else "?"
-        atk = ship_by_id(snap, int(c.get("ship") or -1))
-        cs = ship_callsign(atk) if atk else f"#{c.get('ship')}"
         target = ship_by_id(snap, int(c.get("target") or -1))
         weapon = next(
-            (w for w in (atk or {}).get("weapons", []) if w.get("id") == c.get("weapon")),
+            (
+                w
+                for w in (atk or {}).get("weapons", [])
+                if w.get("id") == c.get("weapon")
+            ),
             None,
         )
         preview = ""
         if atk and target and weapon:
-            rng = distance(int(atk.get("q") or 0), int(atk.get("r") or 0), int(target.get("q") or 0), int(target.get("r") or 0))
+            rng = distance(
+                int(atk.get("q") or 0),
+                int(atk.get("r") or 0),
+                int(target.get("q") or 0),
+                int(target.get("r") or 0),
+            )
             to_hit = hit_preview(
                 str(weapon.get("kind") or ""),
                 rng,
                 int(target.get("size") or 2),
                 int(atk.get("attack_accuracy_bonus") or 0),
             )
-            damage = damage_preview(str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng)
+            damage = damage_preview(
+                str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng
+            )
             if to_hit:
                 preview = (
                     f" size={int(target.get('size') or 2)} range={rng} "
@@ -911,12 +953,6 @@ def format_commits(snap: dict[str, Any]) -> str:
             f"shield={face}:{lab}{preview}"
         )
     return "\n".join(lines)
-
-
-def _is_player_commit(snap: dict[str, Any], c: dict[str, Any]) -> bool:
-    """True if a fire commit belongs to a player-controlled ship."""
-    atk = ship_by_id(snap, int(c.get("ship") or -1))
-    return bool(atk and atk.get("controller") == "player")
 
 
 def format_combat_events(
@@ -1038,16 +1074,21 @@ def format_error(err: dict[str, Any]) -> str:
     low = str(msg).lower()
     if "phase firing" in low and "movement" in low:
         hint = (
-            "\n  → You are still in movement: commit one maneuver for each pending ship. "
-            "Type motion to see choices."
+            "\n  → You are still in movement: draft a path and commit once per ship. "
+            "Type motion for path help."
         )
     elif "phase movement" in low and "firing" in low:
         hint = (
-            "\n  → You are in firing: use f to queue shots or r/ready to finish. "
-            "The next maneuver comes after every ship readies."
+            "\n  → You are in firing: use f to draft shots or r/ready to submit the volley. "
+            "The next allocate begins after every ship commits."
         )
     elif "already committed" in low:
-        hint = "\n  → This ship already chose its maneuver for this movement phase."
+        hint = "\n  → This ship already committed a path or volley this stage."
+    elif "retired" in low:
+        hint = (
+            "\n  → Protocol v4 uses commit_path / commit_volley "
+            "(no ready_fire or end_turn)."
+        )
     return sty_err(f"! {code}: {msg}") + hint
 
 

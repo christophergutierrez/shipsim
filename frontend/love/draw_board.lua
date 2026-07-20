@@ -304,23 +304,20 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
     end
   end
 
-  -- UPGRADE-PLAN Phase 4: velocity vectors. Arrow from each ship along its
-  -- course, length ∝ velocity, so head-on pass-throughs and kiting are legible
-  -- pre-slide. Course is a hex direction 0..5 (same as facing).
+  -- Facing chevrons (v4): short arrow along facing for every living ship.
   for _, ship in ipairs(snapshot.ships or {}) do
-    if not ship.destroyed and (ship.velocity or 0) > 0 then
+    if not ship.destroyed then
       local cx, cy = hex.to_pixel(ship.q, ship.r, SIZE)
-      local cq, cr = hex.neighbor(ship.q, ship.r, ship.course or 0)
+      local cq, cr = hex.neighbor(ship.q, ship.r, ship.facing or 0)
       local vpx, vpy = hex.to_pixel(cq, cr, SIZE)
       local dx, dy = vpx - cx, vpy - cy
       local len = math.sqrt(dx * dx + dy * dy)
       if len > 0 then
-        local vlen = SIZE * 0.5 * (ship.velocity or 0)
+        local vlen = SIZE * 0.55
         dx, dy = dx / len * vlen, dy / len * vlen
         love.graphics.setColor(0.8, 0.8, 0.85, 0.7)
         love.graphics.setLineWidth(2)
         love.graphics.line(cx, cy, cx + dx, cy + dy)
-        -- arrowhead
         local ax, ay = -dy, dx
         local hl = SIZE * 0.12
         love.graphics.polygon("fill", {
@@ -333,11 +330,7 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
     end
   end
 
-  -- UPGRADE-PLAN Phase 4: threat bearing lines. For each enemy with a charged
-  -- weapon that the engine says can reach the selected ship, draw a thin red
-  -- bearing line. The controller computes threats (reuse fire_preview with
-  -- roles reversed, cached per snapshot) and passes them via opts.threats as
-  -- an array of {from_q, from_r, to_q, to_r}. No requests issued here.
+  -- Threat bearing lines (controller-computed).
   if opts.threats then
     love.graphics.setColor(1.0, 0.2, 0.2, 0.5)
     love.graphics.setLineWidth(1)
@@ -349,17 +342,13 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
     love.graphics.setLineWidth(1)
   end
 
-  -- UPGRADE-PLAN Phase 3: translation callouts. When translation_results
-  -- reports a block for any ship, draw a ⊘ marker on that ship's hex so the
-  -- player sees where the slide stopped without reading the log. The marker
-  -- is drawn at the ship's current (post-slide) position.
-  if snapshot.translation_results then
-    for _, tr in ipairs(snapshot.translation_results) do
-      if tr.blocked then
-        -- Find the ship's current hex by id.
+  -- path_results callouts (v4): ⊘ when a ship fell back or was blocked.
+  if snapshot.path_results then
+    for _, pr in ipairs(snapshot.path_results) do
+      if (pr.fallback_steps or 0) > 0 or pr.blocked_kind then
         local bs = nil
         for _, s in ipairs(snapshot.ships or {}) do
-          if s.id == tr.ship then
+          if s.id == pr.ship then
             bs = s
             break
           end
@@ -369,7 +358,6 @@ function draw_board.draw(snapshot, cam, selected_id, ghost_path, opts)
           love.graphics.setColor(0.95, 0.8, 0.3, 0.9)
           love.graphics.setLineWidth(2)
           love.graphics.circle("line", bx, by, SIZE * 0.3)
-          -- ⊘ = circle with diagonal slash
           local r = SIZE * 0.3
           love.graphics.line(bx - r * 0.7, by - r * 0.7, bx + r * 0.7, by + r * 0.7)
           love.graphics.setLineWidth(1)

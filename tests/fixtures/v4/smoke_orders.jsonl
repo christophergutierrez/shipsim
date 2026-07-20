@@ -1,0 +1,3 @@
+{"protocol_version":4,"type":"allocate","ship":1,"movement":4,"weapons":{"beam_1":4,"torp_1":1,"plasma_1":1},"shields":[2,0,0,0,0,2]}
+{"protocol_version":4,"type":"commit_path","ship":1,"actions":["move_f","move_f"]}
+{"protocol_version":4,"type":"commit_volley","ship":1,"shots":[]}

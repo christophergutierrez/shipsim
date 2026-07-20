@@ -21,22 +21,7 @@ FACING_LEGEND = "0→ 1↗ 2↖ 3← 4↙ 5↘  (q right, r down; port=↗, star
 # Relative shield labels (0 = ship's own forward face).
 SHIELD_LABELS = ["F", "FR", "RR", "R", "RL", "FL"]
 
-# Protocol 3: constant-rate slide — each cycle the ship moves `speed` hexes
-# along course (all four movement phases if speed > 0). Presentation only.
-
-
-def translation_phases(speed: int) -> tuple[int, ...]:
-    s = int(speed)
-    if s <= 0:
-        return ()
-    return (1, 2, 3, 4)
-
-
-def translation_schedule_label(speed: int) -> str:
-    s = int(speed)
-    if s <= 0:
-        return "none"
-    return f"every cycle ×{s} hex"
+# Protocol 4: path motion — no velocity/course. Presentation only.
 
 
 def dir_glyph(direction: int) -> str:
@@ -44,36 +29,26 @@ def dir_glyph(direction: int) -> str:
     return f"{d}{FACING_GLYPH.get(d, '?')}"
 
 
-def course_facing_diverge(course: int, facing: int) -> bool:
-    return int(course) % 6 != int(facing) % 6
-
-
 def motion_status_bits(ship: dict) -> str:
-    """Compact sticky line for prompts / ship cards: v, course, face, thrust, slides."""
-    speed = int(ship.get("velocity") or 0)
-    course = int(ship.get("course") or 0)
+    """Compact sticky line: face, motion pool, maneuver cap."""
     facing = int(ship.get("facing") or 0)
-    thrust = int(ship.get("thrust_remaining") or 0)
-    bits = (
-        f"v={speed} course={dir_glyph(course)} face={dir_glyph(facing)} "
-        f"thrust={thrust} slides=[{translation_schedule_label(speed)}]"
-    )
-    if course_facing_diverge(course, facing):
-        bits += f"  ⚠ sliding {dir_glyph(course)}, nose {dir_glyph(facing)}"
-    return bits
-
-
-def next_translation_note(speed: int, movement_phase: int) -> str:
-    """Human note: how many hexes you slide this cycle (protocol 3 constant rate)."""
-    _ = movement_phase
-    s = int(speed)
-    if s <= 0:
-        return "POSITION HOLDS: stopped (speed 0); accel to begin sliding each cycle"
+    motion = int(ship.get("motion_available") or 0)
+    cap = int(ship.get("max_maneuver_actions") or 0)
     return (
-        f"MOVE OCCURS after this maneuver: slide {s} hex(es) along course "
-        f"(constant rate every cycle)"
+        f"face={dir_glyph(facing)} motion={motion}"
+        + (f"/{cap}" if cap else "")
     )
-    return "POSITION HOLDS for the rest of this turn; the next move is next turn"
+
+
+def path_action_short(action: str) -> str:
+    """Canonical wire action → short label for draft display."""
+    return {
+        "move_f": "f",
+        "move_fr": "fr",
+        "move_fl": "fl",
+        "turn_right": "tr",
+        "turn_left": "tl",
+    }.get(str(action), str(action))
 
 # Presentation-only preview of the engine's documented d20 threshold tables.
 # The engine remains authoritative; this lets the picker explain a result

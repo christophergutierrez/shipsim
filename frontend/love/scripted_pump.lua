@@ -1,11 +1,12 @@
--- Advance scripted ships through v2 phases until a player action is required.
+-- Advance scripted ships through protocol-v4 collection stages until a player
+-- action is required.
 local orders = require("orders")
 
 local pump = {}
 
-local function first_pending(snap, controller)
+local function first_pending(snap, controller, field)
   local committed = {}
-  for _, id in ipairs(snap.ships_committed_this_phase or {}) do
+  for _, id in ipairs(snap[field] or {}) do
     committed[id] = true
   end
   for _, ship in ipairs(snap.ships or {}) do
@@ -49,12 +50,12 @@ function pump.run(session, on_error)
         order = orders.allocate(ship, 0, weapons, { 0, 0, 0, 0, 0, 0 })
       end
     elseif snap.phase == "movement" then
-      if first_pending(snap, "player") then return end
-      local ship = first_pending(snap, "scripted")
-      if ship then order = orders.coast(ship) end
+      if first_pending(snap, "player", "ships_committed_path") then return end
+      local ship = first_pending(snap, "scripted", "ships_committed_path")
+      if ship then order = orders.commit_path(ship, {}) end
     elseif snap.phase == "firing" then
       local ready = {}
-      for _, id in ipairs(snap.ships_ready_fire or {}) do ready[id] = true end
+      for _, id in ipairs(snap.ships_committed_volley or {}) do ready[id] = true end
       for _, ship in ipairs(snap.ships or {}) do
         if ship.controller == "player" and not ship.destroyed and not ready[ship.id] then
           return
@@ -62,7 +63,7 @@ function pump.run(session, on_error)
       end
       for _, ship in ipairs(snap.ships or {}) do
         if ship.controller == "scripted" and not ship.destroyed and not ready[ship.id] then
-          order = orders.ready_fire(ship.id)
+          order = orders.commit_volley(ship.id, {})
           break
         end
       end

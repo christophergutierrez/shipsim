@@ -1,11 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::game_state::{GameState, Phase, ScenarioStatus, Terminal};
-use crate::motion::Maneuver;
 use crate::movement::{apply_order, Order, OrderError};
 use crate::scenario::{load_scenario, load_scenario_def, LoadError};
 use crate::schema::ScenarioDef;
@@ -393,7 +392,6 @@ fn run_match_with_policies(
     game.reseed(config.seed);
     let mut trace = Vec::new();
     let mut metrics = MatchMetrics::default();
-    let mut pending_maneuvers = BTreeMap::new();
     let initial_snapshot = StateSnapshot::from_game_state(&game);
     let mut closest_approach = None;
     let mut turns_in_weapon_range = BTreeSet::new();
@@ -422,37 +420,25 @@ fn run_match_with_policies(
                 .find(|ship| ship.id == actor.expect("allocation actor"))
                 .expect("snapshot actor");
             policy.allocate_with_context(ship, &snapshot)
-        } else if game.phase() == Phase::TurnEnd {
-            Order::EndTurn
         } else {
+            // Protocol v4: policies emit one complete CommitPath / CommitVolley.
             let ship_id = actor.expect("ship actor");
             let ship = snapshot
                 .ships
                 .iter()
                 .find(|ship| ship.id == ship_id)
                 .expect("snapshot actor");
-            let legal_orders = legal_orders(&game, ship_id);
-            if legal_orders.is_empty() {
-                return Err(SimulationError::NoLegalOrders {
-                    ship: ship_id,
-                    phase: game.phase(),
-                });
-            }
             policy.choose_order(&DecisionContext {
                 snapshot: &snapshot,
                 ship,
-                legal_orders: &legal_orders,
+                rules: game.rules(),
+                legal_orders: &[],
             })
         };
         let before = snapshot.clone();
         let turn = game.turn_number();
         let phase = game.phase_name().to_string();
-        let policy_name = if game.phase() == Phase::TurnEnd {
-            "runner".to_string()
-        } else {
-            policy.name().to_string()
-        };
-        let prior_log_len = game.combat_log().len();
+        let policy_name = policy.name().to_string();
         metrics.record_attempted_order();
         if let Err(source) = apply_order(&mut game, order.clone()) {
             metrics.rejected_orders += 1;
@@ -488,41 +474,34 @@ fn run_match_with_policies(
             });
         }
         metrics.record_accepted_order(&order);
-        if let Order::CommitManeuver { ship, maneuver } = &order {
-            let ship_snapshot = before
-                .ships
-                .iter()
-                .find(|candidate| candidate.id == *ship)
-                .expect("maneuver actor snapshot");
-            metrics.record_maneuver(ship_snapshot, *maneuver);
-            pending_maneuvers.insert(*ship, *maneuver);
-        }
         if let Order::Allocate { ship, .. } = &order {
             if let Some(ship_snapshot) = before.ships.iter().find(|candidate| candidate.id == *ship)
             {
                 metrics.record_allocation(ship_snapshot, &order);
             }
         }
-        for event in game.combat_log().iter().skip(prior_log_len) {
-            if event.kind == "hit" {
-                metrics.hits += 1;
-            } else if event.kind == "miss" {
-                metrics.misses += 1;
-            }
-            metrics.damage += u64::from(event.damage);
-        }
         let after = StateSnapshot::from_game_state(&game);
+        // The log is retained between turns, then replaced wholesale at the
+        // next volley resolution. Only consume it when this order completed a
+        // volley; using the previous length as an index would skip new events
+        // whenever the replacement log is shorter than the prior one.
+        let volley_resolved = before.phase == "firing"
+            && (after.phase != "firing"
+                || (before.status == ScenarioStatus::InProgress
+                    && after.status != ScenarioStatus::InProgress));
+        if volley_resolved {
+            for event in &after.combat_log {
+                if event.kind == "hit" {
+                    metrics.hits += 1;
+                } else if event.kind == "miss" {
+                    metrics.misses += 1;
+                }
+                metrics.damage += u64::from(event.damage);
+            }
+        }
         observe_diagnostics(&after, &mut closest_approach, &mut turns_in_weapon_range);
-        if before.phase == "movement"
-            && (after.phase != "movement" || after.movement_phase != before.movement_phase)
-        {
-            metrics.record_movement_resolution(
-                &before,
-                &after,
-                &pending_maneuvers,
-                game.last_translation_outcomes(),
-            );
-            pending_maneuvers.clear();
+        if before.phase == "movement" && after.phase != "movement" {
+            metrics.record_path_resolution(&before, &after.path_results);
         }
         trace.push(TraceEvent {
             sequence: trace.len(),
@@ -716,14 +695,13 @@ fn actor_for(
         Phase::Movement => snapshot
             .ships
             .iter()
-            .find(|ship| !ship.destroyed && !snapshot.ships_committed_this_phase.contains(&ship.id))
+            .find(|ship| !ship.destroyed && !snapshot.ships_committed_path.contains(&ship.id))
             .map(|ship| ship.id),
         Phase::Firing => snapshot
             .ships
             .iter()
-            .find(|ship| !ship.destroyed && !snapshot.ships_ready_fire.contains(&ship.id))
+            .find(|ship| !ship.destroyed && !snapshot.ships_committed_volley.contains(&ship.id))
             .map(|ship| ship.id),
-        Phase::TurnEnd => return Ok((None, true)),
     };
     let actor = actor.ok_or(SimulationError::NoActor(phase))?;
     let is_player = snapshot
@@ -732,73 +710,6 @@ fn actor_for(
         .find(|ship| ship.id == actor)
         .is_some_and(|ship| ship.controller == "player");
     Ok((Some(actor), is_player))
-}
-
-fn legal_orders(game: &GameState, ship: u32) -> Vec<Order> {
-    let candidates = match game.phase() {
-        Phase::Movement => {
-            let mut candidates = vec![Maneuver::Coast, Maneuver::Accel];
-            for facing in 0..6u8 {
-                candidates.push(Maneuver::Turn { facing });
-                candidates.push(Maneuver::TurnAccel { facing });
-            }
-            candidates
-                .into_iter()
-                .map(|maneuver| Order::CommitManeuver { ship, maneuver })
-                .filter(|order| {
-                    let mut candidate = game.clone();
-                    apply_order(&mut candidate, order.clone()).is_ok()
-                })
-                .collect()
-        }
-        Phase::Firing => {
-            let mut orders = Vec::new();
-            if let Some(attacker) = game.ship(ship) {
-                let attacker_side = game.controller_label(ship);
-                for weapon in &attacker.weapons {
-                    for target in game.ships().iter().filter(|target| {
-                        !target.destroyed
-                            && target.id != ship
-                            && game.controller_label(target.id) != attacker_side
-                    }) {
-                        for shield_facing in 0..6 {
-                            orders.push(Order::CommitFire {
-                                ship,
-                                weapon: weapon.id.clone(),
-                                target: target.id,
-                                shield_facing,
-                            });
-                        }
-                    }
-                }
-            }
-            orders.push(Order::ReadyFire { ship });
-            orders
-                .into_iter()
-                .filter(|order| {
-                    if let Order::CommitFire { target, .. } = order {
-                        let Some(attacker) = game.ship(ship) else {
-                            return false;
-                        };
-                        let Some(target_ship) = game.ship(*target) else {
-                            return false;
-                        };
-                        attacker.pos.distance(target_ship.pos) > 0
-                    } else {
-                        true
-                    }
-                })
-                .collect()
-        }
-        _ => Vec::new(),
-    };
-    candidates
-        .into_iter()
-        .filter(|order| {
-            let mut candidate = game.clone();
-            apply_order(&mut candidate, order.clone()).is_ok()
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -822,7 +733,6 @@ mod tests {
             q: 0,
             r: 0,
             facing: 0,
-            speed: 1,
             power: 10,
             attack_accuracy_bonus: 0,
             power_available: 10,
@@ -847,25 +757,22 @@ mod tests {
                 max_charge: 4,
                 operational: weapon_operational,
             }],
-            max_velocity: 1,
+            max_maneuver_actions: 4,
             thrust_per_power: 1,
             power_per_thrust: 1,
-            velocity: 0,
-            course: 0,
-            thrust_remaining: 0,
+            motion_available: 0,
         }
     }
 
     fn test_snapshot(ships: Vec<ShipSnapshot>) -> StateSnapshot {
         StateSnapshot {
-            protocol_version: 3,
+            protocol_version: 4,
             turn: 1,
             status: ScenarioStatus::InProgress,
             phase: "allocate".into(),
-            movement_phase: 0,
-            ships_committed_this_phase: Vec::new(),
-            ships_ready_fire: Vec::new(),
             ships_allocated_this_turn: Vec::new(),
+            ships_committed_path: Vec::new(),
+            ships_committed_volley: Vec::new(),
             seed: 1,
             prng_state: 1,
             map: crate::snapshot::MapSnapshot {
@@ -875,11 +782,9 @@ mod tests {
             },
             objective: None,
             ships,
-            fire_commits: Vec::new(),
             combat_log: Vec::new(),
-            end_turn_warning: false,
             fire_opportunity: None,
-            translation_results: Vec::new(),
+            path_results: Vec::new(),
             rules_id: "default".into(),
             rules_fingerprint: "fnv1a-test".into(),
         }
@@ -955,9 +860,11 @@ mod tests {
         }
 
         fn choose_order(&mut self, context: &DecisionContext<'_>) -> Order {
-            Order::Move {
+            // Over-budget path: always illegal when motion_available is 0
+            // (RejectingPolicy allocates zero engine power).
+            Order::CommitPath {
                 ship: context.ship.id,
-                mode: "test-invalid".into(),
+                actions: vec![crate::path::PathAction::MoveF; 8],
             }
         }
     }
@@ -977,14 +884,14 @@ mod tests {
             Box::new(RejectingPolicy),
             Box::new(RejectingPolicy),
         )
-        .expect_err("the deliberate legacy order must fail");
+        .expect_err("the deliberate illegal path must fail");
         let failure = error.failed_match().expect("structured failed match");
 
         assert_eq!(failure.metrics.rejected_orders, 1);
         assert_eq!(failure.metrics.attempted_orders, 3);
         assert_eq!(failure.metrics.orders, 2);
-        assert_eq!(failure.metrics.movement_orders, 0);
-        assert_eq!(failure.metrics.thrust_spent, 0);
+        assert_eq!(failure.metrics.path_orders, 0);
+        assert_eq!(failure.metrics.volley_orders, 0);
         assert_eq!(failure.metrics.engine_power_allocated, 0);
         assert_eq!(failure.trace.len(), 3);
         assert!(matches!(
@@ -1003,9 +910,12 @@ mod tests {
         let decoded: serde_json::Value =
             serde_json::from_slice(&std::fs::read(report_path.path()).expect("read failed report"))
                 .expect("decode failed report");
-        assert_eq!(
-            decoded["trace"][2]["outcome"]["rejected"]["error"],
-            "the Move order was removed in M4 (ADR-0022); submit CommitManeuver instead"
+        let err = decoded["trace"][2]["outcome"]["rejected"]["error"]
+            .as_str()
+            .expect("rejected error string");
+        assert!(
+            err.contains("path is illegal") || err.contains("motion"),
+            "unexpected error: {err}"
         );
         assert_eq!(decoded["metrics"]["rejected_orders"], 1);
         assert!(decoded["final_snapshot"]["prng_state"].is_number());

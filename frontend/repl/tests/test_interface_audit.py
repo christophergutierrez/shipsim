@@ -11,21 +11,21 @@ from tests.test_characterization import snapshot
 
 def _fire_snapshot():
     return {
-        "protocol_version": 3,
+        "protocol_version": 4,
         "phase": "firing",
         "status": "InProgress",
         "turn": 1,
         "ships": [
             {"id": 1, "class": "Heavy Cruiser", "controller": "player", "destroyed": False,
              "q": 1, "r": 0, "facing": 3, "structure": 12, "power": 22,
-             "velocity": 0, "course": 3, "thrust_remaining": 4, "max_velocity": 4,
+             "motion_available": 0, "max_maneuver_actions": 4,
              "weapons": [], "max_shield_per_facing": 6},
             {"id": 2, "class": "Escort", "controller": "scripted", "destroyed": False,
              "q": 0, "r": 0, "facing": 0, "structure": 12, "power": 14,
-             "velocity": 0, "course": 0, "thrust_remaining": 0, "max_velocity": 4,
+             "motion_available": 0, "max_maneuver_actions": 4,
              "weapons": [], "max_shield_per_facing": 6},
         ],
-        "fire_commits": [{"ship": 1, "weapon": "beam_1", "target": 2, "shield_facing": 0}],
+        "ships_committed_volley": [],
         "combat_log": [],
     }
 
@@ -41,18 +41,17 @@ class InterfaceGoldenTests(unittest.TestCase):
         text = render_help("attack")
         self.assertIn("fire", text)
         self.assertIn("example:", text)
-        self.assertIn("charged weapon", text)
+        self.assertIn("volley", text.lower())
 
     def test_help_recognizes_documented_aliases_and_phase_commands(self):
         expected = {
-            "e": "end | e",
-            "p": "coast | p",
+            "p": "hold",
             "r": "ready | nofire | r",
             "commit": "commit | c | ok",
             "engine": "engine N",
             "w": "w [weapon] N",
             "sh": "sh [face] N",
-            "accel": "accel",
+            "path": "path",
         }
         for topic, syntax in expected.items():
             with self.subTest(topic=topic):
@@ -80,10 +79,12 @@ class InterfaceGoldenTests(unittest.TestCase):
             "id": 2, "class": "Escort", "controller": "ai", "q": 3,
             "r": 0, "facing": 3, "destroyed": False, "weapons": [],
         })
-        action = build_action("fire b1 #2", snap, ReplContext(selected=1))
-        self.assertEqual("commit_fire", action.orders[0]["type"])
-        self.assertEqual("beam_1", action.orders[0]["weapon"])
-        self.assertEqual(2, action.orders[0]["target"])
+        ctx = ReplContext(selected=1)
+        action = build_action("fire b1 #2", snap, ctx)
+        self.assertFalse(action.orders)  # drafted locally, not committed yet
+        self.assertEqual(1, len(ctx.volley_draft))
+        self.assertEqual("beam_1", ctx.volley_draft[0]["weapon"])
+        self.assertEqual(2, ctx.volley_draft[0]["target"])
 
     def _firing_snap_with_enemy(self):
         snap = snapshot(phase="firing")
@@ -118,10 +119,10 @@ class InterfaceGoldenTests(unittest.TestCase):
                     f"{line!r} fell through to the interactive fire menu",
                 )
                 self.assertTrue(
-                    action.orders and action.orders[0]["type"] == "commit_fire",
-                    f"{line!r} did not produce a commit_fire order",
+                    ctx.volley_draft and ctx.volley_draft[0]["weapon"] == "beam_1",
+                    f"{line!r} did not draft a beam_1 shot",
                 )
-                self.assertEqual(2, action.orders[0]["target"])
+                self.assertEqual(2, ctx.volley_draft[0]["target"])
                 self.assertNotIn(
                     "Enter weapon number", out.getvalue(),
                     f"{line!r} printed the interactive weapon-menu prompt",
@@ -157,15 +158,17 @@ class InterfaceGoldenTests(unittest.TestCase):
             "id": 2, "class": "Escort", "controller": "ai", "q": 3,
             "r": 0, "facing": 3, "destroyed": False, "weapons": [],
         })
+        ctx = ReplContext(selected=1)
         with patch("builtins.input", return_value="fire b1 #2"):
-            action = interactive_fire(snap, 1)
-        self.assertEqual("commit_fire", action["type"])
+            action = interactive_fire(snap, 1, ctx)
+        self.assertEqual("beam_1", action["weapon"])
         self.assertEqual(2, action["target"])
 
-    def test_minus_one_at_firing_prompt_means_ready(self):
+    def test_minus_one_at_firing_prompt_means_commit_volley(self):
         snap = snapshot(phase="firing")
         action = build_action("-1", snap, ReplContext(selected=1))
-        self.assertEqual("ready_fire", action.orders[0]["type"])
+        self.assertEqual("commit_volley", action.orders[0]["type"])
+        self.assertEqual([], action.orders[0]["shots"])
 
     def test_allocate_e_with_value_warns_about_engine_alias_hazard(self):
         out = io.StringIO()
@@ -174,28 +177,28 @@ class InterfaceGoldenTests(unittest.TestCase):
         self.assertEqual("empty", action.side)
         self.assertIn("engine 10", out.getvalue())
 
-    def test_turn_end_coast_names_end_command(self):
+    def test_coast_outside_movement_is_refused(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            action = build_action("coast", snapshot(phase="turn_end"), ReplContext())
+            action = build_action("coast", snapshot(phase="firing"), ReplContext())
         self.assertEqual("empty", action.side)
-        self.assertIn("end", out.getvalue().lower())
+        self.assertIn("unavailable", out.getvalue().lower())
 
-    def test_accel_emits_protocol3_along_facing(self):
+    def test_path_commit_emits_protocol4(self):
         snap = snapshot(phase="movement")
-        snap["movement_phase"] = 1
-        action = build_action("accel", snap, ReplContext(selected=1))
-        self.assertEqual({"type": "accel"}, action.orders[0]["maneuver"])
-        self.assertTrue(action.note)
-        self.assertIn("accel", action.note.lower())
+        ctx = ReplContext(selected=1)
+        build_action("f", snap, ctx)
+        action = build_action("commit", snap, ctx)
+        self.assertEqual("commit_path", action.orders[0]["type"])
+        self.assertEqual(["move_f"], action.orders[0]["actions"])
+        self.assertEqual(4, action.orders[0]["protocol_version"])
 
     def test_direction_legend_uses_all_six_diagonals(self):
         text = render_help()
         self.assertIn("0→ 1↗ 2↖ 3← 4↙ 5↘", text)
-        self.assertIn("starboard toward ↘", text)
 
     def test_combat_event_explains_shield_and_hull_split(self):
-        snap = snapshot(phase="turn_end")
+        snap = snapshot(phase="firing")
         snap["ships"].append({
             "id": 2, "class": "Escort", "controller": "ai", "q": 3,
             "r": 0, "facing": 3, "destroyed": False, "structure": 10,
@@ -224,7 +227,7 @@ class InterfaceGoldenTests(unittest.TestCase):
         self.assertIn("shield face=0:F", text)
         self.assertNotIn("shield=0 absorbed", text)
 
-    def test_direct_fire_explains_already_queued_weapon(self):
+    def test_direct_fire_explains_already_drafted_weapon(self):
         snap = snapshot(phase="firing")
         attacker = snap["ships"][0]
         attacker.update(q=0, r=0, facing=0, controller="player")
@@ -237,12 +240,14 @@ class InterfaceGoldenTests(unittest.TestCase):
             "id": 2, "class": "Escort", "controller": "ai", "q": 3,
             "r": 0, "facing": 3, "destroyed": False, "weapons": [],
         })
-        snap["fire_commits"] = [{"ship": 1, "weapon": "beam_1", "target": 2}]
+        ctx = ReplContext(selected=1)
+        ctx.volley_draft = [{"weapon": "beam_1", "target": 2, "shield_facing": 0}]
+        ctx.volley_ship = 1
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            action = build_action("fire b1 #2", snap, ReplContext(selected=1))
+            action = build_action("fire b1 #2", snap, ctx)
         self.assertFalse(action.orders)
-        self.assertIn("already queued", out.getvalue())
+        self.assertIn("already in the volley draft", out.getvalue())
         self.assertIn("ready", out.getvalue())
 
     def test_numeric_input_during_firing_does_not_change_focus(self):
@@ -308,7 +313,7 @@ class EngineCommandOpensAllocateDraft(unittest.TestCase):
         snap["ships"].append({
             "id": 2, "class": "Escort", "controller": "player", "destroyed": False,
             "q": 0, "r": 1, "facing": 0, "structure": 12, "power": 14,
-            "velocity": 0, "course": 0, "thrust_remaining": 0, "max_velocity": 4,
+            "motion_available": 0, "max_maneuver_actions": 4,
             "weapons": [], "max_shield_per_facing": 6,
         })
         return snap
@@ -417,13 +422,13 @@ class PlayLikeCommandsGetPhaseHint(unittest.TestCase):
     reply must say what actually advances the current phase — not the
     generic unknown-command line."""
 
-    def test_play_in_movement_points_to_coast(self):
+    def test_play_in_movement_points_to_path(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             action = build_action("play", snapshot(phase="movement"), ReplContext())
         self.assertEqual("empty", action.side)
         text = out.getvalue()
-        self.assertIn("coast", text)
+        self.assertIn("path", text)
         self.assertNotIn("unknown command", text)
 
     def test_next_in_firing_points_to_ready(self):
@@ -458,14 +463,13 @@ class ConfirmPromptEOFSafety(unittest.TestCase):
         finally:
             builtins.input = orig_input
 
-    def test_end_turn_confirm_eof_does_not_crash(self):
+    def test_end_turn_is_retired(self):
         snap = _fire_snapshot()
-        action = self._run_with_eof("end", snap, ReplContext())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            action = build_action("end", snap, ReplContext())
         self.assertEqual("empty", action.side)
-
-    def test_end_turn_accepts_inline_confirmation(self):
-        action = build_action("end yes", _fire_snapshot(), ReplContext())
-        self.assertEqual("end_turn", action.orders[0]["type"])
+        self.assertIn("removed", out.getvalue().lower())
 
     def test_empty_commit_accepts_inline_confirmation(self):
         snap = snapshot(phase="allocate")
@@ -487,25 +491,36 @@ class ConfirmPromptEOFSafety(unittest.TestCase):
         self.assertEqual("empty", action.side)
 
 
-class EndTurnDiscardsQueuedShotsIsWarned(unittest.TestCase):
-    """Ending the whole turn mid-firing silently discards any shot already
-    queued (commit_fire) but not yet resolved via ready_fire — the engine
-    drops it with no combat_log entry. The confirmation prompt must warn
-    about this explicitly, not just say "ends the WHOLE turn"."""
+class VolleySubmitTests(unittest.TestCase):
+    """Protocol v4: ready submits commit_volley; end_turn is gone."""
 
-    def test_pending_shot_warning_names_the_queued_shot(self):
+    def test_ready_submits_drafted_shots(self):
+        snap = _fire_snapshot()
+        snap["ships"][0]["weapons"] = [{
+            "id": "beam_1", "kind": "Beam", "charge": 4,
+            "max_charge": 4, "max_range": 10, "mount": "forward",
+            "operational": True, "fired": False,
+        }]
+        ctx = ReplContext(selected=1)
+        ctx.volley_draft = [
+            {"weapon": "beam_1", "target": 2, "shield_facing": 0}
+        ]
+        ctx.volley_ship = 1
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            action = build_action("ready", snap, ctx)
+        self.assertEqual("commit_volley", action.orders[0]["type"])
+        self.assertEqual(1, len(action.orders[0]["shots"]))
+        # Draft cleared on successful send, not at parse time.
+        self.assertEqual(1, len(ctx.volley_draft))
+
+    def test_end_turn_is_removed(self):
         snap = _fire_snapshot()
         out = io.StringIO()
-        orig_input = builtins.input
-        builtins.input = lambda *_a, **_k: "no"
-        try:
-            with contextlib.redirect_stdout(out):
-                build_action("end", snap, ReplContext())
-        finally:
-            builtins.input = orig_input
-        text = out.getvalue()
-        self.assertIn("DISCARD", text)
-        self.assertIn("beam_1", text)
+        with contextlib.redirect_stdout(out):
+            action = build_action("end", snap, ReplContext())
+        self.assertFalse(action.orders)
+        self.assertIn("protocol v4", out.getvalue().lower())
 
 
 if __name__ == "__main__":

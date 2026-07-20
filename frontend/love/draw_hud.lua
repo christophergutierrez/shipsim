@@ -131,8 +131,7 @@ function draw_hud.phase_call_to_action(snap, selected_id)
   end
 
   -- pending_cta: name the selected ship if it still owes an action; otherwise
-  -- name the first pending fleetmate with a Tab hint. Mirrors the TUI closure
-  -- at ui.rs:2091-2106.
+  -- name the first pending fleetmate with a truthful mouse-selection hint.
   local function pending_cta(completed, verb)
     local sel = find_ship(snap, selected_id)
     if sel and sel.controller == "player" and not sel.destroyed
@@ -141,7 +140,7 @@ function draw_hud.phase_call_to_action(snap, selected_id)
     end
     for _, s in ipairs(snap.ships or {}) do
       if s.controller == "player" and not s.destroyed and not completed[s.id] then
-        return string.format("%s %s — Tab to switch", callsign(s), verb)
+        return string.format("%s %s — click ship on map", callsign(s), verb)
       end
     end
     return ""
@@ -159,63 +158,61 @@ function draw_hud.phase_call_to_action(snap, selected_id)
   elseif phase == phases.MOVEMENT then
     local sel = find_ship(snap, selected_id)
     if sel and sel.controller == "player" and not sel.destroyed
-        and (sel.thrust_remaining or 0) == 0
-        and not completed_set(snap.ships_committed_this_phase)[sel.id] then
-      return string.format("%s no thrust; Space coasts", callsign(sel))
+        and (sel.motion_available or 0) == 0
+        and not completed_set(snap.ships_committed_path)[sel.id] then
+      return string.format("%s no motion; P coasts", callsign(sel))
     end
-    return pending_cta(completed_set(snap.ships_committed_this_phase), "needs a maneuver")
+    return pending_cta(completed_set(snap.ships_committed_path), "needs a path")
   elseif phase == phases.FIRING then
-    local ready = {}
-    for _, id in ipairs(snap.ships_ready_fire or {}) do
-      ready[id] = true
-    end
-    local focused_ready = selected_id ~= nil and ready[selected_id] or false
-    if focused_ready then
+    local committed = completed_set(snap.ships_committed_volley)
+    local focused_done = selected_id ~= nil and committed[selected_id] or false
+    if focused_done then
       local sel = find_ship(snap, selected_id)
       local cs = callsign(sel)
-      local opp = snap.fire_opportunity
-      if opp and selected_id ~= opp.ship then
-        local other = callsign(find_ship(snap, opp.ship))
-        local tgt = callsign(find_ship(snap, opp.target))
-        return string.format("%s ready; Tab>%s %s>%s", cs, other, opp.weapon or "?", tgt)
+      local next_id = nil
+      for _, s in ipairs(snap.ships or {}) do
+        if s.controller == "player" and not s.destroyed and not committed[s.id] then
+          next_id = s.id
+          break
+        end
       end
-      return string.format("%s ready", cs)
-    end
-    local queued = 0
-    for _, c in ipairs(snap.fire_commits or {}) do
-      if c.ship == selected_id then
-        queued = queued + 1
+      if next_id then
+        return string.format("%s volley sent; focus %s", cs, callsign(find_ship(snap, next_id)))
       end
+      return string.format("%s volley sent; waiting on others", cs)
     end
-    if queued > 0 then
-      return string.format("%d queued; Space fires", queued)
-    elseif snap.fire_opportunity then
+    if snap.fire_opportunity then
       local opp = snap.fire_opportunity
       local attacker = callsign(find_ship(snap, opp.ship))
       local tgt = callsign(find_ship(snap, opp.target))
       if selected_id == opp.ship then
-        return string.format("%s %s>%s available", attacker, opp.weapon or "?", tgt)
+        return string.format("%s %s>%s · queue then R", attacker, opp.weapon or "?", tgt)
       else
         local active = callsign(find_ship(snap, selected_id))
-        return string.format("%s active; Tab>%s %s>%s", active, attacker, opp.weapon or "?", tgt)
+        return string.format("%s active; click %s for %s>%s", active, attacker, opp.weapon or "?", tgt)
       end
-    else
-      return "No legal shot; Space passes fire"
     end
-  elseif phase == phases.TURN_END then
-    return "Turn complete; e"
+    return pending_cta(committed, "needs a volley (R holds fire)")
   end
   return ""
 end
 
--- ADR-0022 M4: simultaneous commits — HUD "Active" is the first living ship
--- still owing a commitment this phase. Pass controller="player" for player input.
+-- Simultaneous commits — HUD "Active" is the first living ship still owing a
+-- commitment this stage (path or volley).
 local function first_uncommitted_ship(snap, controller)
-  if not snap or snap.phase ~= "movement" then
+  if not snap then
+    return nil
+  end
+  local list_key
+  if snap.phase == "movement" then
+    list_key = "ships_committed_path"
+  elseif snap.phase == "firing" then
+    list_key = "ships_committed_volley"
+  else
     return nil
   end
   local committed = {}
-  for _, id in ipairs(snap.ships_committed_this_phase or {}) do
+  for _, id in ipairs(snap[list_key] or {}) do
     committed[id] = true
   end
   for _, s in ipairs(snap.ships or {}) do
@@ -233,12 +230,9 @@ end
 function draw_hud.header_text(snap, app_phase, selected_id)
   local turn = (snap and snap.turn) or 1
   local phase = app_phase or (snap and snap.phase) or phases.ALLOCATE
-  local mp = ""
-  if phase == phases.MOVEMENT and snap and snap.movement_phase then
-    mp = string.format(" %d/4", snap.movement_phase)
-  end
-  local header = string.format("Turn %d  %s%s", turn, phase, mp)
-  if phase == phases.MOVEMENT then
+  -- v4 movement is a single simultaneous stage (no 4-cycle count).
+  local header = string.format("Turn %d  %s", turn, phase)
+  if phase == phases.MOVEMENT or phase == phases.FIRING then
     local active = first_uncommitted_ship(snap, "player")
     if active then
       header = header .. status_fmt.header_active(active, function(id)
@@ -296,11 +290,8 @@ function draw_hud.draw(app)
     (slots.top_h - font14:getHeight()) / 2)
   love.graphics.setScissor()
 
-  -- End Turn always owns the center-right header slot (discoverable; D1).
-  if app.screen == "play" and snap then
-    local et = slots.end_turn
-    ui.button("End Turn", et.x, et.y, et.w, et.h, "end_turn", nil, false)
-  end
+  -- v4 has no End Turn: turns advance automatically once every living ship
+  -- commits its volley. The center-right header slot is intentionally empty.
 
   love.graphics.setColor(0.08, 0.09, 0.12, 0.97)
   love.graphics.rectangle("fill", px, regions.panel.y, regions.panel.w, regions.panel.h)
@@ -347,8 +338,6 @@ function draw_hud.draw(app)
     y = draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   elseif phase == phases.FIRING then
     y = draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
-  elseif phase == phases.TURN_END then
-    y = draw_hud.draw_turn_end_panel(app, snap, px, pad, y, content_w)
   end
 
   y = y + 6
@@ -480,20 +469,14 @@ function draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w, y_bot)
   local lh = ui.line_h(13)
   local turn = (snap and snap.turn) or 0
   local phase = app.phase or (snap and snap.phase) or ""
-  local mp = ""
-  if phase == "movement" and snap and snap.movement_phase then
-    mp = string.format(" %d/4", snap.movement_phase)
-  elseif phase == "firing" and snap and snap.movement_phase then
-    mp = string.format(" %d/4", snap.movement_phase)
-  end
-  local phase_str = phase .. mp
+  local phase_str = phase
   if phase_str == "" then
     phase_str = "Starting"
   end
 
   local complete = tutorial.is_complete(t)
   local step_idx = tutorial.step_count(t) > 0
-    and (t.current + 1) or 1
+    and t.current or 1
   local total = tutorial.step_count(t)
   local title
   if complete then
@@ -502,16 +485,25 @@ function draw_hud.draw_tutorial_panel(app, snap, px, pad, y, content_w, y_bot)
     title = string.format("Coach · Turn %d · %s · %d/%d", turn, phase_str, step_idx, total)
   end
 
-  -- Derive cursor / field_value for do_now_line from the selected ship's alloc
-  -- draft (the Love2D client is mouse-driven, so there is no keyboard cursor;
-  -- we pass nil when not in allocate or no draft, and do_now_line handles nil).
+  -- Love has no allocation cursor, so treat the field requested by the coach
+  -- as focused and show its authoritative local-draft value in the prompt.
   local cursor, field_value = nil, nil
   if not complete and snap and app.selected_id then
     local a = app.alloc[app.selected_id]
     if a and (phase == "allocate") then
-      -- The Love2D alloc draft has no cursor; pass nil so do_now_line shows
-      -- the "↓/↑ until ▶ is on <field>" guidance rather than a live value.
-      -- field_value stays nil — the prompt is still useful without it.
+      local step = tutorial.current_step(t)
+      local expected = step and step.expected
+      if expected and expected.kind == "ReachValue" then
+        cursor = expected.field
+        if cursor == 0 then
+          field_value = a.movement or 0
+        elseif cursor >= 1 and cursor <= 3 then
+          local weapon_ids = { "beam_1", "torp_1", "plasma_1" }
+          field_value = a.weapons[weapon_ids[cursor]] or 0
+        elseif cursor >= 4 and cursor <= 9 then
+          field_value = a.shields[cursor - 3] or 0
+        end
+      end
     end
   end
 
@@ -647,6 +639,10 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
   return y
 end
 
+-- Protocol v4 path editor. Movement is one ordered commit_path per ship built
+-- from move_f / move_fr / move_fl / turn_left / turn_right (cost 1 each), total
+-- ≤ motion budget. Buttons append actions to app.path_drafts[ship]; Commit sends
+-- the path, Coast commits an empty path (hold position).
 function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   local bh = math.max(math.floor(28 * ui.scale), layout.MIN_HIT)
   local active = first_uncommitted_ship(snap, "player")
@@ -657,51 +653,56 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
     y = y + ui.line_h(13)
     return y
   end
+  local avail = ship.motion_available or 0
+  local cap = ship.max_maneuver_actions
+  if cap and cap < avail then avail = cap end
+  local draft = (app.path_drafts and app.path_drafts[ship.id]) or {}
+  local used = #draft
+
   love.graphics.setColor(0.8, 0.85, 0.9)
-  local cycle = snap.movement_phase or 0
   love.graphics.print(
-    string.format("Moving #%d (%s) — cycle %d/4", ship.id, ship.class or "?", cycle),
+    string.format("Moving #%d (%s)  face %d", ship.id, ship.class or "?", ship.facing or 0),
     px + pad, y)
   y = y + ui.line_h(13) + 2
   love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print(
-    string.format("face %d  course %d  vel %d  thrust %d",
-      ship.facing or 0, ship.course or 0, ship.velocity or 0, ship.thrust_remaining or 0),
-    px + pad, y)
-  y = y + ui.line_h(13) + 4
-  -- Cost column inside button (F1 D2) — not a second line under the border.
-  local opts = app.maneuver_options and app.maneuver_options.options or nil
-  ui.button_split("Coast (P)", preview.maneuver_cost_label(opts, { type = "coast" }),
-    px + pad, y, content_w, bh, "coast", nil, false)
-  y = y + bh + 4
-  ui.button_split("Accel (T)", preview.maneuver_cost_label(opts, { type = "accel" }),
-    px + pad, y, content_w, bh, "accel", nil, false)
-  y = y + bh + 4
-  local cur_face = ship.facing or 0
-  local want = app.maneuver_facing or 0
-  love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print(
-    string.format("Turn to facing: %d (now %d)  keys 0-5 commit", want, cur_face),
-    px + pad, y)
+  love.graphics.print(string.format("Path %d/%d motion", used, avail), px + pad, y)
   y = y + ui.line_h(13) + 1
-  local fw = math.floor((content_w - 5 * 3) / 6)
-  for i = 0, 5 do
-    local sel = (want == i)
-    -- Same-facing is a no-op in the engine — still selectable for Turn+Accel path clarity.
-    ui.button(tostring(i), px + pad + i * (fw + 3), y, fw, bh, "pick_maneuver_facing", { face = i }, sel)
+  -- Show the drafted action sequence (wrapped) so the plan is visible.
+  local seq = used > 0 and table.concat(draft, " ") or "(empty = hold position)"
+  local font = ui.font(12)
+  local measure = function(s) return font:getWidth(s) end
+  ui.use(12)
+  love.graphics.setColor(0.6, 0.75, 0.9)
+  for _, ln in ipairs(layout.wrap_text(seq, content_w, measure, 3)) do
+    love.graphics.print(ln, px + pad, y)
+    y = y + ui.line_h(12)
   end
+  ui.use(13)
+  y = y + 2
+  if used >= avail then
+    love.graphics.setColor(0.9, 0.75, 0.3)
+    love.graphics.print("Motion budget full", px + pad, y)
+    y = y + ui.line_h(13) + 1
+    ui.use(13)
+  end
+
+  -- Movement steps (position changes) — three across: FL, F, FR.
+  local half = math.floor((content_w - 4) / 2)
+  local third = math.floor((content_w - 8) / 3)
+  ui.button("F-L (A)", px + pad, y, third, bh, "path_action", { action = "move_fl" }, false)
+  ui.button("Fwd (W)", px + pad + third + 4, y, third, bh, "path_action", { action = "move_f" }, false)
+  ui.button("F-R (D)", px + pad + 2 * (third + 4), y, third, bh, "path_action", { action = "move_fr" }, false)
   y = y + bh + 4
-  local turn_cost = preview.maneuver_cost_label(opts, { type = "turn", facing = want })
-  if want == cur_face then
-    turn_cost = "same"
-  end
-  ui.button_split("Turn", turn_cost, px + pad, y, content_w, bh, "turn", nil, false)
+  -- Rotations (facing only).
+  ui.button("Turn L (Z)", px + pad, y, half, bh, "path_action", { action = "turn_left" }, false)
+  ui.button("Turn R (X)", px + pad + half + 4, y, half, bh, "path_action", { action = "turn_right" }, false)
+  y = y + bh + 6
+  -- Edit + commit.
+  ui.button("Undo (Bksp)", px + pad, y, half, bh, "path_undo", nil, false)
+  ui.button("Clear (Del)", px + pad + half + 4, y, half, bh, "path_clear", nil, false)
   y = y + bh + 4
-  local ta_cost = preview.maneuver_cost_label(opts, { type = "turn_accel", facing = want })
-  if want == cur_face then
-    ta_cost = "same"
-  end
-  ui.button_split("Turn+Accel", ta_cost, px + pad, y, content_w, bh, "turn_accel", nil, false)
+  ui.button("Coast (P)", px + pad, y, half, bh, "path_coast", nil, false)
+  ui.button("Commit (Enter)", px + pad + half + 4, y, half, bh, "path_commit", nil, false)
   y = y + bh + 6
   return y
 end
@@ -716,14 +717,9 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
     return y
   end
   love.graphics.setColor(0.8, 0.85, 0.9)
-  love.graphics.print("Weapon: (auto-advances after Commit)", px + pad, y)
+  love.graphics.print("Weapon: (queue with Enter)", px + pad, y)
   y = y + ui.line_h(13) + 1
-  local committed_w = {}
-  for _, c in ipairs(snap.fire_commits or {}) do
-    if c.ship == ship.id and c.weapon then
-      committed_w[c.weapon] = true
-    end
-  end
+  local committed_w = draw_hud.queued_weapons(app, ship.id)
   for _, w in ipairs(ship.weapons or {}) do
     local sel = (app.weapon_id == w.id)
     local ch = w.charge or 0
@@ -799,57 +795,16 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
   return y
 end
 
-function draw_hud.draw_turn_end_panel(app, snap, px, pad, y, content_w)
-  local bh = math.max(math.floor(24 * ui.scale), layout.MIN_HIT)
-  love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print("End of turn", px + pad, y)
-  y = y + ui.line_h(13) + 4
-  if snap.end_turn_warning then
-    love.graphics.setColor(0.9, 0.75, 0.3)
-    love.graphics.print("WARNING: unresolved fire", px + pad, y)
-    y = y + ui.line_h(13) + 3
+--- Return a set of weapons in the protocol-v4 local volley draft.
+--- Kept pure so queued-state presentation can be tested without Love graphics.
+function draw_hud.queued_weapons(app, ship_id)
+  local queued = {}
+  for _, shot in ipairs((app.volley_drafts and app.volley_drafts[ship_id]) or {}) do
+    if shot.weapon then
+      queued[shot.weapon] = true
+    end
   end
-  ui.button("End Turn (E)", px + pad, y, content_w, bh, "end_turn", nil, false)
-  y = y + bh + 6
-  return y
-end
-
-function draw_hud.draw_end_warning(app)
-  local W = love.graphics.getWidth()
-  local H = love.graphics.getHeight()
-  love.graphics.setColor(0, 0, 0, 0.72)
-  love.graphics.rectangle("fill", 0, 0, W, H)
-  local box_w = math.min(W - 80, math.floor(480 * ui.scale))
-  local box_h = math.floor(200 * ui.scale)
-  local bx = (W - box_w) / 2
-  local by = (H - box_h) / 2
-  love.graphics.setColor(0.18, 0.14, 0.08, 0.98)
-  love.graphics.rectangle("fill", bx, by, box_w, box_h, 6, 6)
-  love.graphics.setColor(0.95, 0.8, 0.3)
-  ui.use(18)
-  love.graphics.print("End turn anyway?", bx + 16, by + 14)
-  ui.use(13)
-  love.graphics.setColor(0.9, 0.9, 0.92)
-  -- F4.3: name the forfeited shot when fire_opportunity is present.
-  local detail = "There is unresolved fire or unspent power."
-  local snap = app.session and app.session.snapshot
-  if snap and snap.fire_opportunity then
-    local opp = snap.fire_opportunity
-    detail = string.format("%s %s → ship #%s in range — forfeit?",
-      callsign(find_ship(snap, opp.ship)),
-      opp.weapon or "weapon",
-      tostring(opp.target or "?"))
-  end
-  local font = ui.font(13)
-  local lines = layout.wrap_text(detail, box_w - 32, function(s) return font:getWidth(s) end, 3)
-  local ly = by + 48
-  for _, ln in ipairs(lines) do
-    love.graphics.print(ln, bx + 16, ly)
-    ly = ly + ui.line_h(13)
-  end
-  local bw = math.floor(160 * ui.scale)
-  ui.button("Confirm", bx + 16, by + box_h - 44, bw, 30, "end_warning_confirm", nil, false)
-  ui.button("Cancel", bx + 16 + bw + 12, by + box_h - 44, bw, 30, "end_warning_cancel", nil, false)
+  return queued
 end
 
 --- Phase toast overlay (F4.4).
@@ -893,8 +848,9 @@ function draw_hud.draw_help_overlay()
     "Allocate: +/− steppers (hold to repeat) or +/− keys for movement.",
     "  Quick: Max wpn / Bal sh / Engine / Clear. Power bar sets move fraction.",
     "  Enter or Allocate commits. Weapon charge carries (cannot strip).",
-    "Movement: P=coast, T=accel, 0-5=turn, Shift+0-5=turn+accel.",
-    "  End Turn button lives in the header (also E).",
+    "Movement: build a path — W=fwd, A=fwd-left, D=fwd-right, Z/X=turn L/R.",
+    "  Backspace=undo, Del=clear, P=coast(hold), Enter=commit path.",
+    "  Turns advance automatically once every ship commits its volley.",
     "Firing: enemies only; rows show hit% when available.",
     "  Up/Down=weapon, Enter=Commit Fire, R=Ready. Board-click sets target.",
     "Right-drag pan, map wheel zoom, sidebar wheel scrolls content.",

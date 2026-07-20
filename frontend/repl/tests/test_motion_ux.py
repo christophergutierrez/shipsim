@@ -1,4 +1,4 @@
-"""Flight UX (protocol 3): sticky status, accel/turn notes, help primer."""
+"""Flight UX (protocol 4): motion sticky line, path draft, help primer."""
 
 import contextlib
 import io
@@ -11,7 +11,7 @@ from commands import (
     phase_hint,
     render_help,
 )
-from hexutil import motion_status_bits, next_translation_note, translation_schedule_label
+from hexutil import motion_status_bits
 from view import format_ship_line
 
 
@@ -24,9 +24,8 @@ def _ship(**kw):
         "q": 0,
         "r": 0,
         "facing": 0,
-        "course": 0,
-        "velocity": 0,
-        "thrust_remaining": 6,
+        "motion_available": 6,
+        "max_maneuver_actions": 6,
         "structure": 4,
         "power": 10,
         "power_available": 10,
@@ -38,92 +37,92 @@ def _ship(**kw):
     return base
 
 
-def _snap(ship=None, phase="movement", movement_phase=1, **kw):
+def _snap(ship=None, phase="movement", **kw):
     s = ship or _ship()
     snap = {
-        "protocol_version": 3,
+        "protocol_version": 4,
         "phase": phase,
         "status": "InProgress",
         "turn": 1,
-        "movement_phase": movement_phase,
         "ships": [s],
-        "ships_committed_this_phase": [],
+        "ships_committed_path": [],
         "ships_allocated_this_turn": [],
-        "ships_ready_fire": [],
+        "ships_committed_volley": [],
         "combat_log": [],
-        "fire_commits": [],
     }
     snap.update(kw)
     return snap
 
 
 class Helpers(unittest.TestCase):
-    def test_schedule_labels(self):
-        self.assertEqual("none", translation_schedule_label(0))
-        self.assertIn("1", translation_schedule_label(1))
-        self.assertIn("hex", next_translation_note(2, 1).lower())
-
-    def test_diverge_flag(self):
-        bits = motion_status_bits(_ship(velocity=2, course=1, facing=0))
-        self.assertIn("sliding", bits)
+    def test_motion_bits(self):
+        bits = motion_status_bits(_ship(motion_available=2, facing=1))
+        self.assertIn("motion=2", bits)
+        self.assertIn("face=", bits)
 
 
 class Hints(unittest.TestCase):
     def test_movement_hint_sticky(self):
-        snap = _snap(_ship(velocity=1), movement_phase=1)
+        snap = _snap(_ship(motion_available=1))
         hint = phase_hint(snap, ReplContext(selected=1))
-        self.assertIn("v=1", hint)
-        self.assertIn("slides=", hint)
-        self.assertIn("coast", hint)
+        self.assertIn("motion=1", hint)
+        self.assertIn("path", hint.lower())
 
     def test_summary_and_help(self):
-        text = movement_summary(_ship(velocity=0), 1)
-        self.assertIn("accel", text.lower())
-        self.assertIn("turn", text.lower())
-        help_text = render_help("motion")
-        self.assertIn("protocol 3", help_text.lower())
+        text = movement_summary(_ship(motion_available=0))
+        self.assertIn("path", text.lower())
+        # Shorthand tokens are the player-facing action language.
+        lower = text.lower()
+        self.assertTrue(
+            "move_f" in lower or " f " in f" {lower} " or "| f |" in lower or "f | fr" in lower,
+            f"expected path action tokens in: {text!r}",
+        )
+        help_text = render_help("path")
+        self.assertIn("protocol 4", help_text.lower())
 
 
-class Maneuvers(unittest.TestCase):
-    def test_accel_emits_protocol3(self):
-        snap = _snap(_ship(velocity=0), movement_phase=1)
+class Paths(unittest.TestCase):
+    def test_path_draft_then_commit(self):
+        snap = _snap()
+        ctx = ReplContext(selected=1)
         with contextlib.redirect_stdout(io.StringIO()):
+            build_action("f", snap, ctx)
+            build_action("tr", snap, ctx)
+            action = build_action("commit", snap, ctx)
+        self.assertEqual("commit_path", action.orders[0]["type"])
+        self.assertEqual(["move_f", "turn_right"], action.orders[0]["actions"])
+        self.assertEqual(4, action.orders[0]["protocol_version"])
+
+    def test_bare_tokens(self):
+        snap = _snap()
+        ctx = ReplContext(selected=1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            build_action("fr fl", snap, ctx)
+        self.assertEqual(["move_fr", "move_fl"], ctx.path_draft)
+
+    def test_undo_and_clear(self):
+        snap = _snap()
+        ctx = ReplContext(selected=1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            build_action("path f f", snap, ctx)
+            build_action("undo", snap, ctx)
+        self.assertEqual(["move_f"], ctx.path_draft)
+        with contextlib.redirect_stdout(io.StringIO()):
+            build_action("clear", snap, ctx)
+        self.assertEqual([], ctx.path_draft)
+
+    def test_retired_accel_explains_path(self):
+        snap = _snap()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
             action = build_action("accel", snap, ReplContext(selected=1))
-        self.assertEqual("accel", action.orders[0]["maneuver"]["type"])
-        self.assertEqual(3, action.orders[0]["protocol_version"])
-
-    def test_turn_absolute(self):
-        snap = _snap(_ship(velocity=2, course=0, facing=0), movement_phase=1)
-        with contextlib.redirect_stdout(io.StringIO()):
-            action = build_action("turn 3", snap, ReplContext(selected=1))
-        self.assertEqual("turn", action.orders[0]["maneuver"]["type"])
-        self.assertEqual(3, action.orders[0]["maneuver"]["facing"])
-
-    def test_turn_port(self):
-        snap = _snap(_ship(velocity=2, course=0, facing=0), movement_phase=1)
-        with contextlib.redirect_stdout(io.StringIO()):
-            action = build_action("turn port", snap, ReplContext(selected=1))
-        self.assertEqual(1, action.orders[0]["maneuver"]["facing"])
-
-    def test_turn_accel_combined(self):
-        snap = _snap(_ship(velocity=2, course=0, facing=0), movement_phase=1)
-        with contextlib.redirect_stdout(io.StringIO()):
-            action = build_action("turn 1 accel", snap, ReplContext(selected=1))
-        self.assertEqual("turn_accel", action.orders[0]["maneuver"]["type"])
-        self.assertEqual(1, action.orders[0]["maneuver"]["facing"])
-
-    def test_oblique_accel_notes_revector(self):
-        snap = _snap(_ship(velocity=2, course=0, facing=1), movement_phase=1)
-        with contextlib.redirect_stdout(io.StringIO()):
-            action = build_action("accel", snap, ReplContext(selected=1))
-        self.assertEqual("accel", action.orders[0]["maneuver"]["type"])
-        self.assertIn("REVECTOR", action.note or "")
+        self.assertFalse(action.orders)
+        self.assertIn("path", output.getvalue().lower())
 
 
 class ShipLine(unittest.TestCase):
     def test_sticky(self):
-        line = format_ship_line(_ship(velocity=1))
-        self.assertIn("slides=", line)
+        line = format_ship_line(_ship(motion_available=1))
+        self.assertIn("motion=1", line)
 
 
 if __name__ == "__main__":

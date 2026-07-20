@@ -1,54 +1,42 @@
-//! Orders for Combat v2 play (ADR-0019).
-//! Allocate → (Maneuver × 4) → Fire → Ready → EndTurn phase machine (ADR-0022 M4).
+//! Orders for protocol v4 simplified simultaneous turns (ADR-0025).
+//! Collection stages: allocate → commit_path → commit_volley (auto next turn).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::game_state::GameState;
-use crate::motion::Maneuver;
+use crate::path::PathAction;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Order {
-    /// Combat v2: allocate movement, weapon charge, and shield power for one ship.
+    /// Allocate motion power, weapon charge totals, and shield power for one ship.
+    /// Staged until every living ship commits; applied together.
     Allocate {
         ship: u32,
         movement: u32,
+        /// Desired charge totals. Omitted or empty leaves carried charge untouched
+        /// (only listed weapons are considered for increases).
+        #[serde(default)]
         weapons: BTreeMap<String, u32>,
         shields: [u32; 6],
     },
-    /// Retired in M4 (ADR-0022): the single-active-mover legacy movement model is gone.
-    /// Kept in the enum only so old protocol-v1 payloads still deserialize; always rejected
-    /// by `apply_order`. `mode` is untyped since the legacy `MoveMode` enum is deleted.
-    Move {
-        ship: u32,
-        mode: String,
-    },
-    /// Commit one maneuver (or `Maneuver::Coast`) for `ship` during the current movement
-    /// phase (ADR-0022 M4). Resolution is deferred until every living ship has committed.
-    CommitManeuver {
-        ship: u32,
-        maneuver: Maneuver,
-    },
-    /// Retired in M6 (ADR-0022): the external contract now uses maneuver commitment
-    /// semantics (`CommitManeuver` with `Maneuver::Coast`). Kept in the enum only so old
-    /// protocol-v1 payloads still deserialize; always rejected by `apply_order`.
-    PassMove {
-        ship: u32,
-    },
-    CommitFire {
-        ship: u32,
-        weapon: String,
-        target: u32,
-        shield_facing: u8,
-    },
-    ReadyFire {
-        ship: u32,
-    },
-    /// Combat v2: end the current turn and advance to the next turn's allocation.
-    /// Legal in any phase after allocation; always advances (the UI owns any warning).
-    EndTurn,
+    /// One complete path for `ship` during the movement collection stage.
+    CommitPath { ship: u32, actions: Vec<PathAction> },
+    /// One complete volley for `ship` during the firing collection stage.
+    /// Empty `shots` is an explicit hold-fire.
+    CommitVolley { ship: u32, shots: Vec<VolleyShot> },
+    // --- Retired v3 orders (deserialize for clear rejection only) ---
+    #[serde(other)]
+    RetiredUnknown,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct VolleyShot {
+    pub weapon: String,
+    pub target: u32,
+    pub shield_facing: u8,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -57,8 +45,8 @@ pub enum OrderError {
     ShipNotFound(u32),
     #[error("ship {ship} lacks power (need {need}, have {have})")]
     InsufficientPower { ship: u32, need: u32, have: u32 },
-    #[error("ship {ship} lacks thrust (need {need}, have {have})")]
-    InsufficientThrust { ship: u32, need: u32, have: u32 },
+    #[error("ship {ship} lacks motion (need {need}, have {have})")]
+    InsufficientMotion { ship: u32, need: u32, have: u32 },
     #[error("weapon {0} was not found")]
     WeaponNotFound(String),
     #[error("target {0} was not found")]
@@ -81,12 +69,10 @@ pub enum OrderError {
     OutOfArc { weapon: String, target: u32 },
     #[error("weapon {weapon} on ship {ship} has already fired this turn")]
     WeaponAlreadyFired { ship: u32, weapon: String },
-    #[error("weapon {weapon} on ship {ship} has already been committed this phase")]
-    WeaponAlreadyCommitted { ship: u32, weapon: String },
+    #[error("weapon {weapon} on ship {ship} appears more than once in the volley")]
+    WeaponAlreadyInVolley { ship: u32, weapon: String },
     #[error("weapon {weapon} on ship {ship} is not charged")]
     WeaponNotCharged { ship: u32, weapon: String },
-    #[error("ship {0} is already ready to fire")]
-    FireAlreadyReady(u32),
     #[error("weapon {weapon} would deal no damage at range {range} with charge {charge}")]
     NoDamage {
         weapon: String,
@@ -97,18 +83,12 @@ pub enum OrderError {
     IllegalShieldFacing { requested: u8, legal: Vec<u8> },
     #[error("ship {0} has already allocated power this turn")]
     AlreadyAllocated(u32),
-    #[error("cannot end the turn during allocation")]
-    EndTurnDuringAllocation,
-    #[error("ship {0} has already committed a maneuver this movement phase")]
-    AlreadyCommittedThisPhase(u32),
-    #[error("ship {ship} cannot perform this maneuver: {reason}")]
-    IllegalManeuver { ship: u32, reason: String },
-    #[error("the Move order was removed in M4 (ADR-0022); submit CommitManeuver instead")]
-    MoveOrderRetired,
-    #[error(
-        "the PassMove order was retired in M6 (ADR-0022); submit CommitManeuver with maneuver \"coast\" instead"
-    )]
-    PassMoveOrderRetired,
+    #[error("ship {0} has already committed a path this turn")]
+    AlreadyCommittedPath(u32),
+    #[error("ship {0} has already committed a volley this turn")]
+    AlreadyCommittedVolley(u32),
+    #[error("ship {ship} path is illegal: {reason}")]
+    IllegalPath { ship: u32, reason: String },
     #[error("order requires phase {expected}, actual phase is {actual}")]
     WrongPhase {
         expected: &'static str,
@@ -143,8 +123,12 @@ pub enum OrderError {
         have: u32,
         want: u32,
     },
-    #[error("movement preview failed: {0}")]
+    #[error("path preview failed: {0}")]
     PreviewFailed(String),
+    #[error(
+        "retired protocol-v3 order is not accepted under protocol v4 (use commit_path / commit_volley; no ready_fire or end_turn)"
+    )]
+    RetiredV3Order,
 }
 
 pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError> {
@@ -155,21 +139,8 @@ pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError>
             weapons,
             shields,
         } => game.allocate_v2(ship, movement, weapons, shields),
-        Order::Move { .. } => Err(OrderError::MoveOrderRetired),
-        Order::CommitManeuver { ship, maneuver } => game.commit_maneuver_v2(ship, maneuver),
-        Order::PassMove { .. } => Err(OrderError::PassMoveOrderRetired),
-        Order::CommitFire {
-            ship,
-            weapon,
-            target,
-            shield_facing,
-        } => game.commit_fire_v2(crate::game_state::FireCommit {
-            ship,
-            weapon,
-            target,
-            shield_facing,
-        }),
-        Order::ReadyFire { ship } => game.ready_fire_v2(ship),
-        Order::EndTurn => game.end_turn_v2(),
+        Order::CommitPath { ship, actions } => game.commit_path(ship, actions),
+        Order::CommitVolley { ship, shots } => game.commit_volley(ship, shots),
+        Order::RetiredUnknown => Err(OrderError::RetiredV3Order),
     }
 }

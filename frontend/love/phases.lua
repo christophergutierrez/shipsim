@@ -1,14 +1,11 @@
--- v2 phase machine (Combat Model v2, ADR-0020).
--- Matches the core Phase enum (serde snake_case): allocate, movement, firing, turn_end.
+-- Protocol-v4 collection stages: allocate, movement, firing, then auto-advance.
 
 local phases = {}
 
 phases.ALLOCATE = "allocate"
 phases.MOVEMENT = "movement"
 phases.FIRING = "firing"
-phases.TURN_END = "turn_end"
-
-phases.ORDER = { phases.ALLOCATE, phases.MOVEMENT, phases.FIRING, phases.TURN_END }
+phases.ORDER = { phases.ALLOCATE, phases.MOVEMENT, phases.FIRING }
 
 function phases.next(p)
   for i, name in ipairs(phases.ORDER) do
@@ -23,12 +20,10 @@ end
 function phases.allows(p, action)
   if action == "allocate" then
     return p == phases.ALLOCATE
-  elseif action == "commit_maneuver" then
+  elseif action == "commit_path" then
     return p == phases.MOVEMENT
-  elseif action == "commit_fire" or action == "ready_fire" then
+  elseif action == "commit_volley" then
     return p == phases.FIRING
-  elseif action == "end_turn" then
-    return true
   end
   return false
 end

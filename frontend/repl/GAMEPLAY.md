@@ -1,8 +1,9 @@
 # shipsim REPL — gameplay guide
 
-How to **play** Combat Model v2 through `frontend/repl/`. Rules live in the Rust
-engine (`docs/PLAY-V2.md`, ADR-0020); this file is the **REPL-shaped** walkthrough:
-phases, commands, what the screen means, and common traps.
+How to **play** Combat Model v2 through `frontend/repl/` under **protocol v4**.
+Rules live in the Rust engine (`docs/PLAY-V2.md`, ADR-0025); this file is the
+**REPL-shaped** walkthrough: stages, commands, what the screen means, and
+common traps.
 
 This is **UI play** (`docs/AGENT-PLAY.md`). For harness/tests without the live
 frame, use **API play** and `docs/PROTOCOL.md`. For mass matches, use **sim play**
@@ -27,14 +28,14 @@ Each step the client **clears and redraws** from the latest engine snapshot:
 
 | Region | Contents |
 |---|---|
-| Header | Turn, **phase**, status, focus ship, next pending maneuver, fire warning |
-| YOUR SHIP | Callsign, position, facing, hull bar, shields, weapons |
-| THREATS | Advisory: enemy ships + weapons that can bear on your focus ship (range shown) |
-| ENGAGEMENT | Exact range, relative bearing, target shield face exposed to you, and each of your weapons' current range/arc status |
+| Header | Turn, **phase**, status, focus ship, next pending path/volley |
+| YOUR SHIP | Callsign, position, facing, hull bar, shields, weapons, **motion** |
+| THREATS | Advisory: enemy ships + weapons that can bear on your focus ship |
+| ENGAGEMENT | Range, bearing, exposed shield face, weapon range/arc status |
 | CONTACTS | Enemies/allies with range and which of *their* shields face you |
 | MAP | Hex board, callsign + facing arrow per ship |
 | RECENT | Last few events (allocate echo, Δ lines, fire resolution) |
-| ALLOCATE DRAFT | Only while drafting power (local — not on engine yet) — warns on unspent power |
+| DRAFT | Local allocate / path / volley drafts (not on engine until commit) |
 | Hint + prompt | What to do next; `t{turn}/{phase}@focus…>` |
 
 Type `log` to toggle a longer history panel. `cls` / `status` redraws the frame.
@@ -46,9 +47,6 @@ Type `log` to toggle a longer history panel. `cls` / `status` redraws the frame.
 | **A#** | player (you control these) |
 | **B#** | ai |
 | **C#** | scripted |
-
-Example: `A1` = player ship id 1, `B2` = AI ship id 2. Same letter ≈ same side
-until scenarios grow real fleet/side ids.
 
 ### Facing (map arrows)
 
@@ -63,12 +61,7 @@ Board is **q right, r down**. Facing index and arrow **are** forward:
 | 4 | ↙ | |
 | 5 | ↓ | +r (down) |
 
-Directional maneuver controls are deferred to M8. Facing remains visible for the
-future maneuver UI; in M6, use `p`/`pass` to commit coast.
-
 ### Shield faces (ship-relative)
-
-On a ship, shields are **relative to its nose**, not map north:
 
 | Index | Label | Meaning |
 |---|---|---|
@@ -83,29 +76,27 @@ On a ship, shields are **relative to its nose**, not map north:
 
 ---
 
-## 2. Turn structure (engine loop)
+## 2. Turn structure (protocol v4)
 
-Each **turn**:
+Each **turn** is three simultaneous **collection stages**:
 
 ```
-ALLOCATE  (all living ships, once each)
+ALLOCATE  (every living ship stages power once; apply together)
     ↓
-┌→ MOVEMENT  (each ship: one Move or Pass, initiative order)
-│      ↓
-│  FIRING    (optional commits, then Ready; resolve when all ready)
-│      ↓
-└── after four movement/fire cycles → turn end
+MOVEMENT  (every living ship stages one complete path; resolve together)
+    ↓
+FIRING    (every living ship stages one volley; resolve together)
+    ↓
+next ALLOCATE automatically  (no turn_end, no end_turn)
 ```
 
-There is no separate “round counter.” Movement and firing **pair** until nobody
-can usefully act (or you force **End Turn**).
+Snapshots may show **pending / committed ship IDs**, never opponent path or
+volley payloads.
 
 AI ships (`controller = "ai"`) are advanced by the harness after your orders.
-**Scripted** ships (`controller = "scripted"`, e.g. the escort in
-`scenarios/combat.toml`) are **not** driven by the harness. The REPL auto-sends
-passive allocate / coast / ready_fire for them when the phase is blocked
-**only** on scripted ships — otherwise the game would wait forever. You still
-only type orders for **player** ships.
+**Scripted** ships are **not** driven by the harness. The REPL auto-sends
+passive allocate / empty path / empty volley for them when the stage is blocked
+**only** on scripted ships. You only type orders for **player** ships.
 
 ---
 
@@ -115,7 +106,7 @@ only type orders for **player** ships.
 
 Split each player ship’s **power pool** into:
 
-- **engine** power (converted to a turn-scoped thrust reserve by the hull),
+- **engine** power (converted to a turn-scoped **motion** pool by the hull),
 - **weapon charges**,
 - **six shield faces** (sum ≤ pool; per-face max applies).
 
@@ -127,20 +118,16 @@ Nothing hits the engine until **`commit`**.
 |---|---|
 | `a` | List ships still needing allocate; auto-open draft if only one |
 | `a 1` / `1` | Focus ship and open draft (if not yet allocated) |
-| `mov 6` / `m 6` | Set engine power in the draft |
-| `mov` then `6` | Same (two lines) |
-| bare number (e.g. `8`) | While drafting: **set movement**, not “re-pick ship” |
-| `w` | Enter weapons group; list shortcuts |
+| `mov 6` / `engine 6` / `m 6` | Set engine power in the draft |
+| bare number (e.g. `8`) | While drafting: **set movement** |
+| `w` | Enter weapons group |
 | `b1 2` / `t1 1` / `p1 1` | Charge beam_1 / torp_1 / plasma_1 |
-| `w t1 1` | Same from draft root |
 | `sh` | Enter shields group |
 | `0 3` / `F 3` | Put 3 power on face 0 / F |
 | `show` | Reprint draft bars |
 | `reset` | Clear draft (still local) |
 | `commit` / `c` / `ok` | Send `allocate` order to the engine |
 | `cancel` | Discard draft |
-
-Weapon shortcuts: first letter of kind + index (`beam_1` → `b1`, `torp_1` → `t1`).
 
 ### Example
 
@@ -161,7 +148,7 @@ commit
 After a good commit you should see something like:
 
 ```
-  engine accepted allocate #1: engine=6 power → thrust=6  weapons: beam_1=2, torp_1=1  shields=[3, 0, 0, 0, 0, 3]
+  engine accepted allocate #1: engine=6 power → motion=6  weapons: beam_1=2, torp_1=1  shields=[3, 0, 0, 0, 0, 3]
 phase → movement
 ```
 
@@ -169,198 +156,144 @@ phase → movement
 
 | Mistake | Result |
 |---|---|
-| Commit with all zeros | No new thrust or weapon charge; existing velocity still coasts |
-| Think “I set points” but never `commit` | Engine still unallocated |
+| Commit with all zeros | No motion, no new charge; empty path later |
+| Never `commit` | Engine still unallocated |
 | Expect multi-ship allocate without `a` each ship | Each player ship must allocate once |
-| Empty weapons map vs all zero charges | Both fine; uncharged guns cannot fire later |
-
-Every living ship still commits a maneuver in all four movement phases. A ship
-with zero thrust can always Coast and retains its existing velocity.
 
 ---
 
-## 4. Phase: Movement
+## 4. Phase: Movement (path draft)
 
 ### Goal
 
-Each living ship gets exactly one maneuver commitment in each of four movement
-phases. Commitments resolve simultaneously, then the firing window opens.
+Each living ship submits **exactly one** `commit_path` with an ordered list of
+path actions. Paths resolve simultaneously when every ship has committed.
 
-**Course** is the direction the ship travels. **Facing** is the direction the hull
-and weapons point. Rotating facing does not change course; turning course does not
-rotate the hull.
+There is **no velocity or course**. Only position + facing persist. Each action
+costs **exactly one** motion point from the turn’s motion pool.
 
-The movement ring follows the map: `0→ 1↗ 2↖ 3← 4↙ 5↘`. Thus from `0→`,
-`port` turns toward `1↗` and `starboard` turns toward `5↘`. An `accel` from
-rest sets course to the current facing, raises speed to 1, and immediately
-slides one hex. Every later cycle also slides the ship's post-maneuver speed.
+| Action | Wire name | Effect |
+|---|---|---|
+| `f` | `move_f` | one hex through F; facing unchanged |
+| `fr` | `move_fr` | one hex through FR; then turn right |
+| `fl` | `move_fl` | one hex through FL; then turn left |
+| `tr` / `r` | `turn_right` | in-place face +1 |
+| `tl` / `l` | `turn_left` | in-place face −1 |
 
 ### Commands
 
 | Command | Effect |
 |---|---|
-| `motion` / `m` | Full flight help (status + course≠face rule + speed→slide table) |
-| `coast` / `p` / `pass` | Keep velocity and course; spend 0 thrust |
-| `accel` | Apply thrust along facing: accelerate, brake, or revector depending on course |
-| `turn N` / `turn port` / `turn starboard` | Rotate facing without changing course; costs 1–3 by ring distance |
-| `turn N accel` | Rotate, then apply acceleration in the same maneuver |
-| `m accel`, `m decel`, etc. | Equivalent prefixed forms |
-| `help motion` / `help accel` | Same inertial primer (course vs face and constant-rate slides) |
+| `path` / `motion` / `m` | Show motion pool + draft help |
+| `path f fr tl` | Append actions to the local draft |
+| bare `f` / `fr` / `fl` / `tr` / `tl` / `r` / `l` | Same append (movement phase) |
+| `undo` | Drop last drafted action |
+| `clear` | Empty the draft |
+| `preview` | Engine `path_preview` (authoritative legality) |
+| `commit` / `path commit` | Send `commit_path` once |
+| `hold` / `p` / `pass` | Commit an **empty** path (stay put) |
 
-The movement **hint** and **YOUR SHIP** line always show a sticky status:
-`v=… course=… face=… thrust=… slides=[…]`, and warn when sliding direction
-differs from the nose. The hint spells out `POSITION HOLDS` at speed 0. At any
-nonzero speed, the ship slides that many hexes after every cycle's maneuver.
-When translation resolves, RECENT reports the old and new coordinates as
-`MOVED (q,r)→(q,r)`.
+The engine owns path legality — use `preview` or accept soft-rejects on commit.
+Do not invent extra rules in the client.
 
-Ships translate automatically after every maneuver commitment resolves:
+### Example
 
-| Post-maneuver speed | Translation that cycle |
-|---:|---:|
-| 0 | 0 hexes |
-| 1 | 1 hex |
-| 2 | 2 hexes |
-| N | N hexes |
+```
+path f f fr tl
+preview
+commit
+```
 
-### Maneuver costs
+Or stay put:
 
-- Coast: **0** thrust.
-- Aligned acceleration or reverse braking: **1** thrust.
-- Oblique revector: current speed + **1** thrust; course becomes facing at speed 1.
-- Turn facing: **1–3** thrust by ring distance; course is unchanged.
-- Turn plus accel: the sum of both costs.
-- Direct reversal requires braking to speed 0, then accelerating on the opposite facing.
-- If you lack thrust, the order soft-fails and state is unchanged.
-
-### After you act
-
-AI ships take their decisions automatically. You may land in **firing** immediately
-if nobody else has a move left.
+```
+hold
+```
 
 ### Traps
 
 | Mistake | Result |
 |---|---|
-| `f` (fire) during movement | Soft error: need firing phase |
-| Spam `m 2` expecting multi-hex path | Only one decision; rest fail or confuse phase |
-| Fire while movement commitments are pending | Finish one maneuver per living ship first |
-| Assume focus chooses who acts | Commands default to the first pending player ship; use `ship N` to change focus |
+| Expect multi-cycle move/fire | One path + one volley per turn |
+| Spam old `accel` / `turn N` | Retired; use path actions |
+| Fire during movement | Soft error: need firing stage |
+| Assume focus chooses who acts | Commands default to the first pending player ship |
 
 ---
 
-## 5. Phase: Firing
+## 5. Phase: Firing (volley draft)
 
 ### Goal
 
-1. Optionally **queue** zero or more legal shots (`commit_fire`).
-2. **Ready** each of your living ships when done committing.
-3. When **all** living ships are ready, all queues resolve **at once**.
-4. Then either another movement phase, or turn end.
-
-### Weapon status on the ship card
-
-| Label | Meaning |
-|---|---|
-| `CHG n/m (available)` | Still free to queue this phase |
-| `QUEUED →#target …` | Committed; charge still listed until resolve |
-| `FIRED HIT` / `FIRED MISS` | Resolved; charge spent (`chg=0`) |
-| `shots resolved this turn:` | Explicit list of every weapon that resolved |
-
-**Miss still spends charge** and marks the weapon fired for the turn.
-
-### Target size and accuracy
-
-The weapon's range-table threshold assumes a size-2 target. Before the d20
-roll, the engine multiplies that threshold by `target size / 2`, rounds half-up,
-and clamps it to `1..20`:
-
-| Target | Size | Accuracy effect |
-|---|---:|---:|
-| Escort | 1 | Half the listed threshold |
-| Heavy Cruiser | 2 | No change |
-| Huge / Starbase | 4 | Double, up to 100% |
-
-The ENGAGEMENT panel and fire picker show the adjusted threshold and percentage.
-Size affects accuracy only; weapon charge and range still determine damage.
+1. Optionally **draft** zero or more legal shots into a local volley.
+2. **Submit** `commit_volley` once (empty shots = hold fire / `nofire`).
+3. When **all** living ships have committed, all volleys resolve **at once**.
+4. The engine advances to the **next turn’s allocate** automatically.
 
 ### Commands
 
 | Command | Effect |
 |---|---|
-| `f` / `fire` | Interactive commit (weapon → target → shield face) |
-| `r` / `ready` / `done` / `nofire` | `ready_fire` — done committing for this ship |
-| `e` / `end` | **End whole turn** (asks confirm if in firing) — not “leave fire phase” |
-
-On **first entry** into firing, the REPL may open the weapon menu **once**. Cancel
-with weapon index **`-1`**. It does **not** auto-reopen after `r`/`done`.
+| `f` / `fire` | Interactive shot picker (adds to draft) |
+| `fire b1 B2` | One-line: add shot to draft |
+| `undo` | Drop last drafted shot |
+| `clear` | Empty the volley draft |
+| `r` / `ready` / `done` / `nofire` / `commit` | Send `commit_volley` |
 
 ### Example volley
 
 ```
-f                 # pick beam, target, shield face → QUEUED
-f                 # pick torp → QUEUED
-r                 # ready this ship
-# AI readies automatically when it can
-# → FIRE RESOLUTION (HIT/MISS), then next phase
+f                 # pick beam, target, shield face → drafted
+f                 # pick torp → drafted
+r                 # commit_volley with both shots
+# → FIRE RESOLUTION (HIT/MISS), then next allocate
 ```
 
 ### Leaving fire **without** shooting
 
 ```
 r
-# or: done / nofire
+# or: done / nofire / commit
 ```
 
-Do **not** use `e` for that — `e` ends the **turn**.
+There is **no** `end_turn`. After all volleys resolve, allocate begins.
 
 ### Traps
 
 | Mistake | Result |
 |---|---|
-| Expect charge to drop on `f` alone | Charge drops on **resolve**, after all ready |
-| Expect auto menu again after `r` | Menu is once per phase entry; type `f` to queue more before ready |
-| `e` to “exit fire” | Ends turn; may wipe turn-scoped power on advance |
-| Fire same weapon twice before resolve | Soft-reject (already committed / already fired) |
-| Ready twice | “already ready — waiting for other ships” |
+| Expect charge to drop on `f` alone | Charge drops on **volley resolve** |
+| `e` to “exit fire” | Removed in v4; use r/nofire |
+| Fire same weapon twice in one draft | Soft-reject / draft refuses duplicate |
+| Submit twice | “already committed a volley” |
 
 ---
 
-## 6. End turn and the move/fire loop
-
-- After each firing window, the fixed schedule advances to the next movement phase;
-  after phase 4, the phase becomes turn end.
-- **End Turn** (`e`) advances to the next turn’s allocate (illegal during allocate).
-  Soft leftover warning may show if you still had useful actions.
-- End turn **clears** turn-scoped allocation, charges, and combat log.
-
----
-
-## 7. Prompt cheat sheet
+## 6. Prompt cheat sheet
 
 Examples:
 
 ```
 t1/allocate@1 draft11/22>
-t1/movement@1*1>
-t1/firing@1/r=done>
-t1/firing@1/ready>
-t1/turn_end@1>
+t1/movement@1*1 path3 actions=motion:5>
+t1/firing@1/v=2 actions=charged:3>
+t1/firing@1/volley_ok>
 ```
 
 | Fragment | Meaning |
 |---|---|
 | `t1` | Turn 1 |
-| `allocate` / `movement` / `firing` / `turn_end` | Engine phase |
+| `allocate` / `movement` / `firing` | Engine stage |
 | `@1` | UI focus ship id |
-| `*1` | Next player ship still needing a maneuver (movement only) |
+| `*1` | Next player ship still needing a path |
 | `draft11/22` | Local allocate draft used/pool |
-| `/r=done` | Fire phase; this ship not ready yet |
-| `/ready` | This ship already readied |
+| `path3` | Local path draft length |
+| `/v=2` | Local volley draft shot count |
+| `/volley_ok` | This ship already committed its volley |
 
 ---
 
-## 8. Full command index (REPL)
+## 7. Full command index (REPL)
 
 ### Always
 
@@ -376,46 +309,42 @@ t1/turn_end@1>
 | `raw` | Compact phase JSON |
 | `quit` / `q` | Exit |
 | `order {…}` | Raw protocol JSON |
-| `ship N` / `sel N` | Focus ship (does not wipe a dirty allocate draft) |
+| `ship N` / `sel N` | Focus ship |
 
 ### Allocate
 
-`a`, `a N`, `mov`, `w`, `sh`, `b1`/`t1`/…, `commit`, `reset`, `cancel`, `ad` (quick default alloc)
+`a`, `a N`, `mov`, `w`, `sh`, `b1`/`t1`/…, `commit`, `reset`, `cancel`, `ad`
 
 ### Movement
 
-`m f|r|port|stbd`, `m 0..5`, `p`
+`path f|fr|fl|tr|tl …`, `undo`, `clear`, `preview`, `commit`, `hold`/`p`
 
 ### Firing
 
-`f`, `r` / `done` / `nofire`, `e` (whole turn)
+`f`, `fire b1 B2`, `r` / `done` / `nofire`, `commit`
 
 ---
 
-## 9. Reading outcomes
+## 8. Reading outcomes
 
 ### After allocate
 
 ```
-  engine accepted allocate #1: engine=… power → thrust=…  weapons: …  shields=…
+  engine accepted allocate #1: engine=… power → motion=…  weapons: …  shields=…
 Δ phase allocate→movement …
 ```
 
-### After move
+### After path resolve
 
-Velocity/course/facing update on YOUR SHIP and MAP; `thrust=` drops by the maneuver cost.
+Position/facing update on YOUR SHIP and MAP; `path_results` may appear in the
+snapshot for fallback/telemetry.
 
 ### After fire resolve
 
 ```
 *** FIRE RESOLUTION ***  (or panel)
 A1 beam_1 → B2  HIT for N  on shield …
-shots resolved this turn:
-  beam_1 → #2 HIT …
-  torp_1 → #2 MISS …
 ```
-
-Weapon lines show `FIRED HIT` / `FIRED MISS` with empty charge bars.
 
 ### Soft errors
 
@@ -424,35 +353,25 @@ hint (e.g. wrong phase). Fix the phase or ship and retry.
 
 ---
 
-## 10. Suggested first fight (`scenarios/ai.toml`)
+## 9. Suggested first fight (`scenarios/ai.toml`)
 
-1. **Allocate** `A1`: some movement, charge `b1`, put power on forward shields, `commit`.
-2. **Movement**: use `p`/`pass` once for each living ship.
+1. **Allocate** `A1`: some movement, charge `b1`, forward shields, `commit`.
+2. **Movement**: `path f f f` then `commit`, or `hold` to stay.
 3. **Firing**: optional `f`, then **`r`**.
-4. Watch RECENT for HIT/MISS and shield/hull bars on contacts.
-5. Repeat move/fire or `e` when the turn is done.
-6. Session text log: path in footer / on quit under `local/session-*.log`.
+4. Watch RECENT for HIT/MISS; next allocate starts automatically.
+5. Session text log: path in footer / on quit under `local/session-*.log`.
 
-### Guided rear attack (protocol 3)
+### Guided tutorial (protocol 4)
 
 ```bash
 python3 frontend/repl/repl.py --tutorial rear-attack
 ```
 
-Strict narrated fight on `scenarios/tutorial_rear_attack.toml` (~43 steps, 3 turns).
-Teaches an aggressive path that ends in a point-blank all-weapons dump:
-
-- allocate once with full weapons + thrust; charge **carries**, shields rebuild from **zero**,
-- **accel** along the nose to race past, **turn N** (facing only; cost 1/2/3),
-- constant-rate slides (`speed` hexes each cycle),
-- **brake** by thrusting against course, revector west, close to range 1,
-- `fire b1 B2` / `t1` / `p1` queues + `ready` resolves the kill volley.
-
-Wrong gameplay keys are blocked; `status` / `board` / `motion` / `help` / `log` stay free.
+Narrated path + volley lesson on `scenarios/tutorial_rear_attack.toml`.
 
 ---
 
-## 11. Related docs
+## 10. Related docs
 
 | Doc | Topic |
 |---|---|
@@ -460,4 +379,4 @@ Wrong gameplay keys are blocked; `status` / `board` / `motion` / `help` / `log` 
 | `ASCII-UI.md` | Terminal presentation / UI engineering notes |
 | `docs/PLAY-V2.md` | Rules summary (all clients) |
 | `docs/PROTOCOL.md` | NDJSON orders/snapshots |
-| ADR-0020 | Combat Model v2 decision |
+| ADR-0025 | Simplified simultaneous turns (protocol v4) |

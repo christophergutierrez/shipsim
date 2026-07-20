@@ -369,8 +369,6 @@ fn place_side(
                 r: start_r + index as i32,
                 facing,
                 controller: controller.into(),
-                velocity: None,
-                course: None,
                 power: line.power,
                 structure: line.structure,
                 max_shield_per_facing: line.max_shield_per_facing,
