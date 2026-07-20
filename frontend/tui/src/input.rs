@@ -365,11 +365,12 @@ fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
             KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
                 path_turn_to(app, (c as u8 - b'0') as u32);
             }
+            // Bind by on-screen direction (see handle_movement's direction note).
             KeyCode::Left => {
-                path_append(app, "turn_left");
+                path_append(app, "turn_right");
             }
             KeyCode::Right => {
-                path_append(app, "turn_right");
+                path_append(app, "turn_left");
             }
             KeyCode::Backspace => {
                 if let Some(d) = app.path_draft.as_mut() {
@@ -751,16 +752,28 @@ fn allocation_field_bounds(
 /// Keys: `w`/↑ = forward, `a` = veer fore-left, `d` = veer fore-right,
 /// ←/→ = turn in place, `0`–`5` = turn to that facing, Backspace = undo,
 /// `x` = clear, Enter = commit, Space = hold (commit empty path).
+///
+/// Direction note: on the TUI's `r↓` map, **increasing** facing rotates the ship
+/// counterclockwise (E→NE→NW→…), i.e. to the on-screen LEFT. The engine names the
+/// facing-increasing actions `turn_right` / `move_fr` and the facing-decreasing
+/// ones `turn_left` / `move_fl` — the opposite of how they read on screen. The
+/// TUI therefore binds keys by **on-screen direction**, not by engine action name,
+/// so the player's Left key turns the ship left. (See `path::PathAction` for the
+/// engine's canonical, rendering-agnostic definitions.)
 fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
     if app.focused_ship.is_none() {
         return KeyResult::Continue;
     }
     match key.code {
         KeyCode::Up | KeyCode::Char('w') | KeyCode::Char('f') => path_append(app, "move_f"),
-        KeyCode::Char('a') => path_append(app, "move_fl"),
-        KeyCode::Char('d') => path_append(app, "move_fr"),
-        KeyCode::Left => path_append(app, "turn_left"),
-        KeyCode::Right => path_append(app, "turn_right"),
+        // Screen-left veer = ship's port = facing-increasing = engine `move_fr`.
+        KeyCode::Char('a') => path_append(app, "move_fr"),
+        // Screen-right veer = ship's starboard = facing-decreasing = engine `move_fl`.
+        KeyCode::Char('d') => path_append(app, "move_fl"),
+        // Turn nose left on screen (counterclockwise) = engine `turn_right`.
+        KeyCode::Left => path_append(app, "turn_right"),
+        // Turn nose right on screen (clockwise) = engine `turn_left`.
+        KeyCode::Right => path_append(app, "turn_left"),
         KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
             path_turn_to(app, (c as u8 - b'0') as u32)
         }

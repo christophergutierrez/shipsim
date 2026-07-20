@@ -554,6 +554,14 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         .map(|p| p.steps.iter().map(|s| (s.q, s.r)).collect())
         .unwrap_or_default();
     let preview_coast = preview.map(|p| (p.final_q, p.final_r));
+    // Ghost marker: a dim shadow of the focused ship at the planned end hex,
+    // showing where it *will* be and which way it *will* face after simultaneous
+    // movement resolves. Not yet committed — rendered dim to signal "pending".
+    let ghost: Option<(i32, i32, String, u32)> = preview.and_then(|p| {
+        let ship = app.focused()?;
+        let short: String = callsign(ship).chars().take(2).collect();
+        Some((p.final_q, p.final_r, short, p.final_facing))
+    });
 
     // Title: always keep `→ callsign d=N` when present; drop optional chrome
     // first so range is not clipped off the Block title.
@@ -642,7 +650,16 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 };
                 (cell, ship_fg(s, focused))
             } else if is_coast {
-                (pad_cell("◆".to_string(), metrics.cell_width), Color::Cyan)
+                // Dim shadow of the ship at its planned end hex (callsign +
+                // projected facing), or a plain diamond if we lack the label.
+                let label = ghost
+                    .as_ref()
+                    .filter(|(gq, gr, _, _)| {
+                        in_cell(*gq, oq, metrics.scale, q) && in_cell(*gr, or_, metrics.scale, r)
+                    })
+                    .map(|(_, _, cs, facing)| format!("{cs}{}", facing_arrow(*facing)))
+                    .unwrap_or_else(|| "◈".to_string());
+                (pad_cell(label, metrics.cell_width), Color::Cyan)
             } else if is_preview_endpoint {
                 (
                     pad_cell("◇".to_string(), metrics.cell_width),
@@ -666,7 +683,11 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                     style = style.bg(s.bg);
                 }
             } else if is_coast {
-                style = style.bg(Color::DarkGray);
+                // Shadow, not a solid marker: dim + italic so it reads as a
+                // projection of the ship rather than the ship itself.
+                style = style
+                    .add_modifier(Modifier::DIM)
+                    .add_modifier(Modifier::ITALIC);
             }
             if ship.is_some() && app.focused_ship == ship.map(|s| s.id) {
                 style = style.add_modifier(Modifier::BOLD);
@@ -678,7 +699,7 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A1→ = ship/facing; +N = more ships here. ◆ final ◇ route"
+        "A1→ = ship/facing. Dim ghost = planned end (waits for simultaneous move); ◇ route"
     } else {
         "A1→ = ship/facing; +N = more ships here. Shade = weapon arc"
     };
@@ -1468,13 +1489,17 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 }
 
 /// Short display token for one path action.
+/// Draft-path token, labelled by **on-screen direction**. The engine's
+/// facing-increasing actions (`move_fr`/`turn_right`) rotate counterclockwise —
+/// to the on-screen LEFT on the `r↓` map — so they render as the left tokens.
+/// (See `input::handle_movement`'s direction note.)
 fn action_token(action: &str) -> &'static str {
     match action {
         "move_f" => "F",
-        "move_fl" => "FL",
-        "move_fr" => "FR",
-        "turn_left" => "◄",
-        "turn_right" => "►",
+        "move_fr" => "FL", // veers to the on-screen left (port)
+        "move_fl" => "FR", // veers to the on-screen right (starboard)
+        "turn_right" => "◄", // rotates nose left on screen
+        "turn_left" => "►",  // rotates nose right on screen
         _ => "?",
     }
 }
