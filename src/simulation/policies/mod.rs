@@ -157,6 +157,10 @@ impl BaselinePolicy {
         // only *increases* spend from the power pool.
         let mut weapon_remaining = weapon_budget;
         for weapon in ship.weapons.iter().filter(|weapon| weapon.operational) {
+            // Skip topping up dry magazines (snapshot field from Phase 1 ammo).
+            if weapon.ammo_remaining == Some(0) {
+                continue;
+            }
             let have = weapon.charge;
             let desired = match self.style {
                 Style::Mobility => 1u32.max(have),
@@ -477,6 +481,7 @@ impl BaselinePolicy {
         Order::CommitPath {
             ship: context.ship.id,
             actions: self.plan_path(context),
+            evasive: 0,
         }
     }
 
@@ -524,6 +529,7 @@ impl Policy for BaselinePolicy {
                 .unwrap_or(Order::CommitPath {
                     ship: context.ship.id,
                     actions: Vec::new(),
+                    evasive: 0,
                 }),
         }
     }

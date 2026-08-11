@@ -669,23 +669,34 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
           a.weapons[w.id] = ch
         end
         local top_up = ch - carried
+        local ammo_note = ""
+        if w.ammo_remaining ~= nil then
+          ammo_note = string.format(" (%d left)", w.ammo_remaining)
+          if w.ammo_remaining == 0 then
+            ammo_note = " (EMPTY)"
+          end
+        end
         love.graphics.setColor(0.7, 0.75, 0.8)
+        if w.ammo_remaining == 0 then
+          love.graphics.setColor(0.55, 0.55, 0.55)
+        end
         if top_up > 0 then
           love.graphics.print(
-            string.format("%s ch %d (carried %d +%d)", w.id, ch, carried, top_up),
+            string.format("%s ch %d (carried %d +%d)%s", w.id, ch, carried, top_up, ammo_note),
             px + pad, y)
         elseif carried > 0 then
           love.graphics.print(
-            string.format("%s ch %d (carried)", w.id, ch),
+            string.format("%s ch %d (carried)%s", w.id, ch, ammo_note),
             px + pad, y)
         else
-          love.graphics.print(string.format("%s ch %d", w.id, ch), px + pad, y)
+          love.graphics.print(string.format("%s ch %d%s", w.id, ch, ammo_note), px + pad, y)
         end
+        local dry = (w.ammo_remaining == 0)
         ui.button("-", px + pad + content_w - step * 2 - 4, y - 2, step, step, "alloc_weapon_dn", { id = s.id, weapon = w.id }, false)
         ui.button("+", px + pad + content_w - step, y - 2, step, step, "alloc_weapon_up", {
           id = s.id,
           weapon = w.id,
-          max = w.max_charge or 0,
+          max = dry and carried or (w.max_charge or 0),
         }, false)
         y = y + row_h
       end
@@ -736,6 +747,8 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   if cap and cap < avail then avail = cap end
   local draft = (app.path_drafts and app.path_drafts[ship.id]) or {}
   local used = #draft
+  local evasive = (app.path_evasive and app.path_evasive[ship.id]) or 0
+  local total = used + evasive
 
   love.graphics.setColor(0.8, 0.85, 0.9)
   love.graphics.print(
@@ -743,7 +756,9 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
     px + pad, y)
   y = y + ui.line_h(13) + 2
   love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print(string.format("Path %d/%d motion", used, avail), px + pad, y)
+  love.graphics.print(
+    string.format("motion %d/%d (%d path, %d evasive)", total, avail, used, evasive),
+    px + pad, y)
   y = y + ui.line_h(13) + 1
   -- Show the drafted action sequence (wrapped) so the plan is visible.
   local seq = used > 0 and table.concat(draft, " ") or "(empty = hold position)"
@@ -757,7 +772,7 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   end
   ui.use(13)
   y = y + 2
-  if used >= avail then
+  if total >= avail then
     love.graphics.setColor(0.9, 0.75, 0.3)
     love.graphics.print("Motion budget full", px + pad, y)
     y = y + ui.line_h(13) + 1
@@ -775,6 +790,8 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
   ui.button("Turn L (Z)", px + pad, y, half, bh, "path_action", { action = "turn_left" }, false)
   ui.button("Turn R (X)", px + pad + half + 4, y, half, bh, "path_action", { action = "turn_right" }, false)
   y = y + bh + 6
+  ui.button("Evasive +1 (E)", px + pad, y, content_w, bh, "path_evasive", nil, false)
+  y = y + bh + 4
   -- Edit + commit.
   ui.button("Undo (Bksp)", px + pad, y, half, bh, "path_undo", nil, false)
   ui.button("Clear (Del)", px + pad + half + 4, y, half, bh, "path_clear", nil, false)
@@ -802,10 +819,15 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
     local sel = (app.weapon_id == w.id)
     local ch = w.charge or 0
     local label = string.format("%s  ch%d", w.id, ch)
+    if w.ammo_remaining ~= nil then
+      label = label .. string.format(" (%d left)", w.ammo_remaining)
+    end
     if committed_w[w.id] then
       label = label .. " · queued"
     elseif ch <= 0 or w.operational == false then
       label = label .. " · empty"
+    elseif w.ammo_remaining == 0 then
+      label = label .. " · EMPTY ammo"
     end
     ui.button(label, px + pad, y, content_w, bh, "pick_weapon", { id = w.id }, sel)
     y = y + bh + 2

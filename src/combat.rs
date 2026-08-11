@@ -18,4 +18,6 @@ pub struct Weapon {
     pub mount: Option<arc::Mount>,
     pub max_range: u32,
     pub max_charge: u32,
+    /// Finite magazine for torpedo-kind weapons (`None` = unlimited / not tracked).
+    pub max_ammo: Option<u32>,
 }

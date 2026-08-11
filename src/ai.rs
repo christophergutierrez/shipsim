@@ -67,6 +67,11 @@ pub fn v2_allocation(
         if ship.weapon(&weapon.id).is_none() {
             continue;
         }
+        // Skip topping up dry magazines; listing them at current charge is fine
+        // but increasing charge would fail allocate and soft-lock the AI barrier.
+        if ship.weapon_ammo.get(&weapon.id).copied().unwrap_or(1) == 0 {
+            continue;
+        }
         let have = ship.weapon_charges.get(&weapon.id).copied().unwrap_or(0);
         let kind = weapon.kind;
         let want = match kind {
@@ -268,11 +273,13 @@ mod tests {
             max_shield_per_facing: 6,
             movement_allocated: 0,
             weapon_charges: BTreeMap::new(),
+            weapon_ammo: BTreeMap::new(),
             ssd: Ssd::new(10, 4, 2, 0),
             destroyed: false,
             max_maneuver_actions: 4,
             thrust_conversion: crate::thrust::ThrustConversion::new(1, 1, 4).unwrap(),
             motion_available: 0,
+            evasion_committed: 0,
         }
     }
 

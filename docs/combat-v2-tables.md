@@ -35,7 +35,10 @@ the original range curve. No unmodified attack can become an automatic hit.
 
 Catalog fire-control bonuses apply only against exact size-2 targets, after the
 target-size adjustment. `titan_light` currently has +12 and `titan_heavy` +10. The
-final threshold is capped below the configured die maximum. Other hulls, size-1 fighters, and size-3+
+final threshold is capped below the configured die maximum. After fire control,
+defender **evasive action** subtracts
+`evasion_committed × combat.accuracy.evasion_per_point` (default 1 per point),
+then clamps to a floor of 1 and the same final cap. Other hulls, size-1 fighters, and size-3+
 targets receive no implicit attacker-size bonus.
 
 | Size | Name | mult |

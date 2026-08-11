@@ -28,7 +28,7 @@ velocity/course, and **no** `ready_fire`.
 | Bucket | Notes |
 |---|---|
 | **Motion** | Power → motion points via hull `thrust_per_power` / `power_per_thrust` |
-| **Weapons** | Desired totals ≤ max; cost = **increase** over carried charge only |
+| **Weapons** | Desired totals ≤ max; cost = **increase** over carried charge only. Torpedoes also have a finite magazine (`max_ammo`, default `3 + size`); empty magazines cannot be recharged. |
 | **Shields** | Always rebuy from 0; unpowered face = no protection |
 
 ## Path language
@@ -47,14 +47,18 @@ velocity/course, and **no** `ready_fire`.
 - Stationary ships (no `move_*`) cannot be displaced.
 - Contested endpoints: higher path cost wins; equal cost uses seeded PRNG;
   losers fall back along translated history.
+- Optional **evasive** motion (declared on `commit_path`) spends from the same
+  motion pool and reduces incoming hit chance that turn.
 
 ## Fire (volley)
 
 - One `commit_volley` per ship with zero or more shots.
-- Miss still spends charge for weapons in the volley.
+- Miss still spends charge for weapons in the volley. Torpedo shots also spend
+  one ammo from the magazine.
 - Geometry frozen at fire start; ships alive at start complete their volley
   even if destroyed mid-resolution.
-- Hit chance uses range and target size tables (`docs/combat-v2-tables.md`).
+- Hit chance uses range and target size tables (`docs/combat-v2-tables.md`),
+  minus defender evasion committed this turn.
 
 ## Running
 

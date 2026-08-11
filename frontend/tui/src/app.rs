@@ -176,12 +176,19 @@ impl AllocDraft {
 #[derive(Debug, Clone, Default)]
 pub struct PathDraft {
     pub actions: Vec<String>,
+    /// Declared evasive motion points (spent from the same budget as path actions).
+    pub evasive: u32,
 }
 
 impl PathDraft {
     /// Motion points this path costs (one per action).
     pub fn cost(&self) -> u32 {
         self.actions.len() as u32
+    }
+
+    /// Total motion committed by this draft (path + evasive).
+    pub fn total_motion(&self) -> u32 {
+        self.cost().saturating_add(self.evasive)
     }
 
     pub fn push(&mut self, action: &str) {
@@ -194,10 +201,11 @@ impl PathDraft {
 
     pub fn clear(&mut self) {
         self.actions.clear();
+        self.evasive = 0;
     }
 
     pub fn is_empty(&self) -> bool {
-        self.actions.is_empty()
+        self.actions.is_empty() && self.evasive == 0
     }
 }
 

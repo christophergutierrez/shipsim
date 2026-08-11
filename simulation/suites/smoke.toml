@@ -5,6 +5,7 @@ max_turns = 50
 max_orders = 20000
 rubrics = [
   "simulation/rubrics/safety.toml",
+  "simulation/rubrics/decision-diversity.toml",
 ]
 
 [[matchups]]

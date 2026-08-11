@@ -757,11 +757,14 @@ mod tests {
                 fired: false,
                 max_charge: 4,
                 operational: weapon_operational,
+                ammo_remaining: None,
+                max_ammo: None,
             }],
             max_maneuver_actions: 4,
             thrust_per_power: 1,
             power_per_thrust: 1,
             motion_available: 0,
+            evasion_committed: 0,
         }
     }
 
@@ -866,6 +869,7 @@ mod tests {
             Order::CommitPath {
                 ship: context.ship.id,
                 actions: vec![crate::path::PathAction::MoveF; 8],
+                evasive: 0,
             }
         }
     }

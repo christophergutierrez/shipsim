@@ -191,7 +191,7 @@ pub fn load_scenario_def_with_rules(
             .into_iter()
             .map(|weapon_def| {
                 let weapon_id = weapon_def.id.clone();
-                let weapon = parse_weapon(weapon_def)?;
+                let mut weapon = parse_weapon(weapon_def)?;
                 if weapon.max_range == 0 {
                     return Err(LoadError::InvalidWeaponRange {
                         class: placement.class.clone(),
@@ -206,6 +206,10 @@ pub fn load_scenario_def_with_rules(
                         configured: weapon.max_range,
                         supported,
                     });
+                }
+                if weapon.kind == WeaponKind::Torp && weapon.max_ammo.is_none() {
+                    weapon.max_ammo =
+                        Some(rules.combat().ammo().torpedo_ammo_for_size(ship_def.size));
                 }
                 Ok(weapon)
             })
@@ -256,6 +260,12 @@ pub fn load_scenario_def_with_rules(
             }
         }
 
+        let mut weapon_ammo = BTreeMap::new();
+        for weapon in &weapons {
+            if let Some(max) = weapon.max_ammo {
+                weapon_ammo.insert(weapon.id.clone(), max);
+            }
+        }
         ships.push(Ship {
             id: placement.id,
             class: ship_def.name.clone(),
@@ -273,11 +283,13 @@ pub fn load_scenario_def_with_rules(
             max_shield_per_facing,
             movement_allocated: 0,
             weapon_charges: BTreeMap::new(),
+            weapon_ammo,
             ssd,
             destroyed: false,
             max_maneuver_actions,
             thrust_conversion,
             motion_available: 0,
+            evasion_committed: 0,
         });
         if is_ai {
             npcs.insert(placement.id, NpcController::GreedySeek);
@@ -385,6 +397,7 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
         mount,
         max_range: def.max_range,
         max_charge: def.max_charge,
+        max_ammo: def.max_ammo,
     })
 }
 

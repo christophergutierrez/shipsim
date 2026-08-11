@@ -23,7 +23,15 @@ pub enum Order {
         shields: [u32; 6],
     },
     /// One complete path for `ship` during the movement collection stage.
-    CommitPath { ship: u32, actions: Vec<PathAction> },
+    /// `evasive` spends motion points from the same budget as path actions
+    /// (defaults to 0 for existing orders/fixtures).
+    CommitPath {
+        ship: u32,
+        actions: Vec<PathAction>,
+        #[serde(default)]
+        #[serde(skip_serializing_if = "is_zero_u32")]
+        evasive: u32,
+    },
     /// One complete volley for `ship` during the firing collection stage.
     /// Empty `shots` is an explicit hold-fire.
     CommitVolley { ship: u32, shots: Vec<VolleyShot> },
@@ -49,6 +57,8 @@ pub enum OrderError {
     InsufficientMotion { ship: u32, need: u32, have: u32 },
     #[error("weapon {0} was not found")]
     WeaponNotFound(String),
+    #[error("weapon {weapon} on ship {ship} is out of ammo")]
+    WeaponOutOfAmmo { ship: u32, weapon: String },
     #[error("target {0} was not found")]
     TargetNotFound(u32),
     #[error("ship {0} cannot fire at itself")]
@@ -139,8 +149,16 @@ pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError>
             weapons,
             shields,
         } => game.allocate_v2(ship, movement, weapons, shields),
-        Order::CommitPath { ship, actions } => game.commit_path(ship, actions),
+        Order::CommitPath {
+            ship,
+            actions,
+            evasive,
+        } => game.commit_path(ship, actions, evasive),
         Order::CommitVolley { ship, shots } => game.commit_volley(ship, shots),
         Order::RetiredUnknown => Err(OrderError::RetiredV3Order),
     }
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }

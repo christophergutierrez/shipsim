@@ -134,7 +134,7 @@ mod tests {
         let orders = plan_scripted_orders(&move_snap);
         assert_eq!(orders.len(), 1);
         match &orders[0].body {
-            OrderBody::CommitPath { ship, actions } => {
+            OrderBody::CommitPath { ship, actions, evasive: 0 } => {
                 assert_eq!(*ship, 2);
                 assert!(actions.is_empty());
             }

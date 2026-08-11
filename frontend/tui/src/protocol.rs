@@ -136,6 +136,9 @@ pub struct Ship {
     pub weapon_boxes: Vec<u32>,
     pub destroyed: bool,
     pub weapons: Vec<Weapon>,
+    /// Evasive motion points declared on the last resolved path this turn.
+    #[serde(default)]
+    pub evasion_committed: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -154,6 +157,10 @@ pub struct Weapon {
     pub max_charge: u32,
     #[serde(default)]
     pub operational: bool,
+    #[serde(default)]
+    pub ammo_remaining: Option<u32>,
+    #[serde(default)]
+    pub max_ammo: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -294,11 +301,17 @@ pub enum OrderBody {
     CommitPath {
         ship: i64,
         actions: Vec<String>,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        evasive: u32,
     },
     CommitVolley {
         ship: i64,
         shots: Vec<VolleyShot>,
     },
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -344,9 +357,17 @@ impl Order {
     }
 
     pub fn commit_path(ship: i64, actions: Vec<String>) -> Self {
+        Self::commit_path_with_evasive(ship, actions, 0)
+    }
+
+    pub fn commit_path_with_evasive(ship: i64, actions: Vec<String>, evasive: u32) -> Self {
         Order {
             protocol_version: PROTOCOL_VERSION,
-            body: OrderBody::CommitPath { ship, actions },
+            body: OrderBody::CommitPath {
+                ship,
+                actions,
+                evasive,
+            },
         }
     }
 

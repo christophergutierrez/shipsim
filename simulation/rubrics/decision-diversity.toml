@@ -1,0 +1,13 @@
+id = "decision_diversity"
+description = "Path/volley choices should not collapse onto a single value across a suite."
+advisory = true
+# Calibrated from simulation/suites/smoke.toml (2026): observed approx.
+#   zero_volley_rate ≈ 0.45
+#   dominant_path_cost_rate ≈ 0.53
+#   dominant_volley_size_rate ≈ 0.45
+# Thresholds sit ~0.20–0.25 above observed rates (same style as
+# max_hull_zero_translation_rate = 0.75) so the check can actually fire on
+# collapse without false-failing normal greedy/defensive smoke traffic.
+max_zero_volley_rate = 0.70
+max_dominant_path_cost_rate = 0.75
+max_dominant_volley_size_rate = 0.70

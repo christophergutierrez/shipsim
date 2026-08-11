@@ -47,6 +47,7 @@ fn metrics_record_path_resolution_and_actual_translation() {
         Order::CommitPath {
             ship: 1,
             actions: vec![PathAction::MoveF],
+            evasive: 0,
         },
     )
     .expect("path 1");
@@ -55,6 +56,7 @@ fn metrics_record_path_resolution_and_actual_translation() {
         Order::CommitPath {
             ship: 2,
             actions: vec![PathAction::MoveF],
+            evasive: 0,
         },
     )
     .expect("path 2");
@@ -119,6 +121,7 @@ fn weapon_power_metric_counts_increases_only() {
         thrust_per_power: 1,
         power_per_thrust: 1,
         motion_available: 0,
+        evasion_committed: 0,
         weapons: vec![shipsim_core::snapshot::WeaponSnapshot {
             id: "beam_1".into(),
             kind: "Beam".into(),
@@ -129,6 +132,8 @@ fn weapon_power_metric_counts_increases_only() {
             fired: false,
             max_charge: 4,
             operational: true,
+            ammo_remaining: None,
+            max_ammo: None,
         }],
     };
     let order = Order::Allocate {

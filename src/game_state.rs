@@ -163,7 +163,7 @@ pub struct GameState {
     /// Applied allocation this turn (after barrier) and staged commits.
     allocated_this_turn: HashSet<u32>,
     staged_allocations: BTreeMap<u32, StagedAllocation>,
-    path_commits: BTreeMap<u32, Vec<PathAction>>,
+    path_commits: BTreeMap<u32, PathCommit>,
     volley_commits: BTreeMap<u32, Vec<VolleyShot>>,
     /// Weapons that fired this turn (ship, weapon_id).
     fired_weapons_this_turn: HashSet<(u32, String)>,
@@ -183,6 +183,13 @@ pub struct CombatLogEvent {
     pub shield_absorbed: u32,
     pub hull_damage: u32,
     pub kind: String,
+}
+
+/// Staged path commitment during the movement collection stage.
+#[derive(Debug, Clone)]
+struct PathCommit {
+    actions: Vec<PathAction>,
+    evasive: u32,
 }
 
 impl GameState {
@@ -322,6 +329,14 @@ impl GameState {
                     want: *charge,
                 });
             }
+            // Reject charge *increases* when the magazine is empty. Listing a
+            // dry weapon at its current charge is a no-op and remains legal.
+            if *charge > have && ship.weapon_ammo.get(weapon_id).copied().unwrap_or(u32::MAX) == 0 {
+                return Err(crate::movement::OrderError::WeaponOutOfAmmo {
+                    ship: ship_id,
+                    weapon: weapon_id.clone(),
+                });
+            }
             weapon_increases = weapon_increases.saturating_add(charge - have);
             merged_charges.insert(weapon_id.clone(), *charge);
         }
@@ -458,10 +473,12 @@ impl GameState {
     }
 
     /// Commit one complete path for `ship`. Resolves when all living ships commit.
+    /// `evasive` spends motion from the same budget as path actions.
     pub fn commit_path(
         &mut self,
         ship_id: u32,
         actions: Vec<PathAction>,
+        evasive: u32,
     ) -> Result<(), crate::movement::OrderError> {
         if self.phase != Phase::Movement {
             return Err(crate::movement::OrderError::WrongPhase {
@@ -482,14 +499,24 @@ impl GameState {
             pos: ship.pos,
             facing: ship.facing,
         };
-        let budget = ship.motion_available;
+        // Path cost + evasive share the motion budget; reduce budget so
+        // trace_path enforces the combined limit.
+        let budget = ship.motion_available.saturating_sub(evasive);
+        if evasive > ship.motion_available {
+            return Err(crate::movement::OrderError::InsufficientMotion {
+                ship: ship_id,
+                need: evasive,
+                have: ship.motion_available,
+            });
+        }
         path::trace_path(start, &actions, budget, self.hard_bounds()).map_err(|err| {
             crate::movement::OrderError::IllegalPath {
                 ship: ship_id,
                 reason: err.to_string(),
             }
         })?;
-        self.path_commits.insert(ship_id, actions);
+        self.path_commits
+            .insert(ship_id, PathCommit { actions, evasive });
         if self.all_living_path_committed() {
             self.resolve_paths_phase();
         }
@@ -506,13 +533,17 @@ impl GameState {
     fn resolve_paths_phase(&mut self) {
         let bounds = self.hard_bounds();
         let mut claims = Vec::new();
+        let mut evasion_by_ship: BTreeMap<u32, u32> = BTreeMap::new();
         for ship in self.ships.iter().filter(|s| !s.destroyed) {
-            let actions = self.path_commits.get(&ship.id).cloned().unwrap_or_default();
+            let commit = self.path_commits.get(&ship.id);
+            let actions = commit.map(|c| c.actions.clone()).unwrap_or_default();
+            let evasive = commit.map(|c| c.evasive).unwrap_or(0);
+            evasion_by_ship.insert(ship.id, evasive);
             let start = PathState {
                 pos: ship.pos,
                 facing: ship.facing,
             };
-            let budget = ship.motion_available;
+            let budget = ship.motion_available.saturating_sub(evasive);
             if let Ok(trace) = path::trace_path(start, &actions, budget, bounds) {
                 claims.push(PathClaim {
                     ship: ship.id,
@@ -525,6 +556,14 @@ impl GameState {
             if let Some(ship) = self.ship_mut(result.ship) {
                 ship.pos = Hex::new(result.final_q, result.final_r);
                 ship.facing = result.final_facing;
+                ship.motion_available = 0;
+            }
+        }
+        // Apply declared evasion for every living ship that committed a path
+        // (including pure-jink empty paths that still spent evasive motion).
+        for (ship_id, evasive) in &evasion_by_ship {
+            if let Some(ship) = self.ship_mut(*ship_id) {
+                ship.evasion_committed = *evasive;
                 ship.motion_available = 0;
             }
         }
@@ -622,6 +661,18 @@ impl GameState {
             .unwrap_or(0);
         if charge == 0 {
             return Err(crate::movement::OrderError::WeaponNotCharged {
+                ship: ship_id,
+                weapon: shot.weapon.clone(),
+            });
+        }
+        if attacker
+            .weapon_ammo
+            .get(&shot.weapon)
+            .copied()
+            .unwrap_or(u32::MAX)
+            == 0
+        {
+            return Err(crate::movement::OrderError::WeaponOutOfAmmo {
                 ship: ship_id,
                 weapon: shot.weapon.clone(),
             });
@@ -724,12 +775,26 @@ impl GameState {
                 .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(shot.weapon.clone()))?;
             let kind = weapon.kind;
             let range = attacker.pos.distance(target.pos);
+            // Defensive: reject firing a dry magazine even if charge somehow remains.
+            if attacker
+                .weapon_ammo
+                .get(&shot.weapon)
+                .copied()
+                .unwrap_or(u32::MAX)
+                == 0
+            {
+                return Err(crate::movement::OrderError::WeaponOutOfAmmo {
+                    ship: *attacker_id,
+                    weapon: shot.weapon.clone(),
+                });
+            }
             let threshold = crate::combat_tables::final_to_hit_threshold(
                 self.rules.combat(),
                 kind,
                 range,
                 target.size,
                 attacker.attack_accuracy_bonus,
+                target.evasion_committed,
             )
             .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                 weapon: shot.weapon.clone(),
@@ -756,6 +821,9 @@ impl GameState {
         for (attacker_id, weapon, target, shield_facing, hit, damage) in results {
             if let Some(att) = self.ship_mut(attacker_id) {
                 att.weapon_charges.insert(weapon.clone(), 0);
+                if let Some(ammo) = att.weapon_ammo.get_mut(&weapon) {
+                    *ammo = ammo.saturating_sub(1);
+                }
             }
             self.mark_weapon_fired(attacker_id, &weapon);
             let (shield_absorbed, hull_damage) = if hit && damage > 0 {
@@ -954,6 +1022,7 @@ impl GameState {
             range,
             target.size,
             attacker.attack_accuracy_bonus,
+            target.evasion_committed,
         )
         .ok_or_else(|| crate::movement::OrderError::OutOfRange {
             weapon: weapon_id.to_string(),
@@ -1223,8 +1292,9 @@ impl GameState {
                             let order = Order::CommitPath {
                                 ship: id,
                                 actions: actions.clone(),
+                                evasive: 0,
                             };
-                            if self.commit_path(id, actions).is_ok() {
+                            if self.commit_path(id, actions, 0).is_ok() {
                                 applied.push(order);
                             }
                         }
@@ -1414,4 +1484,128 @@ impl GameState {
 pub enum NpcController {
     Scripted,
     GreedySeek,
+}
+
+#[cfg(test)]
+mod ammo_ai_tests {
+    use super::*;
+    use crate::scenario::load_scenario_def;
+    use crate::schema::ScenarioDef;
+    use std::path::PathBuf;
+
+    fn root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    }
+
+    /// Dry torpedo magazines must not soft-lock the AI barrier loop.
+    #[test]
+    fn resolve_v2_npc_actions_continues_with_dry_torpedo() {
+        let dir = tempfile::tempdir().unwrap();
+        let ships = dir.path().join("data/ships");
+        std::fs::create_dir_all(&ships).unwrap();
+        let rules_dst = dir.path().join("data/rules");
+        std::fs::create_dir_all(&rules_dst).unwrap();
+        std::fs::copy(
+            root().join("data/rules/default.toml"),
+            rules_dst.join("default.toml"),
+        )
+        .unwrap();
+        std::fs::write(
+            ships.join("ai_torp.toml"),
+            r#"
+id = "ai_torp"
+name = "AI Torp"
+size = 2
+max_maneuver_actions = 4
+power = 16
+max_shield_per_facing = 4
+structure = 12
+power_sys = 2
+engine_boxes = 2
+thrust_per_power = 1
+power_per_thrust = 1
+weapon_boxes = 1
+[[weapons]]
+id = "torp_1"
+kind = "torp"
+arc = "forward"
+mount = "forward"
+max_range = 12
+max_charge = 1
+max_ammo = 1
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            ships.join("ai_target.toml"),
+            r#"
+id = "ai_target"
+name = "AI Target"
+size = 2
+max_maneuver_actions = 4
+power = 12
+max_shield_per_facing = 4
+structure = 20
+power_sys = 2
+engine_boxes = 2
+thrust_per_power = 1
+power_per_thrust = 1
+weapon_boxes = 1
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "forward"
+mount = "forward"
+max_range = 10
+max_charge = 2
+"#,
+        )
+        .unwrap();
+
+        let def: ScenarioDef = toml::from_str(
+            r#"
+width = 12
+height = 12
+seed = 7
+[[ships]]
+id = 1
+class = "ai_torp"
+q = 0
+r = 0
+facing = 0
+controller = "ai"
+[[ships]]
+id = 2
+class = "ai_target"
+q = 3
+r = 0
+facing = 3
+controller = "ai"
+"#,
+        )
+        .unwrap();
+        let mut game = load_scenario_def(&def, dir.path()).expect("load");
+        // Force the soft-lock case: magazine already empty before first allocate.
+        game.ship_mut(1)
+            .unwrap()
+            .weapon_ammo
+            .insert("torp_1".into(), 0);
+
+        let start_turn = game.turn_number();
+        for _ in 0..8 {
+            let applied = game.resolve_v2_npc_actions();
+            assert!(
+                !applied.is_empty() || game.status != ScenarioStatus::InProgress,
+                "stalled at turn {}",
+                game.turn_number()
+            );
+            if game.status != ScenarioStatus::InProgress {
+                break;
+            }
+        }
+        assert!(
+            game.turn_number() > start_turn,
+            "turn must advance with dry magazines"
+        );
+    }
 }

@@ -10,6 +10,15 @@ size_multiplier = "target_over_baseline"
 ceiling_floor = 15
 ceiling_max = 19
 fire_control_target_size = 2
+# One declared evasive motion point subtracts this many faces from the final
+# d20 to-hit threshold (clamped to a floor of 1). Tunable starting point.
+evasion_per_point = 1
+
+[combat.ammo]
+# max_ammo = base + per_size * hull_size for torpedo-kind weapons without an
+# explicit TOML override. Tunable starting point (see fasa-mechanics plan).
+torpedo_ammo_base = 3
+torpedo_ammo_per_size = 1
 
 [combat.weapons.beam]
 to_hit = [18, 17, 15, 13, 11, 10, 8, 7, 5, 4]

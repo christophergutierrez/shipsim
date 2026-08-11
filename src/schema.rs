@@ -118,4 +118,7 @@ pub struct WeaponDef {
     pub arc: String,
     pub max_range: u32,
     pub max_charge: u32,
+    /// Optional per-weapon ammo override. Absent torps use the size formula from rules.
+    #[serde(default)]
+    pub max_ammo: Option<u32>,
 }

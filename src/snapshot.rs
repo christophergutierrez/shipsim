@@ -53,6 +53,8 @@ pub struct ShipSnapshot {
     pub power_per_thrust: u32,
     /// Usable motion points during movement stage (0 after resolution / other stages).
     pub motion_available: u32,
+    /// Evasive motion points declared on the last resolved path this turn (0 until then).
+    pub evasion_committed: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +68,12 @@ pub struct WeaponSnapshot {
     pub fired: bool,
     pub max_charge: u32,
     pub operational: bool,
+    /// Remaining magazine for ammo-tracked weapons (`None` = unlimited / not tracked).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ammo_remaining: Option<u32>,
+    /// Magazine capacity for ammo-tracked weapons.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_ammo: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -161,6 +169,7 @@ impl StateSnapshot {
                     thrust_per_power: ship.thrust_conversion.thrust_per_power,
                     power_per_thrust: ship.thrust_conversion.power_per_thrust,
                     motion_available: ship.motion_available,
+                    evasion_committed: ship.evasion_committed,
                     weapons: ship
                         .weapons
                         .iter()
@@ -175,6 +184,10 @@ impl StateSnapshot {
                             fired: game.weapon_fired_this_turn(ship.id, &weapon.id),
                             max_charge: weapon.max_charge,
                             operational: ship.ssd.weapon_operational(idx),
+                            max_ammo: weapon.max_ammo,
+                            ammo_remaining: weapon
+                                .max_ammo
+                                .map(|_| ship.weapon_ammo.get(&weapon.id).copied().unwrap_or(0)),
                         })
                         .collect(),
                 })

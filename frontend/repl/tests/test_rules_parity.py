@@ -18,8 +18,10 @@ from hexutil import (
     CEILING_FLOOR,
     CEILING_MAX,
     DIE_SIDES,
+    EVASION_PER_POINT,
     FIRE_CONTROL_TARGET_SIZE,
     damage_preview,
+    hit_preview,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -47,6 +49,14 @@ class RulesParityTests(unittest.TestCase):
         self.assertEqual(accuracy["ceiling_floor"], CEILING_FLOOR)
         self.assertEqual(accuracy["ceiling_max"], CEILING_MAX)
         self.assertEqual(accuracy["fire_control_target_size"], FIRE_CONTROL_TARGET_SIZE)
+        self.assertEqual(accuracy["evasion_per_point"], EVASION_PER_POINT)
+
+    def test_evasion_lowers_hit_preview(self):
+        base = hit_preview("beam", 3, 2, 0, 0)
+        reduced = hit_preview("beam", 3, 2, 0, 3)
+        self.assertIsNotNone(base)
+        self.assertIsNotNone(reduced)
+        self.assertEqual(reduced[0], max(1, base[0] - 3 * EVASION_PER_POINT))
 
     def test_beam_to_hit_table_matches(self):
         self.assertEqual(

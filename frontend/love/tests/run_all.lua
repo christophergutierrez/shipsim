@@ -66,6 +66,10 @@ assert_eq(cp.actions[2], "turn_left", "commit_path second action")
 local cpe = orders.commit_path(1, {})
 assert_eq(cpe.type, "commit_path", "empty commit_path type")
 assert_eq(#cpe.actions, 0, "empty path is legal (stationary)")
+local cpev = orders.commit_path(1, { "move_f" }, 2)
+assert_eq(cpev.evasive, 2, "commit_path includes evasive when non-zero")
+local cpez = orders.commit_path(1, { "move_f" }, 0)
+assert(cpez.evasive == nil, "zero evasive omitted from commit_path JSON")
 
 -- v4 fire model: one commit_volley per ship (empty = hold fire).
 local cv = orders.commit_volley(1, { { weapon = "beam_1", target = 2, shield_facing = 3 } })

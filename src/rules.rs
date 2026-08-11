@@ -27,6 +27,7 @@ pub struct CombatRules {
     die_sides: u8,
     accuracy: AccuracyRules,
     weapons: WeaponRules,
+    ammo: AmmoRules,
 }
 
 impl CombatRules {
@@ -41,6 +42,10 @@ impl CombatRules {
     pub fn weapons(&self) -> &WeaponRules {
         &self.weapons
     }
+
+    pub fn ammo(&self) -> &AmmoRules {
+        &self.ammo
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
@@ -51,6 +56,8 @@ pub struct AccuracyRules {
     ceiling_floor: u8,
     ceiling_max: u8,
     fire_control_target_size: u32,
+    /// Faces subtracted from the final d20 threshold per evasive motion point.
+    evasion_per_point: u8,
 }
 
 impl AccuracyRules {
@@ -72,6 +79,33 @@ impl AccuracyRules {
 
     pub fn fire_control_target_size(&self) -> u32 {
         self.fire_control_target_size
+    }
+
+    pub fn evasion_per_point(&self) -> u8 {
+        self.evasion_per_point
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AmmoRules {
+    torpedo_ammo_base: u32,
+    torpedo_ammo_per_size: u32,
+}
+
+impl AmmoRules {
+    pub fn torpedo_ammo_base(&self) -> u32 {
+        self.torpedo_ammo_base
+    }
+
+    pub fn torpedo_ammo_per_size(&self) -> u32 {
+        self.torpedo_ammo_per_size
+    }
+
+    /// Default magazine size for a torpedo-kind weapon on a hull of the given size.
+    pub fn torpedo_ammo_for_size(&self, size: u32) -> u32 {
+        self.torpedo_ammo_base
+            .saturating_add(self.torpedo_ammo_per_size.saturating_mul(size))
     }
 }
 
@@ -336,6 +370,16 @@ impl Ruleset {
                 "accuracy.ceiling_max must be below combat.die_sides".into(),
             ));
         }
+        // evasion_per_point may be 0 (evasion disabled) but is otherwise free.
+
+        let ammo = &combat.ammo;
+        // base + per_size * size must produce a usable magazine for normal hull sizes.
+        // Zero base is allowed only if per_size > 0 (size 1 still gets ammo).
+        if ammo.torpedo_ammo_base == 0 && ammo.torpedo_ammo_per_size == 0 {
+            return Err(RulesError::Invalid(
+                "combat.ammo: torpedo_ammo_base and torpedo_ammo_per_size cannot both be 0".into(),
+            ));
+        }
 
         let beam = &combat.weapons.beam;
         if beam.to_hit.is_empty() || beam.to_hit.len() != beam.range_factors.len() {
@@ -418,6 +462,29 @@ mod tests {
         assert_eq!(rules.max_range(WeaponKind::Torp), 12);
         assert_eq!(rules.dac().len(), 16);
         assert!(rules.fingerprint().starts_with("fnv1a-"));
+        assert_eq!(rules.combat().accuracy().evasion_per_point(), 1);
+        assert_eq!(rules.combat().ammo().torpedo_ammo_for_size(1), 4);
+        assert_eq!(rules.combat().ammo().torpedo_ammo_for_size(7), 10);
+    }
+
+    #[test]
+    fn torpedo_ammo_for_size_matches_3_plus_size_table() {
+        let ammo = Ruleset::builtin().combat().ammo().clone();
+        for size in 1u32..=7 {
+            assert_eq!(ammo.torpedo_ammo_for_size(size), 3 + size);
+        }
+    }
+
+    #[test]
+    fn zero_ammo_formula_is_rejected() {
+        let bad = text()
+            .replace("torpedo_ammo_base = 3", "torpedo_ammo_base = 0")
+            .replace("torpedo_ammo_per_size = 1", "torpedo_ammo_per_size = 0");
+        let err = Ruleset::from_text(Path::new("bad-ammo.toml"), &bad).unwrap_err();
+        assert!(
+            err.to_string().contains("ammo") || err.to_string().contains("torpedo"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

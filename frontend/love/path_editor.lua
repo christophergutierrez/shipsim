@@ -101,8 +101,8 @@ function path_editor.accept(drafts, ship_id)
 end
 
 --- Build NDJSON order for a successful commit intent.
-function path_editor.order(ship_id, actions)
-  return orders.commit_path(ship_id, actions)
+function path_editor.order(ship_id, actions, evasive)
+  return orders.commit_path(ship_id, actions, evasive or 0)
 end
 
 --- Read-only path_preview request body (protocol v4).

@@ -113,17 +113,22 @@ pub fn size_adjusted_to_hit_threshold(
     Some(scaled.clamp(1, max) as u8)
 }
 
-/// Resolve the final d20 threshold, including catalog fire control.
+/// Resolve the final d20 threshold, including catalog fire control and defender evasion.
 ///
 /// Fire-control bonuses are intentionally limited to the size-2 baseline. This
 /// keeps them from changing fighter or capital engagements unless a future rule
 /// explicitly broadens their scope.
+///
+/// `defender_evasion` is the defender's committed evasive motion points for the
+/// turn. Each point subtracts `accuracy.evasion_per_point` from the threshold
+/// after fire control, then the result is clamped to `[1, final_cap]`.
 pub fn final_to_hit_threshold(
     rules: &CombatRules,
     kind: WeaponKind,
     range: u32,
     target_size: u32,
     attack_accuracy_bonus: u8,
+    defender_evasion: u32,
 ) -> Option<u8> {
     let threshold = size_adjusted_to_hit_threshold(rules, kind, range, target_size)?;
     let bonus = if target_size == rules.accuracy().fire_control_target_size() {
@@ -135,7 +140,14 @@ pub fn final_to_hit_threshold(
     // limit: the accuracy ceiling itself, or one below the die maximum (no
     // unmodified *or* fire-control-boosted attack becomes a guaranteed hit).
     let final_cap = rules.accuracy().ceiling_max().min(rules.die_sides() - 1);
-    Some(threshold.saturating_add(bonus).min(final_cap))
+    let evasion_delta =
+        defender_evasion.saturating_mul(u32::from(rules.accuracy().evasion_per_point()));
+    let with_bonus = u32::from(threshold).saturating_add(u32::from(bonus));
+    let reduced = with_bonus
+        .saturating_sub(evasion_delta)
+        .max(1)
+        .min(u32::from(final_cap));
+    Some(reduced as u8)
 }
 
 fn table_value<T: Copy>(values: &[T], range: u32) -> Option<T> {
@@ -282,19 +294,19 @@ mod tests {
     fn catalog_accuracy_applies_only_to_size_two_and_preserves_miss_chance() {
         let rules = combat_rules();
         assert_eq!(
-            final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 2, 10),
+            final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 2, 10, 0),
             Some(14)
         );
         assert_eq!(
-            final_to_hit_threshold(&rules, WeaponKind::Beam, 1, 2, 10),
+            final_to_hit_threshold(&rules, WeaponKind::Beam, 1, 2, 10, 0),
             Some(19)
         );
         assert_eq!(
-            final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 1, 10),
+            final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 1, 10, 0),
             Some(2)
         );
         assert_eq!(
-            final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 3, 10),
+            final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 3, 10, 0),
             Some(6)
         );
     }
@@ -303,9 +315,9 @@ mod tests {
     fn partial_catalog_accuracy_preserves_each_weapon_range_curve() {
         let rules = combat_rules();
         for kind in [WeaponKind::Beam, WeaponKind::Plasma, WeaponKind::Torp] {
-            let short = final_to_hit_threshold(&rules, kind, 1, 2, 10).unwrap();
+            let short = final_to_hit_threshold(&rules, kind, 1, 2, 10, 0).unwrap();
             let long =
-                final_to_hit_threshold(&rules, kind, max_range(&rules, kind), 2, 10).unwrap();
+                final_to_hit_threshold(&rules, kind, max_range(&rules, kind), 2, 10, 0).unwrap();
             assert_eq!(short, 19);
             assert!(long < short, "{kind:?} range curve was flattened");
         }
@@ -329,11 +341,22 @@ mod tests {
         assert_eq!(rules.accuracy().ceiling_max(), 15);
 
         let huge_bonus = 200;
-        let threshold = final_to_hit_threshold(&rules, WeaponKind::Beam, 1, 2, huge_bonus).unwrap();
+        let threshold =
+            final_to_hit_threshold(&rules, WeaponKind::Beam, 1, 2, huge_bonus, 0).unwrap();
         assert_eq!(
             threshold, 15,
             "fire control must not push the threshold past the configured ceiling_max"
         );
+    }
+
+    #[test]
+    fn defender_evasion_lowers_threshold_to_floor_of_one() {
+        let rules = combat_rules();
+        let base = final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 2, 0, 0).unwrap();
+        let reduced = final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 2, 0, 3).unwrap();
+        assert_eq!(reduced, base.saturating_sub(3).max(1));
+        let floored = final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 2, 0, 100).unwrap();
+        assert_eq!(floored, 1);
     }
 
     #[test]

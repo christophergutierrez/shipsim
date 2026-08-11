@@ -65,6 +65,77 @@ fn missing_hull_class_fails_through_toml_rubric_path() {
 }
 
 #[test]
+fn decision_diversity_rubric_tight_threshold_fails() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let rubric_file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        rubric_file.path(),
+        "id='decision_diversity_tight'\ndescription='tight'\nmax_dominant_path_cost_rate=0.01\n",
+    )
+    .unwrap();
+    let report = run_suite(&SuiteSpec {
+        name: "decision diversity tight".into(),
+        scenario: Some(root.join("scenarios/simulation_duel.toml")),
+        seeds: vec![1],
+        max_turns: 10,
+        max_orders: 5000,
+        rubrics: vec![rubric_file.path().to_path_buf()],
+        matchups: vec![shipsim_core::simulation::runner::MatchupSpec {
+            player: "greedy".into(),
+            opponent: "random".into(),
+        }],
+        engagements: vec![],
+        power_sweeps: vec![],
+        map: None,
+        budget: None,
+        cost_tolerance: 60,
+        skip_cost_validation: false,
+        stalemate_scoring: shipsim_core::simulation::StalemateScoring::None,
+        data_root: Some(root.to_path_buf()),
+    })
+    .unwrap();
+    let rubric = &report.rubrics[0];
+    assert!(!rubric.passed);
+    assert!(rubric
+        .checks
+        .iter()
+        .any(|check| check.metric == "dominant_path_cost_rate" && !check.passed));
+}
+
+#[test]
+fn decision_diversity_rubric_loose_threshold_passes() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let rubric_file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        rubric_file.path(),
+        "id='decision_diversity_loose'\ndescription='loose'\nmax_dominant_path_cost_rate=1.0\nmax_dominant_volley_size_rate=1.0\nmax_zero_volley_rate=1.0\n",
+    )
+    .unwrap();
+    let report = run_suite(&SuiteSpec {
+        name: "decision diversity loose".into(),
+        scenario: Some(root.join("scenarios/simulation_duel.toml")),
+        seeds: vec![1],
+        max_turns: 10,
+        max_orders: 5000,
+        rubrics: vec![rubric_file.path().to_path_buf()],
+        matchups: vec![shipsim_core::simulation::runner::MatchupSpec {
+            player: "greedy".into(),
+            opponent: "random".into(),
+        }],
+        engagements: vec![],
+        power_sweeps: vec![],
+        map: None,
+        budget: None,
+        cost_tolerance: 60,
+        skip_cost_validation: false,
+        stalemate_scoring: shipsim_core::simulation::StalemateScoring::None,
+        data_root: Some(root.to_path_buf()),
+    })
+    .unwrap();
+    assert!(report.rubrics[0].passed);
+}
+
+#[test]
 fn cost_matched_suite_engagements_validate_and_load() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let text = std::fs::read_to_string(root.join("simulation/suites/cost_matched.toml")).unwrap();

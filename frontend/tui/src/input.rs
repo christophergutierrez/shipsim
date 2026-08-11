@@ -725,12 +725,15 @@ fn allocation_field_bounds(
             .find(|weapon| weapon.id == weapon_id)
             .map(|weapon| weapon.charge)
             .unwrap_or(current);
-        let max_charge = ship
-            .weapons
-            .iter()
-            .find(|weapon| weapon.id == weapon_id)
-            .map(|weapon| weapon.max_charge)
-            .unwrap_or(carried);
+        let weapon = ship.weapons.iter().find(|weapon| weapon.id == weapon_id);
+        let max_charge = weapon.map(|weapon| weapon.max_charge).unwrap_or(carried);
+        // Dry magazines cannot be charged above the carried total.
+        let out_of_ammo = weapon
+            .and_then(|w| w.ammo_remaining)
+            .is_some_and(|ammo| ammo == 0);
+        if out_of_ammo {
+            return (carried, carried);
+        }
         base.weapons[index].1 = carried;
         let residual = ship.power_available.saturating_sub(base.power_cost(ship));
         return (carried, carried.saturating_add(residual).min(max_charge));
@@ -750,8 +753,8 @@ fn allocation_field_bounds(
 /// submits one `commit_path`.
 ///
 /// Keys: `w`/↑ = forward, `a` = veer fore-left, `d` = veer fore-right,
-/// ←/→ = turn in place, `0`–`5` = turn to that facing, Backspace = undo,
-/// `x` = clear, Enter = commit, Space = hold (commit empty path).
+/// ←/→ = turn in place, `0`–`5` = turn to that facing, `e` = +1 evasive,
+/// Backspace = undo, `x` = clear, Enter = commit, Space = hold (commit empty path).
 ///
 /// Direction note: on the TUI's `r↓` map, **increasing** facing rotates the ship
 /// counterclockwise (E→NE→NW→…), i.e. to the on-screen LEFT. The engine names the
@@ -776,9 +779,14 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
         KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
             path_turn_to(app, (c as u8 - b'0') as u32)
         }
+        KeyCode::Char('e') => path_add_evasive(app),
         KeyCode::Backspace => {
             if let Some(d) = app.path_draft.as_mut() {
-                d.pop();
+                if d.evasive > 0 {
+                    d.evasive -= 1;
+                } else {
+                    d.pop();
+                }
             }
             app.request_path_preview();
             KeyResult::Continue
@@ -812,7 +820,7 @@ fn path_append(app: &mut App, action: &str) -> KeyResult {
     let over = app
         .path_draft
         .as_ref()
-        .map(|d| d.cost() >= budget)
+        .map(|d| d.total_motion() >= budget)
         .unwrap_or(true);
     if over {
         app.log(format!("path: no motion left (cap {budget})"));
@@ -822,6 +830,30 @@ fn path_append(app: &mut App, action: &str) -> KeyResult {
         d.push(action);
     }
     app.request_path_preview();
+    KeyResult::Continue
+}
+
+/// Spend one more motion point on declared evasive action.
+fn path_add_evasive(app: &mut App) -> KeyResult {
+    let budget = motion_budget(app);
+    let over = app
+        .path_draft
+        .as_ref()
+        .map(|d| d.total_motion() >= budget)
+        .unwrap_or(true);
+    if over {
+        app.log(format!("evasive: no motion left (cap {budget})"));
+        return KeyResult::Continue;
+    }
+    let next = app
+        .path_draft
+        .as_ref()
+        .map(|d| d.evasive.saturating_add(1))
+        .unwrap_or(1);
+    if let Some(d) = app.path_draft.as_mut() {
+        d.evasive = next;
+    }
+    app.log(format!("evasive: {next}"));
     KeyResult::Continue
 }
 
@@ -840,7 +872,7 @@ fn path_turn_to(app: &mut App, target: u32) -> KeyResult {
             let over = app
                 .path_draft
                 .as_ref()
-                .map(|d| d.cost() >= motion_budget(app))
+                .map(|d| d.total_motion() >= motion_budget(app))
                 .unwrap_or(true);
             if over && projected_current_facing(app, start) != target {
                 break;
@@ -862,13 +894,19 @@ fn commit_path(app: &mut App) -> KeyResult {
         Some(id) => id,
         None => return KeyResult::Continue,
     };
-    let actions = app
+    let (actions, evasive) = app
         .path_draft
         .as_ref()
-        .map(|d| d.actions.clone())
+        .map(|d| (d.actions.clone(), d.evasive))
         .unwrap_or_default();
-    app.log(format!("commit_path: {} step(s)", actions.len()));
-    emit_order(app, Order::commit_path(sid, actions))
+    app.log(format!(
+        "commit_path: {} step(s), evasive {evasive}",
+        actions.len()
+    ));
+    emit_order(
+        app,
+        Order::commit_path_with_evasive(sid, actions, evasive),
+    )
 }
 
 /// Submit the assembled volley (empty `shots` = hold fire).

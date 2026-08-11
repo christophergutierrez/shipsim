@@ -105,6 +105,7 @@ fn flow_allocate_movement_firing_allocate_next_turn() {
         Order::CommitPath {
             ship: 1,
             actions: vec![PathAction::MoveF, PathAction::MoveF],
+            evasive: 0,
         },
     )
     .expect("path 1");
@@ -115,6 +116,7 @@ fn flow_allocate_movement_firing_allocate_next_turn() {
             Order::CommitPath {
                 ship: 2,
                 actions: vec![],
+                evasive: 0,
             },
         )
         .expect("path 2 empty");
@@ -181,6 +183,7 @@ fn empty_path_and_empty_volley_are_legal() {
         Order::CommitPath {
             ship: 1,
             actions: vec![],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -191,6 +194,7 @@ fn empty_path_and_empty_volley_are_legal() {
             Order::CommitPath {
                 ship: 2,
                 actions: vec![],
+                evasive: 0,
             },
         )
         .unwrap();
@@ -229,6 +233,7 @@ fn over_budget_path_rejected_with_index() {
         Order::CommitPath {
             ship: 1,
             actions: std::mem::take(&mut actions),
+            evasive: 0,
         },
     )
     .unwrap_err();
@@ -262,6 +267,7 @@ fn weapon_charge_carries_shields_reset() {
         Order::CommitPath {
             ship: 1,
             actions: vec![],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -272,6 +278,7 @@ fn weapon_charge_carries_shields_reset() {
             Order::CommitPath {
                 ship: 2,
                 actions: vec![],
+                evasive: 0,
             },
         )
         .unwrap();
@@ -314,6 +321,7 @@ fn snapshot_hides_staged_path_payload() {
         Order::CommitPath {
             ship: 1,
             actions: vec![PathAction::MoveF],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -375,6 +383,7 @@ fn path_preview_matches_commit_without_conflict() {
         Order::CommitPath {
             ship: 1,
             actions: actions.clone(),
+            evasive: 0,
         },
     )
     .unwrap();
@@ -383,6 +392,7 @@ fn path_preview_matches_commit_without_conflict() {
         Order::CommitPath {
             ship: 2,
             actions: vec![],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -427,6 +437,7 @@ fn simultaneous_volley_with_legal_shot() {
         Order::CommitPath {
             ship: 1,
             actions: vec![],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -435,6 +446,7 @@ fn simultaneous_volley_with_legal_shot() {
         Order::CommitPath {
             ship: 2,
             actions: vec![],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -531,6 +543,7 @@ fn mutual_destruction_both_volleys_resolve() {
         Order::CommitPath {
             ship: 1,
             actions: vec![],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -539,6 +552,7 @@ fn mutual_destruction_both_volleys_resolve() {
         Order::CommitPath {
             ship: 2,
             actions: vec![],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -628,6 +642,7 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
         Order::CommitPath {
             ship: 1,
             actions: vec![PathAction::MoveF],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -636,6 +651,7 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
         Order::CommitPath {
             ship: 2,
             actions: vec![PathAction::MoveF],
+            evasive: 0,
         },
     )
     .unwrap();
@@ -692,6 +708,7 @@ fn floating_map_preserves_unique_world_endpoints_beyond_nominal_bounds() {
             Order::CommitPath {
                 ship: id,
                 actions: vec![PathAction::MoveF, PathAction::MoveF],
+                evasive: 0,
             },
         )
         .expect("path");

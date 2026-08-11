@@ -68,6 +68,7 @@ BASELINE_TARGET_SIZE = 2
 CEILING_FLOOR = 15
 CEILING_MAX = 19
 FIRE_CONTROL_TARGET_SIZE = 2
+EVASION_PER_POINT = 1
 
 
 def hit_preview(
@@ -75,16 +76,18 @@ def hit_preview(
     range_: int,
     target_size: int = 2,
     attack_accuracy_bonus: int = 0,
+    defender_evasion: int = 0,
 ) -> tuple[int, int] | None:
     """Return the engine's final (d20 threshold, percent), including the
-    range-aware accuracy ceiling and catalog fire control.
+    range-aware accuracy ceiling, catalog fire control, and defender evasion.
 
     Mirrors `size_adjusted_to_hit_threshold` + `final_to_hit_threshold` in
     `src/combat_tables.rs` exactly: same size scaling, same per-range ceiling
     (never below the size-2 table value, capped at `CEILING_MAX`), same
     fire-control gate (only at `FIRE_CONTROL_TARGET_SIZE`), same final cap
     (`min(CEILING_MAX, DIE_SIDES - 1)` — no attack, modified or not, is ever a
-    guaranteed hit).
+    guaranteed hit), then subtract `defender_evasion * EVASION_PER_POINT` with
+    a floor of 1.
     """
     values = _TO_HIT.get(str(kind).lower())
     if not values or range_ < 1 or range_ > len(values) or target_size < 1:
@@ -95,7 +98,9 @@ def hit_preview(
     threshold = min(ceiling, max(1, scaled))
     bonus = attack_accuracy_bonus if target_size == FIRE_CONTROL_TARGET_SIZE else 0
     final_cap = min(CEILING_MAX, DIE_SIDES - 1)
-    threshold = min(final_cap, threshold + bonus)
+    with_bonus = min(final_cap, threshold + bonus)
+    evasion_delta = max(0, int(defender_evasion)) * EVASION_PER_POINT
+    threshold = max(1, min(final_cap, with_bonus - evasion_delta))
     percent = round(threshold * 100 / DIE_SIDES)
     return threshold, percent
 

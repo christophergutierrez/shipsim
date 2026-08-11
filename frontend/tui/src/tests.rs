@@ -2884,6 +2884,8 @@ fn three_weapon_fire_snapshot() -> Snapshot {
             fired: false,
             max_charge: 1,
             operational: true,
+            ammo_remaining: None,
+            max_ammo: None,
         });
     }
     for w in &mut snap.ships[0].weapons {
@@ -3410,4 +3412,19 @@ fn combat_log_shows_chronological_volley_on_tall_terminal() {
         buffer_contains(&buf, "shot_5") || buffer_contains(&buf, "shot_4"),
         "log should still include later volley lines on a tall terminal"
     );
+}
+
+#[test]
+fn commit_path_with_evasive_serializes_field() {
+    use crate::protocol::Order;
+    let order = Order::commit_path_with_evasive(1, vec!["move_f".into()], 2);
+    let json = order.to_json();
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["type"], "commit_path");
+    assert_eq!(v["evasive"], 2);
+    assert_eq!(v["actions"][0], "move_f");
+    // Zero evasive is skipped from JSON.
+    let plain = Order::commit_path(1, vec!["move_f".into()]).to_json();
+    let v0: serde_json::Value = serde_json::from_str(&plain).unwrap();
+    assert!(v0.get("evasive").is_none() || v0["evasive"] == 0);
 }

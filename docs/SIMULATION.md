@@ -168,6 +168,15 @@ cargo run --release --bin shipsim-sim -- \
 - Volley metrics: `volley_orders`, `volley_shots`, `volley_size_distribution`,
   plus hit/miss/damage from `combat_log` (retained across auto turn advance
   until the next volley).
+- Decision-diversity rubric fields (advisory; see
+  `simulation/rubrics/decision-diversity.toml`):
+  - `max_zero_volley_rate` — fraction of empty (hold-fire) volleys
+  - `max_dominant_path_cost_rate` — fraction of path costs in the single most
+    common bucket
+  - `max_dominant_volley_size_rate` — fraction of volley sizes in the single
+    most common bucket
+  These check concentration of *already-collected* path-cost and volley-size
+  distributions; they do not measure evasive spend or ammo exhaustion.
 - Hull-efficiency metrics track allocation resources using **charge increases
   only** (not requested totals). `power_spent_total` must not exceed
   `power_available_total`. The broad-resource counter records nonzero engine,

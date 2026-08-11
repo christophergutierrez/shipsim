@@ -859,12 +859,16 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         for w in &ship.weapons {
             let op = if w.operational { "" } else { " [DAMAGED]" };
             let fired = if w.fired { " [fired]" } else { "" };
+            let ammo = match (w.ammo_remaining, w.max_ammo) {
+                (Some(left), Some(max)) => format!(" ammo={left}/{max}"),
+                _ => String::new(),
+            };
             push(
                 f,
                 &mut y,
                 Line::from(format!(
-                    "    {} {} rng≤{} chg={}/{}{}{}",
-                    w.id, w.kind, w.max_range, w.charge, w.max_charge, fired, op
+                    "    {} {} rng≤{} chg={}/{}{}{}{}",
+                    w.id, w.kind, w.max_range, w.charge, w.max_charge, ammo, fired, op
                 )),
             );
         }
@@ -1515,7 +1519,9 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         .as_ref()
         .map(|d| d.actions.clone())
         .unwrap_or_default();
-    let cost = draft_actions.len() as u32;
+    let path_cost = draft_actions.len() as u32;
+    let evasive = app.path_draft.as_ref().map(|d| d.evasive).unwrap_or(0);
+    let cost = path_cost.saturating_add(evasive);
 
     let mut lines = vec![Line::from(format!(
         " {} @({},{}) face={}{}",
@@ -1541,10 +1547,13 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         Span::raw(path_tokens),
     ]));
 
-    // Running motion cost vs available.
+    // Running motion cost vs available (path + evasive share the budget).
     let over = cost > ship.motion_available;
     lines.push(Line::from(Span::styled(
-        format!(" motion {}/{}", cost, ship.motion_available),
+        format!(
+            " motion {cost}/{} ({path_cost} path, {evasive} evasive)",
+            ship.motion_available
+        ),
         if over {
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
         } else {
@@ -1575,7 +1584,7 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        " w/↑ forward · a veer-left · d veer-right · ←/→ turn",
+        " w/↑ forward · a veer-left · d veer-right · ←/→ turn · e evasive",
         Style::default().fg(Color::Yellow),
     )));
     lines.push(Line::from(Span::styled(

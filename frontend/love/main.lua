@@ -71,6 +71,7 @@ local app = {
   target_previews_key = nil,
   volley_drafts = {}, -- [ship_id] = complete protocol-v4 shot list
   path_drafts = {}, -- [ship_id] = ordered protocol-v4 path action list
+  path_evasive = {}, -- [ship_id] = declared evasive motion points
   toast = toast.new(),
   cam_sys = nil, -- filled in love.load
   settings = settings.defaults(),
@@ -1023,6 +1024,7 @@ local function start_scenario(entry)
   -- scenario that happens to reuse the same ship ids.
   app.volley_drafts = {}
   app.path_drafts = {}
+  app.path_evasive = {}
   app.picker_first = 1
   reset_sidebar_scroll()
   -- UPGRADE-PLAN Phase 6: detect the tutorial scenario by filename (mirrors
@@ -1114,24 +1116,57 @@ local function do_path_append(action)
     return
   end
   local cap = path_editor.motion_cap(ship)
-  local ok, reason, draft = path_editor.append(app.path_drafts, ship_id, action, cap)
+  local evasive = (app.path_evasive and app.path_evasive[ship_id]) or 0
+  local path_cap = math.max(0, cap - evasive)
+  local ok, reason, draft = path_editor.append(app.path_drafts, ship_id, action, path_cap)
   if not ok then
     if reason == "budget_full" then
-      set_status("warn", string.format("Path full (%d/%d motion)", #draft, cap))
+      set_status("warn", string.format("Path full (%d+%d/%d motion)", #draft, evasive, cap))
     else
       set_status("warn", "Unknown path action")
     end
     return
   end
-  set_status("info", string.format("Path +%s (%d/%d)", action, #draft, cap))
+  set_status("info", string.format("Path +%s (%d+%d/%d)", action, #draft, evasive, cap))
   request_path_preview(ship_id)
   advance_local_tutorial({ kind = "PathAppend", action = action })
+end
+
+local function do_path_evasive()
+  local snap = snap_now()
+  if not snap or snap.phase ~= phases.MOVEMENT then
+    set_status("warn", "Not movement phase")
+    return
+  end
+  local ship_id, ship = active_mover(snap)
+  if not ship_id then
+    set_status("warn", "Not your move")
+    return
+  end
+  app.path_evasive = app.path_evasive or {}
+  local cap = path_editor.motion_cap(ship)
+  local draft = path_editor.get(app.path_drafts, ship_id)
+  local evasive = app.path_evasive[ship_id] or 0
+  if #draft + evasive >= cap then
+    set_status("warn", string.format("Evasive full (%d+%d/%d)", #draft, evasive, cap))
+    return
+  end
+  app.path_evasive[ship_id] = evasive + 1
+  set_status("info", string.format("Evasive %d (%d path + %d evasive / %d)",
+    app.path_evasive[ship_id], #draft, app.path_evasive[ship_id], cap))
 end
 
 local function do_path_undo()
   local snap = snap_now()
   local ship_id = active_mover(snap)
   if not ship_id then
+    return
+  end
+  app.path_evasive = app.path_evasive or {}
+  local evasive = app.path_evasive[ship_id] or 0
+  if evasive > 0 then
+    app.path_evasive[ship_id] = evasive - 1
+    set_status("info", string.format("Evasive undo (%d left)", app.path_evasive[ship_id]))
     return
   end
   local ok, _, draft = path_editor.undo(app.path_drafts, ship_id)
@@ -1148,6 +1183,9 @@ local function do_path_clear()
     return
   end
   path_editor.clear(app.path_drafts, ship_id)
+  if app.path_evasive then
+    app.path_evasive[ship_id] = 0
+  end
   set_status("info", "Path cleared")
   request_path_preview(ship_id)
 end
@@ -1175,7 +1213,11 @@ local function do_commit_path(hold)
     set_status("warn", "Add a path action or choose Hold Position")
     return false
   end
-  local order = path_editor.order(ship_id, actions)
+  local evasive = (app.path_evasive and app.path_evasive[ship_id]) or 0
+  if hold then
+    evasive = 0
+  end
+  local order = path_editor.order(ship_id, actions, evasive)
   local _, err = submit(order, true)
   if err then
     -- Keep draft for correction; never auto-convert to Hold Position.
@@ -1183,6 +1225,9 @@ local function do_commit_path(hold)
     return false
   end
   path_editor.accept(app.path_drafts, ship_id)
+  if app.path_evasive then
+    app.path_evasive[ship_id] = nil
+  end
   app.path_preview = nil
   if hold or #(actions or {}) == 0 then
     set_status("info", status_fmt.order_echo(ship_id, "hold_position"))
@@ -1434,6 +1479,10 @@ handle_ui_hit = function(hit)
   end
   if id == "path_action" then
     do_path_append(p.action)
+    return true
+  end
+  if id == "path_evasive" then
+    do_path_evasive()
     return true
   end
   if id == "path_undo" then
@@ -1735,6 +1784,8 @@ function love.keypressed(key)
     do_path_append("turn_left") -- Z: turn left in place
   elseif app.phase == phases.MOVEMENT and key == "x" then
     do_path_append("turn_right") -- X: turn right in place
+  elseif app.phase == phases.MOVEMENT and key == "e" then
+    do_path_evasive() -- E: spend one motion point on evasive action
   elseif app.phase == phases.MOVEMENT and key == "backspace" then
     do_path_undo()
   elseif app.phase == phases.MOVEMENT and key == "delete" then

@@ -246,6 +246,7 @@ mod tests {
         let player_path = Order::CommitPath {
             ship: 1,
             actions: vec![PathAction::MoveF],
+            evasive: 0,
         };
         apply_order(&mut game, player_path.clone()).expect("player path");
         orders.push(player_path);

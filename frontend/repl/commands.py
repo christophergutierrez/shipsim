@@ -264,21 +264,26 @@ class ReplContext:
     # Protocol v4 local drafts (not on the engine until commit).
     path_draft: list[str] = field(default_factory=list)
     path_ship: Optional[int] = None
+    path_evasive: int = 0
     volley_draft: list[dict[str, Any]] = field(default_factory=list)
     volley_ship: Optional[int] = None
 
     def clear_path_draft(self) -> None:
         self.path_draft = []
         self.path_ship = None
+        self.path_evasive = 0
 
     def clear_volley_draft(self) -> None:
         self.volley_draft = []
         self.volley_ship = None
 
     def ensure_path_ship(self, ship_id: int) -> None:
-        if self.path_ship is not None and self.path_ship != ship_id and self.path_draft:
+        if self.path_ship is not None and self.path_ship != ship_id and (
+            self.path_draft or self.path_evasive
+        ):
             # Switching ships discards the previous path draft.
             self.path_draft = []
+            self.path_evasive = 0
         self.path_ship = ship_id
 
     def ensure_volley_ship(self, ship_id: int) -> None:
@@ -510,6 +515,8 @@ class AllocDraft:
                 "id": str(w.get("id")),
                 "kind": w.get("kind"),
                 "max_charge": int(w.get("max_charge") or 0),
+                "ammo_remaining": w.get("ammo_remaining"),
+                "max_ammo": w.get("max_ammo"),
             }
             for w in (ship.get("weapons") or [])
             if w.get("operational", True)
@@ -571,7 +578,7 @@ class AllocDraft:
         self.weapons = {k: int(self.carried_weapons.get(k, 0)) for k in self.weapons}
         self.shields = [0, 0, 0, 0, 0, 0]
 
-    def _weapon_line(self, wid: str, short: str, mx: int, kind: str = "") -> str:
+    def _weapon_line(self, wid: str, short: str, mx: int, kind: str = "", meta: Optional[dict[str, Any]] = None) -> str:
         ch = int(self.weapons.get(wid, 0))
         base = int(self.carried_weapons.get(wid, 0))
         bar = format_bar(ch, max(mx, 1))
@@ -581,6 +588,15 @@ class AllocDraft:
             tag = f"  (carried {base} +{ch - base} new)"
         else:
             tag = f"  ({kind})" if kind else ""
+        ammo_left = (meta or {}).get("ammo_remaining")
+        if ammo_left is not None:
+            max_ammo = (meta or {}).get("max_ammo")
+            if int(ammo_left) == 0:
+                tag += "  [EMPTY ammo — cannot charge]"
+            elif max_ammo is not None:
+                tag += f"  ammo {ammo_left}/{max_ammo}"
+            else:
+                tag += f"  ammo {ammo_left}"
         return f"    {short:4} {wid:10} {bar}{tag}"
 
     def weapon_menu(self) -> str:
@@ -589,7 +605,7 @@ class AllocDraft:
             wid = m["id"]
             short = weapon_short_alias(wid, str(m.get("kind") or ""))
             mx = max(int(m["max_charge"]), 1)
-            lines.append(self._weapon_line(wid, short, mx, str(m.get("kind") or "")))
+            lines.append(self._weapon_line(wid, short, mx, str(m.get("kind") or ""), m))
         lines.append("  set: t1 1   or   b1 2   | cannot go below carried | done | sh = shields")
         return "\n".join(lines)
 
@@ -618,7 +634,7 @@ class AllocDraft:
             wid = m["id"]
             short = weapon_short_alias(wid, str(m.get("kind") or ""))
             mx = max(int(m["max_charge"]), 1)
-            lines.append(self._weapon_line(wid, short, mx, str(m.get("kind") or "")))
+            lines.append(self._weapon_line(wid, short, mx, str(m.get("kind") or ""), m))
         lines.append("  shields:")
         for i, lab in enumerate(SHIELD_LABELS):
             v = self.shields[i]
@@ -673,6 +689,10 @@ class AllocDraft:
                 f"  cannot strip {token}: already carries {carried} from last turn "
                 f"(requested {clamped}). Charge carries; only top-ups spend power."
             )
+            return False
+        ammo_left = meta.get("ammo_remaining") if meta else None
+        if ammo_left is not None and int(ammo_left) == 0 and clamped > carried:
+            print(f"  {token} is out of ammo — cannot charge")
             return False
         current = int(self.weapons.get(wid, 0))
         # Power already counted for this weapon's increase can be reused when lowering.
@@ -866,6 +886,7 @@ def movement_summary(ship: dict[str, Any], path_draft: Optional[list[str]] = Non
         f"  motion pool={motion}" + (f" (hull cap {cap})" if cap else ""),
         "  Each path action costs 1 motion: f | fr | fl | tr (r) | tl (l).",
         "  Draft with `path f fr tl`, bare tokens, then `commit` (or `path commit`).",
+        "  `evasive N` / `e N` spends N motion on jinking (same budget as path).",
         "  `hold` / `p` / `pass` commits an empty path (stay put).",
         "  `preview` asks the engine path_preview; do not invent legality here.",
         "  `undo` pops last action; `clear` empties the draft.",
@@ -880,10 +901,13 @@ def movement_summary(ship: dict[str, Any], path_draft: Optional[list[str]] = Non
 
 
 def path_draft_summary(ctx: ReplContext) -> str:
-    if not ctx.path_draft:
+    if not ctx.path_draft and not ctx.path_evasive:
         return "  path draft empty — hold/p commits stay; or path f fr …"
-    short = " ".join(path_action_short(a) for a in ctx.path_draft)
-    return f"  path draft ship=#{ctx.path_ship}: {short}  ({len(ctx.path_draft)} actions)"
+    short = " ".join(path_action_short(a) for a in ctx.path_draft) or "(no path)"
+    return (
+        f"  path draft ship=#{ctx.path_ship}: {short}  "
+        f"({len(ctx.path_draft)} path, {ctx.path_evasive} evasive)"
+    )
 
 
 def volley_draft_summary(ctx: ReplContext) -> str:
@@ -899,8 +923,13 @@ def volley_draft_summary(ctx: ReplContext) -> str:
     return "\n".join(lines)
 
 
-def _commit_path_order(ship_id: int, actions: list[str]) -> dict[str, Any]:
-    return _order("commit_path", ship=ship_id, actions=list(actions))
+def _commit_path_order(
+    ship_id: int, actions: list[str], evasive: int = 0
+) -> dict[str, Any]:
+    order = _order("commit_path", ship=ship_id, actions=list(actions))
+    if evasive:
+        order["evasive"] = int(evasive)
+    return order
 
 
 def _commit_volley_order(ship_id: int, shots: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1361,6 +1390,7 @@ def interactive_fire(
             rng,
             target_size,
             int(ship.get("attack_accuracy_bonus") or 0),
+            int(t.get("evasion_committed") or 0),
         )
         damage = damage_preview(
             str(chosen.get("kind") or ""), int(chosen.get("charge") or 0), rng
@@ -1524,6 +1554,9 @@ def direct_fire(
     if int(weapon.get("charge") or 0) <= 0:
         print(f"  {weapon_token} is not charged; allocate weapon power first")
         return None
+    if weapon.get("ammo_remaining") is not None and int(weapon.get("ammo_remaining") or 0) == 0:
+        print(f"  {weapon_token} is out of ammo")
+        return None
     if rng == 0:
         print(
             f"  {weapon_token} cannot fire at range 0; "
@@ -1565,6 +1598,7 @@ def direct_fire(
         rng,
         target_size,
         int(attacker.get("attack_accuracy_bonus") or 0),
+        int(target.get("evasion_committed") or 0),
     )
     if preview:
         damage = damage_preview(
@@ -1749,17 +1783,42 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         # path commit / path hold
         if rest[0].lower() in ("commit", "c", "ok", "apply"):
             actions = list(ctx.path_draft)
-            order = _commit_path_order(sid, actions)
-            note = f"commit_path #{sid} actions={actions or '[]'}"
+            order = _commit_path_order(sid, actions, ctx.path_evasive)
+            note = (
+                f"commit_path #{sid} actions={actions or '[]'} "
+                f"evasive={ctx.path_evasive}"
+            )
             return Action(orders=[order], note=note)
         if rest[0].lower() in ("hold", "pass", "stay", "empty"):
-            order = _commit_path_order(sid, [])
+            order = _commit_path_order(sid, [], 0)
             return Action(orders=[order], note=f"commit_path #{sid} empty (hold)")
+        if rest[0].lower() in ("evasive", "e", "jink"):
+            motion = int(ship.get("motion_available") or 0)
+            try:
+                n = int(rest[1]) if len(rest) > 1 else 1
+            except ValueError:
+                print("  evasive N — N must be an integer")
+                return Action(side="empty")
+            n = max(0, n)
+            path_cost = len(ctx.path_draft)
+            if path_cost + n > motion:
+                print(
+                    f"  evasive {n} + path {path_cost} exceeds motion {motion}"
+                )
+                return Action(side="empty")
+            ctx.path_evasive = n
+            print(f"  evasive set to {n} (path {path_cost} + evasive {n} / {motion})")
+            return Action(side="empty")
         if rest[0].lower() in ("clear", "reset"):
             ctx.path_draft = []
+            ctx.path_evasive = 0
             print("  path draft cleared")
             return Action(side="empty")
         if rest[0].lower() in ("undo", "u", "pop"):
+            if ctx.path_evasive > 0:
+                ctx.path_evasive -= 1
+                print(f"  evasive now {ctx.path_evasive}")
+                return Action(side="empty")
             if ctx.path_draft:
                 dropped = ctx.path_draft.pop()
                 print(f"  undid {path_action_short(dropped)}; " + path_draft_summary(ctx))

@@ -32,6 +32,8 @@ pub struct Ship {
     pub movement_allocated: u32,
     /// Weapon id -> charge (carries across turns).
     pub weapon_charges: BTreeMap<String, u32>,
+    /// Weapon id -> remaining ammo for magazine-tracked weapons (starts full).
+    pub weapon_ammo: BTreeMap<String, u32>,
     /// Itemized internals (D6). `ssd.hull` replaces the old flat structure pool for internals.
     pub ssd: Ssd,
     pub destroyed: bool,
@@ -41,6 +43,9 @@ pub struct Ship {
     pub thrust_conversion: ThrustConversion,
     /// Usable motion points this turn after conversion and hull cap.
     pub motion_available: u32,
+    /// Evasive motion points declared on the last resolved path this turn.
+    /// Reset to 0 at allocate start; set when paths resolve; used during firing.
+    pub evasion_committed: u32,
 }
 
 impl Ship {
@@ -71,6 +76,8 @@ impl Ship {
         self.movement_allocated = 0;
         // Weapon charge carries; motion is re-bought each turn.
         self.motion_available = 0;
+        // Evasion is path-declared each turn; clear stale value from last fire.
+        self.evasion_committed = 0;
     }
 
     pub fn weapon(&self, weapon_id: &str) -> Option<&Weapon> {

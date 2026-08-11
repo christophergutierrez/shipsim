@@ -15,10 +15,10 @@ Mechanics ADR: `docs/adr/0025-simplified-simultaneous-turns.md`.
 |---|---|
 | **Turn** | Three collection stages: **allocate → path → volley**, then auto next allocate. No `end_turn`. |
 | **Shields** | Re-bought every allocate from **0**. |
-| **Weapons** | Charge **carries** across turns. Allocate pays only for **increases**; cannot strip. Hit or miss spends charge for weapons in the volley. |
-| **To-hit** | Rules-table d20 threshold × target `size / 2`, half-up, clamped by the accuracy ceiling. Size 2 is neutral. |
+| **Weapons** | Charge **carries** across turns. Allocate pays only for **increases**; cannot strip. Hit or miss spends charge for weapons in the volley. Torpedo-kind weapons also have a finite `ammo` magazine (default `3 + size`); firing spends 1 ammo; at 0 ammo they cannot be charged or fired (`weapon_out_of_ammo`). |
+| **To-hit** | Rules-table d20 threshold × target `size / 2`, half-up, clamped by the accuracy ceiling. Size 2 is neutral. Defender `evasion_committed` subtracts `evasion_per_point` per evasive motion point (floor 1). |
 | **Motion** | Engine power → motion points via hull `thrust_per_power` / `power_per_thrust`. Cap = `max_maneuver_actions` (engine SSD may lower). |
-| **Path** | One ordered list of actions per living ship: `move_f`, `move_fr`, `move_fl`, `turn_right`, `turn_left` (cost 1 each). No velocity/course. |
+| **Path** | One ordered list of actions per living ship: `move_f`, `move_fr`, `move_fl`, `turn_right`, `turn_left` (cost 1 each), plus optional `evasive` motion points from the same budget. No velocity/course. |
 | **Path resolve** | Simultaneous; intermediate crossings OK; final hex unique; stationary immovable; cost then seeded ties; losers fall back along translated history. |
 | **Volley** | One `commit_volley` per ship (empty = hold fire). Simultaneous fire; destroyed attackers still fire full accepted volley. |
 
@@ -45,6 +45,8 @@ Every order is one JSON object per line with `protocol_version: 4`.
 - Staged until **every living ship** commits; then all applied together.
 - `movement` = engine **power** (converted to motion points).
 - `weapons` = desired **total** charge per weapon id (≥ carried; ≤ max_charge).
+  Charge *increases* on a weapon with 0 remaining ammo are rejected
+  (`weapon_out_of_ammo`). Listing a dry weapon at its current charge is a no-op.
 - `shields` = six face powers (always from 0 this turn).
 - Partial allocation does **not** mutate public ship state.
 
@@ -52,7 +54,7 @@ Every order is one JSON object per line with `protocol_version: 4`.
 
 ```json
 {"protocol_version":4,"type":"commit_path","ship":1,
- "actions":["move_f","move_fr","turn_left"]}
+ "actions":["move_f","move_fr","turn_left"],"evasive":2}
 ```
 
 | Action | Position | Facing | Cost |
@@ -68,8 +70,15 @@ index); `turn_left` rotates **counterclockwise** (increases it). On the standard
 map (`r` increases downward, `x ∝ q + r/2`) these read as on-screen right/left.
 Facing 0 = +q (East); turning right from East points Southeast (facing 5 `↘`).
 
-- Path cost ≤ `motion_available`. Empty path is legal (stationary).
+- Path cost + optional `evasive` (default 0) ≤ `motion_available`. Empty path is
+  legal (stationary); pure jink (`actions:[]` with `evasive > 0`) is legal.
+- `evasive` reduces the ship's chance to be hit during that turn's volley stage
+  (`threshold -= evasive * combat.accuracy.evasion_per_point`, floor 1). It is
+  visible as `evasion_committed` on ship snapshots after path resolve and resets
+  to 0 at the next allocate.
 - Resolves when every living ship has committed a path.
+- Known limitation: `path_preview` does not yet accept drafted `evasive` (only
+  committed state after resolve is reflected in fire previews).
 
 ### `commit_volley`
 

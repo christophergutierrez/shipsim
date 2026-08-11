@@ -26,12 +26,17 @@ function orders.allocate(ship, movement, weapons, shields)
 end
 
 --- Commit one complete path during movement.
-function orders.commit_path(ship, actions)
-  return versioned({
+--- Optional `evasive` spends motion points from the same budget as path actions.
+function orders.commit_path(ship, actions, evasive)
+  local order = {
     type = "commit_path",
     ship = ship,
     actions = actions or {},
-  })
+  }
+  if evasive and evasive > 0 then
+    order.evasive = evasive
+  end
+  return versioned(order)
 end
 
 --- Commit the locally drafted simultaneous volley.

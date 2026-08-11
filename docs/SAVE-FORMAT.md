@@ -53,7 +53,10 @@ Resume loads the saved scenario, replays stored orders without emitting intermed
   replay rejects a mismatched fingerprint before applying orders. The field is
   optional when reading older protocol-v4 saves created before rules
   fingerprints were added (`SaveDocument::rules_fingerprint: None`). Protocol-v3
-  save documents are rejected by the version check above.
+  save documents are rejected by the version check above. Adding ammo/evasion
+  knobs to `default.toml` changes the fingerprint; pre-change saves fail
+  fingerprint validation after that ruleset update (expected for a pre-release
+  rules change, not a save-format break).
 - Scenario and ship data must still be available and compatible with the recorded order stream.
 - Campaign save/resume is not supported in protocol v4.
 - Replay time grows with order history; checkpointed aggregate serialization can be added in a future version if profiling justifies it.

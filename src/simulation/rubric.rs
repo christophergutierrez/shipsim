@@ -223,6 +223,15 @@ pub struct RubricSpec {
     /// Win-rate bounds for named fleet engagements.
     #[serde(default)]
     pub engagement_win_rates: Vec<EngagementWinRateSpec>,
+    /// Max allowed fraction of empty (hold-fire) volleys.
+    #[serde(default)]
+    pub max_zero_volley_rate: Option<f64>,
+    /// Max allowed fraction of path costs that fall in the single most common bucket.
+    #[serde(default)]
+    pub max_dominant_path_cost_rate: Option<f64>,
+    /// Max allowed fraction of volley sizes that fall in the single most common bucket.
+    #[serde(default)]
+    pub max_dominant_volley_size_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -328,6 +337,29 @@ pub fn evaluate_rubric(
             metrics.scheduled_paths,
         );
         checks.push(maximum("zero_translation_rate", actual, expected));
+    }
+    if let Some(expected) = spec.max_zero_volley_rate {
+        let total: u64 = metrics.volley_size_distribution.values().sum();
+        let zeros = metrics
+            .volley_size_distribution
+            .get(&0)
+            .copied()
+            .unwrap_or(0);
+        checks.push(maximum("zero_volley_rate", rate(zeros, total), expected));
+    }
+    if let Some(expected) = spec.max_dominant_path_cost_rate {
+        checks.push(maximum(
+            "dominant_path_cost_rate",
+            dominant_bucket_rate(&metrics.path_cost_distribution),
+            expected,
+        ));
+    }
+    if let Some(expected) = spec.max_dominant_volley_size_rate {
+        checks.push(maximum(
+            "dominant_volley_size_rate",
+            dominant_bucket_rate(&metrics.volley_size_distribution),
+            expected,
+        ));
     }
     if let Some(expected) = spec.min_coasting_distance {
         // Protocol v4: total hexes translated along submitted paths.
@@ -439,6 +471,18 @@ fn rate(numerator: u64, denominator: u64) -> f64 {
     } else {
         numerator as f64 / denominator as f64
     }
+}
+
+/// Fraction of all observations in the single most common bucket. 1.0 means
+/// every observation shares one value (maximally degenerate); 0.0 means the
+/// distribution is empty.
+fn dominant_bucket_rate(distribution: &BTreeMap<u32, u64>) -> f64 {
+    let total: u64 = distribution.values().sum();
+    if total == 0 {
+        return 0.0;
+    }
+    let peak = distribution.values().copied().max().unwrap_or(0);
+    peak as f64 / total as f64
 }
 
 fn minimum(metric: &str, actual: f64, expected: f64) -> RubricCheck {
@@ -559,6 +603,16 @@ mod tests {
         assert!((b.max_dominance - 0.0).abs() < 1e-9);
         assert!((b.max_side_bias - 0.0).abs() < 1e-9);
         assert_eq!(b.matchups.len(), 1);
+    }
+
+    #[test]
+    fn dominant_bucket_rate_empty_single_and_uniform() {
+        assert_eq!(dominant_bucket_rate(&BTreeMap::new()), 0.0);
+        assert_eq!(dominant_bucket_rate(&BTreeMap::from([(3, 10)])), 1.0);
+        assert_eq!(
+            dominant_bucket_rate(&BTreeMap::from([(0, 1), (1, 1), (2, 1), (3, 1)])),
+            0.25
+        );
     }
 
     /// Case: per-matchup threshold failure.
