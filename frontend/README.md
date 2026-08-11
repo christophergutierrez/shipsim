@@ -7,7 +7,7 @@ frontend/
   README.md          # this policy
   love/              # Love2D graphical client (protocol v4)
   repl/              # Python interactive dev client — agent reference (protocol v4)
-  tui/               # ratatui terminal client — Small tier implemented (protocol v4)
+  tui/               # ratatui terminal client — Small tier (protocol v4)
   <other>/           # future clients go here
 ```
 
@@ -31,19 +31,43 @@ frontend/
 6. **Adding a client** — create `frontend/<name>/`, put a short README and a
    `.gitignore` that ignores `local/`, keep all untracked mess under that tree.
 
-## Run (examples)
+## Launch (from repo root)
+
+Build the engine first (`cargo build -q`). All clients need
+`target/debug/shipsim` (or `SHIPSIM_BIN`).
+
+| Client | Command | Needs |
+|---|---|---|
+| **REPL** | `python3 frontend/repl/repl.py scenarios/ai.toml` | Python 3 |
+| **TUI** | `cargo run --manifest-path frontend/tui/Cargo.toml` | Rust |
+| **Love2D** | `./frontend/love/play.sh` | Love2D 11.x + display |
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml          # UI play
-python3 frontend/repl/client.py                          # API play smoke
+
+# REPL — text UI (agent reference)
+python3 frontend/repl/repl.py scenarios/ai.toml
+
+# TUI — ratatui
+cargo run --manifest-path frontend/tui/Cargo.toml
+
+# Love2D — graphical (prefers play.sh for window sizing)
+./frontend/love/play.sh
+# or: love frontend/love
+
+# Headless checks
+python3 frontend/repl/client.py
 (cd frontend/repl && python3 -m unittest discover -s tests)
-love frontend/love
+cargo test --manifest-path frontend/tui/Cargo.toml
 luajit frontend/love/tests/run_all.lua
-cargo run --manifest-path frontend/tui/Cargo.toml   # ratatui TUI
 ```
 
-See each client's README for details. TUI decision: `frontend/tui/ADR.md`.
+Batch simulation is **not** a frontend; use `shipsim-sim` from the repo root
+(see root [`README.md`](../README.md) and [`docs/SIMULATION.md`](../docs/SIMULATION.md)).
+
+See each client's README for flags, controls, and tests. TUI decision:
+`frontend/tui/ADR.md`.
 
 **Engine API:** `docs/PROTOCOL.md`.  
-**Play types (UI / API / sim):** `docs/AGENT-PLAY.md`, root `AGENTS.md`.
+**Play types (UI / API / sim):** `docs/AGENT-PLAY.md`, root `AGENTS.md`.  
+**Human quick start:** root [`README.md`](../README.md).

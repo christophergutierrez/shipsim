@@ -24,15 +24,20 @@ Full procedures and decision table: **[`docs/AGENT-PLAY.md`](docs/AGENT-PLAY.md)
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml              # UI play
+python3 frontend/repl/repl.py scenarios/ai.toml              # UI play (REPL)
+cargo run --manifest-path frontend/tui/Cargo.toml            # UI play (TUI)
+./frontend/love/play.sh                                      # UI play (Love2D)
 python3 frontend/repl/client.py                              # API play smoke
 (cd frontend/repl && python3 -m unittest discover -s tests)  # API play suite
 cargo run --release --bin shipsim-sim -- \
   --suite simulation/suites/smoke.toml                       # sim play
 ```
 
+Human-oriented launch table: root **[`README.md`](README.md)**.
+
 Default for “play itself” / “play the game”: **UI play** (REPL), unless the
-user asks for tests (**API play**) or mass matches (**sim play**).
+user asks for tests (**API play**) or mass matches (**sim play**), or names
+another frontend (TUI / Love2D).
 
 An explicit “play a UI game” / “play through the UI” request **must** launch a
 frontend and enter decisions through that frontend. Driving NDJSON directly or
@@ -53,7 +58,10 @@ API” means drive the NDJSON harness without claiming that as UI coverage.
 | Hull size tiers (1–7) | [`data/sizes.toml`](data/sizes.toml), [`docs/combat-v2-tables.md`](docs/combat-v2-tables.md) |
 | Ship classes | [`data/ships/`](data/ships/) |
 | Size variants + costs | [`docs/SIZE-VARIANTS.md`](docs/SIZE-VARIANTS.md), [`docs/BALANCE-COST.md`](docs/BALANCE-COST.md), [`data/ship_costs.toml`](data/ship_costs.toml) |
+| Human quick start (all launch commands) | [`README.md`](README.md) |
 | REPL commands (UI play) | [`frontend/repl/GAMEPLAY.md`](frontend/repl/GAMEPLAY.md) |
+| TUI run / keys | [`frontend/tui/README.md`](frontend/tui/README.md) |
+| Love2D run / controls | [`frontend/love/README.md`](frontend/love/README.md) |
 | Frontend isolation | [`frontend/README.md`](frontend/README.md) |
 
 ## Local scratch (not authoritative)

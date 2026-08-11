@@ -84,12 +84,29 @@ previews: `path_preview`, `reach_preview`, `fire_preview`.
 | `geom.lua` / `hex.lua` | Geometry + hex math |
 | `subprocess.lua` / `paths.lua` / `json.lua` | Process I/O, paths, JSON |
 | `end_condition.lua` | Win/lose presentation |
+| `ship_art.lua` / `ship_art_runtime.lua` | Sprite lookup by snapshot `class_id` |
+
+## Ship art (associate images with ship TOMLs)
+
+Play uses snapshot `class_id` (the `data/ships/<class_id>.toml` stem). Drop
+images and rebuild the runtime manifest — no generator required:
+
+```bash
+# board sprite (source facing up); optional portrait for the HUD
+mkdir -p frontend/love/assets/ship_art/destroyer_line
+# place top_down.png (and optional portrait.png) in that directory
+
+python3 frontend/love/tools/ship_art_catalog.py --register-images
+```
+
+Details: [`assets/ship_art/README.md`](assets/ship_art/README.md).
 
 ## Docs
 
 | Doc | Status |
 |---|---|
 | **This README** | Live |
+| `assets/ship_art/README.md` | Image ↔ `class_id` association |
 | `FIX-PLAN.md` | Landed F1–F4 history; suite note current |
 | `REVIEW-FINDINGS.md` | Hygiene review + residual notes |
 | `UPGRADE-PLAN.md`, `UPGRADE-LOG.md`, `HANDOFF-REVIEW.md`, `REVIEW-VERDICT.md` | **SUPERSEDED** (pre-v4 cycle) |
@@ -99,5 +116,4 @@ previews: `path_preview`, `reach_preview`, `fire_preview`.
 ```bash
 cargo build -q
 luajit frontend/love/tests/run_all.lua
-# expects: All 92 checks passed.
 ```

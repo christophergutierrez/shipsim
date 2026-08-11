@@ -1,4 +1,93 @@
 {
-  "records": [],
+  "records": [
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "escort",
+      "height": 128,
+      "image_path": "escort/portrait.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "portrait",
+      "width": 128
+    },
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "escort",
+      "height": 256,
+      "image_path": "escort/top_down.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "top_down",
+      "width": 256
+    },
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "heavy_cruiser",
+      "height": 128,
+      "image_path": "heavy_cruiser/portrait.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "portrait",
+      "width": 128
+    },
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "heavy_cruiser",
+      "height": 256,
+      "image_path": "heavy_cruiser/top_down.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "top_down",
+      "width": 256
+    },
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "tutorial_escort",
+      "height": 128,
+      "image_path": "escort/portrait.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "portrait",
+      "width": 128
+    },
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "tutorial_escort",
+      "height": 256,
+      "image_path": "escort/top_down.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "top_down",
+      "width": 256
+    },
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "tutorial_heavy_cruiser",
+      "height": 128,
+      "image_path": "heavy_cruiser/portrait.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "portrait",
+      "width": 128
+    },
+    {
+      "anchor_x": 0.5,
+      "anchor_y": 0.5,
+      "class_id": "tutorial_heavy_cruiser",
+      "height": 256,
+      "image_path": "heavy_cruiser/top_down.png",
+      "scale": 1.0,
+      "source_angle": 0.0,
+      "state": "top_down",
+      "width": 256
+    }
+  ],
   "version": 1
 }

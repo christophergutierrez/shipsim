@@ -793,6 +793,120 @@ def write_manifest(records: list[ManifestRecord], path: Path = MANIFEST_PATH) ->
     os.replace(temporary, path)
 
 
+# ---------------------------------------------------------------------------
+# Manual image registration (no generation pipeline)
+# ---------------------------------------------------------------------------
+
+# Convention under assets/ship_art/<class_id>/ — file stem is the art state.
+# Association key is the ship TOML catalog id (file stem / `id` field = snapshot
+# `class_id`). The engine never reads these paths.
+_STATE_IMAGE_NAMES: dict[str, tuple[str, ...]] = {
+    "top_down": ("top_down.png", "top_down.webp", "topdown.png"),
+    "portrait": ("portrait.png", "portrait.webp"),
+}
+
+
+def _find_state_image(class_dir: Path, state: str) -> Path | None:
+    """Return the first existing conventional image for a state, if any."""
+    for name in _STATE_IMAGE_NAMES.get(state, ()):
+        candidate = class_dir / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _image_size(path: Path) -> tuple[int, int]:
+    from PIL import Image
+
+    with Image.open(path) as image:
+        return image.size
+
+
+def manual_state_asset(image_path: str, width: int, height: int) -> StateAsset:
+    """Build an accepted StateAsset for a hand-placed image (no AI provider)."""
+    return StateAsset(
+        image_path=image_path,
+        width=width,
+        height=height,
+        anchor_x=0.5,
+        anchor_y=0.5,
+        source_angle=0.0,
+        scale=1.0,
+        provider="manual",
+        model="manual",
+        prompt_hash="manual",
+        reference_state="",
+        processing_version="manual-1",
+        review_status="accepted",
+    )
+
+
+def register_images_from_disk(
+    catalog: list[CatalogEntry] | None = None,
+    assets_dir: Path = _ASSETS_DIR,
+) -> dict[str, Any]:
+    """Associate on-disk images with ship class_ids and rebuild the manifest.
+
+    For each **primary** catalog entry, looks under
+    ``assets/ship_art/<class_id>/`` for conventional files:
+
+    * ``top_down.png`` (board sprite; source art points **up**)
+    * ``portrait.png`` (HUD thumbnail; optional)
+
+    Writes/updates ``sprite.toml`` sidecars as ``review_status = "accepted"``
+    and regenerates ``manifest.json``. Alias class_ids (e.g. tutorial_*) pick
+    up the target primary's images via :func:`generate_manifest`.
+
+    Returns a summary dict: registered states, skipped primaries, record count.
+    """
+    if catalog is None:
+        catalog = load_catalog()
+
+    registered: list[dict[str, str]] = []
+    missing: list[str] = []
+
+    for entry in catalog:
+        if entry.kind != "primary":
+            continue
+        class_dir = assets_dir / entry.class_id
+        if not class_dir.is_dir():
+            missing.append(entry.class_id)
+            continue
+        found_any = False
+        for state in P0_STATES:
+            image = _find_state_image(class_dir, state)
+            if image is None:
+                continue
+            found_any = True
+            width, height = _image_size(image)
+            rel = f"{entry.class_id}/{image.name}"
+            write_sidecar_state(
+                class_dir / "sprite.toml",
+                class_id=entry.class_id,
+                display_name=entry.display_name,
+                state=state,
+                metadata=manual_state_asset(rel, width, height),
+            )
+            registered.append(
+                {
+                    "class_id": entry.class_id,
+                    "state": state,
+                    "image_path": rel,
+                }
+            )
+        if not found_any:
+            missing.append(entry.class_id)
+
+    records = generate_manifest(catalog, assets_dir=assets_dir)
+    write_manifest(records, path=assets_dir / "manifest.json")
+    return {
+        "registered": registered,
+        "missing_primaries": missing,
+        "manifest_records": len(records),
+        "manifest_sha256": manifest_sha256(records),
+    }
+
+
 def _restore_file(path: Path, contents: bytes | None) -> None:
     """Restore one file snapshot without exposing a partially written file."""
     if contents is None:
@@ -1040,10 +1154,29 @@ def _cmd_check_manifest() -> int:
     return 1
 
 
+def _cmd_register_images() -> int:
+    """Scan conventional image paths, accept them, rewrite the runtime manifest."""
+    summary = register_images_from_disk()
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    if not summary["registered"]:
+        print(
+            "no images registered — place PNGs under "
+            "frontend/love/assets/ship_art/<class_id>/top_down.png "
+            "(and optional portrait.png)",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     if not args:
-        print("usage: ship_art_catalog.py --audit|--write-manifest|--check-manifest", file=sys.stderr)
+        print(
+            "usage: ship_art_catalog.py "
+            "--audit|--write-manifest|--check-manifest|--register-images",
+            file=sys.stderr,
+        )
         return 2
     cmd = args[0]
     if cmd == "--audit":
@@ -1052,6 +1185,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_write_manifest()
     elif cmd == "--check-manifest":
         return _cmd_check_manifest()
+    elif cmd == "--register-images":
+        return _cmd_register_images()
     else:
         print(f"unknown command: {cmd}", file=sys.stderr)
         return 2

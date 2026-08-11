@@ -90,12 +90,13 @@ Logs: `frontend/repl/local/session-*.log`, `orders-*.jsonl`.
 
 Protocol **v4** is live on the engine and on all three clients. **REPL** remains
 the agent reference path for UI play. Prefer it unless the ask names TUI or Love.
+Human-oriented launch table: root **`README.md`**.
 
 | Client | Run | Notes |
 |---|---|---|
 | **REPL** | `python3 frontend/repl/repl.py scenarios/ai.toml` | Reference; best for agents |
 | **TUI** | `cargo run --manifest-path frontend/tui/Cargo.toml` | Small-tier ratatui; see `frontend/tui/README.md` |
-| **Love2D** | `./frontend/love/play.sh` | Graphical thin client; see `frontend/love/README.md` |
+| **Love2D** | `./frontend/love/play.sh` | Graphical; needs Love2D 11.x + display; see `frontend/love/README.md` |
 
 ### Screen grid audit (UI presentation, not a full game)
 

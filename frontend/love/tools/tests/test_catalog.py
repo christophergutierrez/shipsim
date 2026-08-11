@@ -266,6 +266,39 @@ class TestManifestGeneration(unittest.TestCase):
             # Unsafe path excluded — no records.
             self.assertEqual(len(records), 0)
 
+    def test_register_images_from_disk_associates_class_id(self):
+        """Hand-placed top_down/portrait PNGs become accepted manifest rows."""
+        with tempfile.TemporaryDirectory() as tmp:
+            assets_dir = Path(tmp)
+            escort_dir = assets_dir / "escort"
+            escort_dir.mkdir()
+            Image.new("RGBA", (64, 48), (10, 20, 30, 255)).save(
+                escort_dir / "top_down.png"
+            )
+            Image.new("RGBA", (32, 32), (40, 50, 60, 255)).save(
+                escort_dir / "portrait.png"
+            )
+            catalog = sac.build_catalog()
+            summary = sac.register_images_from_disk(catalog, assets_dir=assets_dir)
+            self.assertEqual(summary["manifest_records"], 4)  # escort + tutorial alias × 2
+            by_key = {
+                (r["class_id"], r["state"]): r["image_path"]
+                for r in summary["registered"]
+            }
+            self.assertEqual(by_key[("escort", "top_down")], "escort/top_down.png")
+            self.assertEqual(by_key[("escort", "portrait")], "escort/portrait.png")
+
+            manifest = json.loads((assets_dir / "manifest.json").read_text())
+            ids = {(r["class_id"], r["state"]) for r in manifest["records"]}
+            self.assertIn(("escort", "top_down"), ids)
+            self.assertIn(("tutorial_escort", "top_down"), ids)
+
+            # Sidecar is accepted so --write-manifest path stays green.
+            sidecar = sac.Sidecar.from_toml(escort_dir / "sprite.toml")
+            self.assertEqual(sidecar.states["top_down"].review_status, "accepted")
+            self.assertEqual(sidecar.states["top_down"].width, 64)
+            self.assertEqual(sidecar.states["top_down"].height, 48)
+
     def test_alias_resolves_through_chain(self):
         """Alias chain resolution follows to the ultimate primary."""
         with tempfile.TemporaryDirectory() as tmp:

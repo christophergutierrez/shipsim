@@ -1,0 +1,32 @@
+class_id = "heavy_cruiser"
+display_name = "Heavy Cruiser"
+
+[states.portrait]
+image_path = "heavy_cruiser/portrait.png"
+width = 128
+height = 128
+anchor_x = 0.5
+anchor_y = 0.5
+source_angle = 0.0
+scale = 1.0
+provider = "manual"
+model = "manual"
+prompt_hash = "manual"
+reference_state = ""
+processing_version = "manual-1"
+review_status = "accepted"
+
+[states.top_down]
+image_path = "heavy_cruiser/top_down.png"
+width = 256
+height = 256
+anchor_x = 0.5
+anchor_y = 0.5
+source_angle = 0.0
+scale = 1.0
+provider = "manual"
+model = "manual"
+prompt_hash = "manual"
+reference_state = ""
+processing_version = "manual-1"
+review_status = "accepted"
