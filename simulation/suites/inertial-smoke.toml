@@ -1,5 +1,5 @@
 name = "inertial policy smoke"
-scenario = "scenarios/m7_hull_efficiency.toml"
+scenario = "fixtures/m7_hull_efficiency.toml"
 seeds = [1, 2, 3, 4]
 max_turns = 30
 max_orders = 20000

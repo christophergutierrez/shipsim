@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn replay_rejects_a_different_rules_fingerprint() {
-        let scenario = PathBuf::from("scenarios/simulation_duel.toml");
+        let scenario = PathBuf::from("fixtures/simulation_duel.toml");
         let game = load_scenario(&scenario).expect("scenario");
         let mut save = SaveDocument::capture(scenario, Vec::new(), &game);
         save.rules_fingerprint = Some("fnv1a-not-the-loaded-rules".into());
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn old_save_without_a_fingerprint_remains_readable() {
-        let scenario = PathBuf::from("scenarios/simulation_duel.toml");
+        let scenario = PathBuf::from("fixtures/simulation_duel.toml");
         let game = load_scenario(&scenario).expect("scenario");
         let mut save = SaveDocument::capture(scenario, Vec::new(), &game);
         save.rules_fingerprint = None;
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn resuming_and_rewriting_a_legacy_save_gains_a_fingerprint() {
-        let scenario = PathBuf::from("scenarios/simulation_duel.toml");
+        let scenario = PathBuf::from("fixtures/simulation_duel.toml");
         let game = load_scenario(&scenario).expect("scenario");
         let mut save = SaveDocument::capture(scenario, Vec::new(), &game);
         save.rules_fingerprint = None;
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn update_from_checkpoint_refreshes_prng_state_and_fingerprint_together() {
-        let scenario = PathBuf::from("scenarios/simulation_duel.toml");
+        let scenario = PathBuf::from("fixtures/simulation_duel.toml");
         let game = load_scenario(&scenario).expect("scenario");
         let mut save = SaveDocument::capture(scenario, Vec::new(), &game);
         save.prng_state = 0;
@@ -227,7 +227,7 @@ mod tests {
         use crate::path::PathAction;
         use std::collections::BTreeMap;
 
-        let scenario = PathBuf::from("scenarios/ai.toml");
+        let scenario = PathBuf::from("scenarios/battle.toml");
         let mut game = load_scenario(&scenario).expect("scenario");
         let mut orders = Vec::new();
 

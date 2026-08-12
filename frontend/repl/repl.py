@@ -11,8 +11,8 @@ Session log (default on): frontend/repl/local/session-*.log
   --scroll         old long-log on-screen UI
 
 Usage:
-  python3 frontend/repl/repl.py scenarios/ai.toml
-  python3 frontend/repl/repl.py scenarios/ai.toml --debug
+  python3 frontend/repl/repl.py scenarios/battle.toml
+  python3 frontend/repl/repl.py scenarios/battle.toml --debug
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def pick_scenario(repo: Path, preferred: str | None, ui: TerminalUI) -> str:
             print(f"  [{i}] {s}")
         default_idx = 0
         for i, s in enumerate(scenarios):
-            if s.endswith("ai.toml"):
+            if s.endswith("battle.toml"):
                 default_idx = i
                 break
         try:

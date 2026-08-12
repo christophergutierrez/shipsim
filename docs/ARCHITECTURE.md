@@ -145,7 +145,7 @@ PRNG checkpoint; see `docs/SAVE-FORMAT.md`.
 - `luajit frontend/love/tests/run_all.lua` covers pure Lua order and UI-state behavior.
 - `tests/fixtures/v4/` holds golden protocol-v4 order/snapshot streams.
 - REPL automated suite: `(cd frontend/repl && python3 -m unittest discover -s tests)`.
-- REPL live play: `python3 frontend/repl/repl.py scenarios/ai.toml`.
+- REPL live play: `python3 frontend/repl/repl.py scenarios/battle.toml`.
 - TUI: `cargo test --manifest-path frontend/tui/Cargo.toml`.
 
 Architecture decisions and supersession history live in `docs/adr/`.

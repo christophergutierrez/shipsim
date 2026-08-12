@@ -71,7 +71,7 @@ class ShipsimSession:
     ) -> None:
         self.repo = (repo or find_repo_root()).resolve()
         self.bin = (bin_path or find_shipsim_bin(self.repo)).resolve()
-        self.scenario = scenario  # relative to repo, e.g. scenarios/ai.toml
+        self.scenario = scenario  # relative to repo, e.g. scenarios/battle.toml
         self.snapshot: Optional[dict[str, Any]] = None
         self.last_error: Optional[dict[str, Any]] = None
         self.orders: list[dict[str, Any]] = []
@@ -237,7 +237,7 @@ def list_scenarios(repo: Optional[Path] = None) -> list[str]:
 def main_smoke() -> int:
     """Non-interactive sanity check used by README / CI-adjacent checks."""
     repo = find_repo_root()
-    scenario = "scenarios/combat.toml"
+    scenario = "scenarios/battle.toml"
     with ShipsimSession(scenario, repo=repo) as session:
         snap = session.snapshot
         assert snap is not None

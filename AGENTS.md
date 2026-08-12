@@ -24,7 +24,7 @@ Full procedures and decision table: **[`docs/AGENT-PLAY.md`](docs/AGENT-PLAY.md)
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml              # UI play (REPL)
+python3 frontend/repl/repl.py scenarios/battle.toml              # UI play (REPL)
 cargo run --manifest-path frontend/tui/Cargo.toml            # UI play (TUI)
 ./frontend/love/play.sh                                      # UI play (Love2D)
 python3 frontend/repl/client.py                              # API play smoke

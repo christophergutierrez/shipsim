@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use shipsim_core::simulation::{run_match, MatchConfig};
 
 fn scenario() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios/simulation_duel.toml")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/simulation_duel.toml")
 }
 
 #[test]

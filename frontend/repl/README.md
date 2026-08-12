@@ -38,13 +38,13 @@ Rules of the game (engine): `docs/PLAY-V2.md`, `docs/PROTOCOL.md`, ADR-0025
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml
-python3 frontend/repl/repl.py scenarios/ai.toml --bin /path/to/shipsim
-python3 frontend/repl/repl.py scenarios/ai.toml --save local/battle.json
-python3 frontend/repl/repl.py scenarios/ai.toml --debug              # verbose file log
-python3 frontend/repl/repl.py scenarios/ai.toml --log-file /tmp/x.log
-python3 frontend/repl/repl.py scenarios/ai.toml --no-session-log
-python3 frontend/repl/repl.py scenarios/ai.toml --scroll             # old long scrolling UI
+python3 frontend/repl/repl.py scenarios/battle.toml
+python3 frontend/repl/repl.py scenarios/battle.toml --bin /path/to/shipsim
+python3 frontend/repl/repl.py scenarios/battle.toml --save local/battle.json
+python3 frontend/repl/repl.py scenarios/battle.toml --debug              # verbose file log
+python3 frontend/repl/repl.py scenarios/battle.toml --log-file /tmp/x.log
+python3 frontend/repl/repl.py scenarios/battle.toml --no-session-log
+python3 frontend/repl/repl.py scenarios/battle.toml --scroll             # old long scrolling UI
 python3 frontend/repl/repl.py --tutorial rear-attack                 # strict narrated victory
 python3 frontend/repl/client.py                                      # non-interactive smoke
 ```

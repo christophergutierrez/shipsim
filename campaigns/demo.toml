@@ -1,7 +1,7 @@
 name = "Demo Campaign"
 
 scenarios = [
-  "../scenarios/combat.toml",
-  "../scenarios/ai.toml",
+  "../scenarios/tutorial_rear_attack.toml",
+  "../scenarios/battle.toml",
   "../scenarios/fleet.toml",
 ]

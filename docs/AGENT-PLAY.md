@@ -49,7 +49,7 @@ Session logs under `frontend/<name>/local/`.
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml
+python3 frontend/repl/repl.py scenarios/battle.toml
 ```
 
 | Resource | Why |
@@ -60,9 +60,15 @@ python3 frontend/repl/repl.py scenarios/ai.toml
 
 | Scenario | Notes |
 |---|---|
-| `scenarios/ai.toml` | Default duel vs AI — best first play |
-| `scenarios/combat.toml` | Includes **scripted** ship (REPL pumps passive orders) |
-| `scenarios/v2_duel.toml` | AI-vs-AI headless self-play (rejected by the interactive harness; use `shipsim-sim` instead) |
+| `scenarios/tutorial_rear_attack.toml` | Step-gated lesson (`--tutorial` in TUI, auto-detected by Love2D) |
+| `scenarios/battle.toml` | Default duel vs AI — best first play |
+| `scenarios/fleet.toml` | Heavy cruiser + two destroyers vs the same, 3v3 |
+
+`fixtures/*.toml` holds scenarios used only by automated tests (e.g.
+`fixtures/combat.toml`, a player + **scripted** ship used to exercise the
+scripted-ship auto-pump) — not meant for interactive play; see
+`fixtures/README.md`. AI-vs-AI headless self-play uses `shipsim-sim`, not the
+interactive harness (a scenario with no player ship is rejected there).
 
 **Agent procedure:**
 
@@ -80,8 +86,8 @@ Do **not** invent AI orders — the harness advances `controller = "ai"`.
 Scripted ships are pumped by the REPL when they alone block the phase.
 
 ```bash
-python3 frontend/repl/repl.py scenarios/ai.toml --debug
-python3 frontend/repl/repl.py scenarios/ai.toml --no-session-log
+python3 frontend/repl/repl.py scenarios/battle.toml --debug
+python3 frontend/repl/repl.py scenarios/battle.toml --no-session-log
 ```
 
 Logs: `frontend/repl/local/session-*.log`, `orders-*.jsonl`.
@@ -94,7 +100,7 @@ Human-oriented launch table: root **`README.md`**.
 
 | Client | Run | Notes |
 |---|---|---|
-| **REPL** | `python3 frontend/repl/repl.py scenarios/ai.toml` | Reference; best for agents |
+| **REPL** | `python3 frontend/repl/repl.py scenarios/battle.toml` | Reference; best for agents |
 | **TUI** | `cargo run --manifest-path frontend/tui/Cargo.toml` | Small-tier ratatui; see `frontend/tui/README.md` |
 | **Love2D** | `./frontend/love/play.sh` | Graphical; needs Love2D 11.x + display; see `frontend/love/README.md` |
 
@@ -125,13 +131,12 @@ python3 frontend/repl/client.py
 
 ```bash
 cargo build -q
-target/debug/shipsim --scenario scenarios/ai.toml --stdin
+target/debug/shipsim --scenario scenarios/battle.toml --stdin
 # one JSON order per line → one snapshot or error per line
 ```
 
 Golden order/snapshot streams: `tests/fixtures/v4/` (see that directory’s
-README). Older `scenarios/d8_frontend_orders.jsonl` is protocol **v3** and is
-**rejected** by the current engine.
+README).
 
 ### REPL automated suite (command → order; not live UI)
 
@@ -207,7 +212,7 @@ suites.
 | “Play the game” / “play itself” / “play until win” | **UI play** (REPL) |
 | “UI is wrong / bars / menus / double paint” | **UI play** + `screen_audit.py` |
 | “Smoke / run the tests / protocol bug” | **API play** |
-| “Scripted ship deadlock?” | **API play** (`test_m3_scripted_driver`) ± UI on `combat.toml` |
+| “Scripted ship deadlock?” | **API play** (`test_m3_scripted_driver`) ± UI on `fixtures/combat.toml` |
 | “Balance / many matches / rubrics” | **Sim play** |
 | “Wire a new client” | Read `docs/PROTOCOL.md`; implement as API client; optional UI play later |
 
@@ -228,7 +233,7 @@ suites.
 cargo build -q
 
 # UI play
-python3 frontend/repl/repl.py scenarios/ai.toml
+python3 frontend/repl/repl.py scenarios/battle.toml
 
 # API play
 python3 frontend/repl/client.py

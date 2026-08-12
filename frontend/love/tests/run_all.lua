@@ -191,7 +191,7 @@ local session = harness.new({
   orders_path = paths.local_dir() .. "/test_orders.jsonl",
   stderr_path = paths.local_dir() .. "/test_stderr.txt",
 })
-local snap = harness.load_scenario(session, "scenarios/combat.toml")
+local snap = harness.load_scenario(session, "fixtures/combat.toml")
 assert(snap, "load")
 assert_eq(snap.turn, 1, "turn")
 assert_eq(snap.phase, "allocate", "phase")
@@ -514,7 +514,7 @@ end
 if os.getenv("LOVE_LIVE") then
   print("phase 0: live request envelope round-trip (LOVE_LIVE=1)")
   local live = harness.new({ repo_root = repo, bin = paths.find_shipsim_bin(repo) })
-  local lsnap = harness.load_scenario(live, "scenarios/combat.toml")
+  local lsnap = harness.load_scenario(live, "fixtures/combat.toml")
   assert(lsnap, "live load")
   -- Allocate so reach_preview (v4; movement_preview is retired) is meaningful.
   harness.submit(live, orders.allocate(1, 4, { beam_1 = 1 }, { 2, 1, 0, 0, 0, 1 }))

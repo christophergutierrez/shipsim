@@ -64,7 +64,7 @@ velocity/course, and **no** `ready_fire`.
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml          # UI play (reference)
+python3 frontend/repl/repl.py scenarios/battle.toml          # UI play (reference)
 python3 frontend/repl/client.py                            # API smoke
 (cd frontend/repl && python3 -m unittest discover -s tests)
 cargo test -q

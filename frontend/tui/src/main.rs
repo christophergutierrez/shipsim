@@ -39,7 +39,7 @@ fn main() -> std::io::Result<()> {
             if tutorial_mode {
                 "scenarios/tutorial_rear_attack.toml".to_string()
             } else {
-                "scenarios/ai.toml".to_string()
+                "scenarios/battle.toml".to_string()
             }
         });
 

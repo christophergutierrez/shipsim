@@ -258,7 +258,7 @@ Milestones:
 Milestones:
 - [ ] Headless: `game over stats match event history` (synthetic events in →
       exact counts out), `lerp reaches target within duration`.
-- [ ] Manual: play `scenarios/ai.toml` to a win — tracers visible, no input
+- [ ] Manual: play `scenarios/battle.toml` to a win — tracers visible, no input
       lag during animation, game-over panel shows non-zero stats matching the
       log, `fx_enabled=false` disables all of it.
 - [ ] `luajit frontend/love/tests/run_all.lua` total check count ≥ 30 (13

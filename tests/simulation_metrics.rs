@@ -16,7 +16,7 @@ fn path(rel: &str) -> PathBuf {
 
 #[test]
 fn metrics_record_path_resolution_and_actual_translation() {
-    let mut game = load_scenario(&path("scenarios/v4_conflict.toml")).unwrap();
+    let mut game = load_scenario(&path("fixtures/v4_conflict.toml")).unwrap();
     assert_eq!(game.phase(), Phase::Allocate);
 
     apply_order(

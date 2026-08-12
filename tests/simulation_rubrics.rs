@@ -37,7 +37,7 @@ fn missing_hull_class_fails_through_toml_rubric_path() {
     .unwrap();
     let report = run_suite(&SuiteSpec {
         name: "missing hull test".into(),
-        scenario: Some(root.join("scenarios/m7_hull_efficiency.toml")),
+        scenario: Some(root.join("fixtures/m7_hull_efficiency.toml")),
         seeds: vec![1],
         max_turns: 2,
         max_orders: 1000,
@@ -75,7 +75,7 @@ fn decision_diversity_rubric_tight_threshold_fails() {
     .unwrap();
     let report = run_suite(&SuiteSpec {
         name: "decision diversity tight".into(),
-        scenario: Some(root.join("scenarios/simulation_duel.toml")),
+        scenario: Some(root.join("fixtures/simulation_duel.toml")),
         seeds: vec![1],
         max_turns: 10,
         max_orders: 5000,
@@ -113,7 +113,7 @@ fn decision_diversity_rubric_loose_threshold_passes() {
     .unwrap();
     let report = run_suite(&SuiteSpec {
         name: "decision diversity loose".into(),
-        scenario: Some(root.join("scenarios/simulation_duel.toml")),
+        scenario: Some(root.join("fixtures/simulation_duel.toml")),
         seeds: vec![1],
         max_turns: 10,
         max_orders: 5000,

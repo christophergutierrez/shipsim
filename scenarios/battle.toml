@@ -1,0 +1,27 @@
+width = 24
+height = 20
+seed = 1
+
+# Battle: Heavy Cruiser vs Heavy Cruiser. Symmetric 1v1 — both sides fly the
+# same hull, so play decides the outcome, not gear. Default free-play scenario
+# for interactive clients (REPL/TUI/Love2D).
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 4
+r = 10
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 2
+class = "heavy_cruiser"
+q = 19
+r = 10
+facing = 3
+controller = "ai"

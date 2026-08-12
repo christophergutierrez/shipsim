@@ -1,46 +1,58 @@
-# 2v2 fleet (HC + escort each side). Destruction target = AI heavy cruiser (id 3).
-#
-# Balance note (play 2026-07): equal escort screens + full shield rebuy made late
-# game an escort-vs-escort grind while the win-target HC sat untouched. AI escort
-# is destroyer_light (thinner screen) so the screen is crackable without changing
-# global escort catalog stats. Player still has a full escort for the gun line.
-width = 12
-height = 10
+# Fleet: Heavy Cruiser + two Destroyers vs Heavy Cruiser + two Destroyers.
+# Symmetric 3v3. Destruction target = AI heavy cruiser (id 4).
+width = 16
+height = 12
 seed = 99
 map_mode = "floating"
 
 [terminal]
 type = "destruction"
-target = 3
+target = 4
 
 [[ships]]
 id = 1
 class = "heavy_cruiser"
 q = 1
-r = 3
+r = 4
 facing = 0
 controller = "player"
 
 [[ships]]
 id = 2
-class = "escort"
+class = "destroyer_line"
 q = 1
-r = 5
+r = 2
 facing = 0
 controller = "player"
 
 [[ships]]
 id = 3
+class = "destroyer_line"
+q = 1
+r = 6
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 4
 class = "heavy_cruiser"
-q = 10
-r = 3
+q = 14
+r = 4
 facing = 3
 controller = "ai"
 
 [[ships]]
-id = 4
-class = "destroyer_light"
-q = 10
-r = 5
+id = 5
+class = "destroyer_line"
+q = 14
+r = 2
+facing = 3
+controller = "ai"
+
+[[ships]]
+id = 6
+class = "destroyer_line"
+q = 14
+r = 6
 facing = 3
 controller = "ai"

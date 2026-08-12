@@ -38,13 +38,13 @@ Python client; good default for agents and quick play.
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml
+python3 frontend/repl/repl.py scenarios/battle.toml
 ```
 
 | Variant | Command |
 |---|---|
 | Tutorial | `python3 frontend/repl/repl.py --tutorial rear-attack` |
-| Debug log | `python3 frontend/repl/repl.py scenarios/ai.toml --debug` |
+| Debug log | `python3 frontend/repl/repl.py scenarios/battle.toml --debug` |
 | Commands guide | [`frontend/repl/GAMEPLAY.md`](frontend/repl/GAMEPLAY.md) |
 | More flags | [`frontend/repl/README.md`](frontend/repl/README.md) |
 
@@ -55,13 +55,13 @@ Standalone Rust package; spawns the engine as a subprocess.
 ```bash
 cargo build -q
 cargo run --manifest-path frontend/tui/Cargo.toml
-# defaults to scenarios/ai.toml
+# defaults to scenarios/battle.toml
 ```
 
 | Variant | Command |
 |---|---|
 | Tutorial | `cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial` |
-| Scenario | `cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/combat.toml` |
+| Scenario | `cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/battle.toml` |
 | Details | [`frontend/tui/README.md`](frontend/tui/README.md) |
 
 Engine binary path override: `SHIPSIM_BIN=/path/to/shipsim`.
@@ -107,7 +107,7 @@ Full reference: [`docs/SIMULATION.md`](docs/SIMULATION.md).
 
 | Goal | Command |
 |---|---|
-| Play (REPL) | `python3 frontend/repl/repl.py scenarios/ai.toml` |
+| Play (REPL) | `python3 frontend/repl/repl.py scenarios/battle.toml` |
 | Play (TUI) | `cargo run --manifest-path frontend/tui/Cargo.toml` |
 | Play (Love2D) | `./frontend/love/play.sh` |
 | Smoke harness | `python3 frontend/repl/client.py` |
@@ -117,7 +117,7 @@ Full reference: [`docs/SIMULATION.md`](docs/SIMULATION.md).
 | Love headless | `luajit frontend/love/tests/run_all.lua` |
 | TUI tests | `cargo test --manifest-path frontend/tui/Cargo.toml` |
 
-Default scenario for interactive clients: **`scenarios/ai.toml`** (player heavy
+Default scenario for interactive clients: **`scenarios/battle.toml`** (player heavy
 cruiser vs AI escort).
 
 ## Architecture (short)

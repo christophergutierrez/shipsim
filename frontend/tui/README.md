@@ -38,7 +38,7 @@ a subprocess. **Run from the repo root** so the default engine path
 # 1. Build the engine binary the TUI spawns (one-time).
 cargo build
 
-# 2. Build + run the TUI. Defaults to scenarios/ai.toml.
+# 2. Build + run the TUI. Defaults to scenarios/battle.toml.
 cargo run --manifest-path frontend/tui/Cargo.toml
 ```
 
@@ -53,7 +53,7 @@ Pick a different scenario (first positional arg):
 
 ```bash
 cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/fleet.toml
-cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/combat.toml
+cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/battle.toml
 ```
 
 If the engine binary is not at `target/debug/shipsim` relative to the repo root,
@@ -183,7 +183,7 @@ assumptions from the inertial era).
 
 - Engine: `cargo test` (unchanged).
 - REPL remains the non-fullscreen regression path for protocol play and agent UI play.
-- TUI smoke: run binary against `scenarios/ai.toml`, quit with `q` → `y`.
+- TUI smoke: run binary against `scenarios/battle.toml`, quit with `q` → `y`.
 
 ## Anti-goals
 
@@ -205,7 +205,7 @@ assumptions from the inertial era).
 
 - [x] Package builds under `frontend/tui/`
 - [x] Spawns harness, shows live snapshot fields
-- [x] Player can finish allocate → path → volley on `scenarios/ai.toml` (auto next turn)
+- [x] Player can finish allocate → path → volley on `scenarios/battle.toml` (auto next turn)
 - [x] Soft errors visible; state only changes on accepted orders
 - [x] Scratch only under `frontend/tui/local/`
 - [x] This README matches protocol v4 orders and keys

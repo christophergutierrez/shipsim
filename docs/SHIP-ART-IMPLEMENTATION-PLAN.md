@@ -260,7 +260,7 @@ An empty runtime manifest disables all art without code changes. This is the rel
 - `heavy_cruiser` — mid-sized primary player hull used by many shipped scenarios.
 - `huge` — capital-scale silhouette.
 
-This set can be exercised together in `scenarios/m3_thrust.toml`; leaving another class or state deliberately absent provides fallback coverage where needed.
+This set can be exercised together in `fixtures (see `fixtures/README.md`)`; leaving another class or state deliberately absent provides fallback coverage where needed.
 
 ### Pre-call checkpoint
 

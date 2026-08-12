@@ -1277,14 +1277,14 @@ fn send_key(app: &mut App, harness: &mut crate::harness::Harness, key: crossterm
     super::pump_scripted(app, harness);
 }
 
-/// Full turn on scenarios/combat.toml: player + scripted escort advances without hang.
+/// Full turn on fixtures/combat.toml: player + scripted escort advances without hang.
 #[test]
 fn scripted_pump_advances_combat_toml_full_turn() {
     let bin = engine_bin().expect("shipsim binary not found — cargo build at repo root");
-    let scenario = if std::path::Path::new("../../scenarios/combat.toml").is_file() {
-        "../../scenarios/combat.toml"
+    let scenario = if std::path::Path::new("../../fixtures/combat.toml").is_file() {
+        "../../fixtures/combat.toml"
     } else {
-        "scenarios/combat.toml"
+        "fixtures/combat.toml"
     };
 
     let mut harness = crate::harness::Harness::spawn(bin.to_str().unwrap(), scenario)
@@ -1867,10 +1867,10 @@ fn bounded_map_origin_stays_zero_when_ship_in_bounds() {
 #[test]
 fn path_preview_flows_end_to_end() {
     let bin = engine_bin().expect("shipsim binary not found — cargo build at repo root");
-    let scenario = if std::path::Path::new("../../scenarios/ai.toml").is_file() {
-        "../../scenarios/ai.toml"
+    let scenario = if std::path::Path::new("../../scenarios/battle.toml").is_file() {
+        "../../scenarios/battle.toml"
     } else {
-        "scenarios/ai.toml"
+        "scenarios/battle.toml"
     };
 
     let mut harness = crate::harness::Harness::spawn(bin.to_str().unwrap(), scenario)
@@ -1988,10 +1988,10 @@ fn path_preview_clears_on_phase_change() {
     // Uses ai.toml (NPC is greedy-seek) so the engine auto-resolves the NPC and
     // advances phases in a single snapshot after each player commit.
     let bin = engine_bin().expect("shipsim binary not found — cargo build at repo root");
-    let scenario = if std::path::Path::new("../../scenarios/ai.toml").is_file() {
-        "../../scenarios/ai.toml"
+    let scenario = if std::path::Path::new("../../scenarios/battle.toml").is_file() {
+        "../../scenarios/battle.toml"
     } else {
-        "scenarios/ai.toml"
+        "scenarios/battle.toml"
     };
 
     let mut harness = crate::harness::Harness::spawn(bin.to_str().unwrap(), scenario)

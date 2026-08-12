@@ -34,7 +34,7 @@ fn test_orders_file_emits_snapshots() {
     .unwrap();
     let output = shipsim_command()
         .arg("--scenario")
-        .arg(manifest_path("scenarios/ai.toml"))
+        .arg(manifest_path("scenarios/battle.toml"))
         .arg("--orders")
         .arg(&orders)
         .output()
@@ -62,7 +62,7 @@ fn test_class_id_emitted_on_every_ship_snapshot() {
     // (Escort, Heavy Cruiser) must resolve to distinct class_id values.
     let output = shipsim_command()
         .arg("--scenario")
-        .arg(manifest_path("scenarios/class_id_duplicates.toml"))
+        .arg(manifest_path("fixtures/class_id_duplicates.toml"))
         .arg("--stdin")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -121,7 +121,7 @@ fn test_soft_reject_retired_v3_order() {
     use std::io::Write;
     let mut child = shipsim_command()
         .arg("--scenario")
-        .arg(manifest_path("scenarios/ai.toml"))
+        .arg(manifest_path("scenarios/battle.toml"))
         .arg("--stdin")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -151,7 +151,7 @@ fn test_soft_reject_v3_protocol_version() {
     use std::io::Write;
     let mut child = shipsim_command()
         .arg("--scenario")
-        .arg(manifest_path("scenarios/ai.toml"))
+        .arg(manifest_path("scenarios/battle.toml"))
         .arg("--stdin")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -187,7 +187,7 @@ fn test_soft_reject_missing_protocol_version_without_mutation() {
     .unwrap();
     let output = shipsim_command()
         .arg("--scenario")
-        .arg(manifest_path("scenarios/ai.toml"))
+        .arg(manifest_path("scenarios/battle.toml"))
         .arg("--orders")
         .arg(&orders_path)
         .output()
@@ -208,7 +208,7 @@ fn test_path_preview_rejects_non_array_actions() {
     use std::io::Write;
     let mut child = shipsim_command()
         .arg("--scenario")
-        .arg(manifest_path("scenarios/ai.toml"))
+        .arg(manifest_path("scenarios/battle.toml"))
         .arg("--stdin")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -256,7 +256,7 @@ fn test_path_preview_absent_or_empty_actions_are_legal() {
     use std::io::Write;
     let mut child = shipsim_command()
         .arg("--scenario")
-        .arg(manifest_path("scenarios/ai.toml"))
+        .arg(manifest_path("scenarios/battle.toml"))
         .arg("--stdin")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

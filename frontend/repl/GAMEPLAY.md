@@ -13,7 +13,7 @@ Start a game:
 
 ```bash
 cargo build -q
-python3 frontend/repl/repl.py scenarios/ai.toml
+python3 frontend/repl/repl.py scenarios/battle.toml
 ```
 
 See `README.md` for flags (`--debug`, session logs, `--scroll`).
@@ -353,7 +353,7 @@ hint (e.g. wrong phase). Fix the phase or ship and retry.
 
 ---
 
-## 9. Suggested first fight (`scenarios/ai.toml`)
+## 9. Suggested first fight (`scenarios/battle.toml`)
 
 1. **Allocate** `A1`: some movement, charge `b1`, forward shields, `commit`.
 2. **Movement**: `path f f f` then `commit`, or `hold` to stay.

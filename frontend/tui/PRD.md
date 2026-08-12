@@ -27,7 +27,7 @@ no scrollback to recover them, and the conventional way to try to scroll back
 (the Up arrow) is instead captured by the input line's command history, not
 the terminal. The player is left unable to see the board they're fighting on
 unless their terminal window happens to be tall enough — and it rarely is. A
-measured playthrough of `scenarios/ai.toml` (28 redraws, banner through
+measured playthrough of `scenarios/battle.toml` (28 redraws, banner through
 footer) produces frames of **71 to 106 lines, median 93** — roughly 4x the
 height of a classic 24-row terminal, and taller than most maximized ones. The
 map is not marginally off-screen; it is off-screen by default.
@@ -183,7 +183,7 @@ map permanently visible — before any larger/denser tier is attempted.
 - **A good test here asserts on rendered cell text and resulting `App` state, not on internal widget tree structure.** A test drives the seam the way a player or an agent would: feed a `KeyEvent` (or a sequence of them) into the key-handling entry point, render into a ratatui `TestBackend`, and assert on the `Buffer`'s visible text (e.g. "the map shows ship A1 at the expected cell," "the fire-target list contains B2 as MISS after this key sequence"). This is the required, primary verification path for every interaction listed in the User Stories above (per ADR-0023) — do not skip a story's test because "it's just a render."
 - **Seam count: two**, matching the REPL's existing pattern, not a new shape:
   1. **Primary (required, exhaustive):** `App` key-handling + render, driven purely by synthetic `StateSnapshot`s and `KeyEvent`s against `TestBackend`. This is where the bulk of coverage belongs — every user story above should be traceable to at least one test at this seam.
-  2. **Secondary (thin, integration-level only):** the subprocess adapter defined above, run against the real `shipsim` binary. This cannot be collapsed into seam 1 without losing real coverage of the process boundary itself; keep it minimal (smoke-level: does a real allocate→move→fire→end_turn loop against `scenarios/ai.toml` complete without protocol errors), mirroring how `frontend/repl/client.py` is smoke-tested against the real binary today.
+  2. **Secondary (thin, integration-level only):** the subprocess adapter defined above, run against the real `shipsim` binary. This cannot be collapsed into seam 1 without losing real coverage of the process boundary itself; keep it minimal (smoke-level: does a real allocate→move→fire→end_turn loop against `scenarios/battle.toml` complete without protocol errors), mirroring how `frontend/repl/client.py` is smoke-tested against the real binary today.
 - A real-pty smoke test (actual compiled binary, actual pseudo-terminal, real resize/raw-mode/alt-screen behavior) is optional polish per ADR-0023 and does not block any slice.
 - Prior art to follow, not reinvent: `frontend/repl/tests/` already has the equivalent split for the Python client (pure `commands.py`/`view.py` tests vs. session-level `test_m3_scripted_driver.py`/`test_m4_recent_events.py`-style tests that replay a snapshot sequence through the wiring layer). The Rust TUI's two seams are the same shape.
 - `cargo build`/`cargo test` from the repo root will **not** exercise this package (per ADR-0023's standalone-package decision) — its tests run via `cd frontend/tui && cargo test`. Document this explicitly wherever the project's "how to verify a change" instructions live (e.g. any future equivalent of `docs/BUGFIX-PLAN-20260714.md`'s Ground Rules), so it isn't silently skipped.

@@ -38,7 +38,7 @@ Build the engine first (`cargo build -q`). All clients need
 
 | Client | Command | Needs |
 |---|---|---|
-| **REPL** | `python3 frontend/repl/repl.py scenarios/ai.toml` | Python 3 |
+| **REPL** | `python3 frontend/repl/repl.py scenarios/battle.toml` | Python 3 |
 | **TUI** | `cargo run --manifest-path frontend/tui/Cargo.toml` | Rust |
 | **Love2D** | `./frontend/love/play.sh` | Love2D 11.x + display |
 
@@ -46,7 +46,7 @@ Build the engine first (`cargo build -q`). All clients need
 cargo build -q
 
 # REPL — text UI (agent reference)
-python3 frontend/repl/repl.py scenarios/ai.toml
+python3 frontend/repl/repl.py scenarios/battle.toml
 
 # TUI — ratatui
 cargo run --manifest-path frontend/tui/Cargo.toml

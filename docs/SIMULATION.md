@@ -65,7 +65,7 @@ these policies mutates `GameState` directly.
 
 ```toml
 name = "simulation smoke"
-scenario = "scenarios/simulation_duel.toml"
+scenario = "fixtures/simulation_duel.toml"
 seeds = [1, 2, 3, 4]
 max_turns = 50
 max_orders = 20000

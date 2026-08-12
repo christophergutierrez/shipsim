@@ -155,7 +155,7 @@ def main() -> int:
     total_frames = 0
     for rows, cols in ((24, 80), (40, 100), (50, 120), (60, 100)):
         frames = capture(
-            "python3 frontend/repl/repl.py scenarios/ai.toml --no-session-log",
+            "python3 frontend/repl/repl.py scenarios/battle.toml --no-session-log",
             keys=["a", "engine 4"],
             rows=rows,
             cols=cols,

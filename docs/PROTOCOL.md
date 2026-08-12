@@ -26,7 +26,7 @@ Mechanics ADR: `docs/adr/0025-simplified-simultaneous-turns.md`.
 
 ```bash
 cargo build -q
-target/debug/shipsim --scenario scenarios/ai.toml --stdin
+target/debug/shipsim --scenario scenarios/battle.toml --stdin
 # one JSON order per line → one snapshot or error per line
 ```
 

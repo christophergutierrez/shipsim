@@ -877,7 +877,7 @@ mod tests {
     #[test]
     fn failed_match_retains_rejected_trace_metrics_snapshot_and_serialized_report() {
         let config = MatchConfig::from_scenario(
-            PathBuf::from("scenarios/simulation_duel.toml"),
+            PathBuf::from("fixtures/simulation_duel.toml"),
             41,
             "test_rejecting_policy".into(),
             "test_rejecting_policy".into(),

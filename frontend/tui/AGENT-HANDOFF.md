@@ -57,8 +57,8 @@ Reference, as needed while building:
 | Repo root | `/mnt/storage/git_home/shipsim` |
 | Your entire work area | `frontend/tui/` — you create `Cargo.toml`, `src/`, `tests/` here |
 | Engine binary | `target/debug/shipsim` after `cargo build -q` at repo root |
-| Scenarios to play | `scenarios/ai.toml` (primary dev/test scenario), `scenarios/combat.toml` |
-| Scenario that must be REJECTED by the engine | `scenarios/v2_duel.toml` (no player ship; engine exits with an error — do not "fix" this) |
+| Scenarios to play | `scenarios/battle.toml` (primary dev/test scenario), `scenarios/fleet.toml` |
+| Scenario that must be REJECTED by the engine | Any scenario with no player-controlled ship — engine exits with an error; do not "fix" this |
 | Your scratch/session junk | `frontend/tui/local/` (gitignored) — NEVER repo root, never `/tmp` |
 | The spec (PRD) | `frontend/tui/PRD.md` |
 
@@ -137,16 +137,16 @@ cargo build -q && cargo test -q
 cd frontend/tui && cargo build && cargo test
 
 # live protocol sanity (slice 1+): the engine speaks first
-echo "" | ./target/debug/shipsim --scenario scenarios/ai.toml --stdin | head -1
+echo "" | ./target/debug/shipsim --scenario scenarios/battle.toml --stdin | head -1
 # → one JSON snapshot line, protocol_version 3
 
 # manual play (slice 2+): run your binary in a real terminal
-cd frontend/tui && cargo run -- --scenario ../../scenarios/ai.toml
+cd frontend/tui && cargo run -- --scenario ../../scenarios/battle.toml
 ```
 
 Every slice's definition-of-done: crate builds, all its `TestBackend` tests
 pass, root `cargo test` still passes (proves you didn't touch the engine),
-and the slice's feature works in a live run against `scenarios/ai.toml`.
+and the slice's feature works in a live run against `scenarios/battle.toml`.
 
 For slice 5's full-loop smoke: play a complete game (the REPL tutorial's
 command sequence in `frontend/repl/tutorial.py` `_REAR_ATTACK_STEPS` shows a
@@ -161,7 +161,7 @@ known-good order flow you can translate to your input model).
   `src/movement.rs` as ground truth. You may also run the engine binary and
   inspect real snapshots.
 - Game-behavior question → play the REPL yourself:
-  `python3 frontend/repl/repl.py scenarios/ai.toml` (or with
+  `python3 frontend/repl/repl.py scenarios/battle.toml` (or with
   `--tutorial rear-attack` for a guided walkthrough).
 - Still stuck, or the spec seems wrong/contradictory → STOP, write down the
   contradiction (quote both passages), and report it. Do not silently pick

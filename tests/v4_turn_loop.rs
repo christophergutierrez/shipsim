@@ -7,15 +7,48 @@ use shipsim_core::game_state::Phase;
 use shipsim_core::movement::{apply_order, Order, OrderError, VolleyShot};
 use shipsim_core::path::PathAction;
 use shipsim_core::protocol::PROTOCOL_VERSION;
-use shipsim_core::scenario::load_scenario;
+use shipsim_core::scenario::{load_scenario, load_scenario_def};
+use shipsim_core::schema::ScenarioDef;
 use shipsim_core::snapshot::StateSnapshot;
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// Heavy cruiser (player) vs escort (ai) at close range (8 hexes, within beam
+/// max_range 10) — several tests in this file depend on that exact geometry
+/// for legal-shot assertions, so this is built inline rather than loaded from
+/// a scenarios/*.toml file whose positions could change independently.
 fn load_ai() -> shipsim_core::game_state::GameState {
-    load_scenario(&root().join("scenarios/ai.toml")).expect("load ai.toml")
+    let def: ScenarioDef = toml::from_str(
+        r#"
+width = 10
+height = 10
+seed = 7
+
+[terminal]
+type = "destruction"
+target = 2
+
+[[ships]]
+id = 1
+class = "heavy_cruiser"
+q = 0
+r = 4
+facing = 0
+controller = "player"
+
+[[ships]]
+id = 2
+class = "escort"
+q = 8
+r = 4
+facing = 3
+controller = "ai"
+"#,
+    )
+    .expect("parse inline ai-style scenario");
+    load_scenario_def(&def, &root()).expect("load inline ai-style scenario")
 }
 
 fn allocate_both(game: &mut shipsim_core::game_state::GameState) {
@@ -511,7 +544,7 @@ fn mutual_destruction_both_volleys_resolve() {
     use shipsim_core::game_state::ScenarioStatus;
     use shipsim_core::hex::Hex;
 
-    let mut game = load_scenario(&root().join("scenarios/v4_conflict.toml")).unwrap();
+    let mut game = load_scenario(&root().join("fixtures/v4_conflict.toml")).unwrap();
     // Place close, face each other, full charge both beams.
     game.set_ship_pos(1, Hex::new(3, 4)).unwrap();
     game.set_ship_pos(2, Hex::new(4, 4)).unwrap();
@@ -616,7 +649,7 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
     // Engine-level reproduction of the three-ship cascade case via pure module
     // is in path_resolve tests; this asserts the game can load conflict scenario
     // and resolve equal-cost head-ons without panic.
-    let mut game = load_scenario(&root().join("scenarios/v4_conflict.toml")).unwrap();
+    let mut game = load_scenario(&root().join("fixtures/v4_conflict.toml")).unwrap();
     apply_order(
         &mut game,
         Order::Allocate {

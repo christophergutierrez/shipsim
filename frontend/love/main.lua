@@ -1288,6 +1288,32 @@ local function do_commit_fire()
     set_status("warn", "Pick weapon and target")
     return
   end
+  -- Reject an uncharged/non-operational/dry weapon here, before it can enter
+  -- the draft. The engine also rejects this at commit_volley time, but by
+  -- then the illegal shot is stuck in app.volley_drafts and every "ready"
+  -- press just resubmits the same rejected order forever (no way to recover
+  -- without this guard — this was a real stuck-game report).
+  do
+    local snap = snap_now()
+    local sh = snap and find_ship_in_snap(snap, ship)
+    local w = sh and (function()
+      for _, cand in ipairs(sh.weapons or {}) do
+        if cand.id == app.weapon_id then return cand end
+      end
+    end)()
+    if not w or w.operational == false then
+      set_status("warn", (app.weapon_id or "weapon") .. " is offline — cannot queue")
+      return
+    end
+    if (w.charge or 0) <= 0 then
+      set_status("warn", w.id .. " is not charged — cannot queue")
+      return
+    end
+    if w.ammo_remaining == 0 then
+      set_status("warn", w.id .. " is out of ammo — cannot queue")
+      return
+    end
+  end
   -- Auto-fix illegal shield face before send (common multi-weapon trap).
   apply_legal_shield_facing()
   local weapon = app.weapon_id
@@ -1332,6 +1358,43 @@ local function do_ready_fire()
   if not err then
     app.volley_drafts[ship] = nil
     set_status("info", status_fmt.order_echo(ship, "commit_volley"))
+    return
+  end
+  -- Safety net: do_commit_fire already refuses to queue an uncharged/dry/
+  -- offline weapon, but a queued shot can still go stale between queueing and
+  -- ready (e.g. the weapon lost charge/ammo/operational status from damage
+  -- resolved earlier this stage). Without this, a rejected commit leaves the
+  -- same illegal draft in place and every future "ready" press just repeats
+  -- the identical rejection forever — an unrecoverable stuck game.
+  local snap = snap_now()
+  local sh = snap and find_ship_in_snap(snap, ship)
+  local draft = app.volley_drafts[ship] or {}
+  local kept, dropped = {}, {}
+  for _, shot in ipairs(draft) do
+    local w = sh and (function()
+      for _, cand in ipairs(sh.weapons or {}) do
+        if cand.id == shot.weapon then return cand end
+      end
+    end)()
+    local still_legal = w and w.operational ~= false and (w.charge or 0) > 0 and w.ammo_remaining ~= 0
+    if still_legal then
+      kept[#kept + 1] = shot
+    else
+      dropped[#dropped + 1] = shot.weapon
+    end
+  end
+  app.volley_drafts[ship] = kept
+  if #dropped > 0 then
+    set_status(
+      "warn",
+      string.format(
+        "Volley rejected (%s) — dropped no-longer-legal shot(s): %s. Press ready again to fire the rest.",
+        tostring(err.message or err.code or "?"),
+        table.concat(dropped, ", ")
+      )
+    )
+  else
+    set_status("warn", "Volley rejected: " .. tostring(err.message or err.code or "?"))
   end
 end
 

@@ -5,7 +5,7 @@ Save files are deterministic replay documents. They preserve scenario identity, 
 ```json
 {
   "protocol_version": 4,
-  "scenario": "scenarios/combat.toml",
+  "scenario": "scenarios/battle.toml",
   "orders": [
     {
       "type": "allocate",
@@ -26,7 +26,7 @@ Orders inside a save omit the external `protocol_version`; the document version 
 
 ```bash
 cargo run -q --bin shipsim -- \
-  --scenario scenarios/combat.toml \
+  --scenario scenarios/battle.toml \
   --orders orders.jsonl \
   --save tmp/duel.save.json
 ```

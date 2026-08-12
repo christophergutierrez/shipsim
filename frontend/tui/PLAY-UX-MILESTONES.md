@@ -6,7 +6,7 @@
 > [`README.md`](README.md).
 
 **Date:** 2026-07-16  
-**Source:** UI play on ratatui free-play (`scenarios/ai.toml`) + rear-attack tutorial  
+**Source:** UI play on ratatui free-play (`scenarios/battle.toml`) + rear-attack tutorial  
 **Session logs:** `frontend/tui/local/agent-play-*.md`  
 **Related:** [UI-RECOMMENDATIONS.md](UI-RECOMMENDATIONS.md), [UX-IMPLEMENTATION-PLAN.md](UX-IMPLEMENTATION-PLAN.md)
 
@@ -51,7 +51,7 @@ Plus the **phase-specific** checks in each milestone.
 Manual UI play when noted:
 
 ```bash
-cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/ai.toml
+cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/battle.toml
 cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial
 ```
 
@@ -89,7 +89,7 @@ Lock reproducible play paths and acceptance scripts so later phases are measurab
 
 1. Record terminal floor used for play: **80×24** (existing `MIN_*`) and a wide case **100×30**.
 2. Note two acceptance scenarios:
-   - Free play: `scenarios/ai.toml` — complete allocate → 4×(move/fire) → end_turn at least once without soft-error spam.
+   - Free play: `scenarios/battle.toml` — complete allocate → 4×(move/fire) → end_turn at least once without soft-error spam.
    - Tutorial: `--tutorial` — still wins (existing `tutorial_rear_attack_wins_against_engine`).
 3. Optional: keep play frame dumps under `frontend/tui/local/` (gitignored) as before/after evidence.
 
