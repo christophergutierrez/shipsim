@@ -1,0 +1,11 @@
+id = "yard_precise"
+name = "Yard Precise Beam"
+size = 2
+material = "standard"
+reactor = 14
+armor = 14
+shield_banks = 4
+
+[[weapons]]
+component = "beam_precise"
+mount = "forward"

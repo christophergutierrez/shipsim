@@ -1,0 +1,11 @@
+id = "yard_swarm"
+name = "Yard Swarm Fighter"
+size = 1
+material = "standard"
+reactor = 6
+armor = 1
+shield_banks = 2
+
+[[weapons]]
+component = "beam_compact"
+mount = "forward"

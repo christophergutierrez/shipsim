@@ -1,0 +1,11 @@
+id = "yard_baseline"
+name = "Yard Baseline"
+size = 2
+material = "standard"
+reactor = 14
+armor = 6
+shield_banks = 4
+
+[[weapons]]
+component = "beam"
+mount = "forward"

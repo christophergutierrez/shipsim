@@ -1,0 +1,11 @@
+id = "yard_compact"
+name = "Yard Compact Beam"
+size = 2
+material = "standard"
+reactor = 14
+armor = 9
+shield_banks = 4
+
+[[weapons]]
+component = "beam_compact"
+mount = "forward"

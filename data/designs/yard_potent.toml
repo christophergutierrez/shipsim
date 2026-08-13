@@ -1,0 +1,11 @@
+id = "yard_potent"
+name = "Yard Potent Beam"
+size = 2
+material = "standard"
+reactor = 14
+armor = 10
+shield_banks = 4
+
+[[weapons]]
+component = "beam_potent"
+mount = "forward"

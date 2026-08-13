@@ -1,0 +1,66 @@
+name = "component yard equal-cost designs"
+seeds = [1, 2, 3, 4, 5]
+max_turns = 60
+max_orders = 60000
+budget = 800
+cost_tolerance = 16
+stalemate_scoring = "damage_diff"
+rubrics = ["simulation/rubrics/fleet-safety.toml"]
+
+[map]
+width = 40
+height = 24
+map_mode = "hard"
+
+[[matchups]]
+player = "aggressive"
+opponent = "defensive"
+
+[[matchups]]
+player = "defensive"
+opponent = "aggressive"
+
+[[engagements]]
+name = "swarm_vs_capital"
+player = [{ class = "yard_swarm", count = 15 }]
+opponent = [{ class = "yard_capital", count = 1 }]
+
+[[engagements]]
+name = "capital_vs_swarm"
+player = [{ class = "yard_capital", count = 1 }]
+opponent = [{ class = "yard_swarm", count = 15 }]
+
+[[engagements]]
+name = "baseline_mirror"
+player = [{ class = "yard_baseline", count = 8 }]
+opponent = [{ class = "yard_baseline", count = 8 }]
+
+[[engagements]]
+name = "compact_vs_baseline"
+player = [{ class = "yard_compact", count = 7 }]
+opponent = [{ class = "yard_baseline", count = 8 }]
+
+[[engagements]]
+name = "baseline_vs_compact"
+player = [{ class = "yard_baseline", count = 8 }]
+opponent = [{ class = "yard_compact", count = 7 }]
+
+[[engagements]]
+name = "potent_vs_baseline"
+player = [{ class = "yard_potent", count = 7 }]
+opponent = [{ class = "yard_baseline", count = 8 }]
+
+[[engagements]]
+name = "baseline_vs_potent"
+player = [{ class = "yard_baseline", count = 8 }]
+opponent = [{ class = "yard_potent", count = 7 }]
+
+[[engagements]]
+name = "precise_vs_baseline"
+player = [{ class = "yard_precise", count = 7 }]
+opponent = [{ class = "yard_baseline", count = 8 }]
+
+[[engagements]]
+name = "baseline_vs_precise"
+player = [{ class = "yard_baseline", count = 8 }]
+opponent = [{ class = "yard_precise", count = 7 }]

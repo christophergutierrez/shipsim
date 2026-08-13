@@ -1,0 +1,11 @@
+id = "yard_capital"
+name = "Yard Capital"
+size = 7
+material = "standard"
+reactor = 146
+armor = 16
+shield_banks = 29
+
+[[weapons]]
+component = "beam"
+mount = "forward"
