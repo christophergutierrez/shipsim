@@ -529,6 +529,7 @@ def format_engagement(me: dict[str, Any], contacts: list[dict[str, Any]]) -> str
                 int(contact.get("size") or 2),
                 int(me.get("attack_accuracy_bonus") or 0),
                 int(contact.get("evasion_committed") or 0),
+                int(weapon.get("accuracy_bonus") or 0),
             )
             odds = (
                 f", to-hit≤{preview[0]} ({preview[1]}%)"

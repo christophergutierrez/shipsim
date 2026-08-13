@@ -99,9 +99,8 @@ def hit_preview(
     threshold = min(ceiling, max(1, scaled))
     bonus = (attack_accuracy_bonus if target_size == FIRE_CONTROL_TARGET_SIZE else 0) + max(0, int(weapon_accuracy_bonus))
     final_cap = min(CEILING_MAX, DIE_SIDES - 1)
-    with_bonus = min(final_cap, threshold + bonus)
     evasion_delta = max(0, int(defender_evasion)) * EVASION_PER_POINT
-    threshold = max(1, min(final_cap, with_bonus - evasion_delta))
+    threshold = max(1, min(final_cap, threshold + bonus - evasion_delta))
     percent = round(threshold * 100 / DIE_SIDES)
     return threshold, percent
 

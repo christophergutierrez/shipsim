@@ -106,6 +106,11 @@ pub enum Error {
     OverCapacity { used: u64, capacity: u64, over: u64 },
     #[error("design reactor power {power} cannot buy one motion point")]
     InsufficientReactor { power: u64 },
+    #[error("hull size has invalid thrust conversion {thrust_per_power}:{power_per_thrust}")]
+    InvalidThrustConversion {
+        thrust_per_power: u32,
+        power_per_thrust: u32,
+    },
     #[error("arithmetic overflow while compiling design")]
     Overflow,
     #[error("compiled field {field}={value} does not fit u32")]
@@ -259,7 +264,11 @@ pub fn validate_design(
         .reactor
         .checked_mul(u64::from(hull.thrust_per_power))
         .ok_or(Error::Overflow)?
-        / u64::from(hull.power_per_thrust);
+        .checked_div(u64::from(hull.power_per_thrust))
+        .ok_or(Error::InvalidThrustConversion {
+            thrust_per_power: hull.thrust_per_power,
+            power_per_thrust: hull.power_per_thrust,
+        })?;
     if hull.max_maneuver_actions > 0 && motion < 1 {
         return Err(Error::InsufficientReactor {
             power: design.reactor,
@@ -313,7 +322,8 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
         mul(design.armor, components.armor.structure)?,
     )?;
     let mut weapons = Vec::new();
-    for (idx, w) in design.weapons.iter().enumerate() {
+    let mut kind_counts = BTreeMap::<String, u32>::new();
+    for w in &design.weapons {
         let c = components
             .weapons
             .get(&w.component)
@@ -326,8 +336,10 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
         } else {
             "rear"
         };
+        let count = kind_counts.entry(c.kind.clone()).or_insert(0);
+        *count = count.checked_add(1).ok_or(Error::Overflow)?;
         weapons.push(WeaponDef {
-            id: format!("{}_{}", c.kind, idx + 1),
+            id: format!("{}_{}", c.kind, count),
             kind: c.kind.clone(),
             mount: Some(w.mount.clone()),
             arc: arc.to_string(),
@@ -396,6 +408,44 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture_root() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("fixture tempdir");
+        fs::create_dir_all(dir.path().join("data/designs")).expect("design dir");
+        fs::create_dir_all(dir.path().join("data/ships")).expect("ship dir");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("data/sizes.toml"),
+            dir.path().join("data/sizes.toml"),
+        )
+        .expect("sizes fixture");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("data/components.toml"),
+            dir.path().join("data/components.toml"),
+        )
+        .expect("components fixture");
+        dir
+    }
+
+    fn write_design(root: &Path, filename: &str, body: &str) -> PathBuf {
+        let path = root.join("data/designs").join(filename);
+        fs::write(&path, body).expect("design fixture");
+        path
+    }
+
+    const WORKED: &str = r#"
+id = "worked"
+name = "Worked"
+size = 2
+material = "standard"
+reactor = 14
+armor = 2
+shield_banks = 4
+
+[[weapons]]
+component = "beam"
+mount = "forward"
+"#;
+
     #[test]
     fn id_validation_rejects_paths() {
         assert!(matches!(
@@ -414,6 +464,172 @@ mod tests {
                 }
             ),
             Err(Error::InvalidId(_))
+        ));
+    }
+
+    #[test]
+    fn worked_design_projects_fields_and_cost() {
+        let root = fixture_root();
+        let path = write_design(root.path(), "worked.toml", WORKED);
+        let output = compile(root.path(), &path).expect("compile worked design");
+        let ship: ShipDef = toml::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+        assert_eq!(ship.id, "worked");
+        assert_eq!(ship.structure, 8);
+        assert_eq!(ship.power, 14);
+        assert_eq!(ship.max_shield_per_facing, 4);
+        assert!((96..=105).contains(&ship.cost));
+    }
+
+    #[test]
+    fn mixed_weapon_skus_get_stable_per_kind_ids() {
+        let root = fixture_root();
+        let path = write_design(
+            root.path(),
+            "mixed.toml",
+            r#"
+id = "mixed"
+name = "Mixed"
+size = 2
+material = "standard"
+reactor = 14
+armor = 1
+shield_banks = 1
+[[weapons]]
+component = "beam"
+mount = "forward"
+[[weapons]]
+component = "torpedo"
+mount = "aft"
+[[weapons]]
+component = "beam_precise"
+mount = "forward_port"
+"#,
+        );
+        let output = compile(root.path(), &path).expect("compile mixed design");
+        let ship: ShipDef = toml::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+        let ids: Vec<_> = ship
+            .weapons
+            .iter()
+            .map(|weapon| weapon.id.as_str())
+            .collect();
+        assert_eq!(ids, ["beam_1", "torp_1", "beam_2"]);
+        assert_eq!(ship.weapons[1].arc, "rear");
+        assert_eq!(ship.weapons[2].accuracy_bonus, 2);
+    }
+
+    #[test]
+    fn validation_reports_capacity_and_reactor_errors() {
+        let root = fixture_root();
+        let over = write_design(
+            root.path(),
+            "over.toml",
+            "id = \"over\"\nname = \"Over\"\nsize = 1\nmaterial = \"standard\"\nreactor = 46\n",
+        );
+        assert!(matches!(
+            validate(root.path(), &over),
+            Err(Error::OverCapacity { over: 1, .. })
+        ));
+        let still = write_design(
+            root.path(),
+            "still.toml",
+            "id = \"still\"\nname = \"Still\"\nsize = 2\nmaterial = \"standard\"\nreactor = 0\n",
+        );
+        assert!(matches!(
+            validate(root.path(), &still),
+            Err(Error::InsufficientReactor { power: 0 })
+        ));
+    }
+
+    #[test]
+    fn unknown_design_inputs_are_rejected() {
+        let root = fixture_root();
+        for (name, field, expected) in [
+            (
+                "component",
+                "component = \"missing\"\nmount = \"forward\"",
+                "component",
+            ),
+            ("mount", "component = \"beam\"\nmount = \"side\"", "mount"),
+        ] {
+            let body = format!(
+                "id = \"{name}\"\nname = \"{name}\"\nsize = 2\nmaterial = \"standard\"\nreactor = 14\n[[weapons]]\n{field}\n"
+            );
+            let path = write_design(root.path(), &format!("{name}.toml"), &body);
+            let error = validate(root.path(), &path).expect_err("invalid input rejected");
+            assert!(error.to_string().contains(expected));
+        }
+        let material = write_design(
+            root.path(),
+            "material.toml",
+            "id = \"material\"\nname = \"Material\"\nsize = 2\nmaterial = \"exotic\"\nreactor = 14\n",
+        );
+        assert!(matches!(
+            validate(root.path(), &material),
+            Err(Error::UnknownMaterial(_))
+        ));
+    }
+
+    #[test]
+    fn invalid_filename_does_not_create_output_and_overwrite_policy_is_safe() {
+        let root = fixture_root();
+        let mismatch = write_design(
+            root.path(),
+            "wrong.toml",
+            WORKED.replace("worked", "right").as_str(),
+        );
+        assert!(matches!(
+            validate(root.path(), &mismatch),
+            Err(Error::FilenameMismatch { .. })
+        ));
+        assert!(!root.path().join("data/ships/right.toml").exists());
+
+        let path = write_design(root.path(), "worked.toml", WORKED);
+        let output = root.path().join("data/ships/worked.toml");
+        fs::write(&output, "name = \"stock\"\n").unwrap();
+        assert!(matches!(
+            compile(root.path(), &path),
+            Err(Error::RefuseOverwrite(_))
+        ));
+        fs::write(&output, "# generated by shipsim-yard\nold = true\n").unwrap();
+        compile(root.path(), &path).expect("marked output may be replaced");
+        let first = fs::read(&output).unwrap();
+        compile(root.path(), &path).expect("repeat compile");
+        assert_eq!(first, fs::read(&output).unwrap());
+    }
+
+    #[test]
+    fn out_of_range_counts_are_rejected_without_wrapping() {
+        let root = fixture_root();
+        fs::write(
+            root.path().join("data/components.toml"),
+            r#"
+[reactor]
+space = 0
+cost = 1
+power = 1
+[armor]
+space = 0
+cost = 0
+structure = 0
+[shield_bank]
+space = 0
+cost = 0
+max_shield_per_facing = 0
+[weapons]
+"#,
+        )
+        .expect("zero-space component fixture");
+        let path = write_design(
+            root.path(),
+            "huge.toml",
+            &format!(
+                "id = \"huge\"\nname = \"Huge\"\nsize = 2\nmaterial = \"standard\"\nreactor = {}\n",
+                i64::MAX
+            ),
+        );
+        assert!(matches!(
+            validate(root.path(), &path),
+            Err(Error::OutOfRange { field: "cost", .. })
         ));
     }
 }

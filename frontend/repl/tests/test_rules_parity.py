@@ -69,6 +69,11 @@ class RulesParityTests(unittest.TestCase):
     def test_damage_bonus_is_additive(self):
         self.assertEqual(damage_preview("beam", 2, 3, 2), damage_preview("beam", 2, 3) + 2)
 
+    def test_weapon_bonus_is_applied_before_evasion_and_clamp(self):
+        # Rust computes threshold + bonuses - evasion, then clamps. A bonus
+        # that reaches the ceiling must still be reduced by later evasion.
+        self.assertEqual(hit_preview("beam", 1, 2, 0, 2, 10), (19, 95))
+
     def test_beam_to_hit_table_matches(self):
         self.assertEqual(
             list(self.rules["combat"]["weapons"]["beam"]["to_hit"]),

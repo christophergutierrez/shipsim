@@ -372,6 +372,19 @@ mod tests {
     }
 
     #[test]
+    fn weapon_accuracy_applies_before_evasion_and_final_clamp() {
+        let rules = combat_rules();
+        assert_eq!(
+            final_to_hit_threshold_with_weapon_bonus(&rules, WeaponKind::Beam, 1, 2, 0, 10, 2),
+            Some(19)
+        );
+        assert_eq!(
+            final_to_hit_threshold_with_weapon_bonus(&rules, WeaponKind::Beam, 10, 3, 0, 2, 0),
+            Some(8)
+        );
+    }
+
+    #[test]
     fn defender_evasion_lowers_threshold_to_floor_of_one() {
         let rules = combat_rules();
         let base = final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 2, 0, 0).unwrap();
