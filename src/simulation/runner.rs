@@ -759,6 +759,8 @@ mod tests {
                 operational: weapon_operational,
                 ammo_remaining: None,
                 max_ammo: None,
+                accuracy_bonus: 0,
+                damage_bonus: 0,
             }],
             max_maneuver_actions: 4,
             thrust_per_power: 1,

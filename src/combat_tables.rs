@@ -130,6 +130,26 @@ pub fn final_to_hit_threshold(
     attack_accuracy_bonus: u8,
     defender_evasion: u32,
 ) -> Option<u8> {
+    final_to_hit_threshold_with_weapon_bonus(
+        rules,
+        kind,
+        range,
+        target_size,
+        attack_accuracy_bonus,
+        0,
+        defender_evasion,
+    )
+}
+
+pub fn final_to_hit_threshold_with_weapon_bonus(
+    rules: &CombatRules,
+    kind: WeaponKind,
+    range: u32,
+    target_size: u32,
+    attack_accuracy_bonus: u8,
+    weapon_accuracy_bonus: u8,
+    defender_evasion: u32,
+) -> Option<u8> {
     let threshold = size_adjusted_to_hit_threshold(rules, kind, range, target_size)?;
     let bonus = if target_size == rules.accuracy().fire_control_target_size() {
         attack_accuracy_bonus
@@ -142,7 +162,9 @@ pub fn final_to_hit_threshold(
     let final_cap = rules.accuracy().ceiling_max().min(rules.die_sides() - 1);
     let evasion_delta =
         defender_evasion.saturating_mul(u32::from(rules.accuracy().evasion_per_point()));
-    let with_bonus = u32::from(threshold).saturating_add(u32::from(bonus));
+    let with_bonus = u32::from(threshold)
+        .saturating_add(u32::from(bonus))
+        .saturating_add(u32::from(weapon_accuracy_bonus));
     let reduced = with_bonus
         .saturating_sub(evasion_delta)
         .max(1)

@@ -27,6 +27,22 @@ cost = 26
 max_charge = 4
 max_range = 10
 
+[weapons.beam_potent]
+kind = "beam"
+space = 10
+cost = 26
+max_charge = 4
+max_range = 10
+damage_bonus = 2
+
+[weapons.beam_precise]
+kind = "beam"
+space = 10
+cost = 22
+max_charge = 4
+max_range = 10
+accuracy_bonus = 2
+
 [weapons.torpedo]
 kind = "torp"
 space = 8
@@ -40,3 +56,49 @@ space = 4
 cost = 22
 max_charge = 1
 max_range = 12
+
+[weapons.torpedo_potent]
+kind = "torp"
+space = 8
+cost = 22
+max_charge = 1
+max_range = 12
+damage_bonus = 2
+
+[weapons.torpedo_precise]
+kind = "torp"
+space = 8
+cost = 18
+max_charge = 1
+max_range = 12
+accuracy_bonus = 2
+
+[weapons.plasma]
+kind = "plasma"
+space = 8
+cost = 14
+max_charge = 1
+max_range = 6
+
+[weapons.plasma_compact]
+kind = "plasma"
+space = 4
+cost = 24
+max_charge = 1
+max_range = 6
+
+[weapons.plasma_potent]
+kind = "plasma"
+space = 8
+cost = 24
+max_charge = 1
+max_range = 6
+damage_bonus = 2
+
+[weapons.plasma_precise]
+kind = "plasma"
+space = 8
+cost = 20
+max_charge = 1
+max_range = 6
+accuracy_bonus = 2

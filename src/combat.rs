@@ -20,4 +20,6 @@ pub struct Weapon {
     pub max_charge: u32,
     /// Finite magazine for torpedo-kind weapons (`None` = unlimited / not tracked).
     pub max_ammo: Option<u32>,
+    pub accuracy_bonus: u8,
+    pub damage_bonus: u32,
 }

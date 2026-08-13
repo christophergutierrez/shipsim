@@ -788,12 +788,13 @@ impl GameState {
                     weapon: shot.weapon.clone(),
                 });
             }
-            let threshold = crate::combat_tables::final_to_hit_threshold(
+            let threshold = crate::combat_tables::final_to_hit_threshold_with_weapon_bonus(
                 self.rules.combat(),
                 kind,
                 range,
                 target.size,
                 attacker.attack_accuracy_bonus,
+                weapon.accuracy_bonus,
                 target.evasion_committed,
             )
             .ok_or_else(|| crate::movement::OrderError::OutOfRange {
@@ -1016,12 +1017,13 @@ impl GameState {
             .weapon(weapon_id)
             .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(weapon_id.to_string()))?;
         let range = attacker.pos.distance(target.pos);
-        let threshold = crate::combat_tables::final_to_hit_threshold(
+        let threshold = crate::combat_tables::final_to_hit_threshold_with_weapon_bonus(
             self.rules.combat(),
             weapon.kind,
             range,
             target.size,
             attacker.attack_accuracy_bonus,
+            weapon.accuracy_bonus,
             target.evasion_committed,
         )
         .ok_or_else(|| crate::movement::OrderError::OutOfRange {
@@ -1161,37 +1163,49 @@ impl GameState {
         let charge = attacker.weapon_charges.get(weapon_id).copied().unwrap_or(0);
         match kind {
             crate::combat_tables::WeaponKind::Beam => {
-                crate::combat_tables::beam_damage(self.rules.combat(), charge, range).ok_or_else(
-                    || crate::movement::OrderError::NoDamage {
+                crate::combat_tables::beam_damage(self.rules.combat(), charge, range)
+                    .map(|damage| {
+                        damage.saturating_add(
+                            attacker.weapon(weapon_id).map_or(0, |w| w.damage_bonus),
+                        )
+                    })
+                    .ok_or_else(|| crate::movement::OrderError::NoDamage {
                         weapon: weapon_id.to_string(),
                         range,
                         charge,
-                    },
-                )
+                    })
             }
             crate::combat_tables::WeaponKind::Plasma => {
-                crate::combat_tables::plasma_damage(self.rules.combat(), range).ok_or_else(|| {
-                    crate::movement::OrderError::OutOfRange {
+                crate::combat_tables::plasma_damage(self.rules.combat(), range)
+                    .map(|damage| {
+                        damage.saturating_add(
+                            attacker.weapon(weapon_id).map_or(0, |w| w.damage_bonus),
+                        )
+                    })
+                    .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                         weapon: weapon_id.to_string(),
                         range,
                         max_range: attacker.weapon(weapon_id).map_or_else(
                             || self.rules.max_range(kind),
                             |weapon| self.effective_weapon_max_range(weapon),
                         ),
-                    }
-                })
+                    })
             }
             crate::combat_tables::WeaponKind::Torp => {
-                crate::combat_tables::torp_damage(self.rules.combat(), range).ok_or_else(|| {
-                    crate::movement::OrderError::OutOfRange {
+                crate::combat_tables::torp_damage(self.rules.combat(), range)
+                    .map(|damage| {
+                        damage.saturating_add(
+                            attacker.weapon(weapon_id).map_or(0, |w| w.damage_bonus),
+                        )
+                    })
+                    .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                         weapon: weapon_id.to_string(),
                         range,
                         max_range: attacker.weapon(weapon_id).map_or_else(
                             || self.rules.max_range(kind),
                             |weapon| self.effective_weapon_max_range(weapon),
                         ),
-                    }
-                })
+                    })
             }
         }
     }

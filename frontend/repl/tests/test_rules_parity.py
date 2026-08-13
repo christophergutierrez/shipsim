@@ -58,6 +58,17 @@ class RulesParityTests(unittest.TestCase):
         self.assertIsNotNone(reduced)
         self.assertEqual(reduced[0], max(1, base[0] - 3 * EVASION_PER_POINT))
 
+    def test_weapon_accuracy_applies_at_non_baseline_size_and_caps(self):
+        base = hit_preview("beam", 1, 3)
+        precise = hit_preview("beam", 1, 3, 0, 0, 2)
+        self.assertIsNotNone(base)
+        self.assertIsNotNone(precise)
+        self.assertGreater(precise[0], base[0])
+        self.assertLessEqual(precise[0], CEILING_MAX)
+
+    def test_damage_bonus_is_additive(self):
+        self.assertEqual(damage_preview("beam", 2, 3, 2), damage_preview("beam", 2, 3) + 2)
+
     def test_beam_to_hit_table_matches(self):
         self.assertEqual(
             list(self.rules["combat"]["weapons"]["beam"]["to_hit"]),

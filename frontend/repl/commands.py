@@ -1391,9 +1391,11 @@ def interactive_fire(
             target_size,
             int(ship.get("attack_accuracy_bonus") or 0),
             int(t.get("evasion_committed") or 0),
+            int(chosen.get("accuracy_bonus") or 0),
         )
         damage = damage_preview(
-            str(chosen.get("kind") or ""), int(chosen.get("charge") or 0), rng
+            str(chosen.get("kind") or ""), int(chosen.get("charge") or 0), rng,
+            int(chosen.get("damage_bonus") or 0),
         )
         print(
             f"    [{i}] {ship_callsign(t)} {t.get('class')} "
@@ -1599,10 +1601,12 @@ def direct_fire(
         target_size,
         int(attacker.get("attack_accuracy_bonus") or 0),
         int(target.get("evasion_committed") or 0),
+        int(weapon.get("accuracy_bonus") or 0),
     )
     if preview:
         damage = damage_preview(
-            str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng
+            str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng,
+            int(weapon.get("damage_bonus") or 0),
         )
         damage_text = f", damage≈{damage}" if damage is not None else ""
         print(

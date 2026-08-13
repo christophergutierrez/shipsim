@@ -77,6 +77,7 @@ def hit_preview(
     target_size: int = 2,
     attack_accuracy_bonus: int = 0,
     defender_evasion: int = 0,
+    weapon_accuracy_bonus: int = 0,
 ) -> tuple[int, int] | None:
     """Return the engine's final (d20 threshold, percent), including the
     range-aware accuracy ceiling, catalog fire control, and defender evasion.
@@ -96,7 +97,7 @@ def hit_preview(
     scaled = (base * target_size + BASELINE_TARGET_SIZE // 2) // BASELINE_TARGET_SIZE
     ceiling = min(CEILING_MAX, max(base, CEILING_FLOOR))
     threshold = min(ceiling, max(1, scaled))
-    bonus = attack_accuracy_bonus if target_size == FIRE_CONTROL_TARGET_SIZE else 0
+    bonus = (attack_accuracy_bonus if target_size == FIRE_CONTROL_TARGET_SIZE else 0) + max(0, int(weapon_accuracy_bonus))
     final_cap = min(CEILING_MAX, DIE_SIDES - 1)
     with_bonus = min(final_cap, threshold + bonus)
     evasion_delta = max(0, int(defender_evasion)) * EVASION_PER_POINT
@@ -105,19 +106,19 @@ def hit_preview(
     return threshold, percent
 
 
-def damage_preview(kind: str, charge: int, range_: int) -> int | None:
+def damage_preview(kind: str, charge: int, range_: int, damage_bonus: int = 0) -> int | None:
     """Return the engine-table damage preview for a charged shot."""
     k = str(kind).lower()
     if k == "beam":
         factors = (2.0, 1.9, 1.7, 1.6, 1.4, 1.3, 1.2, 1.1, 1.0, 1.0)
         if 1 <= range_ <= len(factors) and charge > 0:
-            return int(charge * factors[range_ - 1] + 0.5)
+            return int(charge * factors[range_ - 1] + 0.5) + max(0, int(damage_bonus))
     if k == "torp" and 1 <= range_ <= 12:
-        return 4
+        return 4 + max(0, int(damage_bonus))
     if k == "plasma":
         values = (8, 6, 5, 4, 3, 3, 2, 2, 1, 1, 1, 1, 1, 1)
         if 1 <= range_ <= len(values):
-            return values[range_ - 1]
+            return values[range_ - 1] + max(0, int(damage_bonus))
     return None
 
 # Side letter for callsigns until scenarios carry real fleet/side ids.

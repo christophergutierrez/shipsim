@@ -74,6 +74,10 @@ pub struct WeaponSnapshot {
     /// Magazine capacity for ammo-tracked weapons.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_ammo: Option<u32>,
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub accuracy_bonus: u8,
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub damage_bonus: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,6 +192,8 @@ impl StateSnapshot {
                             ammo_remaining: weapon
                                 .max_ammo
                                 .map(|_| ship.weapon_ammo.get(&weapon.id).copied().unwrap_or(0)),
+                            accuracy_bonus: weapon.accuracy_bonus,
+                            damage_bonus: weapon.damage_bonus,
                         })
                         .collect(),
                 })
@@ -223,6 +229,10 @@ fn weapon_kind_name(weapon: &Weapon) -> &'static str {
 }
 
 fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
+}
+
+fn is_zero_u32(value: &u32) -> bool {
     *value == 0
 }
 

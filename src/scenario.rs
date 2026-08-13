@@ -398,6 +398,8 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
         max_range: def.max_range,
         max_charge: def.max_charge,
         max_ammo: def.max_ammo,
+        accuracy_bonus: def.accuracy_bonus,
+        damage_bonus: def.damage_bonus,
     })
 }
 

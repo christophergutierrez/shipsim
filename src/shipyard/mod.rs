@@ -62,6 +62,10 @@ struct WeaponComponent {
     cost: u64,
     max_charge: u32,
     max_range: u32,
+    #[serde(default)]
+    accuracy_bonus: u8,
+    #[serde(default)]
+    damage_bonus: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -330,6 +334,8 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
             max_range: c.max_range,
             max_charge: c.max_charge,
             max_ammo: None,
+            accuracy_bonus: c.accuracy_bonus,
+            damage_bonus: c.damage_bonus,
         });
     }
     structure = half_up(structure as f64 * material.structure_mult);

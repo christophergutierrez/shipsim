@@ -121,4 +121,15 @@ pub struct WeaponDef {
     /// Optional per-weapon ammo override. Absent torps use the size formula from rules.
     #[serde(default)]
     pub max_ammo: Option<u32>,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub accuracy_bonus: u8,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub damage_bonus: u32,
+}
+
+fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
+}
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }

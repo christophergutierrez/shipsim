@@ -941,9 +941,11 @@ def format_commits(
                 int(target.get("size") or 2),
                 int(atk.get("attack_accuracy_bonus") or 0),
                 int(target.get("evasion_committed") or 0),
+                int(weapon.get("accuracy_bonus") or 0),
             )
             damage = damage_preview(
-                str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng
+                str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng,
+                int(weapon.get("damage_bonus") or 0),
             )
             if to_hit:
                 preview = (

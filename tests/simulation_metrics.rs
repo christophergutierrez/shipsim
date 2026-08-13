@@ -134,6 +134,8 @@ fn weapon_power_metric_counts_increases_only() {
             operational: true,
             ammo_remaining: None,
             max_ammo: None,
+            accuracy_bonus: 0,
+            damage_bonus: 0,
         }],
     };
     let order = Order::Allocate {
