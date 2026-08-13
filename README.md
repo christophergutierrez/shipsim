@@ -27,6 +27,19 @@ Produces:
 
 - `target/debug/shipsim` (or `release/`) — NDJSON harness used by all UIs  
 - `target/debug/shipsim-sim` — in-process batch simulation  
+- `target/debug/shipsim-yard` — validates, costs, and compiles component ship designs
+
+### Shipyard designs
+
+Compile a component design into a normal catalog ship:
+
+```bash
+cargo run --bin shipsim-yard -- validate data/designs/yard_destroyer.toml
+cargo run --bin shipsim-yard -- cost data/designs/yard_destroyer.toml
+cargo run --bin shipsim-yard -- compile data/designs/yard_destroyer.toml
+```
+
+See [`docs/SHIPYARD.md`](docs/SHIPYARD.md) for the design schema and generated-file policy.
 
 ## Play the game
 
