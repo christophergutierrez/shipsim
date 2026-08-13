@@ -408,11 +408,16 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::movement::{apply_order, Order, VolleyShot};
+    use crate::scenario::load_scenario_def;
+    use crate::schema::ScenarioDef;
+    use std::collections::BTreeMap;
 
     fn fixture_root() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("fixture tempdir");
         fs::create_dir_all(dir.path().join("data/designs")).expect("design dir");
         fs::create_dir_all(dir.path().join("data/ships")).expect("ship dir");
+        fs::create_dir_all(dir.path().join("data/rules")).expect("rules dir");
         fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("data/sizes.toml"),
             dir.path().join("data/sizes.toml"),
@@ -423,6 +428,11 @@ mod tests {
             dir.path().join("data/components.toml"),
         )
         .expect("components fixture");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("data/rules/default.toml"),
+            dir.path().join("data/rules/default.toml"),
+        )
+        .expect("rules fixture");
         dir
     }
 
@@ -478,6 +488,81 @@ mount = "forward"
         assert_eq!(ship.power, 14);
         assert_eq!(ship.max_shield_per_facing, 4);
         assert!((96..=105).contains(&ship.cost));
+    }
+
+    #[test]
+    fn compiled_ship_loads_and_completes_a_full_turn() {
+        let root = fixture_root();
+        let path = write_design(root.path(), "worked.toml", WORKED);
+        compile(root.path(), &path).expect("compile worked design");
+        let def: ScenarioDef = toml::from_str(
+            r#"
+width = 8
+height = 8
+seed = 7
+[[ships]]
+id = 1
+class = "worked"
+q = 0
+r = 0
+facing = 0
+controller = "player"
+[[ships]]
+id = 2
+class = "worked"
+q = 3
+r = 0
+facing = 3
+controller = "player"
+"#,
+        )
+        .unwrap();
+        let mut game = load_scenario_def(&def, root.path()).expect("load compiled ship");
+        for ship in [1, 2] {
+            apply_order(
+                &mut game,
+                Order::Allocate {
+                    ship,
+                    movement: 0,
+                    weapons: BTreeMap::from([("beam_1".into(), 4)]),
+                    shields: [0; 6],
+                },
+            )
+            .expect("allocate compiled ship");
+        }
+        for ship in [1, 2] {
+            apply_order(
+                &mut game,
+                Order::CommitPath {
+                    ship,
+                    actions: Vec::new(),
+                    evasive: 0,
+                },
+            )
+            .expect("path compiled ship");
+        }
+        apply_order(
+            &mut game,
+            Order::CommitVolley {
+                ship: 1,
+                shots: vec![VolleyShot {
+                    weapon: "beam_1".into(),
+                    target: 2,
+                    shield_facing: 0,
+                }],
+            },
+        )
+        .expect("first volley");
+        apply_order(
+            &mut game,
+            Order::CommitVolley {
+                ship: 2,
+                shots: Vec::new(),
+            },
+        )
+        .expect("second volley");
+        assert_eq!(game.turn_number(), 2);
+        assert!(game.combat_log().iter().all(|event| event.attacker == 1));
     }
 
     #[test]
@@ -567,6 +652,32 @@ mount = "forward_port"
             validate(root.path(), &material),
             Err(Error::UnknownMaterial(_))
         ));
+
+        let unknown = write_design(
+            root.path(),
+            "unknown.toml",
+            "id = \"unknown\"\nname = \"Unknown\"\nsize = 2\nmaterial = \"standard\"\nreactor = 14\nextra = true\n",
+        );
+        assert!(matches!(
+            validate(root.path(), &unknown),
+            Err(Error::Parse { .. })
+        ));
+
+        let components = fs::read_to_string(root.path().join("data/components.toml")).unwrap();
+        fs::write(
+            root.path().join("data/components.toml"),
+            components.replacen("[reactor]", "[reactor]\nextra = true", 1),
+        )
+        .unwrap();
+        let valid = write_design(
+            root.path(),
+            "valid.toml",
+            WORKED.replace("worked", "valid").as_str(),
+        );
+        assert!(matches!(
+            validate(root.path(), &valid),
+            Err(Error::Parse { .. })
+        ));
     }
 
     #[test]
@@ -630,6 +741,35 @@ max_shield_per_facing = 0
         assert!(matches!(
             validate(root.path(), &path),
             Err(Error::OutOfRange { field: "cost", .. })
+        ));
+
+        fs::write(
+            root.path().join("data/components.toml"),
+            r#"
+[reactor]
+space = 9223372036854775807
+cost = 1
+power = 1
+[armor]
+space = 0
+cost = 0
+structure = 0
+[shield_bank]
+space = 0
+cost = 0
+max_shield_per_facing = 0
+[weapons]
+"#,
+        )
+        .expect("overflow component fixture");
+        let overflow = write_design(
+            root.path(),
+            "overflow.toml",
+            "id = \"overflow\"\nname = \"Overflow\"\nsize = 2\nmaterial = \"standard\"\nreactor = 3\n",
+        );
+        assert!(matches!(
+            validate(root.path(), &overflow),
+            Err(Error::Overflow)
         ));
     }
 }
