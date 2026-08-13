@@ -491,6 +491,31 @@ mount = "forward"
     }
 
     #[test]
+    fn compact_sku_compiles_without_quality_modifiers() {
+        let root = fixture_root();
+        let path = write_design(
+            root.path(),
+            "compact.toml",
+            r#"
+id = "compact"
+name = "Compact"
+size = 2
+material = "standard"
+reactor = 14
+armor = 2
+shield_banks = 4
+[[weapons]]
+component = "beam_compact"
+mount = "forward"
+"#,
+        );
+        let output = compile(root.path(), &path).expect("compile compact");
+        let ship: ShipDef = toml::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+        assert_eq!(ship.weapons[0].accuracy_bonus, 0);
+        assert_eq!(ship.weapons[0].damage_bonus, 0);
+    }
+
+    #[test]
     fn compiled_ship_loads_and_completes_a_full_turn() {
         let root = fixture_root();
         let path = write_design(root.path(), "worked.toml", WORKED);

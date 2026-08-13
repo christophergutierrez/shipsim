@@ -16,8 +16,12 @@ live here only. See `frontend/README.md` for isolation rules.
 
 ```bash
 cargo build -q
-./frontend/love/play.sh
+./frontend/love/play.sh          # scenario picker
+./frontend/love/play.sh yard     # component shipyard
 ```
+
+From the picker, **Y** (or the Shipyard button) opens the yard. Compile uses
+`shipsim-yard`; Play starts a duel with the compiled class.
 
 Environment: `SHIPSIM_BIN`, `SHIPSIM_ROOT`. Session files under `frontend/love/local/`.
 

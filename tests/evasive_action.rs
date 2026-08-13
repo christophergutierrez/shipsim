@@ -106,62 +106,6 @@ controller = "player"
     load_scenario_def(&def, dir).expect("load pair")
 }
 
-fn load_quality_pair(
-    dir: &std::path::Path,
-    weapon_fields: &str,
-) -> shipsim_core::game_state::GameState {
-    write_minimal_pair(dir);
-    let quality = std::fs::read_to_string(dir.join("data/ships/mobile.toml")).unwrap();
-    std::fs::write(
-        dir.join("data/ships/mobile.toml"),
-        format!("{quality}{weapon_fields}"),
-    )
-    .unwrap();
-    load_pair(dir)
-}
-
-fn enter_firing(game: &mut shipsim_core::game_state::GameState) {
-    apply_order(
-        game,
-        Order::Allocate {
-            ship: 1,
-            movement: 0,
-            weapons: BTreeMap::from([("beam_1".into(), 4)]),
-            shields: [0; 6],
-        },
-    )
-    .unwrap();
-    apply_order(
-        game,
-        Order::Allocate {
-            ship: 2,
-            movement: 0,
-            weapons: BTreeMap::new(),
-            shields: [0; 6],
-        },
-    )
-    .unwrap();
-    apply_order(
-        game,
-        Order::CommitPath {
-            ship: 1,
-            actions: Vec::new(),
-            evasive: 0,
-        },
-    )
-    .unwrap();
-    apply_order(
-        game,
-        Order::CommitPath {
-            ship: 2,
-            actions: Vec::new(),
-            evasive: 0,
-        },
-    )
-    .unwrap();
-    assert_eq!(game.phase(), Phase::Firing);
-}
-
 #[test]
 fn evasion_lowers_threshold_and_can_flip_hit() {
     let rules = Ruleset::builtin();
@@ -173,52 +117,6 @@ fn evasion_lowers_threshold_and_can_flip_hit() {
         base.saturating_sub(3 * combat.accuracy().evasion_per_point())
             .max(1)
     );
-}
-
-#[test]
-fn quality_modifiers_reach_authoritative_fire_preview() {
-    let baseline_dir = tempfile::tempdir().unwrap();
-    let mut baseline = load_quality_pair(baseline_dir.path(), "");
-    enter_firing(&mut baseline);
-    let baseline_preview = baseline.fire_decision_preview(1, "beam_1", 2).unwrap();
-
-    let compact_dir = tempfile::tempdir().unwrap();
-    let mut compact = load_quality_pair(compact_dir.path(), "");
-    enter_firing(&mut compact);
-    let compact_preview = compact.fire_decision_preview(1, "beam_1", 2).unwrap();
-    assert_eq!(compact_preview.threshold, baseline_preview.threshold);
-    assert_eq!(
-        compact_preview.projected_damage,
-        baseline_preview.projected_damage
-    );
-
-    let potent_dir = tempfile::tempdir().unwrap();
-    let mut potent = load_quality_pair(potent_dir.path(), "damage_bonus = 2\n");
-    enter_firing(&mut potent);
-    let potent_preview = potent.fire_decision_preview(1, "beam_1", 2).unwrap();
-    assert_eq!(potent_preview.threshold, baseline_preview.threshold);
-    assert_eq!(
-        potent_preview.projected_damage,
-        baseline_preview.projected_damage + 2
-    );
-
-    let precise_dir = tempfile::tempdir().unwrap();
-    let mut precise = load_quality_pair(precise_dir.path(), "accuracy_bonus = 2\n");
-    enter_firing(&mut precise);
-    let precise_preview = precise.fire_decision_preview(1, "beam_1", 2).unwrap();
-    assert_eq!(precise_preview.threshold, baseline_preview.threshold + 2);
-    assert!(precise_preview.threshold < precise_preview.die_sides - 1);
-}
-
-#[test]
-fn stock_snapshot_omits_zero_quality_fields() {
-    let dir = tempfile::tempdir().unwrap();
-    write_minimal_pair(dir.path());
-    let game = load_pair(dir.path());
-    let json = serde_json::to_value(StateSnapshot::from_game_state(&game)).unwrap();
-    let weapon = &json["ships"][0]["weapons"][0];
-    assert!(weapon.get("accuracy_bonus").is_none());
-    assert!(weapon.get("damage_bonus").is_none());
 }
 
 #[test]

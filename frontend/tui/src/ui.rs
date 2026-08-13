@@ -863,12 +863,18 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 (Some(left), Some(max)) => format!(" ammo={left}/{max}"),
                 _ => String::new(),
             };
+            let quality = match (w.accuracy_bonus, w.damage_bonus) {
+                (0, 0) => String::new(),
+                (acc, 0) => format!(" acc+{acc}"),
+                (0, dmg) => format!(" dmg+{dmg}"),
+                (acc, dmg) => format!(" acc+{acc} dmg+{dmg}"),
+            };
             push(
                 f,
                 &mut y,
                 Line::from(format!(
-                    "    {} {} rng≤{} chg={}/{}{}{}{}",
-                    w.id, w.kind, w.max_range, w.charge, w.max_charge, ammo, fired, op
+                    "    {} {} rng≤{} chg={}/{}{}{}{}{}",
+                    w.id, w.kind, w.max_range, w.charge, w.max_charge, ammo, quality, fired, op
                 )),
             );
         }
@@ -1716,10 +1722,16 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         } else {
             Style::default()
         };
+        let quality = match (w.accuracy_bonus, w.damage_bonus) {
+            (0, 0) => String::new(),
+            (acc, 0) => format!(" acc+{acc}"),
+            (0, dmg) => format!(" dmg+{dmg}"),
+            (acc, dmg) => format!(" acc+{acc} dmg+{dmg}"),
+        };
         lines.push(Line::from(Span::styled(
             format!(
-                " {marker} {} {} rng≤{} {}{}",
-                w.id, w.kind, w.max_range, charge_str, queued_str
+                " {marker} {} {} rng≤{} {}{}{}",
+                w.id, w.kind, w.max_range, charge_str, quality, queued_str
             ),
             style,
         )));

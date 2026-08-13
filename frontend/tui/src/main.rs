@@ -46,6 +46,13 @@ fn main() -> std::io::Result<()> {
     let engine_path =
         std::env::var("SHIPSIM_BIN").unwrap_or_else(|_| "target/debug/shipsim".to_string());
 
+    if !std::path::Path::new(&scenario).is_file() {
+        eprintln!("error: scenario not found: {scenario}");
+        eprintln!("       run from the repo root; ship *classes* live in data/ships/,");
+        eprintln!("       playable fights live in scenarios/ (e.g. scenarios/battle.toml).");
+        std::process::exit(1);
+    }
+
     // Spawn the engine and read the initial snapshot.
     let mut harness = match Harness::spawn(&engine_path, &scenario) {
         Ok(h) => h,
@@ -62,8 +69,20 @@ fn main() -> std::io::Result<()> {
     } else {
         App::new()
     };
-    if let Some(line) = harness.read_line() {
-        apply_engine_line(&mut app, line);
+    match harness.read_line() {
+        Some(line) => apply_engine_line(&mut app, line),
+        None => {
+            eprintln!("error: engine produced no snapshot for '{scenario}'.");
+            eprintln!("       it exited before the first line — see any message above.");
+            std::process::exit(1);
+        }
+    }
+    if app.snap.is_none() {
+        eprintln!("error: first engine line was not a snapshot (scenario may have failed to load).");
+        if let Some(err) = &app.last_error {
+            eprintln!("       {err}");
+        }
+        std::process::exit(1);
     }
     pump_scripted(&mut app, &mut harness);
 
@@ -155,8 +174,12 @@ fn run(
                     app.log(format!("send error: {e}"));
                 }
                 // Read the engine's response (may be a snapshot or a soft error).
-                if let Some(line) = harness.read_line() {
-                    apply_engine_line(app, line);
+                match harness.read_line() {
+                    Some(line) => apply_engine_line(app, line),
+                    None => {
+                        app.engine_dead = true;
+                        app.log("engine exited");
+                    }
                 }
                 pump_scripted(app, harness);
             }
@@ -183,7 +206,10 @@ fn pump_scripted(app: &mut App, harness: &mut Harness) {
             }
             match harness.read_line() {
                 Some(line) => apply_engine_line(app, line),
-                None => return,
+                None => {
+                    app.engine_dead = true;
+                    return;
+                }
             }
             // Stop immediately on a rejected order (avoids retry loop).
             if app.last_error.is_some() {

@@ -32,6 +32,7 @@ local slide = require("slide")
 local tutorial = require("tutorial")
 local input_policy = require("input_policy")
 local ship_art = require("ship_art")
+local shipyard = require("shipyard")
 
 local pass = 0
 local function ok(msg)
@@ -46,6 +47,22 @@ local function assert_eq(a, b, msg)
 end
 
 assert_eq(type(draw_hud), "table", "draw_hud module contract")
+
+print("shipyard")
+local yd = shipyard.new_design()
+assert_eq(yd.size, 2, "default hull size")
+yd.reactor = 9
+yd.weapons[1].component = "beam_compact"
+local toml = shipyard.to_toml(yd)
+assert(toml:match('component = "beam_compact"'), "toml writes sku")
+local parsed = shipyard.parse_design(toml)
+assert_eq(parsed.reactor, 9, "parse reactor")
+assert_eq(parsed.weapons[1].component, "beam_compact", "parse sku")
+assert_eq(shipyard.cycle(shipyard.MOUNTS, "forward", 1), "forward_starboard", "cycle mount")
+assert_eq(shipyard.nudge(2, 1, 1, 7), 3, "nudge size")
+local play = shipyard.play_scenario_toml("yard_custom")
+assert(play:match('class = "yard_custom"'), "play scenario class")
+ok("shipyard serialize/parse/play-scenario")
 
 print("order builders (gate 3)")
 local a = orders.allocate(1, 4, { beam_1 = 1 }, { 0, 0, 0, 0, 0, 0 })

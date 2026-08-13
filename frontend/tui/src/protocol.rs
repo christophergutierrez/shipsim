@@ -161,6 +161,10 @@ pub struct Weapon {
     pub ammo_remaining: Option<u32>,
     #[serde(default)]
     pub max_ammo: Option<u32>,
+    #[serde(default)]
+    pub accuracy_bonus: u32,
+    #[serde(default)]
+    pub damage_bonus: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]

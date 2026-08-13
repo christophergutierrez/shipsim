@@ -58,7 +58,9 @@ velocity/course, and **no** `ready_fire`.
 - Geometry frozen at fire start; ships alive at start complete their volley
   even if destroyed mid-resolution.
 - Hit chance uses range and target size tables (`docs/combat-v2-tables.md`),
-  minus defender evasion committed this turn.
+  plus any weapon `accuracy_bonus` (all target sizes), minus defender evasion
+  committed this turn. Hull fire-control still applies only at size 2.
+  Weapon `damage_bonus` is added after the kind/range damage table.
 
 ## Running
 

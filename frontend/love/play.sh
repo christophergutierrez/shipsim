@@ -22,7 +22,13 @@ fi
 export DISPLAY="${DISPLAY:-:0}"
 export SHIPSIM_ROOT="${SHIPSIM_ROOT:-$ROOT}"
 
-love frontend/love "$@" &
+YARD_ARGS=()
+if [[ "${1:-}" == "yard" || "${1:-}" == "--yard" ]]; then
+  shift
+  YARD_ARGS=(-- --yard)
+fi
+
+love frontend/love "${YARD_ARGS[@]}" "$@" &
 LOVE_PID=$!
 
 float_once() {
@@ -86,7 +92,8 @@ float_window() {
 float_window
 
 echo "shipsim Love2D running (pid $LOVE_PID)"
-echo "  picker: Up/Down + Enter · Exit/Q/Esc quits · help: ? or H"
+echo "  picker: Up/Down + Enter · Y = shipyard · Exit/Q/Esc quits · help: ? or H"
+echo "  shipyard: ./frontend/love/play.sh yard"
 if command -v i3-msg >/dev/null 2>&1; then
   h=0
   wid="$(find_love_wid)"

@@ -1,0 +1,222 @@
+-- Component shipyard (Love + luajit). Pure Lua: no love.* APIs.
+-- Authoring writes design TOML and shells out to shipsim-yard (not a protocol
+-- request). Play writes a scratch scenario and reloads the engine.
+
+local shipyard = {}
+
+shipyard.MOUNTS = {
+  "forward",
+  "forward_starboard",
+  "aft_starboard",
+  "aft",
+  "aft_port",
+  "forward_port",
+}
+
+shipyard.MATERIALS = { "standard", "reinforced" }
+
+shipyard.WEAPON_SKUS = {
+  "beam",
+  "beam_compact",
+  "beam_potent",
+  "beam_precise",
+  "torpedo",
+  "torpedo_compact",
+  "torpedo_potent",
+  "torpedo_precise",
+  "plasma",
+  "plasma_compact",
+  "plasma_potent",
+  "plasma_precise",
+}
+
+local function quote(s)
+  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function file_exists(path)
+  local f = io.open(path, "r")
+  if f then
+    f:close()
+    return true
+  end
+  return false
+end
+
+function shipyard.new_design()
+  return {
+    id = "yard_custom",
+    name = "Yard Custom",
+    size = 2,
+    material = "standard",
+    reactor = 14,
+    armor = 2,
+    shield_banks = 4,
+    weapons = { { component = "beam", mount = "forward" } },
+  }
+end
+
+function shipyard.to_toml(design)
+  local lines = {
+    string.format("id = %q", design.id),
+    string.format("name = %q", design.name),
+    string.format("size = %d", tonumber(design.size) or 2),
+    string.format("material = %q", design.material or "standard"),
+    string.format("reactor = %d", tonumber(design.reactor) or 0),
+    string.format("armor = %d", tonumber(design.armor) or 0),
+    string.format("shield_banks = %d", tonumber(design.shield_banks) or 0),
+  }
+  for _, weapon in ipairs(design.weapons or {}) do
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "[[weapons]]"
+    lines[#lines + 1] = string.format("component = %q", weapon.component or "beam")
+    lines[#lines + 1] = string.format("mount = %q", weapon.mount or "forward")
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+function shipyard.parse_design(text)
+  local design = shipyard.new_design()
+  design.weapons = {}
+  local current
+  for raw in (tostring(text) .. "\n"):gmatch("(.-)\n") do
+    local line = raw:gsub("%s*#.*", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if line == "[[weapons]]" then
+      current = { component = "beam", mount = "forward" }
+      design.weapons[#design.weapons + 1] = current
+    elseif line:match("^id%s*=") then
+      design.id = line:match("=%s*\"([^\"]+)\"") or design.id
+    elseif line:match("^name%s*=") then
+      design.name = line:match("=%s*\"([^\"]+)\"") or design.name
+    elseif line:match("^size%s*=") then
+      design.size = tonumber(line:match("=%s*(%d+)")) or design.size
+    elseif line:match("^material%s*=") then
+      design.material = line:match("=%s*\"([^\"]+)\"") or design.material
+    elseif line:match("^reactor%s*=") then
+      design.reactor = tonumber(line:match("=%s*(%d+)")) or 0
+    elseif line:match("^armor%s*=") then
+      design.armor = tonumber(line:match("=%s*(%d+)")) or 0
+    elseif line:match("^shield_banks%s*=") then
+      design.shield_banks = tonumber(line:match("=%s*(%d+)")) or 0
+    elseif current and line:match("^component%s*=") then
+      current.component = line:match("=%s*\"([^\"]+)\"") or current.component
+    elseif current and line:match("^mount%s*=") then
+      current.mount = line:match("=%s*\"([^\"]+)\"") or current.mount
+    end
+  end
+  if #design.weapons == 0 then
+    design.weapons = { { component = "beam", mount = "forward" } }
+  end
+  return design
+end
+
+function shipyard.read_design(path)
+  local f = io.open(path, "r")
+  if not f then
+    return nil, "cannot read " .. tostring(path)
+  end
+  local text = f:read("*a")
+  f:close()
+  return shipyard.parse_design(text)
+end
+
+function shipyard.write_file(path, text)
+  local f, err = io.open(path, "w")
+  if not f then
+    return nil, err or ("cannot write " .. tostring(path))
+  end
+  f:write(text)
+  f:close()
+  return true
+end
+
+function shipyard.design_path(repo, design)
+  return (repo or ".") .. "/data/designs/" .. design.id .. ".toml"
+end
+
+function shipyard.play_scenario_toml(class_id)
+  return table.concat({
+    "width = 24",
+    "height = 20",
+    "seed = 1",
+    "",
+    "[terminal]",
+    'type = "destruction"',
+    "target = 2",
+    "",
+    "[[ships]]",
+    "id = 1",
+    string.format("class = %q", class_id),
+    "q = 4",
+    "r = 10",
+    "facing = 0",
+    'controller = "player"',
+    "",
+    "[[ships]]",
+    "id = 2",
+    string.format("class = %q", class_id),
+    "q = 19",
+    "r = 10",
+    "facing = 3",
+    'controller = "ai"',
+    "",
+  }, "\n")
+end
+
+function shipyard.find_yard_bin(repo)
+  local root = repo or "."
+  for _, rel in ipairs({ "/target/debug/shipsim-yard", "/target/release/shipsim-yard" }) do
+    local path = root .. rel
+    if file_exists(path) then
+      return path
+    end
+  end
+  return nil
+end
+
+--- Run shipsim-yard. Returns ok, stdout+stderr text.
+function shipyard.run_yard(repo, command, design_rel)
+  local bin = shipyard.find_yard_bin(repo)
+  if not bin then
+    return false, "shipsim-yard not found; run cargo build"
+  end
+  local cmd = string.format(
+    "cd %s && %s %s %s 2>&1",
+    quote(repo),
+    quote(bin),
+    quote(command),
+    quote(design_rel)
+  )
+  local pipe = io.popen(cmd)
+  if not pipe then
+    return false, "failed to start shipsim-yard"
+  end
+  local out = pipe:read("*a") or ""
+  local ok = pipe:close()
+  return ok == true, out:gsub("%s+$", "")
+end
+
+function shipyard.cycle(list, current, delta)
+  local idx = 1
+  for i, value in ipairs(list) do
+    if value == current then
+      idx = i
+      break
+    end
+  end
+  idx = ((idx - 1 + (delta or 1)) % #list) + 1
+  return list[idx]
+end
+
+function shipyard.nudge(value, delta, minv, maxv)
+  local nextv = math.floor(tonumber(value) or 0) + (delta or 0)
+  if minv and nextv < minv then
+    nextv = minv
+  end
+  if maxv and nextv > maxv then
+    nextv = maxv
+  end
+  return nextv
+end
+
+return shipyard

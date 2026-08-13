@@ -676,6 +676,12 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
             ammo_note = " (EMPTY)"
           end
         end
+        if (w.accuracy_bonus or 0) > 0 then
+          ammo_note = ammo_note .. string.format(" acc+%d", w.accuracy_bonus)
+        end
+        if (w.damage_bonus or 0) > 0 then
+          ammo_note = ammo_note .. string.format(" dmg+%d", w.damage_bonus)
+        end
         love.graphics.setColor(0.7, 0.75, 0.8)
         if w.ammo_remaining == 0 then
           love.graphics.setColor(0.55, 0.55, 0.55)
@@ -821,6 +827,12 @@ function draw_hud.draw_firing_panel(app, snap, px, pad, y, content_w)
     local label = string.format("%s  ch%d", w.id, ch)
     if w.ammo_remaining ~= nil then
       label = label .. string.format(" (%d left)", w.ammo_remaining)
+    end
+    if (w.accuracy_bonus or 0) > 0 then
+      label = label .. string.format(" acc+%d", w.accuracy_bonus)
+    end
+    if (w.damage_bonus or 0) > 0 then
+      label = label .. string.format(" dmg+%d", w.damage_bonus)
     end
     if committed_w[w.id] then
       label = label .. " · queued"
@@ -977,7 +989,8 @@ function draw_hud.draw_picker(app)
   love.graphics.print("Combat v2 — choose a scenario", pad, pad)
   ui.use(14)
   love.graphics.setColor(0.7, 0.75, 0.8)
-  love.graphics.print("Up/Down to select, Enter to start.  Esc or Q quits.", pad, pad + math.floor(34 * ui.scale))
+  love.graphics.print("Up/Down + Enter start.  Y = shipyard.  Esc or Q quits.", pad, pad + math.floor(34 * ui.scale))
+  ui.button("Shipyard (Y)", pad, pad + math.floor(58 * ui.scale), math.floor(160 * ui.scale), math.max(28, math.floor(28 * ui.scale)), "open_yard", nil, false)
   local metrics = layout.picker_metrics(W, H, ui.scale, #app.scenarios)
   local capacity = math.max(1, metrics.capacity)
   app.picker_first = layout.ensure_index_visible(app.picker_first, app.picker_index,
@@ -1007,6 +1020,76 @@ function draw_hud.draw_picker(app)
   end
   ui.button("Exit", metrics.exit.x, metrics.exit.y, metrics.exit.w, metrics.exit.h,
     "quit", nil, false)
+end
+
+function draw_hud.draw_shipyard(app)
+  local W = love.graphics.getWidth()
+  local H = love.graphics.getHeight()
+  local pad = math.floor(20 * ui.scale)
+  local yard = app.yard
+  love.graphics.setColor(0.08, 0.09, 0.11)
+  love.graphics.rectangle("fill", 0, 0, W, H)
+  ui.use(22)
+  love.graphics.setColor(0.4, 0.85, 0.55)
+  love.graphics.print("Shipyard — component design", pad, pad)
+  ui.use(13)
+  love.graphics.setColor(0.7, 0.75, 0.8)
+  love.graphics.print("Compile via shipsim-yard, then Play. Esc returns to scenarios.", pad, pad + math.floor(32 * ui.scale))
+
+  local d = yard.design
+  local y = pad + math.floor(64 * ui.scale)
+  local row = math.max(28, math.floor(30 * ui.scale))
+  local bw = math.floor(36 * ui.scale)
+  local label_w = math.floor(280 * ui.scale)
+
+  local function row_nudge(label, action_dn, action_up, payload)
+    love.graphics.setColor(0.85, 0.9, 0.92)
+    love.graphics.print(label, pad, y + 6)
+    ui.button("-", pad + label_w, y, bw, row - 4, action_dn, payload, false)
+    ui.button("+", pad + label_w + bw + 6, y, bw, row - 4, action_up, payload, false)
+    y = y + row
+  end
+
+  row_nudge(string.format("id  %s", d.id), "yard_noop", "yard_noop", nil)
+  row_nudge(string.format("hull size  %d", d.size), "yard_size_dn", "yard_size_up", nil)
+  row_nudge(string.format("material  %s", d.material), "yard_mat_dn", "yard_mat_up", nil)
+  row_nudge(string.format("reactor  %d", d.reactor), "yard_reactor_dn", "yard_reactor_up", nil)
+  row_nudge(string.format("armor  %d", d.armor), "yard_armor_dn", "yard_armor_up", nil)
+  row_nudge(string.format("shield banks  %d", d.shield_banks), "yard_shield_dn", "yard_shield_up", nil)
+
+  y = y + 8
+  love.graphics.setColor(0.55, 0.85, 0.7)
+  love.graphics.print("Weapons", pad, y)
+  y = y + row
+  for i, w in ipairs(d.weapons) do
+    love.graphics.setColor(0.85, 0.9, 0.92)
+    love.graphics.print(string.format("%d. %s  mount=%s", i, w.component, w.mount), pad, y + 6)
+    ui.button("SKU", pad + label_w, y, math.floor(52 * ui.scale), row - 4, "yard_wpn_sku", { index = i }, false)
+    ui.button("Mnt", pad + label_w + math.floor(58 * ui.scale), y, math.floor(48 * ui.scale), row - 4, "yard_wpn_mount", { index = i }, false)
+    ui.button("X", pad + label_w + math.floor(112 * ui.scale), y, bw, row - 4, "yard_wpn_del", { index = i }, false)
+    y = y + row
+  end
+  ui.button("Add weapon", pad, y, math.floor(140 * ui.scale), row - 4, "yard_wpn_add", nil, false)
+  y = y + row + 10
+
+  local btn_w = math.floor(110 * ui.scale)
+  ui.button("Load DD", pad, y, btn_w, row, "yard_load", nil, false)
+  ui.button("Validate", pad + btn_w + 8, y, btn_w, row, "yard_validate", nil, false)
+  ui.button("Cost", pad + 2 * (btn_w + 8), y, btn_w, row, "yard_cost", nil, false)
+  ui.button("Compile", pad + 3 * (btn_w + 8), y, btn_w, row, "yard_compile", nil, false)
+  ui.button("Play", pad + 4 * (btn_w + 8), y, btn_w, row, "yard_play", nil, false)
+  y = y + row + 12
+
+  love.graphics.setColor(0.75, 0.8, 0.7)
+  local status = yard.status or ""
+  local font = ui.font(13)
+  local function measure(s)
+    return font:getWidth(s)
+  end
+  for _, ln in ipairs(layout.wrap_text(status, W - 2 * pad, measure, 6)) do
+    love.graphics.print(ln, pad, y)
+    y = y + ui.line_h(13)
+  end
 end
 
 function draw_hud.status_strip(st)

@@ -37,6 +37,7 @@ Compile a component design into a normal catalog ship:
 cargo run --bin shipsim-yard -- validate data/designs/yard_destroyer.toml
 cargo run --bin shipsim-yard -- cost data/designs/yard_destroyer.toml
 cargo run --bin shipsim-yard -- compile data/designs/yard_destroyer.toml
+cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/yard_destroyer.toml
 ```
 
 See [`docs/SHIPYARD.md`](docs/SHIPYARD.md) for the design schema and generated-file policy.

@@ -517,6 +517,8 @@ class AllocDraft:
                 "max_charge": int(w.get("max_charge") or 0),
                 "ammo_remaining": w.get("ammo_remaining"),
                 "max_ammo": w.get("max_ammo"),
+                "accuracy_bonus": int(w.get("accuracy_bonus") or 0),
+                "damage_bonus": int(w.get("damage_bonus") or 0),
             }
             for w in (ship.get("weapons") or [])
             if w.get("operational", True)
@@ -597,6 +599,12 @@ class AllocDraft:
                 tag += f"  ammo {ammo_left}/{max_ammo}"
             else:
                 tag += f"  ammo {ammo_left}"
+        acc = int((meta or {}).get("accuracy_bonus") or 0)
+        dmg = int((meta or {}).get("damage_bonus") or 0)
+        if acc:
+            tag += f"  acc+{acc}"
+        if dmg:
+            tag += f"  dmg+{dmg}"
         return f"    {short:4} {wid:10} {bar}{tag}"
 
     def weapon_menu(self) -> str:

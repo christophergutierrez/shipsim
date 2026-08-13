@@ -219,7 +219,7 @@ function layout.picker_metrics(width, height, scale, item_count)
   local status_y = height - status_h
   local exit_h = math.floor(30 * scale)
   local exit_y = status_y - pad - exit_h
-  local list_top = pad + math.floor(70 * scale)
+  local list_top = pad + math.floor(100 * scale)
   local list_bottom = exit_y - math.floor(12 * scale)
   local capacity = math.max(0, math.floor((list_bottom - list_top + row_gap) / (row_h + row_gap)))
   local total = item_count or 0

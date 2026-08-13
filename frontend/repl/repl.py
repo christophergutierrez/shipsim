@@ -100,7 +100,13 @@ def pick_scenario(repo: Path, preferred: str | None, ui: TerminalUI) -> str:
         for c in candidates:
             if c and (repo / c).is_file():
                 return c.replace("\\", "/")
-        raise SystemExit(f"scenario not found: {preferred}")
+        raise SystemExit(
+            f"scenario not found: {preferred}\n"
+            f"  looked under {repo}/\n"
+            "  ship classes are data/ships/*.toml; fights are scenarios/*.toml\n"
+            "  play the compiled destroyer with: "
+            "python3 frontend/repl/repl.py scenarios/yard_destroyer.toml"
+        )
 
     scenarios = list_scenarios(repo)
     if not scenarios:

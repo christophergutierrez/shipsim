@@ -2886,6 +2886,8 @@ fn three_weapon_fire_snapshot() -> Snapshot {
             operational: true,
             ammo_remaining: None,
             max_ammo: None,
+            accuracy_bonus: 0,
+            damage_bonus: 0,
         });
     }
     for w in &mut snap.ships[0].weapons {

@@ -28,6 +28,7 @@ local settings = require("settings")
 local toast = require("toast")
 local camera = require("camera")
 local path_editor = require("path_editor")
+local shipyard = require("shipyard")
 
 local app = {
   screen = "picker",
@@ -77,6 +78,10 @@ local app = {
   settings = settings.defaults(),
   prev_phase = nil,
   _need_weapon_pick = false,
+  yard = {
+    design = nil,
+    status = "",
+  },
 }
 
 -- Forward declarations (defined later; needed from sync_phase / request_previews).
@@ -87,6 +92,8 @@ local apply_legal_shield_facing
 -- declaration, holding a repeatable button (e.g. an allocate +/- control)
 -- resolves the call to the (nil) global instead of the local and crashes.
 local handle_ui_hit
+local open_yard
+local wants_yard_launch
 
 -- ADR-0022 M6: commitments are simultaneous. Player selection skips scripted
 -- ships; pump_scripted() below advances those ships until a player owes input.
@@ -934,6 +941,77 @@ function love.update(dt)
   end
 end
 
+wants_yard_launch = function()
+  if not arg then
+    return false
+  end
+  for _, value in ipairs(arg) do
+    if value == "--yard" or value == "yard" then
+      return true
+    end
+  end
+  return false
+end
+
+open_yard = function()
+  local design = shipyard.new_design()
+  local starter = (app.repo_root or ".") .. "/data/designs/yard_destroyer.toml"
+  local loaded = shipyard.read_design(starter)
+  if loaded then
+    design = loaded
+  end
+  app.yard.design = design
+  app.yard.status = "Edit counts, then Validate / Cost / Compile / Play."
+  app.screen = "yard"
+  set_status("info", "Shipyard: compile writes data/ships/<id>.toml, then Play starts a duel.")
+end
+
+local function yard_rel_path(design)
+  return "data/designs/" .. design.id .. ".toml"
+end
+
+local function yard_save_design()
+  local design = app.yard.design
+  local path = shipyard.design_path(app.repo_root, design)
+  local ok, err = shipyard.write_file(path, shipyard.to_toml(design))
+  if not ok then
+    app.yard.status = "write failed: " .. tostring(err)
+    return nil
+  end
+  return yard_rel_path(design)
+end
+
+local function yard_run(command)
+  local rel = yard_save_design()
+  if not rel then
+    return false
+  end
+  local ok, out = shipyard.run_yard(app.repo_root, command, rel)
+  app.yard.status = (out ~= "" and out) or (ok and "ok" or "failed")
+  if ok then
+    set_status("info", command .. ": " .. app.yard.status)
+  else
+    set_status("warn", command .. " failed: " .. app.yard.status)
+  end
+  return ok
+end
+
+local function yard_play()
+  if not yard_run("compile") then
+    return
+  end
+  local class_id = app.yard.design.id
+  local scenario_rel = "frontend/love/local/yard_play.toml"
+  local scenario_abs = (app.repo_root or ".") .. "/" .. scenario_rel
+  local ok, err = shipyard.write_file(scenario_abs, shipyard.play_scenario_toml(class_id))
+  if not ok then
+    app.yard.status = "cannot write play scenario: " .. tostring(err)
+    set_status("error", app.yard.status)
+    return
+  end
+  start_scenario({ name = class_id, path = scenario_rel })
+end
+
 function love.load()
   -- Do not call love.window.setMode here: it recreates the X window after
   -- launch and undoes i3 floating applied by frontend/love/play.sh.
@@ -956,7 +1034,10 @@ function love.load()
   if #app.scenarios == 0 then
     set_status("error", "No scenarios. repo=" .. tostring(app.repo_root))
   else
-    set_status("info", "v2: Allocate, Move, Fire, End turn. ? help · Exit/Q quits.")
+    set_status("info", "v2: Allocate, Move, Fire, End turn. Y=shipyard · Exit/Q quits.")
+  end
+  if wants_yard_launch() then
+    open_yard()
   end
 end
 
@@ -1593,6 +1674,104 @@ handle_ui_hit = function(hit)
     ensure_selection()
     return true
   end
+  if id == "open_yard" then
+    open_yard()
+    return true
+  end
+  if id == "yard_size_up" then
+    app.yard.design.size = shipyard.nudge(app.yard.design.size, 1, 1, 7)
+    return true
+  end
+  if id == "yard_size_dn" then
+    app.yard.design.size = shipyard.nudge(app.yard.design.size, -1, 1, 7)
+    return true
+  end
+  if id == "yard_mat_up" or id == "yard_mat_dn" then
+    app.yard.design.material = shipyard.cycle(
+      shipyard.MATERIALS,
+      app.yard.design.material,
+      id == "yard_mat_up" and 1 or -1
+    )
+    return true
+  end
+  if id == "yard_reactor_up" then
+    app.yard.design.reactor = shipyard.nudge(app.yard.design.reactor, 1, 0, 400)
+    return true
+  end
+  if id == "yard_reactor_dn" then
+    app.yard.design.reactor = shipyard.nudge(app.yard.design.reactor, -1, 0, 400)
+    return true
+  end
+  if id == "yard_armor_up" then
+    app.yard.design.armor = shipyard.nudge(app.yard.design.armor, 1, 0, 200)
+    return true
+  end
+  if id == "yard_armor_dn" then
+    app.yard.design.armor = shipyard.nudge(app.yard.design.armor, -1, 0, 200)
+    return true
+  end
+  if id == "yard_shield_up" then
+    app.yard.design.shield_banks = shipyard.nudge(app.yard.design.shield_banks, 1, 0, 80)
+    return true
+  end
+  if id == "yard_shield_dn" then
+    app.yard.design.shield_banks = shipyard.nudge(app.yard.design.shield_banks, -1, 0, 80)
+    return true
+  end
+  if id == "yard_wpn_add" then
+    app.yard.design.weapons[#app.yard.design.weapons + 1] = {
+      component = "beam",
+      mount = "forward",
+    }
+    return true
+  end
+  if id == "yard_wpn_del" then
+    table.remove(app.yard.design.weapons, p.index)
+    if #app.yard.design.weapons == 0 then
+      app.yard.design.weapons[1] = { component = "beam", mount = "forward" }
+    end
+    return true
+  end
+  if id == "yard_wpn_sku" then
+    local w = app.yard.design.weapons[p.index]
+    if w then
+      w.component = shipyard.cycle(shipyard.WEAPON_SKUS, w.component, 1)
+    end
+    return true
+  end
+  if id == "yard_wpn_mount" then
+    local w = app.yard.design.weapons[p.index]
+    if w then
+      w.mount = shipyard.cycle(shipyard.MOUNTS, w.mount, 1)
+    end
+    return true
+  end
+  if id == "yard_load" then
+    local loaded = shipyard.read_design((app.repo_root or ".") .. "/data/designs/yard_destroyer.toml")
+    if loaded then
+      app.yard.design = loaded
+      app.yard.status = "loaded yard_destroyer"
+    else
+      app.yard.status = "could not load yard_destroyer design"
+    end
+    return true
+  end
+  if id == "yard_validate" then
+    yard_run("validate")
+    return true
+  end
+  if id == "yard_cost" then
+    yard_run("cost")
+    return true
+  end
+  if id == "yard_compile" then
+    yard_run("compile")
+    return true
+  end
+  if id == "yard_play" then
+    yard_play()
+    return true
+  end
   if id == "menu" then
     if app.session then harness.kill(app.session) end
     app.screen = "picker"
@@ -1612,6 +1791,8 @@ function love.draw()
   love.graphics.clear(0.08, 0.09, 0.11)
   if app.screen == "picker" then
     draw_hud.draw_picker(app)
+  elseif app.screen == "yard" then
+    draw_hud.draw_shipyard(app)
   elseif app.screen == "play" then
     draw_board.draw(app.session and app.session.snapshot, app.cam, app.selected_id, nil, {
       weapon_id = app.weapon_id,
@@ -1736,10 +1917,22 @@ function love.keypressed(key)
       if sc then
         start_scenario(sc)
       end
+    elseif key == "y" then
+      open_yard()
     elseif key == "escape" or key == "q" then
       love.event.quit()
     end
     ensure_picker_visible()
+    return
+  end
+  if app.screen == "yard" then
+    if key == "escape" then
+      app.screen = "picker"
+    elseif key == "q" then
+      love.event.quit()
+    elseif key == "return" or key == "kpenter" then
+      yard_play()
+    end
     return
   end
   if app.screen == "end" then
