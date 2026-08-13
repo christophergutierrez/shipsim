@@ -3430,3 +3430,290 @@ fn commit_path_with_evasive_serializes_field() {
     let v0: serde_json::Value = serde_json::from_str(&plain).unwrap();
     assert!(v0.get("evasive").is_none() || v0["evasive"] == 0);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Shipyard — browse existing hulls (with cost) or create/edit. No combat map.
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn yard_app() -> App {
+    let mut app = App::new();
+    let root = crate::yard::find_repo_root();
+    assert!(
+        crate::yard::repo_has_yard(&root),
+        "tests must run with repo data/designs visible at {}",
+        root.display()
+    );
+    app.yard = Some(crate::yard::YardState::load(root).expect("load shipyard"));
+    app
+}
+
+#[test]
+fn yard_lists_existing_designs_with_hull_cost() {
+    let yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
+    assert!(
+        !yard.listings.is_empty(),
+        "browse must show saved designs, not an empty ship picker"
+    );
+    let destroyer = yard
+        .listings
+        .iter()
+        .find(|item| item.design.id == "yard_destroyer")
+        .expect("yard_destroyer design must be listed");
+    assert!(
+        destroyer.path.ends_with("yard_destroyer.toml"),
+        "listing path {:?}",
+        destroyer.path
+    );
+    assert_eq!(destroyer.design.name, "Yard Destroyer");
+    let preview = destroyer
+        .preview
+        .as_ref()
+        .expect("cost preview for a valid saved hull");
+    assert!(preview.cost > 0, "cost belongs on the ship, got 0");
+}
+
+#[test]
+fn yard_browse_renders_ships_and_new_row_not_a_map() {
+    let mut app = yard_app();
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "Shipyard"),
+        "browse title missing; got:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "Yard Destroyer"),
+        "existing ship name missing; got:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "Destroyer"),
+        "size column should show the hull name; got:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "cost"),
+        "cost must sit on the hull row; got:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "+ new ship"),
+        "create-new row missing; got:\n{buf}"
+    );
+    assert!(
+        !buffer_contains(&buf, "Loading"),
+        "yard must not wait on a combat snapshot; got:\n{buf}"
+    );
+}
+
+#[test]
+fn yard_enter_edits_selected_ship() {
+    let mut app = yard_app();
+    let id = app.yard.as_ref().unwrap().listings[0].design.id.clone();
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(matches!(result, KeyResult::Continue));
+    let (screen, draft_id, draft_name) = {
+        let yard = app.yard.as_ref().unwrap();
+        (yard.screen, yard.draft.id.clone(), yard.draft.name.clone())
+    };
+    assert_eq!(screen, crate::yard::YardScreen::Edit);
+    assert_eq!(draft_id, id);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "name") && buffer_contains(&buf, &draft_name),
+        "class name field missing; got:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "cost"),
+        "edit screen must show this hull's cost; got:\n{buf}"
+    );
+}
+
+#[test]
+fn yard_n_and_new_row_create_a_ship() {
+    let mut app = yard_app();
+    let result = handle_key(&mut app, make_key('n'));
+    assert!(matches!(result, KeyResult::Continue));
+    {
+        let yard = app.yard.as_ref().unwrap();
+        assert_eq!(yard.screen, crate::yard::YardScreen::Edit);
+        assert!(
+            yard.draft.id.len() == 8
+                && yard.draft.id.bytes().all(|b| b.is_ascii_hexdigit()),
+            "new draft id {} should be a short hex token",
+            yard.draft.id
+        );
+        assert!(
+            yard.draft.name.starts_with("Basic "),
+            "new class should default to Basic …, got {}",
+            yard.draft.name
+        );
+    }
+    assert!(
+        buffer_contains(&render_to_string(&mut app, 80, 24), "cost"),
+        "new hull still has a live cost"
+    );
+
+    let mut app = yard_app();
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard.listings.len();
+        assert!(yard.is_new_row());
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let yard = app.yard.as_ref().unwrap();
+    assert_eq!(yard.screen, crate::yard::YardScreen::Edit);
+    assert_eq!(yard.draft.id.len(), 8);
+}
+
+#[test]
+fn yard_material_cycles_moo_table() {
+    let mut app = yard_app();
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    let before = app
+        .yard
+        .as_ref()
+        .unwrap()
+        .preview()
+        .expect("titanium hull previews");
+    assert_eq!(app.yard.as_ref().unwrap().draft.material, "titanium");
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    let yard = app.yard.as_ref().unwrap();
+    assert_eq!(yard.draft.material, "duralloy");
+    let after = yard.preview().expect("duralloy hull previews");
+    assert!(after.cost > before.cost, "better armor costs more");
+    assert!(
+        after.structure > before.structure,
+        "better armor has more HP"
+    );
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "Duralloy") && buffer_contains(&buf, "tech 9"),
+        "edit row should show MOO name and tech; got:\n{buf}"
+    );
+}
+
+#[test]
+fn yard_size_row_shows_hull_ratios() {
+    let mut app = yard_app();
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    let yard = app.yard.as_ref().unwrap();
+    assert_eq!(yard.draft.size, 2);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "Destroyer")
+            && buffer_contains(&buf, "63sp")
+            && buffer_contains(&buf, "8mv")
+            && buffer_contains(&buf, "def+1"),
+        "size row should show name, space, battle speed, and MOO defense; got:\n{buf}"
+    );
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Left));
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "Fighter") && buffer_contains(&buf, "20sp"),
+        "smaller hull should show the Small end of the decade curve; got:\n{buf}"
+    );
+}
+
+#[test]
+fn yard_engine_is_a_kind_and_size() {
+    let mut app = yard_app();
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    // Name → Size → Material → EngineKind
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    let before = app.yard.as_ref().unwrap().preview().expect("fission M");
+    assert_eq!(app.yard.as_ref().unwrap().draft.engine, "fission");
+    assert_eq!(app.yard.as_ref().unwrap().draft.engine_size, "m");
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    let yard = app.yard.as_ref().unwrap();
+    assert_eq!(yard.draft.engine, "fusion");
+    let after = yard.preview().expect("fusion M");
+    assert!(after.power > before.power);
+    assert_eq!(after.space_used, before.space_used);
+    assert!(after.cost > before.cost);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "fusion") && buffer_contains(&buf, "pwr"),
+        "engine size row should show the plant stats; got:\n{buf}"
+    );
+}
+
+#[test]
+fn yard_armor_toggles_without_using_space() {
+    let mut app = yard_app();
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    for _ in 0..5 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    }
+    assert!(app.yard.as_ref().unwrap().draft.armored);
+    let on = app.yard.as_ref().unwrap().preview().expect("plated");
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    let yard = app.yard.as_ref().unwrap();
+    assert!(!yard.draft.armored);
+    let off = yard.preview().expect("bare");
+    assert_eq!(off.space_used, on.space_used);
+    assert!(off.structure < on.structure);
+    assert!(off.cost < on.cost);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "armor") && buffer_contains(&buf, "no"),
+        "armor should be a yes/no wrap; got:\n{buf}"
+    );
+}
+
+#[test]
+fn yard_shields_move_all_or_one_face() {
+    let mut app = yard_app();
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    // Name, size, material, engine kind, engine size, armor → shields all
+    for _ in 0..6 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    }
+    assert_eq!(
+        app.yard.as_ref().unwrap().edit_cursor,
+        crate::yard::EditField::ShieldsAll
+    );
+    let before = app.yard.as_ref().unwrap().draft.shields;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    let after_all = app.yard.as_ref().unwrap().draft.shields;
+    for i in 0..6 {
+        assert_eq!(after_all[i], before[i] + 1);
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    assert_eq!(
+        app.yard.as_ref().unwrap().edit_cursor,
+        crate::yard::EditField::ShieldsFace { index: 0 }
+    );
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Left));
+    let faces = app.yard.as_ref().unwrap().draft.shields;
+    assert_eq!(faces[0], after_all[0] - 1);
+    assert_eq!(faces[1], after_all[1]);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "F") && buffer_contains(&buf, "shields all"),
+        "yard must show all-faces and per-face rows; got:\n{buf}"
+    );
+}
+
+#[test]
+fn yard_name_is_editable_and_stays_on_the_class() {
+    let mut app = yard_app();
+    handle_key(&mut app, make_key('n'));
+    assert_eq!(
+        app.yard.as_ref().unwrap().edit_cursor,
+        crate::yard::EditField::Name
+    );
+    for _ in 0..40 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Backspace));
+    }
+    for ch in "Scout Frigate".chars() {
+        handle_key(&mut app, make_key(ch));
+    }
+    assert_eq!(app.yard.as_ref().unwrap().draft.name, "Scout Frigate");
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "Scout Frigate"),
+        "typed class name missing; got:\n{buf}"
+    );
+}

@@ -38,20 +38,22 @@ target-size adjustment. `titan_light` currently has +12 and `titan_heavy` +10. T
 final threshold is capped below the configured die maximum. Weapon
 `accuracy_bonus` (yard Precise SKUs) is added at **every** target size, alongside
 fire control when it applies, then defender **evasive action** subtracts
-`evasion_committed × combat.accuracy.evasion_per_point` (default 1 per point),
-then clamps to a floor of 1 and the same final cap. Size-1 fighters and size-3+
-targets receive no hull fire-control bonus; they still take weapon accuracy.
+`evasion_committed × combat.accuracy.evasion_per_point` (default 1 per point).
+MOO **natural defense** then shifts the same way, relative to size 2
+(Small/fighter +1, Huge/titan −2 vs the destroyer baseline). Then clamps to a
+floor of 1 and the same final cap. Size-1 fighters and size-3+ targets receive
+no hull fire-control bonus; they still take weapon accuracy.
 Weapon `damage_bonus` is added after the kind/range damage model.
 
-| Size | Name | mult |
-|---:|---|---:|
-| 1 | Fighter | ×0.5 |
-| 2 | Destroyer | ×1 (baseline) |
-| 3 | Light Cruiser | ×1.5 |
-| 4 | Heavy Cruiser | ×2 |
-| 5 | Battleship | ×2.5 |
-| 6 | Dreadnought | ×3 |
-| 7 | Titan | ×3.5 |
+| Size | Name | Silhouette | Defense vs size 2 |
+|---:|---|---:|---:|
+| 1 | Fighter | ×0.5 | +1 (harder) |
+| 2 | Destroyer | ×1 | 0 |
+| 3 | Light Cruiser | ×1.5 | 0 |
+| 4 | Heavy Cruiser | ×2 | −1 |
+| 5 | Battleship | ×2.5 | −1 |
+| 6 | Dreadnought | ×3 | −2 |
+| 7 | Titan | ×3.5 | −2 |
 
 Target size changes accuracy, not damage. Named tiers: `data/sizes.toml`.
 

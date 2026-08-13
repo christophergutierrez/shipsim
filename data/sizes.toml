@@ -11,6 +11,15 @@
 # mapping scraped ships.
 #
 # Construction fields used by the component shipyard.
+#
+# Space / frame cost / base HP follow MOO's four-hull decades, spread across
+# our seven ids. Sizes 1 / 3 / 5 / 7 are Small / Medium / Large / Huge;
+# 2 / 4 / 6 are geometric midpoints. Values are ×2 vs the raw MOO Small
+# (~10 space, 2 BC, 1 HP) so a fighter can still mount a compact gun.
+# `defense` is MOO natural defense. Combat applies it relative to size 2
+# (docs/combat-v2-tables.md) so small hulls are harder to hit while they
+# move, huge hulls easier. `max_maneuver_actions` is battle path length,
+# not galactic travel. Movement/SSD columns stay FASA-derived.
 
 [[sizes]]
 id = 1
@@ -19,9 +28,10 @@ name = "Fighter"
 fasa_class_min = 1
 fasa_class_max = 3
 fasa_classes = "I–III"
-space = 45
-frame_cost = 14
+space = 20
+frame_cost = 4
 base_structure = 2
+defense = 2
 max_maneuver_actions = 8
 thrust_per_power = 3
 power_per_thrust = 1
@@ -35,9 +45,10 @@ name = "Destroyer"
 fasa_class_min = 4
 fasa_class_max = 6
 fasa_classes = "IV–VI"
-space = 60
-frame_cost = 52
+space = 63
+frame_cost = 9
 base_structure = 6
+defense = 1
 max_maneuver_actions = 8
 thrust_per_power = 2
 power_per_thrust = 1
@@ -51,9 +62,10 @@ name = "Light Cruiser"
 fasa_class_min = 7
 fasa_class_max = 9
 fasa_classes = "VII–IX"
-space = 80
-frame_cost = 110
-base_structure = 10
+space = 200
+frame_cost = 20
+base_structure = 20
+defense = 1
 max_maneuver_actions = 7
 thrust_per_power = 1
 power_per_thrust = 1
@@ -67,9 +79,10 @@ name = "Heavy Cruiser"
 fasa_class_min = 10
 fasa_class_max = 12
 fasa_classes = "X–XII"
-space = 105
-frame_cost = 187
-base_structure = 17
+space = 632
+frame_cost = 63
+base_structure = 63
+defense = 0
 max_maneuver_actions = 6
 thrust_per_power = 1
 power_per_thrust = 1
@@ -83,9 +96,10 @@ name = "Battleship"
 fasa_class_min = 13
 fasa_class_max = 15
 fasa_classes = "XIII–XV"
-space = 175
-frame_cost = 283
-base_structure = 30
+space = 2000
+frame_cost = 200
+base_structure = 200
+defense = 0
 max_maneuver_actions = 5
 thrust_per_power = 1
 power_per_thrust = 2
@@ -99,9 +113,10 @@ name = "Dreadnought"
 fasa_class_min = 16
 fasa_class_max = 18
 fasa_classes = "XVI–XVIII"
-space = 220
-frame_cost = 397
-base_structure = 69
+space = 6325
+frame_cost = 632
+base_structure = 632
+defense = -1
 max_maneuver_actions = 4
 thrust_per_power = 1
 power_per_thrust = 3
@@ -115,9 +130,10 @@ name = "Titan"
 fasa_class_min = 19
 fasa_class_max = 20
 fasa_classes = "XIX–XX"
-space = 320
-frame_cost = 528
-base_structure = 97
+space = 20000
+frame_cost = 2000
+base_structure = 2000
+defense = -1
 max_maneuver_actions = 3
 thrust_per_power = 1
 power_per_thrust = 4

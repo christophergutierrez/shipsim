@@ -71,6 +71,11 @@ FIRE_CONTROL_TARGET_SIZE = 2
 EVASION_PER_POINT = 1
 
 
+def natural_defense(size: int) -> int:
+    """MOO hull defense. Combat uses this relative to size 2."""
+    return {1: 2, 2: 1, 3: 1, 4: 0, 5: 0, 6: -1, 7: -1}.get(int(size), 0)
+
+
 def hit_preview(
     kind: str,
     range_: int,
@@ -87,8 +92,8 @@ def hit_preview(
     (never below the size-2 table value, capped at `CEILING_MAX`), same
     fire-control gate (only at `FIRE_CONTROL_TARGET_SIZE`), same final cap
     (`min(CEILING_MAX, DIE_SIDES - 1)` — no attack, modified or not, is ever a
-    guaranteed hit), then subtract `defender_evasion * EVASION_PER_POINT` with
-    a floor of 1.
+    guaranteed hit), then subtract `defender_evasion * EVASION_PER_POINT` and
+    MOO natural defense relative to size 2, with a floor of 1.
     """
     values = _TO_HIT.get(str(kind).lower())
     if not values or range_ < 1 or range_ > len(values) or target_size < 1:
@@ -100,7 +105,8 @@ def hit_preview(
     bonus = (attack_accuracy_bonus if target_size == FIRE_CONTROL_TARGET_SIZE else 0) + max(0, int(weapon_accuracy_bonus))
     final_cap = min(CEILING_MAX, DIE_SIDES - 1)
     evasion_delta = max(0, int(defender_evasion)) * EVASION_PER_POINT
-    threshold = max(1, min(final_cap, threshold + bonus - evasion_delta))
+    agility = natural_defense(target_size) - natural_defense(BASELINE_TARGET_SIZE)
+    threshold = max(1, min(final_cap, threshold + bonus - evasion_delta - agility))
     percent = round(threshold * 100 / DIE_SIDES)
     return threshold, percent
 

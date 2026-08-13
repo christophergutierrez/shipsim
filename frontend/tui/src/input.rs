@@ -57,6 +57,10 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
         }
     }
 
+    if app.yard.is_some() {
+        return handle_yard(app, key);
+    }
+
     // Global keys
     match key.code {
         KeyCode::Char('q') => {
@@ -125,6 +129,52 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
             KeyResult::Continue
         }
     }
+}
+
+fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
+    let Some(yard) = app.yard.as_mut() else {
+        return KeyResult::Continue;
+    };
+    use crate::yard::YardScreen;
+    match yard.screen {
+        YardScreen::Browse => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => yard.move_browse(-1),
+            KeyCode::Down | KeyCode::Char('j') => yard.move_browse(1),
+            KeyCode::Enter | KeyCode::Char(' ') => yard.open_selected(),
+            KeyCode::Char('n') => yard.start_new(),
+            KeyCode::Char('q') | KeyCode::Esc => return KeyResult::Quit,
+            _ => {}
+        },
+        YardScreen::Edit => {
+            use crate::yard::EditField;
+            if yard.edit_cursor == EditField::Name {
+                match key.code {
+                    KeyCode::Up => yard.move_edit(-1),
+                    KeyCode::Down => yard.move_edit(1),
+                    KeyCode::Backspace => yard.backspace_name(),
+                    KeyCode::Esc => yard.back_to_browse(),
+                    KeyCode::Char(ch) => yard.type_name(ch),
+                    _ => {}
+                }
+            } else {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => yard.move_edit(-1),
+                    KeyCode::Down | KeyCode::Char('j') => yard.move_edit(1),
+                    KeyCode::Left | KeyCode::Char('h') => yard.nudge(-1),
+                    KeyCode::Right | KeyCode::Char('l') => yard.nudge(1),
+                    KeyCode::Char('m') => yard.cycle_weapon_mount(),
+                    KeyCode::Char('a') => yard.add_weapon(),
+                    KeyCode::Char('d') => yard.delete_weapon(),
+                    KeyCode::Char('s') => yard.save(),
+                    KeyCode::Char('c') => yard.compile(),
+                    KeyCode::Esc => yard.back_to_browse(),
+                    KeyCode::Char('q') => return KeyResult::Quit,
+                    _ => {}
+                }
+            }
+        }
+    }
+    KeyResult::Continue
 }
 
 fn handle_confirmation(app: &mut App, confirmation: Confirmation, key: KeyEvent) -> KeyResult {
@@ -743,7 +793,7 @@ fn allocation_field_bounds(
     if shield_index < 6 {
         base.shields[shield_index] = 0;
         let residual = ship.power_available.saturating_sub(base.power_cost(ship));
-        return (0, residual.min(ship.max_shield_per_facing));
+        return (0, residual.min(ship.shield_cap(shield_index)));
     }
     (0, 0)
 }

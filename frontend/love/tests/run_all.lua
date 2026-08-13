@@ -51,12 +51,14 @@ assert_eq(type(draw_hud), "table", "draw_hud module contract")
 print("shipyard")
 local yd = shipyard.new_design()
 assert_eq(yd.size, 2, "default hull size")
-yd.reactor = 9
+yd.engine = "fusion"
+yd.engine_size = "l"
 yd.weapons[1].component = "beam_compact"
 local toml = shipyard.to_toml(yd)
 assert(toml:match('component = "beam_compact"'), "toml writes sku")
 local parsed = shipyard.parse_design(toml)
-assert_eq(parsed.reactor, 9, "parse reactor")
+assert_eq(parsed.engine, "fusion", "parse engine")
+assert_eq(parsed.engine_size, "l", "parse engine size")
 assert_eq(parsed.weapons[1].component, "beam_compact", "parse sku")
 assert_eq(shipyard.cycle(shipyard.MOUNTS, "forward", 1), "forward_starboard", "cycle mount")
 assert_eq(shipyard.nudge(2, 1, 1, 7), 3, "nudge size")

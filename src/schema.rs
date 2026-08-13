@@ -22,6 +22,9 @@ pub struct ShipDef {
     /// Energy per turn.
     pub power: u32,
     pub max_shield_per_facing: u32,
+    /// Per-face caps (F…FL). Absent means every face uses `max_shield_per_facing`.
+    #[serde(default)]
+    pub max_shields: Option<[u32; 6]>,
     #[serde(default)]
     pub structure: u32,
     /// SSD power-system boxes.

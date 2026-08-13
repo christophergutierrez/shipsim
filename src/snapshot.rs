@@ -41,6 +41,8 @@ pub struct ShipSnapshot {
     pub shields_powered: [u32; 6],
     pub shields_remaining: [u32; 6],
     pub max_shield_per_facing: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_shields: Option<[u32; 6]>,
     pub structure: u32,
     pub engine: u32,
     pub power_sys: u32,
@@ -163,6 +165,7 @@ impl StateSnapshot {
                     shields_powered: ship.shields_powered,
                     shields_remaining: ship.shields_remaining,
                     max_shield_per_facing: ship.max_shield_per_facing,
+                    max_shields: Some(ship.max_shields),
                     structure: ship.structure(),
                     engine: ship.ssd.engine,
                     power_sys: ship.ssd.power_sys,

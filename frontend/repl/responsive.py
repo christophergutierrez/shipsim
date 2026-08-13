@@ -38,6 +38,14 @@ def fits(text: str, rows: int, cols: int) -> bool:
     return line_count(text) <= rows and all(visible_len(line) <= cols for line in text.splitlines())
 
 
+def squeeze_block(text: str, rows: int, cols: int) -> str:
+    """Force a block into a row/col budget by clamping lines, never wrapping."""
+    if rows <= 0 or cols <= 0 or not text:
+        return ""
+    lines = [clamp_line(line, cols) for line in text.splitlines()[:rows]]
+    return "\n".join(lines)
+
+
 def clamp_line(text: str, cols: int) -> str:
     """Return one unwrapped line, preserving no partial ANSI escape sequence."""
     plain = _ANSI.sub("", " ".join(str(text).splitlines()))
@@ -115,32 +123,42 @@ def choose_layout(
         enumerate(compact_blocks),
         key=lambda item: (order.get(item[1].role, 1000), item[1].priority, item[0]),
     )
-    selected: list[FrameBlock] = []
+    selected: list[tuple[int, FrameBlock]] = []
     hidden: list[str] = []
     used = 0
-    for _, block in candidates:
+    for index, block in candidates:
         height = line_count(block.text)
         if not block.text:
             continue
+        chosen = None
         if height <= budget - used and fits(block.text, height, cols):
-            selected.append(block)
-            used += height
+            chosen = block
         elif block.required:
-            raise ValueError(
-                f"required responsive block {block.role!r} does not fit "
-                f"in {rows}x{cols} after reserving {prompt_rows} prompt row"
-            )
+            # Small panes (e.g. 20x84) used to crash here. Squeeze instead of
+            # raising so a required header still paints.
+            squeezed = squeeze_block(block.text, budget - used, cols)
+            if squeezed:
+                chosen = FrameBlock(
+                    block.role,
+                    squeezed,
+                    priority=block.priority,
+                    required=True,
+                )
+            else:
+                hidden.append(block.role)
         else:
             hidden.append(block.role)
+        if chosen is not None:
+            selected.append((index, chosen))
+            used += line_count(chosen.text)
 
     # Display order follows the same phase priorities used for admission.
-    selected.sort(
-        key=lambda block: (
-            order.get(block.role, 1000),
-            compact_blocks.index(block),
-        )
+    selected.sort(key=lambda item: (order.get(item[1].role, 1000), item[0]))
+    return LayoutDecision(
+        tuple(block for _, block in selected),
+        tuple(hidden),
+        compact=True,
     )
-    return LayoutDecision(tuple(selected), tuple(hidden), compact=True)
 
 
 def class_abbreviation(value: Any, width: int = 4) -> str:
@@ -376,9 +394,17 @@ def make_compact_blocks(
         focus = players[0] if players else None
     active = movement_focus_id(snap) if phase == "movement" else None
     blocks: list[FrameBlock] = []
-    header = format_header(snap, selected=selected)
+    header = "\n".join(
+        clamp_line(line, width) for line in format_header(snap, selected=selected).splitlines()
+    )
     if banner:
-        blocks.append(FrameBlock("banner", banner, required=True))
+        blocks.append(
+            FrameBlock(
+                "terminal_banner",
+                "\n".join(clamp_line(line, width) for line in banner.splitlines()),
+                required=True,
+            )
+        )
     blocks.append(FrameBlock("banner", header, required=True))
     if focus is not None:
         blocks.append(FrameBlock("player", panel("YOUR SHIP", render_compact_player(focus, hull_max=hull_max.get(int(focus.get("id") or 0)), selected=selected == focus.get("id"), active=active == focus.get("id"), width=max(24, width - 4)), width=min(width, 72)), required=True))

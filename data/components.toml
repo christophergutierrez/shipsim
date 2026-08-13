@@ -1,16 +1,83 @@
-[reactor]
-space = 1
-cost = 1
-power = 1
+# Discrete engines: kind (item) × size (s/m/l/h).
+# Larger sizes buy more power at worse space and cost per point.
+# thrust_step is a combat-speed modifier on the hull conversion (partial conflate).
 
-[armor]
-space = 1
-cost = 1
-structure = 1
+[engines.fission_s]
+power = 6
+space = 6
+cost = 12
+thrust_step = 0
 
+[engines.fission_m]
+power = 14
+space = 22
+cost = 36
+thrust_step = 0
+
+[engines.fission_l]
+power = 36
+space = 64
+cost = 110
+thrust_step = 0
+
+[engines.fission_h]
+power = 80
+space = 160
+cost = 300
+thrust_step = 0
+
+[engines.fusion_s]
+power = 8
+space = 6
+cost = 20
+thrust_step = 1
+
+[engines.fusion_m]
+power = 18
+space = 22
+cost = 58
+thrust_step = 1
+
+[engines.fusion_l]
+power = 48
+space = 64
+cost = 180
+thrust_step = 1
+
+[engines.fusion_h]
+power = 110
+space = 160
+cost = 480
+thrust_step = 1
+
+[engines.antimatter_s]
+power = 10
+space = 6
+cost = 32
+thrust_step = 2
+
+[engines.antimatter_m]
+power = 24
+space = 22
+cost = 90
+thrust_step = 2
+
+[engines.antimatter_l]
+power = 64
+space = 64
+cost = 280
+thrust_step = 2
+
+[engines.antimatter_h]
+power = 150
+space = 160
+cost = 750
+thrust_step = 2
+
+# One bank = one power point on one face. Space/cost are per bank placed.
 [shield_bank]
-space = 4
-cost = 3
+space = 1
+cost = 1
 max_shield_per_facing = 1
 
 [weapons.beam]

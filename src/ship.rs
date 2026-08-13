@@ -28,6 +28,8 @@ pub struct Ship {
     /// Remaining per-facing powered shields this turn.
     pub shields_remaining: [u32; 6],
     pub max_shield_per_facing: u32,
+    /// Per-face shield cap. Catalog ships splat `max_shield_per_facing`.
+    pub max_shields: [u32; 6],
     /// Motion power bought this turn (pre-conversion).
     pub movement_allocated: u32,
     /// Weapon id -> charge (carries across turns).
@@ -67,6 +69,13 @@ impl Ship {
 
     pub fn effective_power(&self) -> u32 {
         self.ssd.effective_power(self.power)
+    }
+
+    pub fn shield_cap(&self, facing: usize) -> u32 {
+        self.max_shields
+            .get(facing)
+            .copied()
+            .unwrap_or(self.max_shield_per_facing)
     }
 
     pub fn reset_v2_allocation(&mut self) {

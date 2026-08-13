@@ -1,10 +1,11 @@
 id = "yard_swarm"
 name = "Yard Swarm Fighter"
 size = 1
-material = "standard"
-reactor = 6
-armor = 1
-shield_banks = 2
+material = "titanium"
+engine = "fission"
+engine_size = "s"
+armored = true
+shields = [2, 1, 0, 0, 0, 1]
 
 [[weapons]]
 component = "beam_compact"

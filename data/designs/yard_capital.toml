@@ -1,10 +1,11 @@
 id = "yard_capital"
 name = "Yard Capital"
 size = 7
-material = "standard"
-reactor = 146
-armor = 16
-shield_banks = 29
+material = "titanium"
+engine = "fission"
+engine_size = "h"
+armored = true
+shields = [16, 10, 6, 6, 6, 10]
 
 [[weapons]]
 component = "beam"

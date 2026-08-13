@@ -1053,9 +1053,14 @@ function draw_hud.draw_shipyard(app)
   row_nudge(string.format("id  %s", d.id), "yard_noop", "yard_noop", nil)
   row_nudge(string.format("hull size  %d", d.size), "yard_size_dn", "yard_size_up", nil)
   row_nudge(string.format("material  %s", d.material), "yard_mat_dn", "yard_mat_up", nil)
-  row_nudge(string.format("reactor  %d", d.reactor), "yard_reactor_dn", "yard_reactor_up", nil)
-  row_nudge(string.format("armor  %d", d.armor), "yard_armor_dn", "yard_armor_up", nil)
-  row_nudge(string.format("shield banks  %d", d.shield_banks), "yard_shield_dn", "yard_shield_up", nil)
+  row_nudge(string.format("engine  %s", d.engine or "fission"), "yard_eng_dn", "yard_eng_up", nil)
+  row_nudge(string.format("engine size  %s", d.engine_size or "m"), "yard_engsz_dn", "yard_engsz_up", nil)
+  row_nudge(string.format("armor  %s", d.armored and "yes" or "no"), "yard_armor_dn", "yard_armor_up", nil)
+  local total = 0
+  for _, n in ipairs(d.shields or {}) do
+    total = total + (tonumber(n) or 0)
+  end
+  row_nudge(string.format("shields all  %d banks", total), "yard_shield_dn", "yard_shield_up", nil)
 
   y = y + 8
   love.graphics.setColor(0.55, 0.85, 0.7)

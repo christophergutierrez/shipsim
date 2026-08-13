@@ -741,6 +741,7 @@ mod tests {
             shields_powered: [0; 6],
             shields_remaining: [0; 6],
             max_shield_per_facing: 4,
+            max_shields: None,
             structure: if destroyed { 0 } else { 5 },
             engine: 1,
             power_sys: 1,

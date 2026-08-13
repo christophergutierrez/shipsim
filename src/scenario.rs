@@ -186,6 +186,11 @@ pub fn load_scenario_def_with_rules(
         let max_shield_per_facing = placement
             .max_shield_per_facing
             .unwrap_or(ship_def.max_shield_per_facing);
+        let max_shields = match (placement.max_shield_per_facing, ship_def.max_shields) {
+            (Some(cap), _) => [cap; 6],
+            (None, Some(faces)) => faces,
+            (None, None) => [max_shield_per_facing; 6],
+        };
         let weapons: Vec<_> = ship_def
             .weapons
             .into_iter()
@@ -281,6 +286,7 @@ pub fn load_scenario_def_with_rules(
             shields_powered: [0; 6],
             shields_remaining: [0; 6],
             max_shield_per_facing,
+            max_shields,
             movement_allocated: 0,
             weapon_charges: BTreeMap::new(),
             weapon_ammo,

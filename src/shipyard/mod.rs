@@ -18,11 +18,15 @@ pub struct Design {
     pub size: u32,
     pub material: String,
     #[serde(default)]
-    pub reactor: u64,
+    pub engine: String,
     #[serde(default)]
-    pub armor: u64,
+    pub engine_size: String,
+    /// Exterior plate. No interior space; 1.5× hull HP; costs half the frame.
     #[serde(default)]
-    pub shield_banks: u64,
+    pub armored: bool,
+    /// Banks on F, FR, RR, R, RL, FL. One bank = one power on that face.
+    #[serde(default)]
+    pub shields: [u64; 6],
     #[serde(default)]
     pub weapons: Vec<DesignWeapon>,
 }
@@ -37,20 +41,37 @@ pub struct DesignWeapon {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Components {
-    reactor: Component,
-    armor: Component,
+    engines: BTreeMap<String, EngineComponent>,
     shield_bank: Component,
     weapons: BTreeMap<String, WeaponComponent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EngineComponent {
+    power: u64,
+    space: u64,
+    cost: u64,
+    #[serde(default)]
+    thrust_step: i8,
+}
+
+/// Public view of one discrete engine plant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EngineSpec {
+    pub id: String,
+    pub kind: String,
+    pub size: String,
+    pub power: u32,
+    pub space: u32,
+    pub cost: u32,
+    pub thrust_step: i8,
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Component {
     space: u64,
     cost: u64,
-    #[serde(default)]
-    power: u64,
-    #[serde(default)]
-    structure: u64,
     #[serde(default)]
     max_shield_per_facing: u64,
 }
@@ -68,11 +89,68 @@ struct WeaponComponent {
     damage_bonus: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Material {
-    structure_mult: f64,
-    cost_mult: f64,
+/// Hull plating. Structure and frame cost use the same multiplier (MOO armor).
+/// Tech is display-only; every material is always available.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaterialSpec {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub tech: u8,
+    pub structure_mult: f64,
+    pub cost_mult: f64,
 }
+
+pub const MATERIALS: &[MaterialSpec] = &[
+    MaterialSpec {
+        id: "titanium",
+        name: "Titanium",
+        tech: 1,
+        structure_mult: 1.0,
+        cost_mult: 1.0,
+    },
+    MaterialSpec {
+        id: "duralloy",
+        name: "Duralloy",
+        tech: 9,
+        structure_mult: 1.5,
+        cost_mult: 1.5,
+    },
+    MaterialSpec {
+        id: "zortrium",
+        name: "Zortrium",
+        tech: 17,
+        structure_mult: 2.0,
+        cost_mult: 2.0,
+    },
+    MaterialSpec {
+        id: "andrium",
+        name: "Andrium",
+        tech: 26,
+        structure_mult: 2.5,
+        cost_mult: 2.5,
+    },
+    MaterialSpec {
+        id: "tritanium",
+        name: "Tritanium",
+        tech: 34,
+        structure_mult: 3.0,
+        cost_mult: 3.0,
+    },
+    MaterialSpec {
+        id: "adamantium",
+        name: "Adamantium",
+        tech: 42,
+        structure_mult: 3.5,
+        cost_mult: 3.5,
+    },
+    MaterialSpec {
+        id: "neutronium",
+        name: "Neutronium",
+        tech: 50,
+        structure_mult: 4.0,
+        cost_mult: 4.0,
+    },
+];
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -94,6 +172,8 @@ pub enum Error {
     FilenameMismatch { stem: String, id: String },
     #[error("design name must be non-empty")]
     EmptyName,
+    #[error("class name {0:?} is already used")]
+    DuplicateName(String),
     #[error("unknown hull size {0}")]
     UnknownSize(u32),
     #[error("unknown material {0:?}")]
@@ -132,18 +212,80 @@ fn mul(a: u64, b: u64) -> Result<u64, Error> {
 fn u32_field(field: &'static str, value: u64) -> Result<u32, Error> {
     u32::try_from(value).map_err(|_| Error::OutOfRange { field, value })
 }
-fn material(name: &str) -> Result<Material, Error> {
-    match name {
-        "standard" => Ok(Material {
-            structure_mult: 1.0,
-            cost_mult: 1.0,
-        }),
-        "reinforced" => Ok(Material {
-            structure_mult: 1.4,
-            cost_mult: 1.6,
-        }),
-        _ => Err(Error::UnknownMaterial(name.to_string())),
+pub const ENGINE_KINDS: &[&str] = &["fission", "fusion", "antimatter"];
+pub const ENGINE_SIZES: &[&str] = &["s", "m", "l", "h"];
+pub const SHIELD_FACES: &[&str] = &["F", "FR", "RR", "R", "RL", "FL"];
+/// Exterior armor multiplies hull base HP and costs this fraction of frame cost.
+pub const ARMOR_HP_MULT: f64 = 1.5;
+pub const ARMOR_FRAME_COST_MULT: f64 = 0.5;
+
+fn plate_cost(frame_cost: u32, mat: &MaterialSpec) -> u64 {
+    half_up(f64::from(frame_cost) * mat.cost_mult * ARMOR_FRAME_COST_MULT)
+}
+
+fn plated_structure(base: u32, mat: &MaterialSpec, armored: bool) -> u64 {
+    let hp = if armored { ARMOR_HP_MULT } else { 1.0 };
+    half_up(f64::from(base) * mat.structure_mult * hp)
+}
+
+const THRUST_LADDER: &[(u32, u32)] = &[
+    (4, 1),
+    (3, 1),
+    (2, 1),
+    (1, 1),
+    (1, 2),
+    (1, 3),
+    (1, 4),
+    (1, 5),
+    (1, 6),
+];
+
+pub fn engine_key(kind: &str, size: &str) -> String {
+    format!("{kind}_{size}")
+}
+
+fn apply_thrust_step(thrust_per_power: u32, power_per_thrust: u32, step: i8) -> (u32, u32) {
+    let idx = THRUST_LADDER
+        .iter()
+        .position(|&pair| pair == (thrust_per_power, power_per_thrust))
+        .unwrap_or(3);
+    let next = (idx as i32 - i32::from(step)).clamp(0, THRUST_LADDER.len() as i32 - 1) as usize;
+    THRUST_LADDER[next]
+}
+
+fn shield_install(
+    components: &Components,
+    banks: [u64; 6],
+) -> Result<(u64, u64, [u32; 6]), Error> {
+    let unit = &components.shield_bank;
+    let mut count = 0u64;
+    let mut faces = [0u32; 6];
+    for (i, banks_here) in banks.iter().copied().enumerate() {
+        count = add(count, banks_here)?;
+        faces[i] = u32_field(
+            "shields",
+            mul(banks_here, unit.max_shield_per_facing)?,
+        )?;
     }
+    Ok((mul(count, unit.space)?, mul(count, unit.cost)?, faces))
+}
+
+fn plant<'a>(components: &'a Components, kind: &str, size: &str) -> Result<&'a EngineComponent, Error> {
+    if kind.is_empty() || size.is_empty() {
+        return Err(Error::InsufficientReactor { power: 0 });
+    }
+    let key = engine_key(kind, size);
+    components
+        .engines
+        .get(&key)
+        .ok_or_else(|| Error::UnknownComponent(key))
+}
+
+pub fn material(name: &str) -> Result<&'static MaterialSpec, Error> {
+    MATERIALS
+        .iter()
+        .find(|m| m.id == name)
+        .ok_or_else(|| Error::UnknownMaterial(name.to_string()))
 }
 fn load_components(root: &Path) -> Result<Components, Error> {
     let path = root.join("data/components.toml");
@@ -219,27 +361,14 @@ pub fn validate_design(
     let _material = material(&design.material)?;
     let mut used = 0u64;
     let mut cost = 0u64;
-    checked_count(
-        design.reactor,
-        components.reactor.space,
-        components.reactor.cost,
-        &mut used,
-        &mut cost,
-    )?;
-    checked_count(
-        design.armor,
-        components.armor.space,
-        components.armor.cost,
-        &mut used,
-        &mut cost,
-    )?;
-    checked_count(
-        design.shield_banks,
-        components.shield_bank.space,
-        components.shield_bank.cost,
-        &mut used,
-        &mut cost,
-    )?;
+    let engine = plant(&components, &design.engine, &design.engine_size)?;
+    checked_count(1, engine.space, engine.cost, &mut used, &mut cost)?;
+    if design.armored {
+        cost = add(cost, plate_cost(hull.frame_cost, &_material))?;
+    }
+    let (shield_space, shield_cost, _) = shield_install(&components, design.shields)?;
+    used = add(used, shield_space)?;
+    cost = add(cost, shield_cost)?;
     for weapon in &design.weapons {
         let c = components
             .weapons
@@ -260,18 +389,20 @@ pub fn validate_design(
             over: used - u64::from(hull.space),
         });
     }
-    let motion = design
-        .reactor
-        .checked_mul(u64::from(hull.thrust_per_power))
+    let (thrust_per_power, power_per_thrust) =
+        apply_thrust_step(hull.thrust_per_power, hull.power_per_thrust, engine.thrust_step);
+    let motion = engine
+        .power
+        .checked_mul(u64::from(thrust_per_power))
         .ok_or(Error::Overflow)?
-        .checked_div(u64::from(hull.power_per_thrust))
+        .checked_div(u64::from(power_per_thrust))
         .ok_or(Error::InvalidThrustConversion {
-            thrust_per_power: hull.thrust_per_power,
-            power_per_thrust: hull.power_per_thrust,
+            thrust_per_power,
+            power_per_thrust,
         })?;
     if hull.max_maneuver_actions > 0 && motion < 1 {
         return Err(Error::InsufficientReactor {
-            power: design.reactor,
+            power: engine.power,
         });
     }
     u32_field("space", used)?;
@@ -279,25 +410,280 @@ pub fn validate_design(
     Ok((design, hull))
 }
 
+/// Live cost/space/combat totals for a design, without writing files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesignPreview {
+    pub cost: u32,
+    pub space_used: u32,
+    pub space_cap: u32,
+    pub power: u32,
+    pub structure: u32,
+    pub shields: u32,
+    pub shield_faces: [u32; 6],
+}
+
+pub const MOUNTS: &[&str] = &[
+    "forward",
+    "forward_starboard",
+    "aft_starboard",
+    "aft",
+    "aft_port",
+    "forward_port",
+];
+
+const ID_LEN: usize = 8;
+
+fn normalize_class_name(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+/// Short file token: 8 hex chars. Not sequential, so deletes leave no holes.
+pub fn allocate_id<'a>(taken: impl IntoIterator<Item = &'a str>) -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(1);
+    let taken: std::collections::HashSet<String> =
+        taken.into_iter().map(str::to_string).collect();
+    for _ in 0..64 {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(1);
+        let mix = t
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .wrapping_add(u128::from(std::process::id()))
+            .wrapping_add(u128::from(COUNTER.fetch_add(1, Ordering::Relaxed)));
+        let id = format!("{:08x}", (mix ^ (mix >> 32) ^ (mix >> 64)) as u32);
+        if id.len() == ID_LEN
+            && !taken.contains(&id)
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        {
+            return id;
+        }
+    }
+    format!("s{:07x}", std::process::id() & 0x0fff_ffff)
+}
+
+/// Default class label for a hull, unique among `taken` names.
+pub fn unique_class_name<'a>(hull: &str, taken: impl IntoIterator<Item = &'a str>) -> String {
+    let taken: std::collections::HashSet<String> = taken
+        .into_iter()
+        .map(normalize_class_name)
+        .collect();
+    let base = format!("Basic {hull}");
+    if !taken.contains(&normalize_class_name(&base)) {
+        return base;
+    }
+    for n in 2u32..1000 {
+        let name = format!("{base} {n}");
+        if !taken.contains(&normalize_class_name(&name)) {
+            return name;
+        }
+    }
+    format!("{base} {}", allocate_id(std::iter::empty()))
+}
+
+pub fn names_collide(a: &str, b: &str) -> bool {
+    !a.trim().is_empty() && normalize_class_name(a) == normalize_class_name(b)
+}
+
+pub fn is_generated_class_name(name: &str, hull_names: &[&str]) -> bool {
+    let name = name.trim();
+    for hull in hull_names {
+        let base = format!("Basic {hull}");
+        if name == base {
+            return true;
+        }
+        if let Some(rest) = name.strip_prefix(&format!("{base} ")) {
+            if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub fn new_design(id: impl Into<String>) -> Design {
+    Design {
+        id: id.into(),
+        name: "New Ship".into(),
+        size: 2,
+        material: "titanium".into(),
+        engine: "fission".into(),
+        engine_size: "m".into(),
+        armored: true,
+        shields: [6, 4, 2, 2, 2, 4],
+        weapons: vec![DesignWeapon {
+            component: "beam".into(),
+            mount: "forward".into(),
+        }],
+    }
+}
+
+pub fn weapon_skus(root: &Path) -> Result<Vec<String>, Error> {
+    Ok(load_components(root)?.weapons.keys().cloned().collect())
+}
+
+pub fn engine_spec(root: &Path, kind: &str, size: &str) -> Result<EngineSpec, Error> {
+    let components = load_components(root)?;
+    let plant = plant(&components, kind, size)?;
+    Ok(EngineSpec {
+        id: engine_key(kind, size),
+        kind: kind.to_string(),
+        size: size.to_string(),
+        power: u32_field("power", plant.power)?,
+        space: u32_field("space", plant.space)?,
+        cost: u32_field("cost", plant.cost)?,
+        thrust_step: plant.thrust_step,
+    })
+}
+
+pub fn list_designs(root: &Path) -> Result<Vec<(PathBuf, Design)>, Error> {
+    let dir = root.join("data/designs");
+    let mut out = Vec::new();
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(source) => {
+            return Err(Error::Read {
+                path: dir,
+                source,
+            });
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|source| Error::Read {
+            path: dir.clone(),
+            source,
+        })?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+            continue;
+        }
+        match load_design(&path) {
+            Ok(design) => out.push((path, design)),
+            Err(_) => continue,
+        }
+    }
+    out.sort_by(|a, b| a.1.id.cmp(&b.1.id));
+    Ok(out)
+}
+
+pub fn preview_design(root: &Path, design: &Design) -> Result<DesignPreview, Error> {
+    let sizes = sizes::load(root)?;
+    let hull = sizes
+        .get(design.size)
+        .map_err(|_| Error::UnknownSize(design.size))?
+        .clone();
+    let components = load_components(root)?;
+    let mat = material(&design.material)?;
+    let mut used = 0u64;
+    let mut parts = 0u64;
+    let engine = plant(&components, &design.engine, &design.engine_size)?;
+    checked_count(1, engine.space, engine.cost, &mut used, &mut parts)?;
+    if design.armored {
+        parts = add(parts, plate_cost(hull.frame_cost, mat))?;
+    }
+    let (shield_space, shield_cost, faces) = shield_install(&components, design.shields)?;
+    used = add(used, shield_space)?;
+    parts = add(parts, shield_cost)?;
+    for weapon in &design.weapons {
+        let c = components
+            .weapons
+            .get(&weapon.component)
+            .ok_or_else(|| Error::UnknownComponent(weapon.component.clone()))?;
+        if !MOUNTS.contains(&weapon.mount.as_str()) {
+            return Err(Error::UnknownMount(weapon.mount.clone()));
+        }
+        checked_count(1, c.space, c.cost, &mut used, &mut parts)?;
+    }
+    if used > u64::from(hull.space) {
+        return Err(Error::OverCapacity {
+            used,
+            capacity: u64::from(hull.space),
+            over: used - u64::from(hull.space),
+        });
+    }
+    let (thrust_per_power, power_per_thrust) =
+        apply_thrust_step(hull.thrust_per_power, hull.power_per_thrust, engine.thrust_step);
+    let motion = engine
+        .power
+        .checked_mul(u64::from(thrust_per_power))
+        .ok_or(Error::Overflow)?
+        .checked_div(u64::from(power_per_thrust))
+        .ok_or(Error::InvalidThrustConversion {
+            thrust_per_power,
+            power_per_thrust,
+        })?;
+    if hull.max_maneuver_actions > 0 && motion < 1 {
+        return Err(Error::InsufficientReactor {
+            power: engine.power,
+        });
+    }
+    let cost = add(
+        half_up(f64::from(hull.frame_cost) * mat.cost_mult),
+        parts,
+    )?;
+    let power = engine.power;
+    let shields = faces.iter().copied().max().unwrap_or(0);
+    let structure = plated_structure(hull.base_structure, mat, design.armored);
+    Ok(DesignPreview {
+        cost: u32_field("cost", cost)?,
+        space_used: u32_field("space", used)?,
+        space_cap: hull.space,
+        power: u32_field("power", power)?,
+        structure: u32_field("structure", structure)?,
+        shields,
+        shield_faces: faces,
+    })
+}
+
+pub fn save_design(root: &Path, design: &Design) -> Result<PathBuf, Error> {
+    if design.id.is_empty()
+        || !design
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    {
+        return Err(Error::InvalidId(design.id.clone()));
+    }
+    if design.name.trim().is_empty() {
+        return Err(Error::EmptyName);
+    }
+    for (_, other) in list_designs(root)? {
+        if other.id != design.id && names_collide(&other.name, &design.name) {
+            return Err(Error::DuplicateName(design.name.clone()));
+        }
+    }
+    preview_design(root, design)?;
+    let dir = root.join("data/designs");
+    fs::create_dir_all(&dir).map_err(|source| Error::Read {
+        path: dir.clone(),
+        source,
+    })?;
+    let path = dir.join(format!("{}.toml", design.id));
+    let body = toml::to_string_pretty(design).map_err(|e| Error::Serialize(e.to_string()))?;
+    fs::write(&path, body).map_err(|source| Error::Read {
+        path: path.clone(),
+        source,
+    })?;
+    Ok(path)
+}
+
 pub fn design_cost(root: &Path, path: &Path) -> Result<u32, Error> {
     let (design, hull) = validate(root, path)?;
     let components = load_components(root)?;
     let mut cost = half_up(f64::from(hull.frame_cost) * material(&design.material)?.cost_mult);
-    checked_count(
-        design.reactor,
-        0,
-        components.reactor.cost,
-        &mut 0,
-        &mut cost,
-    )?;
-    checked_count(design.armor, 0, components.armor.cost, &mut 0, &mut cost)?;
-    checked_count(
-        design.shield_banks,
-        0,
-        components.shield_bank.cost,
-        &mut 0,
-        &mut cost,
-    )?;
+    let engine = plant(&components, &design.engine, &design.engine_size)?;
+    checked_count(1, 0, engine.cost, &mut 0, &mut cost)?;
+    if design.armored {
+        cost = add(cost, plate_cost(hull.frame_cost, material(&design.material)?))?;
+    }
+    let (_, shield_cost, _) = shield_install(&components, design.shields)?;
+    cost = add(cost, shield_cost)?;
     for w in design.weapons {
         let c = components
             .weapons
@@ -312,15 +698,13 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
     let (design, hull) = validate(root, path)?;
     let components = load_components(root)?;
     let material = material(&design.material)?;
-    let power = mul(design.reactor, components.reactor.power)?;
-    let shields = mul(
-        design.shield_banks,
-        components.shield_bank.max_shield_per_facing,
-    )?;
-    let mut structure = add(
-        u64::from(hull.base_structure),
-        mul(design.armor, components.armor.structure)?,
-    )?;
+    let engine = plant(&components, &design.engine, &design.engine_size)?;
+    let power = engine.power;
+    let (thrust_per_power, power_per_thrust) =
+        apply_thrust_step(hull.thrust_per_power, hull.power_per_thrust, engine.thrust_step);
+    let (_, _, faces) = shield_install(&components, design.shields)?;
+    let shields = faces.iter().copied().max().unwrap_or(0);
+    let structure = plated_structure(hull.base_structure, material, design.armored);
     let mut weapons = Vec::new();
     let mut kind_counts = BTreeMap::<String, u32>::new();
     for w in &design.weapons {
@@ -350,7 +734,6 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
             damage_bonus: c.damage_bonus,
         });
     }
-    structure = half_up(structure as f64 * material.structure_mult);
     let cost = design_cost(root, path)?;
     let ship = ShipDef {
         id: design.id.clone(),
@@ -358,15 +741,16 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
         size: design.size,
         max_maneuver_actions: hull.max_maneuver_actions,
         power: u32_field("power", power)?,
-        max_shield_per_facing: u32_field("max_shield_per_facing", shields)?,
+        max_shield_per_facing: shields,
+        max_shields: Some(faces),
         structure: u32_field("structure", structure)?,
         power_sys: hull.power_sys,
         engine_boxes: hull.engine_boxes,
         weapon_boxes: 1,
         attack_accuracy_bonus: 0,
         weapons,
-        thrust_per_power: hull.thrust_per_power,
-        power_per_thrust: hull.power_per_thrust,
+        thrust_per_power,
+        power_per_thrust,
         cost,
     };
     let out = root.join("data/ships").join(format!("{}.toml", design.id));
@@ -446,10 +830,11 @@ mod tests {
 id = "worked"
 name = "Worked"
 size = 2
-material = "standard"
-reactor = 14
-armor = 2
-shield_banks = 4
+material = "titanium"
+engine = "fission"
+engine_size = "m"
+armored = true
+shields = [6, 4, 2, 2, 2, 4]
 
 [[weapons]]
 component = "beam"
@@ -466,10 +851,11 @@ mount = "forward"
                     id: "../x".into(),
                     name: "x".into(),
                     size: 2,
-                    material: "standard".into(),
-                    reactor: 1,
-                    armor: 0,
-                    shield_banks: 0,
+                    material: "titanium".into(),
+                    engine: "fission".into(),
+                    engine_size: "s".into(),
+                    armored: false,
+                    shields: [0; 6],
                     weapons: vec![]
                 }
             ),
@@ -484,10 +870,51 @@ mount = "forward"
         let output = compile(root.path(), &path).expect("compile worked design");
         let ship: ShipDef = toml::from_str(&fs::read_to_string(output).unwrap()).unwrap();
         assert_eq!(ship.id, "worked");
-        assert_eq!(ship.structure, 8);
+        assert_eq!(ship.structure, 9);
         assert_eq!(ship.power, 14);
-        assert_eq!(ship.max_shield_per_facing, 4);
-        assert!((96..=105).contains(&ship.cost));
+        assert_eq!(ship.max_shield_per_facing, 6);
+        assert_eq!(ship.max_shields, Some([6, 4, 2, 2, 2, 4]));
+        // frame 9 + plate 5 + fission_m 36 + banks 20 + beam 16
+        assert_eq!(ship.cost, 86);
+        assert_eq!(ship.thrust_per_power, 2);
+        assert_eq!(ship.power_per_thrust, 1);
+        let preview = preview_design(root.path(), &load_design(&path).unwrap()).unwrap();
+        assert_eq!(preview.cost, ship.cost);
+        assert_eq!(preview.power, 14);
+        assert_eq!(preview.structure, 9);
+        assert_eq!(preview.shields, 6);
+        assert_eq!(preview.shield_faces, [6, 4, 2, 2, 2, 4]);
+    }
+
+    #[test]
+    fn list_and_save_keep_cost_on_the_design() {
+        let root = fixture_root();
+        let design = new_design("listed");
+        save_design(root.path(), &design).unwrap();
+        let listed = list_designs(root.path()).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].1.id, "listed");
+        let preview = preview_design(root.path(), &listed[0].1).unwrap();
+        assert!(preview.cost > 0);
+        assert_eq!(preview.cost, preview_design(root.path(), &design).unwrap().cost);
+    }
+
+    #[test]
+    fn moo_armor_scales_structure_and_frame_cost() {
+        assert_eq!(MATERIALS.len(), 7);
+        assert_eq!(MATERIALS[0].id, "titanium");
+        assert_eq!(MATERIALS[0].tech, 1);
+        assert_eq!(MATERIALS[6].id, "neutronium");
+        assert_eq!(MATERIALS[6].structure_mult, 4.0);
+        let root = fixture_root();
+        let mut design = new_design("mat");
+        design.material = "titanium".into();
+        let titanium = preview_design(root.path(), &design).unwrap();
+        design.material = "neutronium".into();
+        let neutronium = preview_design(root.path(), &design).unwrap();
+        assert_eq!(neutronium.structure, titanium.structure * 4);
+        assert!(neutronium.cost > titanium.cost);
+        assert!(material("exotic").is_err());
     }
 
     #[test]
@@ -500,10 +927,11 @@ mount = "forward"
 id = "compact"
 name = "Compact"
 size = 2
-material = "standard"
-reactor = 14
-armor = 2
-shield_banks = 4
+material = "titanium"
+engine = "fission"
+engine_size = "m"
+armored = true
+shields = [6, 4, 2, 2, 2, 4]
 [[weapons]]
 component = "beam_compact"
 mount = "forward"
@@ -600,10 +1028,11 @@ controller = "player"
 id = "mixed"
 name = "Mixed"
 size = 2
-material = "standard"
-reactor = 14
-armor = 1
-shield_banks = 1
+material = "titanium"
+engine = "fission"
+engine_size = "m"
+armored = true
+shields = [1, 1, 1, 1, 1, 1]
 [[weapons]]
 component = "beam"
 mount = "forward"
@@ -633,16 +1062,16 @@ mount = "forward_port"
         let over = write_design(
             root.path(),
             "over.toml",
-            "id = \"over\"\nname = \"Over\"\nsize = 1\nmaterial = \"standard\"\nreactor = 46\n",
+            "id = \"over\"\nname = \"Over\"\nsize = 1\nmaterial = \"titanium\"\nengine = \"fission\"\nengine_size = \"h\"\n",
         );
         assert!(matches!(
             validate(root.path(), &over),
-            Err(Error::OverCapacity { over: 1, .. })
+            Err(Error::OverCapacity { .. })
         ));
         let still = write_design(
             root.path(),
             "still.toml",
-            "id = \"still\"\nname = \"Still\"\nsize = 2\nmaterial = \"standard\"\nreactor = 0\n",
+            "id = \"still\"\nname = \"Still\"\nsize = 2\nmaterial = \"titanium\"\nengine = \"\"\nengine_size = \"\"\n",
         );
         assert!(matches!(
             validate(root.path(), &still),
@@ -662,7 +1091,7 @@ mount = "forward_port"
             ("mount", "component = \"beam\"\nmount = \"side\"", "mount"),
         ] {
             let body = format!(
-                "id = \"{name}\"\nname = \"{name}\"\nsize = 2\nmaterial = \"standard\"\nreactor = 14\n[[weapons]]\n{field}\n"
+                "id = \"{name}\"\nname = \"{name}\"\nsize = 2\nmaterial = \"titanium\"\nengine = \"fission\"\nengine_size = \"m\"\n[[weapons]]\n{field}\n"
             );
             let path = write_design(root.path(), &format!("{name}.toml"), &body);
             let error = validate(root.path(), &path).expect_err("invalid input rejected");
@@ -671,7 +1100,7 @@ mount = "forward_port"
         let material = write_design(
             root.path(),
             "material.toml",
-            "id = \"material\"\nname = \"Material\"\nsize = 2\nmaterial = \"exotic\"\nreactor = 14\n",
+            "id = \"material\"\nname = \"Material\"\nsize = 2\nmaterial = \"exotic\"\nengine = \"fission\"\nengine_size = \"m\"\n",
         );
         assert!(matches!(
             validate(root.path(), &material),
@@ -681,7 +1110,7 @@ mount = "forward_port"
         let unknown = write_design(
             root.path(),
             "unknown.toml",
-            "id = \"unknown\"\nname = \"Unknown\"\nsize = 2\nmaterial = \"standard\"\nreactor = 14\nextra = true\n",
+            "id = \"unknown\"\nname = \"Unknown\"\nsize = 2\nmaterial = \"titanium\"\nengine = \"fission\"\nengine_size = \"m\"\nextra = true\n",
         );
         assert!(matches!(
             validate(root.path(), &unknown),
@@ -691,7 +1120,7 @@ mount = "forward_port"
         let components = fs::read_to_string(root.path().join("data/components.toml")).unwrap();
         fs::write(
             root.path().join("data/components.toml"),
-            components.replacen("[reactor]", "[reactor]\nextra = true", 1),
+            components.replacen("[engines.fission_m]", "[engines.fission_m]\nextra = true", 1),
         )
         .unwrap();
         let valid = write_design(
@@ -739,14 +1168,11 @@ mount = "forward_port"
         fs::write(
             root.path().join("data/components.toml"),
             r#"
-[reactor]
-space = 0
-cost = 1
+[engines.fission_m]
 power = 1
-[armor]
 space = 0
-cost = 0
-structure = 0
+cost = 5000000000
+thrust_step = 0
 [shield_bank]
 space = 0
 cost = 0
@@ -754,14 +1180,11 @@ max_shield_per_facing = 0
 [weapons]
 "#,
         )
-        .expect("zero-space component fixture");
+        .expect("huge-cost engine fixture");
         let path = write_design(
             root.path(),
             "huge.toml",
-            &format!(
-                "id = \"huge\"\nname = \"Huge\"\nsize = 2\nmaterial = \"standard\"\nreactor = {}\n",
-                i64::MAX
-            ),
+            "id = \"huge\"\nname = \"Huge\"\nsize = 2\nmaterial = \"titanium\"\nengine = \"fission\"\nengine_size = \"m\"\n",
         );
         assert!(matches!(
             validate(root.path(), &path),
@@ -771,30 +1194,98 @@ max_shield_per_facing = 0
         fs::write(
             root.path().join("data/components.toml"),
             r#"
-[reactor]
-space = 9223372036854775807
-cost = 1
+[engines.fission_m]
 power = 1
-[armor]
 space = 0
-cost = 0
-structure = 0
+cost = 1
+thrust_step = 0
 [shield_bank]
-space = 0
+space = 9223372036854775807
 cost = 0
 max_shield_per_facing = 0
 [weapons]
 "#,
         )
-        .expect("overflow component fixture");
+        .expect("overflow engine fixture");
         let overflow = write_design(
             root.path(),
             "overflow.toml",
-            "id = \"overflow\"\nname = \"Overflow\"\nsize = 2\nmaterial = \"standard\"\nreactor = 3\n",
+            "id = \"overflow\"\nname = \"Overflow\"\nsize = 2\nmaterial = \"titanium\"\nengine = \"fission\"\nengine_size = \"m\"\nshields = [3, 0, 0, 0, 0, 0]\n",
         );
         assert!(matches!(
             validate(root.path(), &overflow),
             Err(Error::Overflow)
+        ));
+    }
+
+    #[test]
+    fn discrete_engine_costs_space_and_can_step_thrust() {
+        let root = fixture_root();
+        let mut small = new_design("eng");
+        small.engine = "fission".into();
+        small.engine_size = "s".into();
+        let mut large = small.clone();
+        large.engine_size = "m".into();
+        let ps = preview_design(root.path(), &small).unwrap();
+        let pl = preview_design(root.path(), &large).unwrap();
+        assert!(pl.power > ps.power);
+        assert!(pl.space_used > ps.space_used);
+        assert!(pl.cost > ps.cost);
+        let fission = write_design(root.path(), "worked.toml", WORKED);
+        let fusion_body = WORKED
+            .replace("id = \"worked\"", "id = \"hot\"")
+            .replace("engine = \"fission\"", "engine = \"fusion\"");
+        let fusion = write_design(root.path(), "hot.toml", &fusion_body);
+        let cool = compile(root.path(), &fission).unwrap();
+        let hot = compile(root.path(), &fusion).unwrap();
+        let cool_ship: ShipDef = toml::from_str(&fs::read_to_string(cool).unwrap()).unwrap();
+        let hot_ship: ShipDef = toml::from_str(&fs::read_to_string(hot).unwrap()).unwrap();
+        assert_eq!((cool_ship.thrust_per_power, cool_ship.power_per_thrust), (2, 1));
+        assert_eq!((hot_ship.thrust_per_power, hot_ship.power_per_thrust), (3, 1));
+        assert!(hot_ship.power > cool_ship.power);
+    }
+
+    #[test]
+    fn exterior_armor_is_a_hull_wrap() {
+        let root = fixture_root();
+        let mut bare = new_design("plate");
+        bare.armored = false;
+        let mut plated = bare.clone();
+        plated.armored = true;
+        let off = preview_design(root.path(), &bare).unwrap();
+        let on = preview_design(root.path(), &plated).unwrap();
+        assert_eq!(on.space_used, off.space_used);
+        assert_eq!(on.structure, half_up(off.structure as f64 * ARMOR_HP_MULT) as u32);
+        assert!(on.cost > off.cost);
+        plated.size = 7;
+        let titan = preview_design(root.path(), &plated).unwrap();
+        plated.armored = false;
+        let titan_bare = preview_design(root.path(), &plated).unwrap();
+        assert!(titan.cost - titan_bare.cost > on.cost - off.cost);
+    }
+
+    #[test]
+    fn class_ids_are_short_tokens_and_names_do_not_collide() {
+        let a = allocate_id(std::iter::empty());
+        let b = allocate_id(std::iter::once(a.as_str()));
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 8);
+        assert!(a.bytes().all(|c| c.is_ascii_hexdigit()));
+        let first = unique_class_name("Destroyer", std::iter::empty());
+        assert_eq!(first, "Basic Destroyer");
+        let second = unique_class_name("Destroyer", std::iter::once("Basic Destroyer"));
+        assert_eq!(second, "Basic Destroyer 2");
+        assert!(names_collide("Basic Destroyer", "basic  destroyer"));
+        assert!(is_generated_class_name("Basic Light Cruiser 3", &["Light Cruiser"]));
+        let root = fixture_root();
+        let mut one = new_design("n1");
+        one.name = "Repeater".into();
+        save_design(root.path(), &one).unwrap();
+        let mut two = new_design("n2");
+        two.name = "repeater".into();
+        assert!(matches!(
+            save_design(root.path(), &two),
+            Err(Error::DuplicateName(_))
         ));
     }
 }

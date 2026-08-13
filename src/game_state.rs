@@ -341,12 +341,13 @@ impl GameState {
             merged_charges.insert(weapon_id.clone(), *charge);
         }
         for (facing, power) in shields.iter().copied().enumerate() {
-            if power > ship.max_shield_per_facing {
+            let max = ship.shield_cap(facing);
+            if power > max {
                 return Err(crate::movement::OrderError::ShieldPowerTooHigh {
                     ship: ship_id,
                     facing: facing as u8,
                     power,
-                    max: ship.max_shield_per_facing,
+                    max,
                 });
             }
         }

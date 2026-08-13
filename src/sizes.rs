@@ -15,6 +15,9 @@ pub struct HullSize {
     pub space: u32,
     pub frame_cost: u32,
     pub base_structure: u32,
+    /// MOO natural defense (yard label). Combat to-hit still uses size / 2.
+    #[serde(default)]
+    pub defense: i8,
     pub max_maneuver_actions: u8,
     pub thrust_per_power: u32,
     pub power_per_thrust: u32,
@@ -56,5 +59,34 @@ impl SizeTable {
             .iter()
             .find(|size| size.id == id)
             .ok_or(SizeError::Unknown(id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn moo_decades_span_seven_hulls() {
+        let table = load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        assert_eq!(table.sizes.len(), 7);
+        let small = table.get(1).unwrap();
+        let medium = table.get(3).unwrap();
+        let large = table.get(5).unwrap();
+        let huge = table.get(7).unwrap();
+        assert_eq!(small.space, 20);
+        assert_eq!(medium.space, 200);
+        assert_eq!(large.space, 2000);
+        assert_eq!(huge.space, 20000);
+        assert_eq!(small.base_structure, 2);
+        assert_eq!(huge.base_structure, 2000);
+        assert_eq!(small.defense, 2);
+        assert_eq!(medium.defense, 1);
+        assert_eq!(large.defense, 0);
+        assert_eq!(huge.defense, -1);
+        let mid = table.get(2).unwrap();
+        assert_eq!(mid.base_structure, 6);
+        assert!(mid.space > small.space && mid.space < medium.space);
     }
 }

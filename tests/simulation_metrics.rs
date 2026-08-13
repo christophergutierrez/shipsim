@@ -111,6 +111,7 @@ fn weapon_power_metric_counts_increases_only() {
         shields_powered: [0; 6],
         shields_remaining: [0; 6],
         max_shield_per_facing: 4,
+        max_shields: None,
         structure: 10,
         engine: 2,
         power_sys: 2,

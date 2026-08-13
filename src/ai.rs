@@ -93,7 +93,7 @@ pub fn v2_allocation(
         if remaining == 0 {
             break;
         }
-        let add = remaining.min(ship.max_shield_per_facing);
+        let add = remaining.min(ship.shield_cap(facing));
         shields[facing] = add;
         remaining -= add;
     }
@@ -271,6 +271,7 @@ mod tests {
             shields_powered: [0; 6],
             shields_remaining: [0; 6],
             max_shield_per_facing: 6,
+            max_shields: [6; 6],
             movement_allocated: 0,
             weapon_charges: BTreeMap::new(),
             weapon_ammo: BTreeMap::new(),

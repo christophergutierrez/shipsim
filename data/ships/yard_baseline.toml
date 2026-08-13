@@ -4,15 +4,23 @@ name = "Yard Baseline"
 size = 2
 max_maneuver_actions = 8
 power = 14
-max_shield_per_facing = 4
-structure = 12
+max_shield_per_facing = 6
+max_shields = [
+    6,
+    4,
+    2,
+    2,
+    2,
+    4,
+]
+structure = 9
 power_sys = 3
 engine_boxes = 3
 weapon_boxes = 1
 attack_accuracy_bonus = 0
 thrust_per_power = 2
 power_per_thrust = 1
-cost = 100
+cost = 86
 
 [[weapons]]
 id = "beam_1"

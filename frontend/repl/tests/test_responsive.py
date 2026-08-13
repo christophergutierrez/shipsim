@@ -62,6 +62,33 @@ class ResponsiveLayoutTests(unittest.TestCase):
         self.assertTrue(all(len(line) <= 32 for line in contacts.splitlines()))
         self.assertTrue(all(len(line) <= 32 for line in compact_map.splitlines()))
 
+    def test_small_pane_squeezes_required_banner_instead_of_raising(self):
+        # 20x84 is a common split-pane size. The compact header is two long
+        # lines; it used to raise ValueError and kill the REPL on first paint.
+        header = (
+            "──────────────────────────────── shipsim ───────────────────────────────\n"
+            "turn 1  phase=allocate  status=InProgress  focus=#1  "
+            "actions=power:14  (@ = your focused ship)"
+        )
+        compact = [
+            FrameBlock("banner", header, required=True),
+            FrameBlock("player", "player line", required=True),
+            FrameBlock("draft", "draft line"),
+        ]
+        decision = choose_layout(
+            20,
+            84,
+            "allocate",
+            [FrameBlock("snapshot", "\n".join(["full"] * 40))],
+            compact,
+        )
+        self.assertTrue(decision.compact)
+        self.assertTrue(any(block.role == "banner" for block in decision.blocks))
+        self.assertLessEqual(decision.height, 19)
+        self.assertTrue(
+            all(len(line) <= 84 for line in decision.text.splitlines())
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,16 +3,24 @@ id = "yard_capital"
 name = "Yard Capital"
 size = 7
 max_maneuver_actions = 3
-power = 146
-max_shield_per_facing = 29
-structure = 113
+power = 80
+max_shield_per_facing = 16
+max_shields = [
+    16,
+    10,
+    6,
+    6,
+    6,
+    10,
+]
+structure = 3000
 power_sys = 5
 engine_boxes = 5
 weapon_boxes = 1
 attack_accuracy_bonus = 0
 thrust_per_power = 1
 power_per_thrust = 4
-cost = 793
+cost = 3370
 
 [[weapons]]
 id = "beam_1"

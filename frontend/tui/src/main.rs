@@ -11,6 +11,7 @@ mod protocol;
 mod scripted_pump;
 mod tutorial;
 mod ui;
+mod yard;
 
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -28,9 +29,13 @@ use harness::{EngineLine, Harness};
 use input::{handle_key, KeyResult};
 
 fn main() -> std::io::Result<()> {
-    // Parse args: --tutorial flag, then optional scenario path.
+    // Parse args: --tutorial / --yard, then optional scenario path.
     let args: Vec<String> = std::env::args().skip(1).collect();
     let tutorial_mode = args.iter().any(|a| a == "--tutorial");
+    let yard_mode = args.iter().any(|a| a == "--yard" || a == "yard");
+    if yard_mode {
+        return run_yard();
+    }
     let scenario = args
         .iter()
         .find(|a| !a.starts_with("--"))
@@ -108,6 +113,50 @@ fn main() -> std::io::Result<()> {
         }
     }
 
+    result
+}
+
+fn run_yard() -> std::io::Result<()> {
+    let root = crate::yard::find_repo_root();
+    if !crate::yard::repo_has_yard(&root) {
+        eprintln!("error: no data/designs under {}", root.display());
+        eprintln!("       run from the repo root, or set SHIPSIM_ROOT");
+        std::process::exit(1);
+    }
+    let mut app = App::new();
+    match crate::yard::YardState::load(root) {
+        Ok(yard) => app.yard = Some(yard),
+        Err(err) => {
+            eprintln!("error: cannot open shipyard: {err}");
+            std::process::exit(1);
+        }
+    }
+
+    enable_raw_mode()?;
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let result = (|| -> std::io::Result<()> {
+        loop {
+            terminal.draw(|f| ui::render(f, &mut app))?;
+            if !event::poll(Duration::from_millis(100))? {
+                continue;
+            }
+            let Event::Key(key) = event::read()? else {
+                continue;
+            };
+            match handle_key(&mut app, key) {
+                KeyResult::Quit => return Ok(()),
+                KeyResult::Continue | KeyResult::SendOrder(_) => {}
+            }
+        }
+    })();
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
     result
 }
 

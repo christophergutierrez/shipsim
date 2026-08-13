@@ -191,7 +191,11 @@ impl BaselinePolicy {
             if remaining == 0 {
                 break;
             }
-            let amount = remaining.min(ship.max_shield_per_facing);
+            let cap = ship
+                .max_shields
+                .and_then(|faces| faces.get(facing).copied())
+                .unwrap_or(ship.max_shield_per_facing);
+            let amount = remaining.min(cap);
             shields[facing] = amount;
             remaining -= amount;
         }

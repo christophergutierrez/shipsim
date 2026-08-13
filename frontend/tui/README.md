@@ -24,6 +24,7 @@ frontend/tui/
     protocol.rs    # NDJSON v4 snapshot + order types
     input.rs       # keyboard → app state + pending orders
     ui.rs          # ratatui rendering (Small-tier layout)
+    yard.rs        # in-process shipyard (browse/edit designs; no combat)
     tests.rs       # TestBackend tests
   local/           # gitignored session junk only
 ```
@@ -49,7 +50,25 @@ cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial
 # → scenarios/tutorial_rear_attack.toml (seed 4), step-gated keys
 ```
 
-Pick a different scenario (first positional arg):
+**Shipyard** — put ships together. Lists saved designs (cost on each hull);
+Enter edits, `n` or the last row creates a new one. No map, no engine spawn:
+
+```bash
+cargo run --manifest-path frontend/tui/Cargo.toml -- --yard
+```
+
+| Key | Action |
+|---|---|
+| `↑`/`↓` or `k`/`j` | Select a saved ship, or **+ new ship** |
+| `Enter` / `Space` | Edit the selected hull, or start a new one |
+| `n` | New ship |
+| `q` / `Esc` | Quit |
+
+On the edit screen the first field is the **class name** (type to edit;
+`↑`/`↓` leave it). `←`/`→` change other fields. `s` saves (not while the
+name is focused), `c` compiles to `data/ships/`, `Esc` returns to the list.
+
+Pick a different **combat** scenario (first positional arg — this is a fight):
 
 ```bash
 cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/fleet.toml
@@ -176,8 +195,8 @@ assumptions from the inertial era).
   snapshot without invalidating on every message.
 - Use crossterm (or current ratatui default backend) for input and terminal lifecycle.
 - Prefer a **separate Cargo package** under this directory so `shipsim_core` does
-  not depend on TUI crates. Linking `shipsim_core` as a library later is optional
-  and must not become a back-door for UI-side rules.
+  not depend on TUI crates. The TUI may link `shipsim_core` one-way for the
+  shipyard authoring UI (`--yard`); combat still goes through the NDJSON harness.
 
 ## Verification
 

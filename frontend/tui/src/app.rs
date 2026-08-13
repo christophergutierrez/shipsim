@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 use crate::protocol::{self, Order, Snapshot, VolleyShot};
+use crate::yard::YardState;
 
 /// Which input panel is active.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,6 +326,8 @@ pub struct App {
     pub digit_entry: Option<(usize, u32)>,
     /// Set by rendering when the terminal is below the Small-tier floor.
     pub terminal_too_small: bool,
+    /// Present when the TUI is a shipyard, not a fight.
+    pub yard: Option<YardState>,
 }
 
 impl App {
@@ -360,6 +363,7 @@ impl App {
             confirmation: None,
             digit_entry: None,
             terminal_too_small: false,
+            yard: None,
         }
     }
 

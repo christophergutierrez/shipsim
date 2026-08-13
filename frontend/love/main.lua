@@ -1694,28 +1694,40 @@ handle_ui_hit = function(hit)
     )
     return true
   end
-  if id == "yard_reactor_up" then
-    app.yard.design.reactor = shipyard.nudge(app.yard.design.reactor, 1, 0, 400)
+  if id == "yard_eng_up" or id == "yard_eng_dn" then
+    app.yard.design.engine = shipyard.cycle(
+      shipyard.ENGINE_KINDS,
+      app.yard.design.engine or "fission",
+      id == "yard_eng_up" and 1 or -1
+    )
     return true
   end
-  if id == "yard_reactor_dn" then
-    app.yard.design.reactor = shipyard.nudge(app.yard.design.reactor, -1, 0, 400)
+  if id == "yard_engsz_up" or id == "yard_engsz_dn" then
+    app.yard.design.engine_size = shipyard.cycle(
+      shipyard.ENGINE_SIZES,
+      app.yard.design.engine_size or "m",
+      id == "yard_engsz_up" and 1 or -1
+    )
     return true
   end
-  if id == "yard_armor_up" then
-    app.yard.design.armor = shipyard.nudge(app.yard.design.armor, 1, 0, 200)
-    return true
-  end
-  if id == "yard_armor_dn" then
-    app.yard.design.armor = shipyard.nudge(app.yard.design.armor, -1, 0, 200)
+  if id == "yard_armor_up" or id == "yard_armor_dn" then
+    app.yard.design.armored = not app.yard.design.armored
     return true
   end
   if id == "yard_shield_up" then
-    app.yard.design.shield_banks = shipyard.nudge(app.yard.design.shield_banks, 1, 0, 80)
+    local faces = app.yard.design.shields or { 0, 0, 0, 0, 0, 0 }
+    for i = 1, 6 do
+      faces[i] = shipyard.nudge(faces[i] or 0, 1, 0, 40)
+    end
+    app.yard.design.shields = faces
     return true
   end
   if id == "yard_shield_dn" then
-    app.yard.design.shield_banks = shipyard.nudge(app.yard.design.shield_banks, -1, 0, 80)
+    local faces = app.yard.design.shields or { 0, 0, 0, 0, 0, 0 }
+    for i = 1, 6 do
+      faces[i] = shipyard.nudge(faces[i] or 0, -1, 0, 40)
+    end
+    app.yard.design.shields = faces
     return true
   end
   if id == "yard_wpn_add" then

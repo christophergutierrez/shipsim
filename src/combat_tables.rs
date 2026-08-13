@@ -113,6 +113,23 @@ pub fn size_adjusted_to_hit_threshold(
     Some(scaled.clamp(1, max) as u8)
 }
 
+/// MOO natural defense by hull size (Small +2 … Huge −1).
+/// Combat applies this relative to `baseline_target_size` so size 2 is unchanged.
+pub fn natural_defense(size: u32) -> i8 {
+    match size {
+        1 => 2,
+        2 | 3 => 1,
+        4 | 5 => 0,
+        6 | 7 => -1,
+        _ => 0,
+    }
+}
+
+/// Signed to-hit shift: positive = harder to hit (like evasion).
+pub fn natural_defense_delta(target_size: u32, baseline_size: u32) -> i32 {
+    i32::from(natural_defense(target_size)) - i32::from(natural_defense(baseline_size))
+}
+
 /// Resolve the final d20 threshold, including catalog fire control and defender evasion.
 ///
 /// Fire-control bonuses are intentionally limited to the size-2 baseline. This
@@ -121,7 +138,9 @@ pub fn size_adjusted_to_hit_threshold(
 ///
 /// `defender_evasion` is the defender's committed evasive motion points for the
 /// turn. Each point subtracts `accuracy.evasion_per_point` from the threshold
-/// after fire control, then the result is clamped to `[1, final_cap]`.
+/// after fire control. MOO natural defense then shifts the same way, relative
+/// to the size-2 baseline (fighters harder, capitals easier). Clamped to
+/// `[1, final_cap]`.
 pub fn final_to_hit_threshold(
     rules: &CombatRules,
     kind: WeaponKind,
@@ -165,10 +184,9 @@ pub fn final_to_hit_threshold_with_weapon_bonus(
     let with_bonus = u32::from(threshold)
         .saturating_add(u32::from(bonus))
         .saturating_add(u32::from(weapon_accuracy_bonus));
-    let reduced = with_bonus
-        .saturating_sub(evasion_delta)
-        .max(1)
-        .min(u32::from(final_cap));
+    let agility = natural_defense_delta(target_size, rules.accuracy().baseline_target_size());
+    let reduced = (i64::from(with_bonus) - i64::from(evasion_delta) - i64::from(agility))
+        .clamp(1, i64::from(final_cap));
     Some(reduced as u8)
 }
 
@@ -325,7 +343,7 @@ mod tests {
         );
         assert_eq!(
             final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 1, 10, 0),
-            Some(2)
+            Some(1)
         );
         assert_eq!(
             final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 3, 10, 0),
@@ -382,6 +400,30 @@ mod tests {
             final_to_hit_threshold_with_weapon_bonus(&rules, WeaponKind::Beam, 10, 3, 0, 2, 0),
             Some(8)
         );
+    }
+
+    #[test]
+    fn natural_defense_shifts_off_the_size_two_baseline() {
+        let rules = combat_rules();
+        let size_two = final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 2, 0, 0).unwrap();
+        let fighter = final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 1, 0, 0).unwrap();
+        let titan = final_to_hit_threshold(&rules, WeaponKind::Beam, 10, 7, 0, 0).unwrap();
+        let fighter_silhouette =
+            size_adjusted_to_hit_threshold(&rules, WeaponKind::Beam, 10, 1).unwrap();
+        let titan_silhouette =
+            size_adjusted_to_hit_threshold(&rules, WeaponKind::Beam, 10, 7).unwrap();
+        assert_eq!(fighter, fighter_silhouette.saturating_sub(1));
+        assert_eq!(titan, titan_silhouette.saturating_add(2).min(19));
+        assert!(fighter < size_two);
+        assert!(titan > size_two);
+        let table = crate::sizes::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        for id in 1..=7 {
+            assert_eq!(
+                natural_defense(id),
+                table.get(id).unwrap().defense,
+                "combat defense must match data/sizes.toml size {id}"
+            );
+        }
     }
 
     #[test]

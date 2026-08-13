@@ -152,7 +152,7 @@ class EngagementPanelTests(unittest.TestCase):
         out = ANSI.sub("", format_engagement(me, [enemy]))
 
         self.assertIn("size=1", out)
-        self.assertIn("to-hit≤8 (40%)", out)
+        self.assertIn("to-hit≤7 (35%)", out)
 
 
 class UnspentPowerTests(unittest.TestCase):

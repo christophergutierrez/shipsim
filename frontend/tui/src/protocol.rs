@@ -125,6 +125,8 @@ pub struct Ship {
     pub shields_remaining: Vec<u32>,
     #[serde(default)]
     pub max_shield_per_facing: u32,
+    #[serde(default)]
+    pub max_shields: Vec<u32>,
     pub structure: u32,
     #[serde(default)]
     pub engine: u32,
@@ -453,6 +455,16 @@ pub const SHIELD_LABELS: [&str; 6] = ["F", "FR", "RR", "R", "RL", "FL"];
 
 pub fn shield_label(face: u32) -> &'static str {
     SHIELD_LABELS.get(face as usize).copied().unwrap_or("?")
+}
+
+impl Ship {
+    pub fn shield_cap(&self, facing: usize) -> u32 {
+        self.max_shields
+            .get(facing)
+            .copied()
+            .filter(|&cap| cap > 0 || self.max_shields.len() == 6)
+            .unwrap_or(self.max_shield_per_facing)
+    }
 }
 
 impl Snapshot {

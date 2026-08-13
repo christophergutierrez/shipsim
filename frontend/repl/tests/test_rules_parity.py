@@ -51,6 +51,14 @@ class RulesParityTests(unittest.TestCase):
         self.assertEqual(accuracy["fire_control_target_size"], FIRE_CONTROL_TARGET_SIZE)
         self.assertEqual(accuracy["evasion_per_point"], EVASION_PER_POINT)
 
+    def test_natural_defense_is_relative_to_size_two(self):
+        size_two = hit_preview("beam", 3, 2)
+        fighter = hit_preview("beam", 3, 1)
+        heavy = hit_preview("beam", 3, 4)
+        self.assertEqual(size_two, (15, 75))
+        self.assertEqual(fighter, (7, 35))
+        self.assertEqual(heavy, (16, 80))
+
     def test_evasion_lowers_hit_preview(self):
         base = hit_preview("beam", 3, 2, 0, 0)
         reduced = hit_preview("beam", 3, 2, 0, 3)

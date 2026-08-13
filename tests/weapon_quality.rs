@@ -221,10 +221,11 @@ fn compiled_compact_sku_has_no_combat_modifiers() {
 id = "compact"
 name = "Compact"
 size = 2
-material = "standard"
-reactor = 14
-armor = 2
-shield_banks = 4
+material = "titanium"
+engine = "fission"
+engine_size = "m"
+armored = true
+shields = [6, 4, 2, 2, 2, 4]
 [[weapons]]
 component = "beam_compact"
 mount = "forward"

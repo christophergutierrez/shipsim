@@ -13,7 +13,18 @@ shipyard.MOUNTS = {
   "forward_port",
 }
 
-shipyard.MATERIALS = { "standard", "reinforced" }
+shipyard.ENGINE_KINDS = { "fission", "fusion", "antimatter" }
+shipyard.ENGINE_SIZES = { "s", "m", "l", "h" }
+
+shipyard.MATERIALS = {
+  "titanium",
+  "duralloy",
+  "zortrium",
+  "andrium",
+  "tritanium",
+  "adamantium",
+  "neutronium",
+}
 
 shipyard.WEAPON_SKUS = {
   "beam",
@@ -48,10 +59,11 @@ function shipyard.new_design()
     id = "yard_custom",
     name = "Yard Custom",
     size = 2,
-    material = "standard",
-    reactor = 14,
-    armor = 2,
-    shield_banks = 4,
+    material = "titanium",
+    engine = "fission",
+    engine_size = "m",
+    armored = true,
+    shields = { 6, 4, 2, 2, 2, 4 },
     weapons = { { component = "beam", mount = "forward" } },
   }
 end
@@ -61,10 +73,14 @@ function shipyard.to_toml(design)
     string.format("id = %q", design.id),
     string.format("name = %q", design.name),
     string.format("size = %d", tonumber(design.size) or 2),
-    string.format("material = %q", design.material or "standard"),
-    string.format("reactor = %d", tonumber(design.reactor) or 0),
-    string.format("armor = %d", tonumber(design.armor) or 0),
-    string.format("shield_banks = %d", tonumber(design.shield_banks) or 0),
+    string.format("material = %q", design.material or "titanium"),
+    string.format("engine = %q", design.engine or "fission"),
+    string.format("engine_size = %q", design.engine_size or "m"),
+    string.format("armored = %s", design.armored and "true" or "false"),
+    string.format(
+      "shields = [%s]",
+      table.concat(design.shields or { 6, 4, 2, 2, 2, 4 }, ", ")
+    ),
   }
   for _, weapon in ipairs(design.weapons or {}) do
     lines[#lines + 1] = ""
@@ -92,12 +108,22 @@ function shipyard.parse_design(text)
       design.size = tonumber(line:match("=%s*(%d+)")) or design.size
     elseif line:match("^material%s*=") then
       design.material = line:match("=%s*\"([^\"]+)\"") or design.material
-    elseif line:match("^reactor%s*=") then
-      design.reactor = tonumber(line:match("=%s*(%d+)")) or 0
-    elseif line:match("^armor%s*=") then
-      design.armor = tonumber(line:match("=%s*(%d+)")) or 0
-    elseif line:match("^shield_banks%s*=") then
-      design.shield_banks = tonumber(line:match("=%s*(%d+)")) or 0
+    elseif line:match("^engine_size%s*=") then
+      design.engine_size = line:match("=%s*\"([^\"]+)\"") or design.engine_size
+    elseif line:match("^engine%s*=") then
+      design.engine = line:match("=%s*\"([^\"]+)\"") or design.engine
+    elseif line:match("^armored%s*=") then
+      design.armored = line:match("=%s*(%w+)") == "true"
+    elseif line:match("^shields%s*=") then
+      local inner = line:match("%[([^%]]*)%]") or ""
+      local faces = {}
+      for n in inner:gmatch("(%d+)") do
+        faces[#faces + 1] = tonumber(n) or 0
+      end
+      while #faces < 6 do
+        faces[#faces + 1] = 0
+      end
+      design.shields = faces
     elseif current and line:match("^component%s*=") then
       current.component = line:match("=%s*\"([^\"]+)\"") or current.component
     elseif current and line:match("^mount%s*=") then
