@@ -10,9 +10,7 @@
 # data (Scout, Frigate, …) are not size tiers — use class number when
 # mapping scraped ships.
 #
-# Construction fields (hull space, cost, weapon capacity) will attach
-# to these tiers later; this file is the canonical name/id ladder only
-# until the yard rules land. The engine does not load this file yet.
+# Construction fields used by the component shipyard.
 
 [[sizes]]
 id = 1
@@ -21,6 +19,14 @@ name = "Fighter"
 fasa_class_min = 1
 fasa_class_max = 3
 fasa_classes = "I–III"
+space = 45
+frame_cost = 14
+base_structure = 2
+max_maneuver_actions = 8
+thrust_per_power = 3
+power_per_thrust = 1
+power_sys = 2
+engine_boxes = 2
 
 [[sizes]]
 id = 2
@@ -29,6 +35,14 @@ name = "Destroyer"
 fasa_class_min = 4
 fasa_class_max = 6
 fasa_classes = "IV–VI"
+space = 60
+frame_cost = 52
+base_structure = 6
+max_maneuver_actions = 8
+thrust_per_power = 2
+power_per_thrust = 1
+power_sys = 3
+engine_boxes = 3
 
 [[sizes]]
 id = 3
@@ -37,6 +51,14 @@ name = "Light Cruiser"
 fasa_class_min = 7
 fasa_class_max = 9
 fasa_classes = "VII–IX"
+space = 80
+frame_cost = 110
+base_structure = 10
+max_maneuver_actions = 7
+thrust_per_power = 1
+power_per_thrust = 1
+power_sys = 3
+engine_boxes = 3
 
 [[sizes]]
 id = 4
@@ -45,6 +67,14 @@ name = "Heavy Cruiser"
 fasa_class_min = 10
 fasa_class_max = 12
 fasa_classes = "X–XII"
+space = 105
+frame_cost = 187
+base_structure = 17
+max_maneuver_actions = 6
+thrust_per_power = 1
+power_per_thrust = 1
+power_sys = 3
+engine_boxes = 3
 
 [[sizes]]
 id = 5
@@ -53,6 +83,14 @@ name = "Battleship"
 fasa_class_min = 13
 fasa_class_max = 15
 fasa_classes = "XIII–XV"
+space = 175
+frame_cost = 283
+base_structure = 30
+max_maneuver_actions = 5
+thrust_per_power = 1
+power_per_thrust = 2
+power_sys = 3
+engine_boxes = 3
 
 [[sizes]]
 id = 6
@@ -61,6 +99,14 @@ name = "Dreadnought"
 fasa_class_min = 16
 fasa_class_max = 18
 fasa_classes = "XVI–XVIII"
+space = 220
+frame_cost = 397
+base_structure = 69
+max_maneuver_actions = 4
+thrust_per_power = 1
+power_per_thrust = 3
+power_sys = 3
+engine_boxes = 3
 
 [[sizes]]
 id = 7
@@ -69,3 +115,11 @@ name = "Titan"
 fasa_class_min = 19
 fasa_class_max = 20
 fasa_classes = "XIX–XX"
+space = 320
+frame_cost = 528
+base_structure = 97
+max_maneuver_actions = 3
+thrust_per_power = 1
+power_per_thrust = 4
+power_sys = 5
+engine_boxes = 5

@@ -1,10 +1,10 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 fn default_seed() -> u64 {
     1
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShipDef {
     /// Catalog key from the ship TOML file (kept for data identity; runtime id is placement).
@@ -108,7 +108,7 @@ pub struct TerminalDef {
     pub target: Option<u32>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WeaponDef {
     pub id: String,

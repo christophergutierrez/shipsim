@@ -1,0 +1,11 @@
+id = "yard_destroyer"
+name = "Yard Destroyer"
+size = 2
+material = "standard"
+reactor = 14
+armor = 2
+shield_banks = 4
+
+[[weapons]]
+component = "beam"
+mount = "forward"

@@ -1,0 +1,42 @@
+[reactor]
+space = 1
+cost = 1
+power = 1
+
+[armor]
+space = 1
+cost = 1
+structure = 1
+
+[shield_bank]
+space = 4
+cost = 3
+max_shield_per_facing = 1
+
+[weapons.beam]
+kind = "beam"
+space = 10
+cost = 16
+max_charge = 4
+max_range = 10
+
+[weapons.beam_compact]
+kind = "beam"
+space = 5
+cost = 26
+max_charge = 4
+max_range = 10
+
+[weapons.torpedo]
+kind = "torp"
+space = 8
+cost = 12
+max_charge = 1
+max_range = 12
+
+[weapons.torpedo_compact]
+kind = "torp"
+space = 4
+cost = 22
+max_charge = 1
+max_range = 12
