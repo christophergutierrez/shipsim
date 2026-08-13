@@ -97,6 +97,19 @@ class EngagementPanelTests(unittest.TestCase):
         out = ANSI.sub("", format_engagement(me, [enemy]))
         self.assertIn("FIRE READY", out)
 
+    def test_engagement_preview_includes_weapon_accuracy_bonus(self):
+        me = _ship(
+            1,
+            0,
+            0,
+            0,
+            "player",
+            [_weapon("forward", max_range=5, id="precise", kind="beam", accuracy_bonus=2)],
+        )
+        enemy = _ship(2, 3, 0, 3, "ai")
+        out = ANSI.sub("", format_engagement(me, [enemy]))
+        self.assertIn("to-hit≤17 (85%)", out)
+
     def test_overlapping_contact_is_too_close_not_out_of_arc(self):
         me = _ship(1, 0, 0, 0, "player", [_weapon("forward", id="L1")])
         enemy = _ship(2, 0, 0, 3, "ai")
