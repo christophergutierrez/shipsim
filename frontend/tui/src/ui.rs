@@ -2430,7 +2430,7 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
                 .map(|h| h.name.as_str())
                 .unwrap_or("?");
             ListItem::new(format!(
-                "{marker} {standard} {:<24} {:<12}  wpn {:>2}  sp {:>3}/{:<3}  cost {cost}",
+                "{marker} {standard} {:<20} {:<10} w{:>2} sp{:>3}/{:<3} cost {cost}",
                 item.design.name, hull
                 , item.design.weapons.len(), item.preview.as_ref().map(|p| p.space_used).unwrap_or(0), item.preview.as_ref().map(|p| p.space_cap).unwrap_or(0)
             ))
