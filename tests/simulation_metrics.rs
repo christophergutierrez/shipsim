@@ -135,6 +135,9 @@ fn weapon_power_metric_counts_increases_only() {
         motion_available: 0,
         evasion_committed: 0,
         cloaked: false,
+        squad_id: None,
+        squad_leader: None,
+        squad_members: vec![],
         weapons: vec![shipsim_core::snapshot::WeaponSnapshot {
             id: "beam_1".into(),
             kind: "Beam".into(),

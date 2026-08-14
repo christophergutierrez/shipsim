@@ -62,6 +62,12 @@ pub struct ShipSnapshot {
     pub evasion_committed: u32,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub cloaked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub squad_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub squad_leader: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub squad_members: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -216,6 +222,22 @@ impl StateSnapshot {
                         })
                         .collect(),
                     systems: ship.systems.clone(),
+                    squad_id: game
+                        .squads()
+                        .iter()
+                        .find(|(_, squad)| squad.members.contains(&ship.id))
+                        .map(|(id, _)| *id),
+                    squad_leader: game
+                        .squads()
+                        .values()
+                        .find(|squad| squad.members.contains(&ship.id))
+                        .map(|squad| squad.leader),
+                    squad_members: game
+                        .squads()
+                        .values()
+                        .find(|squad| squad.members.contains(&ship.id))
+                        .map(|squad| squad.members.clone())
+                        .unwrap_or_default(),
                 })
                 .collect(),
             combat_log: game

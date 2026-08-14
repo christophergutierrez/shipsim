@@ -188,6 +188,7 @@ pub fn final_to_hit_threshold_with_weapon_bonus(
         0,
         false,
         defender_evasion,
+        0,
     )
 }
 
@@ -201,6 +202,7 @@ pub fn final_to_hit_threshold_with_modifiers(
     computer_accuracy_bonus: u8,
     defender_cloaked: bool,
     defender_evasion: u32,
+    defender_ecm_penalty: u8,
 ) -> Option<u8> {
     let threshold = size_adjusted_to_hit_threshold(rules, kind, range, target_size)?;
     let bonus = if target_size == rules.accuracy().fire_control_target_size() {
@@ -222,6 +224,7 @@ pub fn final_to_hit_threshold_with_modifiers(
     let cloak = if defender_cloaked { 4 } else { 0 };
     let reduced = (i64::from(with_bonus)
         - i64::from(cloak)
+        - i64::from(defender_ecm_penalty)
         - i64::from(evasion_delta)
         - i64::from(agility))
         .clamp(1, i64::from(final_cap));

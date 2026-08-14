@@ -772,6 +772,9 @@ mod tests {
             motion_available: 0,
             evasion_committed: 0,
             cloaked: false,
+            squad_id: None,
+            squad_leader: None,
+            squad_members: vec![],
         }
     }
 

@@ -122,6 +122,7 @@ fn computer_applies_at_all_target_sizes_and_cloak_reduces_incoming_hits() {
         3,
         true,
         0,
+        0,
     )
     .unwrap();
     assert_eq!(preview.threshold, expected);

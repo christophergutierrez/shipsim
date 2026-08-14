@@ -1169,6 +1169,8 @@ controller = "player"
                     shields: [0; 6],
                     cloak: false,
                     repair: 0,
+                    unsquad: false,
+                    squad_leader: None,
                 },
             )
             .expect("allocate compiled ship");
@@ -1180,6 +1182,7 @@ controller = "player"
                     ship,
                     actions: Vec::new(),
                     evasive: 0,
+                    follow: false,
                 },
             )
             .expect("path compiled ship");

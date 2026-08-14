@@ -208,6 +208,16 @@ fn computer_bonus(systems: &[crate::schema::SystemKind]) -> u8 {
         .unwrap_or(0)
 }
 
+fn ecm_penalty(systems: &[crate::schema::SystemKind], kind: crate::combat_tables::WeaponKind) -> u8 {
+    if kind == crate::combat_tables::WeaponKind::Missile
+        && systems.iter().any(|system| matches!(system, crate::schema::SystemKind::Ecm))
+    {
+        2
+    } else {
+        0
+    }
+}
+
 /// Staged path commitment during the movement collection stage.
 #[derive(Debug, Clone)]
 struct PathCommit {
@@ -987,6 +997,40 @@ impl GameState {
                     weapon: shot.weapon.clone(),
                 });
             }
+            if kind == crate::combat_tables::WeaponKind::Graviton {
+                let victims: Vec<_> = snapshot
+                    .iter()
+                    .filter(|victim| {
+                        victim.id != *attacker_id
+                            && alive_at_start.contains(&victim.id)
+                            && victim.pos == target.pos
+                    })
+                    .map(|victim| (victim.id, attacker.size.saturating_sub(victim.size)))
+                    .collect();
+                if let Some(att) = self.ship_mut(*attacker_id) {
+                    att.weapon_charges.insert(shot.weapon.clone(), 0);
+                    if let Some(ammo) = att.weapon_ammo.get_mut(&shot.weapon) {
+                        *ammo = ammo.saturating_sub(1);
+                    }
+                }
+                self.mark_weapon_fired(*attacker_id, &shot.weapon);
+                for (victim, damage) in victims {
+                    let (_, hull_damage) = self.apply_v2_pierce_damage(victim, damage);
+                    self.combat_log.push(CombatLogEvent {
+                        attacker: *attacker_id,
+                        target: victim,
+                        weapon: shot.weapon.clone(),
+                        shield: 0,
+                        damage,
+                        shield_absorbed: 0,
+                        hull_damage,
+                        kind: "hit".into(),
+                        packet: None,
+                        vs_weapon: None,
+                    });
+                }
+                continue;
+            }
             let threshold = crate::combat_tables::final_to_hit_threshold_with_modifiers(
                 self.rules.combat(),
                 kind,
@@ -997,6 +1041,7 @@ impl GameState {
                 computer_bonus(&attacker.systems),
                 target.cloaked,
                 target.evasion_committed,
+                ecm_penalty(&target.systems, kind),
             )
             .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                 weapon: shot.weapon.clone(),
@@ -1343,6 +1388,7 @@ impl GameState {
             computer_bonus(&attacker.systems),
             target.cloaked,
             target.evasion_committed,
+            ecm_penalty(&target.systems, weapon.kind),
         )
         .ok_or_else(|| crate::movement::OrderError::OutOfRange {
             weapon: weapon_id.to_string(),
@@ -1544,8 +1590,8 @@ impl GameState {
                         ),
                     })
             }
-            crate::combat_tables::WeaponKind::Missile
-            | crate::combat_tables::WeaponKind::Pd
+            crate::combat_tables::WeaponKind::Missile => Ok(2u32.saturating_add(weapon.damage_bonus)),
+            crate::combat_tables::WeaponKind::Pd
             | crate::combat_tables::WeaponKind::Graviton => {
                 Err(crate::movement::OrderError::OutOfRange {
                     weapon: weapon.id.clone(),
