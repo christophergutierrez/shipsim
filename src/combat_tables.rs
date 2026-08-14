@@ -183,13 +183,23 @@ pub fn final_to_hit_threshold_with_weapon_bonus(
         kind,
         range,
         target_size,
-        attack_accuracy_bonus,
-        weapon_accuracy_bonus,
-        0,
-        false,
-        defender_evasion,
-        0,
+        ToHitModifiers {
+            attack_accuracy_bonus,
+            weapon_accuracy_bonus,
+            defender_evasion,
+            ..ToHitModifiers::default()
+        },
     )
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ToHitModifiers {
+    pub attack_accuracy_bonus: u8,
+    pub weapon_accuracy_bonus: u8,
+    pub computer_accuracy_bonus: u8,
+    pub defender_cloaked: bool,
+    pub defender_evasion: u32,
+    pub defender_ecm_penalty: u8,
 }
 
 pub fn final_to_hit_threshold_with_modifiers(
@@ -197,16 +207,11 @@ pub fn final_to_hit_threshold_with_modifiers(
     kind: WeaponKind,
     range: u32,
     target_size: u32,
-    attack_accuracy_bonus: u8,
-    weapon_accuracy_bonus: u8,
-    computer_accuracy_bonus: u8,
-    defender_cloaked: bool,
-    defender_evasion: u32,
-    defender_ecm_penalty: u8,
+    modifiers: ToHitModifiers,
 ) -> Option<u8> {
     let threshold = size_adjusted_to_hit_threshold(rules, kind, range, target_size)?;
     let bonus = if target_size == rules.accuracy().fire_control_target_size() {
-        attack_accuracy_bonus
+        modifiers.attack_accuracy_bonus
     } else {
         0
     };
@@ -214,20 +219,21 @@ pub fn final_to_hit_threshold_with_modifiers(
     // limit: the accuracy ceiling itself, or one below the die maximum (no
     // unmodified *or* fire-control-boosted attack becomes a guaranteed hit).
     let final_cap = rules.accuracy().ceiling_max().min(rules.die_sides() - 1);
-    let evasion_delta =
-        defender_evasion.saturating_mul(u32::from(rules.accuracy().evasion_per_point()));
+    let evasion_delta = modifiers
+        .defender_evasion
+        .saturating_mul(u32::from(rules.accuracy().evasion_per_point()));
     let with_bonus = u32::from(threshold)
         .saturating_add(u32::from(bonus))
-        .saturating_add(u32::from(weapon_accuracy_bonus));
-    let with_bonus = with_bonus.saturating_add(u32::from(computer_accuracy_bonus));
+        .saturating_add(u32::from(modifiers.weapon_accuracy_bonus));
+    let with_bonus = with_bonus.saturating_add(u32::from(modifiers.computer_accuracy_bonus));
     let agility = natural_defense_delta(target_size, rules.accuracy().baseline_target_size());
-    let cloak = if defender_cloaked { 4 } else { 0 };
+    let cloak = if modifiers.defender_cloaked { 4 } else { 0 };
     let reduced = (i64::from(with_bonus)
         - i64::from(cloak)
-        - i64::from(defender_ecm_penalty)
+        - i64::from(modifiers.defender_ecm_penalty)
         - i64::from(evasion_delta)
         - i64::from(agility))
-        .clamp(1, i64::from(final_cap));
+    .clamp(1, i64::from(final_cap));
     Some(reduced as u8)
 }
 

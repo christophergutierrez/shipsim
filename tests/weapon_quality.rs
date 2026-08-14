@@ -324,7 +324,11 @@ fn stock_snapshot_omits_zero_quality_fields() {
 fn repeat_beam_emits_one_log_row_per_charge_packet() {
     let dir = tempfile::tempdir().unwrap();
     write_rules(dir.path());
-    write_ship(dir.path(), "attacker", &baseline_ship(2, 0, "repeat = true"));
+    write_ship(
+        dir.path(),
+        "attacker",
+        &baseline_ship(2, 0, "repeat = true"),
+    );
     write_ship(dir.path(), "target", &target_ship(2));
     let mut game = load_pair(dir.path(), "attacker", "target");
     enter_firing(&mut game);
@@ -369,11 +373,8 @@ fn pierce_beam_preview_halves_before_damage_bonus() {
     let mut game = load_pair(dir.path(), "attacker", "target");
     enter_firing(&mut game);
     let preview = game.fire_decision_preview(1, "beam_1", 2).unwrap();
-    let normal = shipsim_core::combat_tables::beam_damage(
-        &Ruleset::builtin().combat(),
-        4,
-        preview.range,
-    )
-    .unwrap();
+    let normal =
+        shipsim_core::combat_tables::beam_damage(Ruleset::builtin().combat(), 4, preview.range)
+            .unwrap();
     assert_eq!(preview.projected_damage, normal.div_ceil(2) + 2);
 }

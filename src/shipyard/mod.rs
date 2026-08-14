@@ -316,7 +316,7 @@ fn plant<'a>(
     components
         .engines
         .get(&key)
-        .ok_or_else(|| Error::UnknownComponent(key))
+        .ok_or(Error::UnknownComponent(key))
 }
 
 fn compile_systems(
@@ -444,7 +444,7 @@ pub fn validate_design(
     let engine = plant(&components, &design.engine, &design.engine_size)?;
     checked_count(1, engine.space, engine.cost, &mut used, &mut cost)?;
     if design.armored {
-        cost = add(cost, plate_cost(hull.frame_cost, &_material))?;
+        cost = add(cost, plate_cost(hull.frame_cost, _material))?;
     }
     let (shield_space, shield_cost, _) = shield_install(&components, design.shields)?;
     used = add(used, shield_space)?;
@@ -460,10 +460,8 @@ pub fn validate_design(
         if c.repeat && c.pierce {
             return Err(Error::IncompatibleWeaponFlags(weapon.component.clone()));
         }
-        if c.repeat || c.pierce {
-            if c.kind != "beam" {
-                return Err(Error::IncompatibleWeaponFlags(weapon.component.clone()));
-            }
+        if (c.repeat || c.pierce) && c.kind != "beam" {
+            return Err(Error::IncompatibleWeaponFlags(weapon.component.clone()));
         }
         if !matches!(
             c.kind.as_str(),

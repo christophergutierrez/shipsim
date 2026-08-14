@@ -3,7 +3,7 @@ use std::path::Path;
 
 use shipsim_core::scenario::load_ship_def;
 use shipsim_core::simulation::fleet::{
-    build_engagement_scenario, engagement_costs, validate_engagement_costs, FleetMapSpec,
+    build_engagement_scenario, engagement_costs, validate_engagement_costs,
 };
 use shipsim_core::simulation::SuiteSpec;
 
@@ -46,32 +46,37 @@ fn yard_catalog_roles_and_costs_are_locked() {
     );
 
     let capital = load_ship_def(root(), "yard_capital").unwrap();
-    let counts = capital.weapons.iter().fold(BTreeMap::new(), |mut counts, weapon| {
-        *counts.entry(weapon.kind.as_str()).or_insert(0) += 1;
-        counts
-    });
+    let counts = capital
+        .weapons
+        .iter()
+        .fold(BTreeMap::new(), |mut counts, weapon| {
+            *counts.entry(weapon.kind.as_str()).or_insert(0) += 1;
+            counts
+        });
     assert_eq!(counts.get("beam"), Some(&4));
     assert_eq!(counts.get("torp"), Some(&2));
     assert_eq!(counts.get("plasma"), Some(&2));
-    assert!(capital.weapons.iter().any(|weapon| weapon.mount.as_deref() == Some("aft_port")));
+    assert!(capital
+        .weapons
+        .iter()
+        .any(|weapon| weapon.mount.as_deref() == Some("aft_port")));
 }
 
 #[test]
 fn active_catalog_suites_validate_every_engagement() {
-    for name in ["weapon_quality_matched.toml", "catalog_standard.toml", "cost_matched.toml"] {
+    for name in [
+        "weapon_quality_matched.toml",
+        "catalog_standard.toml",
+        "cost_matched.toml",
+    ] {
         let text = std::fs::read_to_string(root().join("simulation/suites").join(name)).unwrap();
         let suite: SuiteSpec = toml::from_str(&text).expect(name);
         assert!(!suite.skip_cost_validation, "{name} must enforce costs");
         for engagement in &suite.engagements {
             let costs = engagement_costs(root(), engagement).expect(&engagement.name);
-            validate_engagement_costs(
-                &costs,
-                &engagement.name,
-                suite.budget,
-                suite.cost_tolerance,
-            )
-            .expect(&engagement.name);
-            let map = suite.map.clone().unwrap_or_else(FleetMapSpec::default);
+            validate_engagement_costs(&costs, &engagement.name, suite.budget, suite.cost_tolerance)
+                .expect(&engagement.name);
+            let map = suite.map.clone().unwrap_or_default();
             build_engagement_scenario(engagement, &map, 1).expect(&engagement.name);
             assert!(engagement.player.iter().all(|line| line.count > 0));
             assert!(engagement.opponent.iter().all(|line| line.count > 0));

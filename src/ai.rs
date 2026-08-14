@@ -297,13 +297,14 @@ mod tests {
         let _ = (&mut a, &mut b, &mut c);
         let board = Board::new(10, 10);
         let rules = crate::rules::Ruleset::builtin();
-        let game = GameState::new_with_options(
+        let game = GameState::new_with_squads(
             board,
             vec![ship(1, 0, 0), ship(2, 3, 0)],
             None,
             BTreeMap::from([(2, crate::game_state::NpcController::GreedySeek)]),
             1,
             rules,
+            BTreeMap::new(),
         );
         assert_eq!(seek_target(&game, 1), Some(2));
     }

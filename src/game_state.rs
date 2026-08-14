@@ -98,6 +98,15 @@ struct StagedAllocation {
     squad_leader: Option<u32>,
 }
 
+/// Optional systems and squad changes accompanying an allocation.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AllocationOptions {
+    pub cloak: bool,
+    pub repair: u32,
+    pub unsquad: bool,
+    pub squad_leader: Option<u32>,
+}
+
 /// One engine-authoritative legal fire opportunity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FireOpportunity {
@@ -208,9 +217,14 @@ fn computer_bonus(systems: &[crate::schema::SystemKind]) -> u8 {
         .unwrap_or(0)
 }
 
-fn ecm_penalty(systems: &[crate::schema::SystemKind], kind: crate::combat_tables::WeaponKind) -> u8 {
+fn ecm_penalty(
+    systems: &[crate::schema::SystemKind],
+    kind: crate::combat_tables::WeaponKind,
+) -> u8 {
     if kind == crate::combat_tables::WeaponKind::Missile
-        && systems.iter().any(|system| matches!(system, crate::schema::SystemKind::Ecm))
+        && systems
+            .iter()
+            .any(|system| matches!(system, crate::schema::SystemKind::Ecm))
     {
         2
     } else {
@@ -226,17 +240,6 @@ struct PathCommit {
 }
 
 impl GameState {
-    pub(crate) fn new_with_options(
-        board: Board,
-        ships: Vec<Ship>,
-        terminal: Option<Terminal>,
-        npcs: BTreeMap<u32, NpcController>,
-        seed: u64,
-        rules: Arc<Ruleset>,
-    ) -> Self {
-        Self::new_with_squads(board, ships, terminal, npcs, seed, rules, BTreeMap::new())
-    }
-
     pub(crate) fn new_with_squads(
         board: Board,
         ships: Vec<Ship>,
@@ -354,8 +357,7 @@ impl GameState {
         movement: u32,
         weapons: &BTreeMap<String, u32>,
         shields: &[u32; 6],
-        cloak: bool,
-        repair: u32,
+        options: AllocationOptions,
     ) -> Result<(u32, BTreeMap<String, u32>), crate::movement::OrderError> {
         let mut weapon_increases: u32 = 0;
         let mut merged_charges = ship.weapon_charges.clone();
@@ -403,39 +405,43 @@ impl GameState {
             }
         }
         let shield_power: u32 = shields.iter().copied().sum();
-        let cloak_power = if cloak {
+        let cloak_power = if options.cloak {
             if !ship
                 .systems
                 .iter()
                 .any(|system| matches!(system, crate::schema::SystemKind::Cloak))
             {
-                return Err(crate::movement::OrderError::SystemNotInstalled("cloak".into()));
+                return Err(crate::movement::OrderError::SystemNotInstalled(
+                    "cloak".into(),
+                ));
             }
             4u32.saturating_add(ship.size)
         } else {
             0
         };
         let repair_cap = ship.size.div_ceil(3).max(1);
-        if repair > repair_cap {
+        if options.repair > repair_cap {
             return Err(crate::movement::OrderError::RepairTooMuch {
                 ship: ship_id,
-                requested: repair,
+                requested: options.repair,
                 max: repair_cap,
             });
         }
-        if repair > 0
+        if options.repair > 0
             && !ship
                 .systems
                 .iter()
                 .any(|system| matches!(system, crate::schema::SystemKind::Repair))
         {
-            return Err(crate::movement::OrderError::SystemNotInstalled("repair".into()));
+            return Err(crate::movement::OrderError::SystemNotInstalled(
+                "repair".into(),
+            ));
         }
         let total = movement
             .saturating_add(weapon_increases)
             .saturating_add(shield_power)
             .saturating_add(cloak_power)
-            .saturating_add(repair.saturating_mul(2));
+            .saturating_add(options.repair.saturating_mul(2));
         let available = ship.effective_power();
         if total > available {
             return Err(crate::movement::OrderError::OverAllocated {
@@ -455,7 +461,13 @@ impl GameState {
         weapons: BTreeMap<String, u32>,
         shields: [u32; 6],
     ) -> Result<(), crate::movement::OrderError> {
-        self.allocate_v2_with_systems(ship_id, movement, weapons, shields, false, 0, false, None)
+        self.allocate_v2_with_systems(
+            ship_id,
+            movement,
+            weapons,
+            shields,
+            AllocationOptions::default(),
+        )
     }
 
     pub fn allocate_v2_with_systems(
@@ -464,10 +476,7 @@ impl GameState {
         movement: u32,
         weapons: BTreeMap<String, u32>,
         shields: [u32; 6],
-        cloak: bool,
-        repair: u32,
-        unsquad: bool,
-        squad_leader: Option<u32>,
+        options: AllocationOptions,
     ) -> Result<(), crate::movement::OrderError> {
         if self.phase != Phase::Allocate {
             return Err(crate::movement::OrderError::WrongPhase {
@@ -487,15 +496,7 @@ impl GameState {
         if ship.destroyed {
             return Err(crate::movement::OrderError::ShipNotFound(ship_id));
         }
-        self.validate_allocation_draft(
-            ship,
-            ship_id,
-            movement,
-            &weapons,
-            &shields,
-            cloak,
-            repair,
-        )?;
+        self.validate_allocation_draft(ship, ship_id, movement, &weapons, &shields, options)?;
         // Stage only — do not mutate public ship state yet.
         self.staged_allocations.insert(
             ship_id,
@@ -503,10 +504,10 @@ impl GameState {
                 movement,
                 weapons,
                 shields,
-                cloak,
-                repair,
-                unsquad,
-                squad_leader,
+                cloak: options.cloak,
+                repair: options.repair,
+                unsquad: options.unsquad,
+                squad_leader: options.squad_leader,
             },
         );
 
@@ -539,8 +540,12 @@ impl GameState {
                 alloc.movement,
                 &alloc.weapons,
                 &alloc.shields,
-                alloc.cloak,
-                alloc.repair,
+                AllocationOptions {
+                    cloak: alloc.cloak,
+                    repair: alloc.repair,
+                    unsquad: alloc.unsquad,
+                    squad_leader: alloc.squad_leader,
+                },
             ) else {
                 continue;
             };
@@ -592,11 +597,9 @@ impl GameState {
                 }
             }
             if let Some(requested) = alloc.squad_leader {
-                if let Some(squad) = self
-                    .squads
-                    .values_mut()
-                    .find(|squad| squad.members.contains(ship_id) && squad.members.contains(&requested))
-                {
+                if let Some(squad) = self.squads.values_mut().find(|squad| {
+                    squad.members.contains(ship_id) && squad.members.contains(&requested)
+                }) {
                     squad.leader = requested;
                 }
             }
@@ -716,7 +719,13 @@ impl GameState {
                 .values()
                 .any(|squad| squad.members.contains(&ship.id) && squad.leader != ship.id)
             {
-                evasion_by_ship.insert(ship.id, self.path_commits.get(&ship.id).map(|c| c.evasive).unwrap_or(0));
+                evasion_by_ship.insert(
+                    ship.id,
+                    self.path_commits
+                        .get(&ship.id)
+                        .map(|c| c.evasive)
+                        .unwrap_or(0),
+                );
                 continue;
             }
             let commit = self.path_commits.get(&ship.id);
@@ -1047,12 +1056,14 @@ impl GameState {
                 kind,
                 range,
                 target.size,
-                attacker.attack_accuracy_bonus,
-                weapon.accuracy_bonus,
-                computer_bonus(&attacker.systems),
-                target.cloaked,
-                target.evasion_committed,
-                ecm_penalty(&target.systems, kind),
+                crate::combat_tables::ToHitModifiers {
+                    attack_accuracy_bonus: attacker.attack_accuracy_bonus,
+                    weapon_accuracy_bonus: weapon.accuracy_bonus,
+                    computer_accuracy_bonus: computer_bonus(&attacker.systems),
+                    defender_cloaked: target.cloaked,
+                    defender_evasion: target.evasion_committed,
+                    defender_ecm_penalty: ecm_penalty(&target.systems, kind),
+                },
             )
             .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                 weapon: shot.weapon.clone(),
@@ -1072,7 +1083,20 @@ impl GameState {
                 let roll = self.prng.roll(u32::from(self.rules.combat().die_sides()));
                 let hit = roll <= threshold as u32;
                 let damage = if hit {
-                    self.v2_packet_damage(attacker, weapon, range, if weapon.repeat { 1 } else { attacker.weapon_charges.get(&shot.weapon).copied().unwrap_or(0) })?
+                    self.v2_packet_damage(
+                        attacker,
+                        weapon,
+                        range,
+                        if weapon.repeat {
+                            1
+                        } else {
+                            attacker
+                                .weapon_charges
+                                .get(&shot.weapon)
+                                .copied()
+                                .unwrap_or(0)
+                        },
+                    )?
                 } else {
                     0
                 };
@@ -1394,12 +1418,14 @@ impl GameState {
             weapon.kind,
             range,
             target.size,
-            attacker.attack_accuracy_bonus,
-            weapon.accuracy_bonus,
-            computer_bonus(&attacker.systems),
-            target.cloaked,
-            target.evasion_committed,
-            ecm_penalty(&target.systems, weapon.kind),
+            crate::combat_tables::ToHitModifiers {
+                attack_accuracy_bonus: attacker.attack_accuracy_bonus,
+                weapon_accuracy_bonus: weapon.accuracy_bonus,
+                computer_accuracy_bonus: computer_bonus(&attacker.systems),
+                defender_cloaked: target.cloaked,
+                defender_evasion: target.evasion_committed,
+                defender_ecm_penalty: ecm_penalty(&target.systems, weapon.kind),
+            },
         )
         .ok_or_else(|| crate::movement::OrderError::OutOfRange {
             weapon: weapon_id.to_string(),
@@ -1539,9 +1565,9 @@ impl GameState {
         _kind: crate::combat_tables::WeaponKind,
         range: u32,
     ) -> Result<u32, crate::movement::OrderError> {
-        let weapon = attacker.weapon(weapon_id).ok_or_else(|| {
-            crate::movement::OrderError::WeaponNotFound(weapon_id.to_string())
-        })?;
+        let weapon = attacker
+            .weapon(weapon_id)
+            .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(weapon_id.to_string()))?;
         let charge = attacker.weapon_charges.get(weapon_id).copied().unwrap_or(0);
         if weapon.repeat {
             return Ok((0..charge)
@@ -1579,9 +1605,7 @@ impl GameState {
             }
             crate::combat_tables::WeaponKind::Plasma => {
                 crate::combat_tables::plasma_damage(self.rules.combat(), range)
-                    .map(|damage| {
-                        damage.saturating_add(weapon.damage_bonus)
-                    })
+                    .map(|damage| damage.saturating_add(weapon.damage_bonus))
                     .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                         weapon: weapon.id.clone(),
                         range,
@@ -1593,9 +1617,7 @@ impl GameState {
             }
             crate::combat_tables::WeaponKind::Torp => {
                 crate::combat_tables::torp_damage(self.rules.combat(), range)
-                    .map(|damage| {
-                        damage.saturating_add(weapon.damage_bonus)
-                    })
+                    .map(|damage| damage.saturating_add(weapon.damage_bonus))
                     .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                         weapon: weapon.id.clone(),
                         range,
@@ -1605,9 +1627,10 @@ impl GameState {
                         ),
                     })
             }
-            crate::combat_tables::WeaponKind::Missile => Ok(2u32.saturating_add(weapon.damage_bonus)),
-            crate::combat_tables::WeaponKind::Pd
-            | crate::combat_tables::WeaponKind::Graviton => {
+            crate::combat_tables::WeaponKind::Missile => {
+                Ok(2u32.saturating_add(weapon.damage_bonus))
+            }
+            crate::combat_tables::WeaponKind::Pd | crate::combat_tables::WeaponKind::Graviton => {
                 Err(crate::movement::OrderError::OutOfRange {
                     weapon: weapon.id.clone(),
                     range,

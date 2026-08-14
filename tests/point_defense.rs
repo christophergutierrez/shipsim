@@ -16,8 +16,7 @@ fn setup(attacker_mount: &str) -> tempfile::TempDir {
     .unwrap();
     std::fs::write(
         dir.path().join("data/ships/attacker.toml"),
-        format!(
-            r#"
+        r#"
 id = "attacker"
 name = "Attacker"
 size = 2
@@ -37,8 +36,7 @@ arc = "forward"
 mount = "forward"
 max_range = 12
 max_charge = 1
-"#
-        ),
+"#,
     )
     .unwrap();
     std::fs::write(

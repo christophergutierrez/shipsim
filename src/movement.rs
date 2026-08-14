@@ -173,10 +173,12 @@ pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError>
             movement,
             weapons,
             shields,
-            cloak,
-            repair,
-            unsquad,
-            squad_leader,
+            crate::game_state::AllocationOptions {
+                cloak,
+                repair,
+                unsquad,
+                squad_leader,
+            },
         ),
         Order::CommitPath {
             ship,

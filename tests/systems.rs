@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use shipsim_core::combat_tables::{final_to_hit_threshold, final_to_hit_threshold_with_modifiers, WeaponKind};
+use shipsim_core::combat_tables::{
+    final_to_hit_threshold, final_to_hit_threshold_with_modifiers, ToHitModifiers, WeaponKind,
+};
 use shipsim_core::game_state::Phase;
 use shipsim_core::movement::{apply_order, Order};
 use shipsim_core::scenario::load_scenario_def;
@@ -84,7 +86,11 @@ controller = "player"
                 weapons: BTreeMap::from([("beam_1".into(), if ship == 1 { 4 } else { 0 })]),
                 shields: [0; 6],
                 cloak: ship == 2 && target_systems.contains("cloak"),
-                repair: if ship == 2 && target_systems.contains("repair") { 1 } else { 0 },
+                repair: if ship == 2 && target_systems.contains("repair") {
+                    1
+                } else {
+                    0
+                },
                 unsquad: false,
                 squad_leader: None,
             },
@@ -109,7 +115,7 @@ controller = "player"
 
 #[test]
 fn computer_applies_at_all_target_sizes_and_cloak_reduces_incoming_hits() {
-    let (_dir, mut game) = setup("[[systems]]\nkind = \"cloak\"");
+    let (_dir, game) = setup("[[systems]]\nkind = \"cloak\"");
     let preview = game.fire_decision_preview(1, "beam_1", 2).unwrap();
     let rules = shipsim_core::rules::Ruleset::builtin();
     let expected = final_to_hit_threshold_with_modifiers(
@@ -117,19 +123,25 @@ fn computer_applies_at_all_target_sizes_and_cloak_reduces_incoming_hits() {
         WeaponKind::Beam,
         preview.range,
         3,
-        0,
-        0,
-        3,
-        true,
-        0,
-        0,
+        ToHitModifiers {
+            computer_accuracy_bonus: 3,
+            defender_cloaked: true,
+            ..ToHitModifiers::default()
+        },
     )
     .unwrap();
     assert_eq!(preview.threshold, expected);
-    assert_eq!(game.ship(2).unwrap().cloaked, true);
-    assert_eq!(game.ship(2).unwrap().ssd.hull, game.ship(2).unwrap().ssd.hull_max);
-    let no_computer = final_to_hit_threshold(rules.combat(), WeaponKind::Beam, preview.range, 3, 0, 0).unwrap();
-    assert_eq!(preview.threshold, no_computer.saturating_sub(4).saturating_add(3));
+    assert!(game.ship(2).unwrap().cloaked);
+    assert_eq!(
+        game.ship(2).unwrap().ssd.hull,
+        game.ship(2).unwrap().ssd.hull_max
+    );
+    let no_computer =
+        final_to_hit_threshold(rules.combat(), WeaponKind::Beam, preview.range, 3, 0, 0).unwrap();
+    assert_eq!(
+        preview.threshold,
+        no_computer.saturating_sub(4).saturating_add(3)
+    );
 }
 
 #[test]
