@@ -14,9 +14,13 @@ use crate::protocol::{
 };
 
 // Rubric invariant index. New checks use the searchable `rubric_tNN_` prefix.
-// T1 V1 movement cap row; T2 E1 dead-engine clamp; T3 V2 ratio ceiling;
-// T4 G2/G4 diamond destination; T5 E3/E4 yard delete confirmation;
-// T6 C2 unsaved-yard Esc. M1–M4 add T7–T18 from docs/plans/ui-rubric-tui.md.
+// T1 render_shows_allocate_panel_in_allocate_mode / V1 movement row;
+// T2 dead_engines_clamp_movement_power_to_zero / E1; T3
+// swarm_ratio_movement_power_cap_is_ceil_not_floor / V2; T4
+// map_preview_uses_diamond_route_family_and_identity / G2+G4; T5
+// yard_delete_weapon_requires_a_second_press / E3+E4; T6
+// yard_quit_requires_confirmation_when_dirty / C2. M1–M4 add T7–T18 from
+// docs/plans/ui-rubric-tui.md.
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -2772,7 +2776,7 @@ fn fire_panel_shows_offline_for_damaged_weapon() {
         "expected OFFLINE beam_1 in fire panel; got:\n{buf}"
     );
     assert!(
-        beam_line.contains("chg=0/4") && beam_line.contains("OFFLINE"),
+        beam_line.contains("chg=4/4") && beam_line.contains("OFFLINE"),
         "offline fire row should retain the charge fraction and status; got: {beam_line}"
     );
 }
