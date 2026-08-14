@@ -1281,13 +1281,31 @@ fn allocate_budget_line(app: &App) -> Option<Line<'static>> {
     let cost = draft.power_cost(ship);
     let pool = ship.power_available;
     let balance = pool as i64 - cost as i64;
+    let field = if draft.cursor == 0 {
+        Some(format!(
+            "Movement {}/{} pwr",
+            draft.movement,
+            ship.movement_power_cap().unwrap_or(ship.power_available)
+        ))
+    } else if draft.cursor > draft.weapons.len() {
+        let face = draft.cursor - draft.weapons.len() - 1;
+        draft.shields.get(face).map(|value| {
+            format!(
+                "Shield {} {}/{} pwr",
+                shield_label(face as u32),
+                value,
+                ship.shield_cap(face)
+            )
+        })
+    } else {
+        None
+    };
     let budget_style = if balance < 0 {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Green)
     };
-    Some(Line::from(vec![
-        Span::raw(format!(" Budget {cost}/{pool} (")),
+    let mut spans = vec![Span::raw(format!(" Budget {cost}/{pool} (")),
         Span::styled(
             if balance < 0 {
                 format!("{} over", -balance)
@@ -1296,8 +1314,12 @@ fn allocate_budget_line(app: &App) -> Option<Line<'static>> {
             },
             budget_style,
         ),
-        Span::raw(") · engine power → thrust this turn only"),
-    ]))
+        Span::raw(") · engine→thrust")];
+    if let Some(field) = field {
+        spans.push(Span::raw(" · "));
+        spans.push(Span::styled(field, Style::default().fg(Color::Cyan)));
+    }
+    Some(Line::from(spans))
 }
 
 /// The fire-queue summary line, rendered as a fixed header so the pending

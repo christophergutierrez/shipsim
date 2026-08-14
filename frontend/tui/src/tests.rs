@@ -1030,6 +1030,35 @@ fn rubric_t13_each_combat_form_has_a_visible_escape_exit() {
 }
 
 #[test]
+fn rubric_t15_last_shield_keeps_budget_and_selected_tradeoff_together() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().cursor = 8;
+    let buf = render_to_string(&mut app, 80, 24);
+    let budget = buf.lines().find(|line| line.contains("Budget")).unwrap_or("");
+    assert!(
+        budget.contains("Budget 0/22")
+            && budget.contains("22 free")
+            && budget.contains("Shield FL 0/6 pwr"),
+        "selected shield tradeoff must share the pinned budget line: {budget}\n{buf}"
+    );
+}
+
+#[test]
+fn rubric_t16_movement_keeps_budget_and_selected_tradeoff_together() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    let budget = buf.lines().find(|line| line.contains("Budget")).unwrap_or("");
+    assert!(
+        budget.contains("Budget 0/22")
+            && budget.contains("22 free")
+            && budget.contains("Movement 0/8 pwr"),
+        "movement tradeoff must share the pinned budget line: {budget}\n{buf}"
+    );
+}
+
+#[test]
 fn render_shows_fire_panel_in_fire_mode() {
     let mut app = App::new();
     app.update_snapshot(fire_phase_snapshot());
