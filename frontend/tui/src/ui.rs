@@ -1096,7 +1096,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             let footer_y = body_area.y + body_area.height - 1;
             f.render_widget(
                 Paragraph::new(Line::from(Span::styled(
-                    " Enter commit · ↑/↓ field · ←/→ adjust · x cloak · z repair · u unsquad · l leader",
+                    " Enter commit · ↑/↓ field · m movement · ←/→ adjust · x cloak · z repair · u unsquad",
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
@@ -1415,7 +1415,7 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     let mov_selected = draft.cursor == 0;
     lines.push(Line::from(Span::styled(
         format!(
-            "{}Engine (Movement): {:2}   ←/→ or digits · Backspace clear",
+            "{}Movement: {:2}   engine power → path this turn   ←/→ or m",
             if mov_selected { "▶ " } else { "  " },
             draft.movement
         ),
@@ -1614,6 +1614,12 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 
     // Running motion cost vs available (path + evasive share the budget).
     let over = cost > ship.motion_available;
+    if ship.motion_available == 0 {
+        lines.push(Line::from(Span::styled(
+            " No motion this turn — put power on Movement in allocate, then Enter.",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )));
+    }
     lines.push(Line::from(Span::styled(
         format!(
             " motion {cost}/{} ({path_cost} path, {evasive} evasive)",

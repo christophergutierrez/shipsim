@@ -705,9 +705,40 @@ fn handle_map(app: &mut App, key: KeyEvent) -> KeyResult {
     }
 }
 
+/// `a` / `m` / `f` work from any combat form, not only Normal.
+/// During allocate, `m` jumps to the Movement field (engine power → path).
+fn phase_hotkey(app: &mut App, key: KeyEvent) -> Option<KeyResult> {
+    let phase = app.snap.as_ref()?.phase.as_str();
+    match (key.code, phase) {
+        (KeyCode::Char('a'), "allocate") => {
+            app.open_allocate_for_focus();
+            Some(KeyResult::Continue)
+        }
+        (KeyCode::Char('m'), "movement") => {
+            app.open_movement_for_focus();
+            Some(KeyResult::Continue)
+        }
+        (KeyCode::Char('f'), "firing") => {
+            app.open_fire_for_focus();
+            Some(KeyResult::Continue)
+        }
+        (KeyCode::Char('m'), "allocate") => {
+            if let Some(draft) = app.alloc_draft.as_mut() {
+                draft.cursor = 0;
+            }
+            app.log("allocate: Movement — ←/→ or digits set engine power for this turn's path");
+            Some(KeyResult::Continue)
+        }
+        _ => None,
+    }
+}
+
 fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
     if app.snap.is_none() {
         return KeyResult::Continue;
+    }
+    if let Some(result) = phase_hotkey(app, key) {
+        return result;
     }
     let sid = match app.focused_ship {
         Some(id) => id,
@@ -1048,6 +1079,9 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
     if app.focused_ship.is_none() {
         return KeyResult::Continue;
     }
+    if let Some(result) = phase_hotkey(app, key) {
+        return result;
+    }
     match key.code {
         KeyCode::Up | KeyCode::Char('w') | KeyCode::Char('f') => path_append(app, "move_f"),
         // Screen-left veer = ship's port = facing-increasing = engine `move_fl`.
@@ -1269,6 +1303,9 @@ fn emit_order(app: &mut App, order: Order) -> KeyResult {
 }
 
 fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
+    if let Some(result) = phase_hotkey(app, key) {
+        return result;
+    }
     let snap = match &app.snap {
         Some(s) => s.clone(),
         None => return KeyResult::Continue,

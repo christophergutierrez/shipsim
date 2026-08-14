@@ -3425,6 +3425,40 @@ fn combat_log_shows_chronological_volley_on_tall_terminal() {
 }
 
 #[test]
+fn allocate_m_selects_movement_field() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "allocate".into();
+    app.update_snapshot(snap);
+    app.mode = crate::app::Mode::Allocate;
+    app.alloc_draft.as_mut().unwrap().cursor = 4;
+    handle_key(&mut app, make_key('m'));
+    assert_eq!(
+        app.alloc_draft.as_ref().unwrap().cursor,
+        0,
+        "m must jump to the Movement field during allocate"
+    );
+    let buf = render_to_string(&mut app, 100, 36);
+    assert!(
+        buffer_contains(&buf, "Movement:"),
+        "allocate form must label the engine-power row Movement; got:\n{buf}"
+    );
+}
+
+#[test]
+fn m_opens_movement_mode_from_allocate_when_phase_is_movement() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    snap.ships[0].motion_available = 6;
+    app.update_snapshot(snap);
+    app.mode = crate::app::Mode::Allocate;
+    handle_key(&mut app, make_key('m'));
+    assert_eq!(app.mode, crate::app::Mode::Movement);
+    assert!(app.path_draft.is_some());
+}
+
+#[test]
 fn movement_panel_names_follow_and_allocate_names_cloak() {
     let mut app = App::new();
     let mut snap = test_snapshot();

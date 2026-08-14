@@ -1,20 +1,22 @@
 id = "33750e41"
 name = "Tiny"
 size = 1
-material = "titanium"
+material = "neutronium"
 engine = "antimatter"
 engine_size = "s"
 armored = true
 shields = [
-    4,
-    1,
-    1,
+    2,
+    0,
+    0,
     0,
     0,
     0,
 ]
-systems = []
 
 [[weapons]]
 component = "plasma_potent"
 mount = "forward"
+
+[[systems]]
+component = "computer_mk1"

@@ -113,10 +113,14 @@ allocate / path / volley). There is **no** `end_turn`.
 | `m` / `Enter` | Enter Movement/path mode (when phase = movement) |
 | `f` / `Enter` | Enter Fire/volley mode (when phase = firing) |
 
-**Allocate mode** — `↓`/`↑` (or `j`/`k`) cycles movement / weapons / shield
-facings; `←`/`→` decrement/increment the focused field; digits start a fresh
-value entry; `Backspace` clears; `Enter` commits the `allocate` order. A ship
-with no power can press `Space` to submit its forced zero allocation.
+**Allocate mode** — `↓`/`↑` (or `j`/`k`) cycles **Movement** / weapons / shield
+facings. `m` jumps to Movement (engine power that becomes path points). `←`/`→`
+decrement/increment the focused field; digits start a fresh value entry;
+`Backspace` clears; `Enter` commits the `allocate` order. A ship with no power
+can press `Space` to submit its forced zero allocation. `a` / `m` / `f` also
+switch to allocate / path / fire when that phase is live, from any form.
+`m` jumps to the Movement field. `a` / `m` / `f` also open allocate / path /
+fire when that phase is live, from any form.
 If the ship has the system installed: `x` toggles cloak (`4+size` power),
 `z` buys a repair box, `u` unsquads, `l` cycles the squad leader.
 
