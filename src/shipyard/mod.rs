@@ -55,8 +55,24 @@ pub struct DesignSystem {
 /// is exactly the mistake `docs/plans/catalog-review-remediation.md` locked
 /// these roles against; keeping them out of the interactive picker is cheaper
 /// than relying on everyone re-deriving that history from the plan.
-pub const QUALITY_FIXTURE_IDS: &[&str] =
-    &["yard_baseline", "yard_compact", "yard_potent", "yard_precise"];
+pub const QUALITY_FIXTURE_IDS: &[&str] = &[
+    "yard_baseline",
+    "yard_compact",
+    "yard_potent",
+    "yard_precise",
+];
+
+/// Player-facing stock classes. These remain visible in the yard, but are
+/// reference material rather than editable user designs.
+pub const STANDARD_CLASS_IDS: &[&str] = &[
+    "yard_swarm",
+    "yard_destroyer",
+    "yard_light_cruiser",
+    "yard_heavy_cruiser",
+    "yard_battleship",
+    "yard_dreadnought",
+    "yard_capital",
+];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,6 +104,22 @@ pub struct EngineSpec {
     pub space: u32,
     pub cost: u32,
     pub thrust_step: i8,
+}
+
+/// Public view of one weapon SKU from the component catalog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WeaponSpec {
+    pub id: String,
+    pub kind: String,
+    pub space: u32,
+    pub cost: u32,
+    pub max_charge: u32,
+    pub max_range: u32,
+    pub max_ammo: Option<u32>,
+    pub accuracy_bonus: u8,
+    pub damage_bonus: u32,
+    pub repeat: bool,
+    pub pierce: bool,
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -253,6 +285,8 @@ pub enum Error {
     GeneratedDrift(PathBuf),
     #[error("size table: {0}")]
     Sizes(#[from] SizeError),
+    #[error("combat rules: {0}")]
+    Rules(String),
 }
 
 fn add(a: u64, b: u64) -> Result<u64, Error> {
@@ -654,6 +688,64 @@ pub fn engine_spec(root: &Path, kind: &str, size: &str) -> Result<EngineSpec, Er
         cost: u32_field("cost", plant.cost)?,
         thrust_step: plant.thrust_step,
     })
+}
+
+pub fn weapon_spec(root: &Path, id: &str) -> Result<WeaponSpec, Error> {
+    let components = load_components(root)?;
+    let weapon = components
+        .weapons
+        .get(id)
+        .ok_or_else(|| Error::UnknownComponent(id.to_string()))?;
+    Ok(WeaponSpec {
+        id: id.to_string(),
+        kind: weapon.kind.clone(),
+        space: u32_field("space", weapon.space)?,
+        cost: u32_field("cost", weapon.cost)?,
+        max_charge: weapon.max_charge,
+        max_range: weapon.max_range,
+        max_ammo: weapon.max_ammo,
+        accuracy_bonus: weapon.accuracy_bonus,
+        damage_bonus: weapon.damage_bonus,
+        repeat: weapon.repeat,
+        pierce: weapon.pierce,
+    })
+}
+
+/// A compact editor-facing summary evaluated from the authoritative rules.
+/// Damage uses one full charge at range 1; effects that are not ship damage
+/// are named explicitly instead of pretending they have a numeric value.
+pub fn weapon_headline(root: &Path, id: &str) -> Result<String, Error> {
+    let spec = weapon_spec(root, id)?;
+    let rules = crate::rules::Ruleset::load(root).map_err(|e| Error::Rules(e.to_string()))?;
+    let kind = match spec.kind.as_str() {
+        "beam" => crate::combat_tables::WeaponKind::Beam,
+        "plasma" => crate::combat_tables::WeaponKind::Plasma,
+        "torp" => crate::combat_tables::WeaponKind::Torp,
+        "missile" => crate::combat_tables::WeaponKind::Missile,
+        "pd" => crate::combat_tables::WeaponKind::Pd,
+        "graviton" => crate::combat_tables::WeaponKind::Graviton,
+        _ => return Err(Error::UnknownWeaponKind(spec.kind)),
+    };
+    let damage = match kind {
+        crate::combat_tables::WeaponKind::Beam => {
+            crate::combat_tables::beam_damage(rules.combat(), 1, 1)
+        }
+        crate::combat_tables::WeaponKind::Plasma => {
+            crate::combat_tables::plasma_damage(rules.combat(), 1)
+        }
+        crate::combat_tables::WeaponKind::Torp => {
+            crate::combat_tables::torp_damage(rules.combat(), 1)
+        }
+        crate::combat_tables::WeaponKind::Graviton => None,
+        crate::combat_tables::WeaponKind::Missile => Some(1),
+        crate::combat_tables::WeaponKind::Pd => None,
+    };
+    let base = match kind {
+        crate::combat_tables::WeaponKind::Pd => "no ship damage".to_string(),
+        crate::combat_tables::WeaponKind::Graviton => "dmg = your size − target size".to_string(),
+        _ => format!("{} dmg @r1", damage.unwrap_or(0)),
+    };
+    Ok(base)
 }
 
 pub fn list_designs(root: &Path) -> Result<Vec<(PathBuf, Design)>, Error> {
@@ -1314,6 +1406,21 @@ mount = "forward_port"
         assert_eq!(ids, ["beam_1", "torp_1", "beam_2"]);
         assert_eq!(ship.weapons[1].arc, "rear");
         assert_eq!(ship.weapons[2].accuracy_bonus, 2);
+    }
+
+    #[test]
+    fn public_weapon_spec_and_headline_use_catalog_and_rules() {
+        let root = fixture_root();
+        let precise = weapon_spec(root.path(), "beam_precise").expect("precise SKU");
+        assert_eq!(precise.kind, "beam");
+        assert_eq!(precise.accuracy_bonus, 2);
+        assert_eq!(precise.damage_bonus, 0);
+        assert!(weapon_headline(root.path(), "beam")
+            .unwrap()
+            .contains("dmg @r1"));
+        assert!(weapon_headline(root.path(), "pd")
+            .unwrap()
+            .contains("no ship damage"));
     }
 
     #[test]

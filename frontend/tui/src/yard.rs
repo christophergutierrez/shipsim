@@ -2,6 +2,7 @@
 //! Cost and space come from `shipsim_core::shipyard`, not from combat.
 
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use shipsim_core::shipyard::{
     self, Design, DesignPreview, DesignWeapon, ENGINE_KINDS, ENGINE_SIZES, MATERIALS, MOUNTS,
@@ -12,6 +13,31 @@ use shipsim_core::sizes::{self, SizeTable};
 pub enum YardScreen {
     Browse,
     Edit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortMode {
+    Recency,
+    Size,
+    Cost,
+}
+
+impl SortMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Recency => "recency",
+            Self::Size => "size",
+            Self::Cost => "cost",
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::Recency => Self::Size,
+            Self::Size => Self::Cost,
+            Self::Cost => Self::Recency,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +86,8 @@ pub struct YardState {
     pub skus: Vec<String>,
     pub sizes: SizeTable,
     pub pending: Option<PendingConfirm>,
+    pub viewing_readonly: bool,
+    pub sort_mode: SortMode,
 }
 
 impl YardState {
@@ -79,6 +107,8 @@ impl YardState {
             skus,
             sizes,
             pending: None,
+            viewing_readonly: false,
+            sort_mode: SortMode::Recency,
         };
         yard.refresh_listings();
         Ok(yard)
@@ -87,7 +117,11 @@ impl YardState {
     pub fn refresh_listings(&mut self) {
         match shipyard::list_designs(&self.root) {
             Ok(list) => {
-                self.listings = list
+                let selected_id = self
+                    .listings
+                    .get(self.browse_cursor)
+                    .map(|item| item.design.id.clone());
+                let mut designs = list
                     .into_iter()
                     // Weapon-quality fixtures (yard_baseline/compact/potent/precise)
                     // are balance-suite controls, not player-facing standards —
@@ -106,17 +140,54 @@ impl YardState {
                             preview,
                         }
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
+                designs.sort_by(|a, b| {
+                    let a_standard = shipyard::STANDARD_CLASS_IDS.contains(&a.design.id.as_str());
+                    let b_standard = shipyard::STANDARD_CLASS_IDS.contains(&b.design.id.as_str());
+                    match (a_standard, b_standard) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        (true, true) => a.design.size.cmp(&b.design.size).then(a.design.id.cmp(&b.design.id)),
+                        (false, false) => self.compare_user_designs(a, b),
+                    }
+                });
+                self.listings = designs;
+                if let Some(id) = selected_id {
+                    if let Some(index) = self.listings.iter().position(|item| item.design.id == id) {
+                        self.browse_cursor = index;
+                    }
+                }
                 if self.browse_cursor > self.listings.len() {
                     self.browse_cursor = self.listings.len();
                 }
-                self.status = format!("{} saved design(s) — Enter edit · n new", self.listings.len());
+                self.status = format!("{} saved design(s) · sort: {} — o change · Enter edit · n new", self.listings.len(), self.sort_mode.label());
             }
             Err(err) => {
                 self.listings.clear();
                 self.status = err.to_string();
             }
         }
+    }
+
+    fn compare_user_designs(&self, a: &ListedDesign, b: &ListedDesign) -> std::cmp::Ordering {
+        let ordering = match self.sort_mode {
+            SortMode::Recency => metadata_time(&b.path).cmp(&metadata_time(&a.path)),
+            SortMode::Size => a.design.size.cmp(&b.design.size),
+            SortMode::Cost => preview_cost(&a.preview).cmp(&preview_cost(&b.preview)),
+        };
+        ordering.then(a.design.id.cmp(&b.design.id))
+    }
+
+    pub fn cycle_sort(&mut self) {
+        if self.screen != YardScreen::Browse {
+            return;
+        }
+        self.sort_mode = self.sort_mode.next();
+        self.refresh_listings();
+    }
+
+    pub fn is_readonly(&self) -> bool {
+        self.viewing_readonly
     }
 
     pub fn browse_len(&self) -> usize {
@@ -142,12 +213,14 @@ impl YardState {
         self.draft = listing.design.clone();
         self.saved = self.draft.clone();
         self.pending = None;
+        self.viewing_readonly = shipyard::STANDARD_CLASS_IDS.contains(&self.draft.id.as_str());
         self.edit_cursor = EditField::Name;
         self.screen = YardScreen::Edit;
         self.status = format!(
-            "editing {} ({})",
+            "editing {} ({}){}",
             self.draft.name,
-            listing.path.display()
+            listing.path.display(),
+            if self.viewing_readonly { " — reference-only standard" } else { "" }
         );
     }
 
@@ -169,6 +242,7 @@ impl YardState {
         self.draft.name = name;
         self.saved = self.draft.clone();
         self.pending = None;
+        self.viewing_readonly = false;
         self.edit_cursor = EditField::Name;
         self.screen = YardScreen::Edit;
         self.status = "new class — type to rename, ↑/↓ to leave the name".into();
@@ -207,7 +281,47 @@ impl YardState {
 
     fn back_to_browse(&mut self) {
         self.screen = YardScreen::Browse;
+        self.viewing_readonly = false;
         self.refresh_listings();
+    }
+
+    pub fn field_description(&self) -> String {
+        match self.edit_cursor {
+            EditField::Name => "Display name used in the class picker and scenarios.".into(),
+            EditField::Size => "Hull size sets space, structure, maneuver, and silhouette.".into(),
+            EditField::Material => "Material changes structure and the cost multiplier.".into(),
+            EditField::EngineKind => "Engine family sets the plant's power and space profile.".into(),
+            EditField::EngineSize => "Engine size selects the plant's power, cost, and thrust step.".into(),
+            EditField::Armor => "Armor adds structure for space-free frame cost.".into(),
+            EditField::ShieldsAll => "Adjust every shield face by one bank per keypress.".into(),
+            EditField::ShieldsFace { index } => format!("Shield face {} absorbs incoming fire from that arc.", index + 1),
+            EditField::Weapon { index } => {
+                let Some(weapon) = self.draft.weapons.get(index) else { return "Weapon row.".into() };
+                match shipyard::weapon_spec(&self.root, &weapon.component) {
+                    Ok(spec) => {
+                        let mut tags = Vec::new();
+                        if spec.accuracy_bonus > 0 { tags.push(format!("Precise +{}", spec.accuracy_bonus)); }
+                        if spec.damage_bonus > 0 { tags.push(format!("Potent +{}", spec.damage_bonus)); }
+                        if spec.repeat { tags.push("Repeat".into()); }
+                        if spec.pierce { tags.push("Pierce".into()); }
+                        format!("{}: {}  {}", spec.id, shipyard::weapon_headline(&self.root, &spec.id).unwrap_or_else(|_| "rules unavailable".into()), if tags.is_empty() { "no quality modifier".into() } else { tags.join(" · ") })
+                    }
+                    Err(_) => "Unknown weapon SKU; choose another component.".into(),
+                }
+            }
+        }
+    }
+
+    pub fn weapon_row(&self, weapon: &DesignWeapon) -> String {
+        let Ok(spec) = shipyard::weapon_spec(&self.root, &weapon.component) else {
+            return format!("{}   mount {}   unknown SKU", weapon.component, weapon.mount);
+        };
+        let mut tags = Vec::new();
+        if spec.accuracy_bonus > 0 { tags.push(format!("Precise +{}", spec.accuracy_bonus)); }
+        if spec.damage_bonus > 0 { tags.push(format!("Potent +{}", spec.damage_bonus)); }
+        if spec.repeat { tags.push("Repeat".into()); }
+        if spec.pierce { tags.push("Pierce".into()); }
+        format!("{}   mount {}   {}{}", weapon.component, weapon.mount, shipyard::weapon_headline(&self.root, &weapon.component).unwrap_or_else(|_| "rules unavailable".into()), if tags.is_empty() { String::new() } else { format!("   [{}]", tags.join(", ")) })
     }
 
     pub fn engine_label(&self) -> String {
@@ -263,6 +377,10 @@ impl YardState {
     }
 
     pub fn save(&mut self) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
         match shipyard::save_design(&self.root, &self.draft) {
             Ok(path) => {
                 self.saved = self.draft.clone();
@@ -274,6 +392,10 @@ impl YardState {
     }
 
     pub fn compile(&mut self) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
         if let Err(err) = shipyard::save_design(&self.root, &self.draft) {
             self.status = err.to_string();
             return;
@@ -294,6 +416,10 @@ impl YardState {
     }
 
     pub fn nudge(&mut self, delta: i32) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
         match self.edit_cursor {
             EditField::Name => {}
             EditField::Size => {
@@ -354,6 +480,10 @@ impl YardState {
     }
 
     pub fn cycle_weapon_mount(&mut self) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
         if let EditField::Weapon { index } = self.edit_cursor {
             if let Some(weapon) = self.draft.weapons.get_mut(index) {
                 cycle_mount(weapon, 1);
@@ -362,6 +492,10 @@ impl YardState {
     }
 
     pub fn add_weapon(&mut self) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
         let sku = self.skus.first().cloned().unwrap_or_else(|| "beam".into());
         self.draft.weapons.push(DesignWeapon {
             component: sku,
@@ -378,6 +512,10 @@ impl YardState {
     /// (`cancel_pending`, called from `input.rs`) rather than leaving a
     /// dangling confirmation that could later delete the wrong row.
     pub fn request_delete_weapon(&mut self) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
         let EditField::Weapon { index } = self.edit_cursor else {
             return;
         };
@@ -448,6 +586,10 @@ impl YardState {
     }
 
     pub fn type_name(&mut self, ch: char) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
         if self.draft.name.len() >= 40 {
             return;
         }
@@ -462,6 +604,10 @@ impl YardState {
     }
 
     pub fn backspace_name(&mut self) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
         self.draft.name.pop();
     }
 }
@@ -492,6 +638,19 @@ fn cycle_mount(weapon: &mut DesignWeapon, delta: i32) {
         .unwrap_or(0);
     let next = (idx as i32 + delta).rem_euclid(MOUNTS.len() as i32) as usize;
     weapon.mount = MOUNTS[next].to_string();
+}
+
+fn metadata_time(path: &Path) -> SystemTime {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
+fn preview_cost(preview: &Result<DesignPreview, String>) -> u64 {
+    preview
+        .as_ref()
+        .map(|p| u64::from(p.cost))
+        .unwrap_or(u64::MAX)
 }
 
 pub fn find_repo_root() -> PathBuf {

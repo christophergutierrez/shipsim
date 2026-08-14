@@ -2329,7 +2329,7 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Shipyard — ship classes (cost is on the hull) "),
+            .title(format!(" Shipyard — standards by size · user sort: {} ", yard.sort_mode.label())),
     );
     f.render_widget(list, chunks[0]);
     let help = Paragraph::new(format!(
@@ -2362,7 +2362,8 @@ fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(4)])
         .split(area);
-    let header = Paragraph::new(format!("{}  —  {cost_line}", yard.draft.name)).block(
+    let mode = if yard.viewing_readonly { "  (read-only — standard class)" } else { "" };
+    let header = Paragraph::new(format!("{}{}  —  {cost_line}", yard.draft.name, mode)).block(
         Block::default()
             .borders(Borders::ALL)
             .title(" class "),
@@ -2419,12 +2420,22 @@ fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
     for (index, weapon) in yard.draft.weapons.iter().enumerate() {
         lines.push(yard_field(
             yard.edit_cursor == EditField::Weapon { index },
-            format!("  {}   mount {}", weapon.component, weapon.mount),
+            yard.weapon_row(weapon),
         ));
     }
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
+        .split(chunks[1]);
     f.render_widget(
         Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" components ")),
-        chunks[1],
+        columns[0],
+    );
+    f.render_widget(
+        Paragraph::new(yard.field_description())
+            .wrap(Wrap { trim: true })
+            .block(Block::default().borders(Borders::ALL).title(" inspector ")),
+        columns[1],
     );
     let help = Paragraph::new(format!(
         "↑/↓ field  type name · ←/→ change  s save (not on name)  c compile  \

@@ -3485,6 +3485,59 @@ fn yard_browse_hides_weapon_quality_fixtures() {
 }
 
 #[test]
+fn yard_standards_are_size_ordered_and_read_only() {
+    let mut yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
+    let standard_count = shipsim_core::shipyard::STANDARD_CLASS_IDS.len();
+    let standards: Vec<u32> = yard
+        .listings
+        .iter()
+        .take(standard_count)
+        .map(|item| item.design.size)
+        .collect();
+    assert!(standards.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert!(yard.listings.iter().take(standard_count).all(|item| {
+        shipsim_core::shipyard::STANDARD_CLASS_IDS.contains(&item.design.id.as_str())
+    }));
+    assert_eq!(yard.browse_cursor, 0);
+    yard.open_selected();
+    assert!(yard.viewing_readonly);
+    let before = yard.draft.clone();
+    yard.nudge(1);
+    yard.add_weapon();
+    yard.request_delete_weapon();
+    yard.type_name('x');
+    yard.backspace_name();
+    yard.save();
+    yard.compile();
+    assert_eq!(yard.draft, before);
+    assert!(yard.status.contains("reference-only"));
+}
+
+#[test]
+fn yard_sort_cycle_preserves_standard_prefix_and_mode() {
+    let mut yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
+    let prefix: Vec<String> = yard
+        .listings
+        .iter()
+        .take(shipsim_core::shipyard::STANDARD_CLASS_IDS.len())
+        .map(|item| item.design.id.clone())
+        .collect();
+    yard.cycle_sort();
+    assert_eq!(yard.sort_mode, crate::yard::SortMode::Size);
+    yard.cycle_sort();
+    assert_eq!(yard.sort_mode, crate::yard::SortMode::Cost);
+    yard.cycle_sort();
+    assert_eq!(yard.sort_mode, crate::yard::SortMode::Recency);
+    let after: Vec<String> = yard
+        .listings
+        .iter()
+        .take(prefix.len())
+        .map(|item| item.design.id.clone())
+        .collect();
+    assert_eq!(after, prefix);
+}
+
+#[test]
 fn yard_esc_with_unsaved_changes_requires_confirmation() {
     let mut app = yard_app();
     {
@@ -3682,6 +3735,8 @@ fn yard_n_and_new_row_create_a_ship() {
 #[test]
 fn yard_material_cycles_moo_table() {
     let mut app = yard_app();
+    let new_row = app.yard.as_ref().unwrap().listings.len();
+    app.yard.as_mut().unwrap().browse_cursor = new_row;
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
@@ -3767,6 +3822,8 @@ fn yard_engine_is_a_kind_and_size() {
 #[test]
 fn yard_armor_toggles_without_using_space() {
     let mut app = yard_app();
+    let new_row = app.yard.as_ref().unwrap().listings.len();
+    app.yard.as_mut().unwrap().browse_cursor = new_row;
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     for _ in 0..5 {
         handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
@@ -3790,6 +3847,8 @@ fn yard_armor_toggles_without_using_space() {
 #[test]
 fn yard_shields_move_all_or_one_face() {
     let mut app = yard_app();
+    let new_row = app.yard.as_ref().unwrap().listings.len();
+    app.yard.as_mut().unwrap().browse_cursor = new_row;
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     // Name, size, material, engine kind, engine size, armor → shields all
     for _ in 0..6 {

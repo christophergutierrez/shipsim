@@ -140,6 +140,7 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
         YardScreen::Browse => match key.code {
             KeyCode::Up | KeyCode::Char('k') => yard.move_browse(-1),
             KeyCode::Down | KeyCode::Char('j') => yard.move_browse(1),
+            KeyCode::Char('o') => yard.cycle_sort(),
             KeyCode::Enter | KeyCode::Char(' ') => yard.open_selected(),
             KeyCode::Char('n') => yard.start_new(),
             KeyCode::Char('q') | KeyCode::Esc => return KeyResult::Quit,
@@ -147,6 +148,22 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
         },
         YardScreen::Edit => {
             use crate::yard::EditField;
+            if yard.is_readonly()
+                && matches!(
+                    key.code,
+                    KeyCode::Backspace
+                        | KeyCode::Left
+                        | KeyCode::Right
+                        | KeyCode::Char('a' | 'c' | 'd' | 'h' | 'l' | 'm' | 's')
+                )
+            {
+                yard.status = "standard classes are reference-only".into();
+                return KeyResult::Continue;
+            }
+            if yard.is_readonly() && matches!(key.code, KeyCode::Char(_)) {
+                yard.status = "standard classes are reference-only".into();
+                return KeyResult::Continue;
+            }
             // Esc and 'd' each carry their own arm/confirm state (see
             // `request_exit` / `request_delete_weapon`) and must not be
             // cancelled before they get to check it. Every other key clears

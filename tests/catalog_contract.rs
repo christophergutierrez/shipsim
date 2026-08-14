@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use shipsim_core::scenario::load_ship_def;
+use shipsim_core::shipyard::STANDARD_CLASS_IDS;
 use shipsim_core::simulation::fleet::{
     build_engagement_scenario, engagement_costs, validate_engagement_costs,
 };
@@ -13,19 +14,14 @@ fn root() -> &'static Path {
 
 #[test]
 fn yard_catalog_roles_and_costs_are_locked() {
-    let expected = BTreeMap::from([
-        ("yard_swarm", 74),
-        ("yard_destroyer", 98),
-        ("yard_light_cruiser", 216),
-        ("yard_heavy_cruiser", 309),
-        ("yard_battleship", 546),
-        ("yard_dreadnought", 1322),
-        ("yard_capital", 3470),
+    let mut expected = BTreeMap::from([
         ("yard_baseline", 86),
         ("yard_compact", 96),
         ("yard_potent", 96),
         ("yard_precise", 92),
     ]);
+    let standard_costs = [74, 98, 216, 309, 546, 1322, 3470];
+    expected.extend(STANDARD_CLASS_IDS.iter().copied().zip(standard_costs));
     for (class, cost) in expected {
         let ship = load_ship_def(root(), class).expect(class);
         assert_eq!(ship.cost, cost, "{class} cost");
