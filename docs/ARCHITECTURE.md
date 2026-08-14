@@ -91,10 +91,12 @@ Every path action costs one motion point. Weapon charge and firing are limited p
 | `data/ships/*.toml` | Shipped ship classes (`ShipDef`); loaded by the scenario loader |
 | `data/ships/*_{light,line,heavy}.toml` | Draft size variants (21 hulls); see `docs/SIZE-VARIANTS.md` |
 | `data/ship_costs.toml` | Fleet-budget index (`cost`; destroyer_line = 100) |
-| `data/sizes.toml` | Canonical hull-size ladder (1..=7: Fighter … Titan) and FASA Class I–XX map; **catalog only** (not loaded by the engine yet) |
+| `data/sizes.toml` | Hull-size ladder (1..=7). Combat uses the integer silhouette; the shipyard loads space / frame / HP / defense / thrust from this file |
+| `data/designs/*.toml` | Component designs (class name + plant + armor + per-face shields + weapons) |
+| `data/components.toml` | Engine, shield-bank, and weapon SKUs for the yard |
 
-Ship `size` is the to-hit silhouette and the future construction frame key.
-See `docs/combat-v2-tables.md` and `docs/TODO.md` (hull size / construction).
+Ship `size` is the to-hit silhouette and the yard construction frame key.
+See `docs/combat-v2-tables.md` and `docs/SHIPYARD.md`.
 
 ## Invariants
 

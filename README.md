@@ -29,9 +29,10 @@ Produces:
 - `target/debug/shipsim-sim` — in-process batch simulation  
 - `target/debug/shipsim-yard` — validates, costs, and compiles component ship designs
 
-### Shipyard designs
+### Shipyard (ship classes)
 
-Compile a component design into a normal catalog ship:
+Assemble classes in the TUI, or compile a design file into a normal catalog ship.
+Details: [`docs/SHIPYARD.md`](docs/SHIPYARD.md).
 
 ```bash
 # Assemble / edit existing designs (no map, no fight):

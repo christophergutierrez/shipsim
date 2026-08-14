@@ -50,23 +50,31 @@ cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial
 # → scenarios/tutorial_rear_attack.toml (seed 4), step-gated keys
 ```
 
-**Shipyard** — put ships together. Lists saved designs (cost on each hull);
-Enter edits, `n` or the last row creates a new one. No map, no engine spawn:
+**Shipyard** — put **classes** together. The list shows class name, hull name
+(Destroyer, not `size 2`), and cost. No map, no engine spawn. Full rules:
+[`docs/SHIPYARD.md`](../../docs/SHIPYARD.md).
 
 ```bash
 cargo run --manifest-path frontend/tui/Cargo.toml -- --yard
 ```
 
-| Key | Action |
+| Browse | Action |
 |---|---|
-| `↑`/`↓` or `k`/`j` | Select a saved ship, or **+ new ship** |
-| `Enter` / `Space` | Edit the selected hull, or start a new one |
-| `n` | New ship |
+| `↑`/`↓` or `k`/`j` | Select a class, or **+ new ship** |
+| `Enter` / `Space` | Edit the selected class, or start a new one |
+| `n` | New class (`Basic Destroyer`, 8-hex file id) |
 | `q` / `Esc` | Quit |
 
-On the edit screen the first field is the **class name** (type to edit;
-`↑`/`↓` leave it). `←`/`→` change other fields. `s` saves (not while the
-name is focused), `c` compiles to `data/ships/`, `Esc` returns to the list.
+| Edit | Action |
+|---|---|
+| type | Class name (first field). `↑`/`↓` leave it |
+| `↑`/`↓` | Next field (`j`/`k` except on the name) |
+| `←`/`→` | Change the field (size, material, engine, armor, shields, SKU) |
+| **shields all** | Step every face together; `↓` onto F…FL for one face |
+| `m` / `a` / `d` | Weapon mount / add / delete |
+| `s` | Save (`data/designs/<id>.toml`) — not while naming |
+| `c` | Save and compile to `data/ships/<id>.toml` |
+| `Esc` | Back to the list |
 
 Pick a different **combat** scenario (first positional arg — this is a fight):
 
@@ -213,7 +221,8 @@ assumptions from the inertial era).
 
 ## Pointers
 
-- `docs/PROTOCOL.md` (API), `docs/AGENT-PLAY.md` (UI / API / sim play), root `AGENTS.md`
+- `docs/PROTOCOL.md` (API), `docs/AGENT-PLAY.md` (UI / API / sim play), `docs/SHIPYARD.md` (`--yard`)
+- root `AGENTS.md`
 - `docs/PLAY-V2.md`, `docs/ARCHITECTURE.md`
 - `frontend/README.md` (isolation)
 - `frontend/repl/README.md`, `frontend/repl/ASCII-UI.md` (play vocabulary + ASCII lessons)
@@ -228,6 +237,7 @@ assumptions from the inertial era).
 - [x] Soft errors visible; state only changes on accepted orders
 - [x] Scratch only under `frontend/tui/local/`
 - [x] This README matches protocol v4 orders and keys
+- [x] `--yard` browses/edits/creates classes (no combat map)
 
 ## Older design notes in this tree
 

@@ -102,7 +102,7 @@ Human-oriented launch table: root **`README.md`**.
 |---|---|---|
 | **REPL** | `python3 frontend/repl/repl.py scenarios/battle.toml` | Reference; best for agents |
 | **TUI** | `cargo run --manifest-path frontend/tui/Cargo.toml` | Small-tier ratatui combat; see `frontend/tui/README.md` |
-| **TUI shipyard** | `cargo run --manifest-path frontend/tui/Cargo.toml -- --yard` | Browse/edit/create designs (no map) |
+| **TUI shipyard** | `cargo run --manifest-path frontend/tui/Cargo.toml -- --yard` | Author classes (no map). See `docs/SHIPYARD.md` |
 | **Love2D** | `./frontend/love/play.sh` | Graphical; needs Love2D 11.x + display; see `frontend/love/README.md` |
 
 ### Screen grid audit (UI presentation, not a full game)

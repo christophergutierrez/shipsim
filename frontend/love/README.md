@@ -20,8 +20,9 @@ cargo build -q
 ./frontend/love/play.sh yard     # component shipyard
 ```
 
-From the picker, **Y** (or the Shipyard button) opens the yard. Compile uses
-`shipsim-yard`; Play starts a duel with the compiled class.
+From the picker, **Y** (or the Shipyard button) opens the Love yard. Compile
+uses `shipsim-yard`; Play starts a duel with the compiled class. **TUI
+`--yard` is the current authoring UI** (`docs/SHIPYARD.md`).
 
 Environment: `SHIPSIM_BIN`, `SHIPSIM_ROOT`. Session files under `frontend/love/local/`.
 

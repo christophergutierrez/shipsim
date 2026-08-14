@@ -16,7 +16,7 @@ Mechanics ADR: `docs/adr/0025-simplified-simultaneous-turns.md`.
 | **Turn** | Three collection stages: **allocate → path → volley**, then auto next allocate. No `end_turn`. |
 | **Shields** | Re-bought every allocate from **0**. |
 | **Weapons** | Charge **carries** across turns. Allocate pays only for **increases**; cannot strip. Hit or miss spends charge for weapons in the volley. Torpedo-kind weapons also have a finite `ammo` magazine (default `3 + size`); firing spends 1 ammo; at 0 ammo they cannot be charged or fired (`weapon_out_of_ammo`). |
-| **To-hit** | Rules-table d20 threshold × target `size / 2`, half-up, clamped by the accuracy ceiling. Size 2 is neutral. Weapon `accuracy_bonus` is added at every target size; hull fire-control remains size-2-only. Defender `evasion_committed` subtracts `evasion_per_point` per evasive motion point (floor 1). |
+| **To-hit** | Rules-table d20 threshold × target `size / 2`, half-up, clamped by the accuracy ceiling. Size 2 is neutral. Weapon `accuracy_bonus` is added at every target size; hull fire-control remains size-2-only. Defender `evasion_committed` subtracts `evasion_per_point` per evasive motion point (floor 1). MOO natural defense then shifts the same way relative to size 2 (fighter harder, titan easier). |
 | **Motion** | Engine power → motion points via hull `thrust_per_power` / `power_per_thrust`. Cap = `max_maneuver_actions` (engine SSD may lower). |
 | **Path** | One ordered list of actions per living ship: `move_f`, `move_fr`, `move_fl`, `turn_right`, `turn_left` (cost 1 each), plus optional `evasive` motion points from the same budget. No velocity/course. |
 | **Path resolve** | Simultaneous; intermediate crossings OK; final hex unique; stationary immovable; cost then seeded ties; losers fall back along translated history. |
@@ -47,7 +47,8 @@ Every order is one JSON object per line with `protocol_version: 4`.
 - `weapons` = desired **total** charge per weapon id (≥ carried; ≤ max_charge).
   Charge *increases* on a weapon with 0 remaining ammo are rejected
   (`weapon_out_of_ammo`). Listing a dry weapon at its current charge is a no-op.
-- `shields` = six face powers (always from 0 this turn).
+- `shields` = six face powers (always from 0 this turn), each ≤ that face's
+  cap (`max_shields[i]` when present, otherwise `max_shield_per_facing`).
 - Partial allocation does **not** mutate public ship state.
 
 ### `commit_path`
@@ -145,6 +146,8 @@ Every successful order (and the post-load line) emits a state snapshot with
 | `ships_committed_volley` | Volley stage commits |
 | `path_results` | Last movement resolution telemetry (cost, fallback, conflicts, final hex/facing) |
 | ship `max_maneuver_actions` | Hull path-action cap |
+| ship `max_shield_per_facing` | Scalar face cap (stock catalog; also the max of `max_shields`) |
+| ship `max_shields` | Optional six face caps from the yard (F…FL). Absent → use the scalar |
 | ship `motion_available` | Usable motion points in movement stage |
 | `combat_log` | Resolved shots only (cleared at turn rollover) |
 | `fire_opportunity` | Optional player legal-shot advisory |

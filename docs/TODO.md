@@ -8,10 +8,30 @@
 
 ## Hull size, movement efficiency, and system capacity
 
-Status: Partially implemented. Explicit hull `size` and size-adjusted to-hit are
-accepted rules. The **seven-tier size ladder** is catalogued in
-`data/sizes.toml` (Fighter … Titan). Construction capacity, component catalogs,
-and size-derived yard limits remain design candidates.
+Status: **Not done.** The yard and size ladder exist; the original goal
+(size as a certified fleet tradeoff, catalog unification, sim evidence) does
+not.
+
+**Shipped (yard + combat silhouette):**
+
+- Seven-tier ladder in `data/sizes.toml`; combat to-hit uses `size / 2`
+  (baseline 2) plus MOO natural defense vs that baseline.
+- Larger hulls: more space / frame / HP, worse thrust, fewer `mv`.
+- Component yard (`docs/SHIPYARD.md`, TUI `--yard`): space cap, engines,
+  exterior armor, per-face shield banks, weapon SKUs, design-time cost.
+- Compile → ordinary `data/ships/<id>.toml`. Stock catalog is **not**
+  regenerated from the yard.
+
+**Still open (this TODO):**
+
+- Unify the 21-ship `{size}_{light|line|heavy}` catalog (and legacy escort /
+  huge / starbase) under yard rules.
+- Scenario load does **not** reject stock hulls for space; only the yard
+  validates capacity.
+- No construction *economy* in play (points exist at design time only).
+- Balance certification and the simulation evidence list below.
+- Named `movement_cost` / initiative-from-motion / momentum in the candidate
+  rules are **not** the live v4 path loop (see the note at the top of this file).
 
 ### Size ladder (accepted catalog)
 
@@ -55,8 +75,8 @@ Make hull size a strategic tradeoff rather than a linear power upgrade:
 - `hull`: structural endurance.
 - `max_shield_per_facing`: defensive capacity.
 - Optional `turn_cost` or `agility`: only if the movement design needs a separate responsiveness property.
-- Future construction: per-size hull space/cost; weapon and engine component
-  TOMLs with their own space/cost (not loaded yet).
+- Future construction: per-size hull space/cost and component TOMLs — **loaded
+  by the yard**, not by combat scenario load for the stock catalog.
 
 Keep these values explicit in ship data initially. Do not derive every statistic from `size` until simulation evidence supports stable formulas.
 
