@@ -20,7 +20,7 @@ weapon_boxes = 1
 attack_accuracy_bonus = 0
 thrust_per_power = 1
 power_per_thrust = 4
-cost = 3370
+cost = 3470
 
 [[weapons]]
 id = "beam_1"
@@ -29,3 +29,59 @@ mount = "forward"
 arc = "forward"
 max_range = 10
 max_charge = 4
+
+[[weapons]]
+id = "beam_2"
+kind = "beam"
+mount = "forward_starboard"
+arc = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "beam_3"
+kind = "beam"
+mount = "forward_port"
+arc = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "beam_4"
+kind = "beam"
+mount = "aft_port"
+arc = "rear"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "torp_1"
+kind = "torp"
+mount = "forward"
+arc = "forward"
+max_range = 12
+max_charge = 1
+
+[[weapons]]
+id = "torp_2"
+kind = "torp"
+mount = "aft"
+arc = "rear"
+max_range = 12
+max_charge = 1
+
+[[weapons]]
+id = "plasma_1"
+kind = "plasma"
+mount = "forward"
+arc = "forward"
+max_range = 6
+max_charge = 1
+
+[[weapons]]
+id = "plasma_2"
+kind = "plasma"
+mount = "aft_starboard"
+arc = "rear"
+max_range = 6
+max_charge = 1

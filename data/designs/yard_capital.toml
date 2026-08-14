@@ -10,3 +10,31 @@ shields = [16, 10, 6, 6, 6, 10]
 [[weapons]]
 component = "beam"
 mount = "forward"
+
+[[weapons]]
+component = "beam"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "beam"
+mount = "forward_port"
+
+[[weapons]]
+component = "beam"
+mount = "aft_port"
+
+[[weapons]]
+component = "torpedo"
+mount = "forward"
+
+[[weapons]]
+component = "torpedo"
+mount = "aft"
+
+[[weapons]]
+component = "plasma"
+mount = "forward"
+
+[[weapons]]
+component = "plasma"
+mount = "aft_starboard"

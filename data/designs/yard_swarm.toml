@@ -10,3 +10,7 @@ shields = [2, 1, 0, 0, 0, 1]
 [[weapons]]
 component = "beam_compact"
 mount = "forward"
+
+[[weapons]]
+component = "beam_compact"
+mount = "forward_starboard"

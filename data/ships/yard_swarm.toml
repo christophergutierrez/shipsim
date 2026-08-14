@@ -20,12 +20,20 @@ weapon_boxes = 1
 attack_accuracy_bonus = 0
 thrust_per_power = 3
 power_per_thrust = 1
-cost = 48
+cost = 74
 
 [[weapons]]
 id = "beam_1"
 kind = "beam"
 mount = "forward"
+arc = "forward"
+max_range = 10
+max_charge = 4
+
+[[weapons]]
+id = "beam_2"
+kind = "beam"
+mount = "forward_starboard"
 arc = "forward"
 max_range = 10
 max_charge = 4

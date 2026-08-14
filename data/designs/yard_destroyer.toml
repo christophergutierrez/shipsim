@@ -10,3 +10,7 @@ shields = [6, 4, 2, 2, 2, 4]
 [[weapons]]
 component = "beam"
 mount = "forward"
+
+[[weapons]]
+component = "torpedo"
+mount = "forward"
