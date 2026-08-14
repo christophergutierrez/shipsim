@@ -23,7 +23,7 @@ fn default_height() -> u32 {
 }
 
 /// One ship class and how many copies to field.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FleetLine {
     pub class: String,
@@ -220,6 +220,136 @@ pub fn fleet_cost(data_root: &Path, lines: &[FleetLine]) -> Result<u32, FleetErr
         total = total.saturating_add(def.cost.saturating_mul(line.count));
     }
     Ok(total)
+}
+
+/// Deliberately simple raw-alpha budget policy used by the catalog plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetPolicy {
+    Largest,
+    Swarm,
+    Balance,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BudgetError {
+    #[error("budget roster is empty")]
+    EmptyRoster,
+    #[error("budget roster class {class:?} has zero cost")]
+    ZeroCost { class: String },
+    #[error("budget roster class {class:?} is not available")]
+    Load { class: String, source: Box<LoadError> },
+}
+
+#[derive(Debug, Clone)]
+struct BudgetCandidate {
+    class: String,
+    size: u32,
+    cost: u32,
+    alpha: u32,
+}
+
+fn raw_alpha(def: &crate::schema::ShipDef, rules: &crate::rules::CombatRules) -> u32 {
+    def.weapons
+        .iter()
+        .map(|weapon| {
+            let kind = weapon.kind.to_ascii_lowercase();
+            let base = match kind.as_str() {
+                "beam" =>
+                    crate::combat_tables::beam_damage(rules, weapon.max_charge, 1).unwrap_or(0),
+                "plasma" =>
+                    crate::combat_tables::plasma_damage(rules, 1).unwrap_or(0),
+                "torp" =>
+                    crate::combat_tables::torp_damage(rules, 1).unwrap_or(0),
+                "missile" => 2,
+                _ => 0,
+            };
+            let modeled = if weapon.pierce && kind == "beam" {
+                base.div_ceil(2)
+            } else {
+                base
+            };
+            modeled.saturating_add(weapon.damage_bonus)
+        })
+        .sum()
+}
+
+fn budget_candidates(data_root: &Path, roster: &[String]) -> Result<Vec<BudgetCandidate>, BudgetError> {
+    if roster.is_empty() {
+        return Err(BudgetError::EmptyRoster);
+    }
+    let rules = crate::rules::Ruleset::builtin().combat().clone();
+    let mut candidates = Vec::with_capacity(roster.len());
+    for class in roster {
+        let def = load_ship_def(data_root, class).map_err(|source| BudgetError::Load {
+            class: class.clone(),
+            source: Box::new(source),
+        })?;
+        if def.cost == 0 {
+            return Err(BudgetError::ZeroCost { class: class.clone() });
+        }
+        candidates.push(BudgetCandidate {
+            class: class.clone(),
+            size: def.size,
+            cost: def.cost,
+            alpha: raw_alpha(&def, &rules),
+        });
+    }
+    candidates.sort_by(|a, b| {
+        b.alpha
+            .cmp(&a.alpha)
+            .then_with(|| b.cost.cmp(&a.cost))
+            .then_with(|| b.size.cmp(&a.size))
+            .then_with(|| a.class.cmp(&b.class))
+    });
+    Ok(candidates)
+}
+
+fn buy_greedily(candidates: &[BudgetCandidate], budget: &mut u32, allowed: impl Fn(&BudgetCandidate) -> bool) -> Vec<String> {
+    let mut bought = Vec::new();
+    while let Some(candidate) = candidates
+        .iter()
+        .find(|candidate| allowed(candidate) && candidate.cost <= *budget)
+    {
+        *budget -= candidate.cost;
+        bought.push(candidate.class.clone());
+    }
+    bought
+}
+
+/// Build a deterministic fleet from the standard catalog and a yard budget.
+/// Returned lines are never auto-squadded.
+pub fn build_budget_fleet(
+    data_root: &Path,
+    budget: u32,
+    policy: BudgetPolicy,
+    roster: &[String],
+) -> Result<Vec<FleetLine>, BudgetError> {
+    let candidates = budget_candidates(data_root, roster)?;
+    let mut remaining = budget;
+    let classes = match policy {
+        BudgetPolicy::Largest => buy_greedily(&candidates, &mut remaining, |_| true),
+        BudgetPolicy::Swarm => buy_greedily(&candidates, &mut remaining, |candidate| candidate.size <= 2),
+        BudgetPolicy::Balance => {
+            let mut chosen = Vec::new();
+            if let Some(candidate) = candidates.iter().find(|c| c.size == 4 && c.cost <= remaining) {
+                remaining -= candidate.cost;
+                chosen.push(candidate.class.clone());
+            }
+            chosen.extend(buy_greedily(&candidates, &mut remaining, |c| c.size == 3));
+            chosen.extend(buy_greedily(&candidates, &mut remaining, |c| c.size == 2));
+            chosen.extend(buy_greedily(&candidates, &mut remaining, |c| c.size == 1));
+            chosen
+        }
+    };
+    let mut lines = Vec::new();
+    for class in classes {
+        if let Some(line) = lines.iter_mut().find(|line: &&mut FleetLine| line.class == class) {
+            line.count += 1;
+        } else {
+            lines.push(FleetLine::new(class, 1));
+        }
+    }
+    Ok(lines)
 }
 
 pub fn engagement_costs(
@@ -448,5 +578,41 @@ mod tests {
         );
         assert!(def.ships.iter().any(|s| s.controller == "player"));
         assert!(def.ships.iter().any(|s| s.controller == "scripted"));
+    }
+
+    #[test]
+    fn budget_policies_are_deterministic_and_within_budget() {
+        let roster = vec![
+            "yard_swarm".into(),
+            "yard_destroyer".into(),
+            "yard_light_cruiser".into(),
+            "yard_heavy_cruiser".into(),
+            "yard_capital".into(),
+        ];
+        for policy in [BudgetPolicy::Largest, BudgetPolicy::Swarm, BudgetPolicy::Balance] {
+            let fleet = build_budget_fleet(&root(), 1000, policy, &roster).expect("budget fleet");
+            assert!(fleet_cost(&root(), &fleet).unwrap() <= 1000);
+            if policy == BudgetPolicy::Swarm {
+                assert!(fleet.iter().all(|line| line.class == "yard_swarm" || line.class == "yard_destroyer"));
+            }
+            if policy == BudgetPolicy::Balance {
+                assert!(fleet.iter().all(|line| line.class != "yard_capital"));
+            }
+            assert_eq!(fleet, build_budget_fleet(&root(), 1000, policy, &roster).unwrap());
+        }
+    }
+
+    #[test]
+    fn budget_rejects_zero_cost_classes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("data/ships")).unwrap();
+        std::fs::write(
+            dir.path().join("data/ships/free.toml"),
+            "name='free'\nsize=1\nmax_maneuver_actions=1\npower=1\nmax_shield_per_facing=1\npower_sys=1\nengine_boxes=1\n",
+        )
+        .unwrap();
+        let err = build_budget_fleet(dir.path(), 10, BudgetPolicy::Largest, &["free".into()])
+            .expect_err("zero cost must be rejected");
+        assert!(matches!(err, BudgetError::ZeroCost { .. }));
     }
 }

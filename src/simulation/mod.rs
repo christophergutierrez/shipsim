@@ -6,7 +6,10 @@ pub mod rubric;
 pub mod runner;
 pub mod trace;
 
-pub use fleet::{EngagementSpec, FleetLine, FleetMapSpec, PowerSweepSpec};
+pub use fleet::{
+    build_budget_fleet, BudgetError, BudgetPolicy, EngagementSpec, FleetLine, FleetMapSpec,
+    PowerSweepSpec,
+};
 pub use metrics::{AggregateMetrics, MatchMetrics};
 pub use policy::{DecisionContext, Policy};
 pub use rubric::{EngagementBreakdown, RubricResult, RubricSpec};

@@ -82,6 +82,20 @@ class RulesParityTests(unittest.TestCase):
         # that reaches the ceiling must still be reduced by later evasion.
         self.assertEqual(hit_preview("beam", 1, 2, 0, 2, 10), (19, 95))
 
+    def test_computer_and_cloak_modifiers_follow_engine_order(self):
+        plain = hit_preview("beam", 3, 3)
+        computer = hit_preview("beam", 3, 3, 0, 0, 0, 3)
+        cloaked = hit_preview("beam", 3, 3, 0, 0, 0, 0, True)
+        self.assertEqual(computer[0], min(19, plain[0] + 3))
+        self.assertEqual(cloaked[0], max(1, plain[0] - 4))
+
+    def test_ecm_only_reduces_missiles(self):
+        missile = hit_preview("missile", 3, 2)
+        blocked = hit_preview("missile", 3, 2, 0, 0, 0, 0, False, True)
+        beam = hit_preview("beam", 3, 2, 0, 0, 0, 0, False, True)
+        self.assertEqual(blocked[0], missile[0] - 2)
+        self.assertEqual(beam, hit_preview("beam", 3, 2))
+
     def test_beam_to_hit_table_matches(self):
         self.assertEqual(
             list(self.rules["combat"]["weapons"]["beam"]["to_hit"]),

@@ -17,8 +17,10 @@ from hexutil import (
     bar,
     format_bar,
     damage_preview,
+    computer_bonus,
     distance,
     hit_preview,
+    has_system,
     legal_shield_facings,
     motion_status_bits,
     relative_bearing,
@@ -420,6 +422,13 @@ def format_ship_card(
         if ship.get("keel") is not None:
             systems += f" frame={ship.get('keel')}"
         parts.append(f"    hull {format_bar(hull, hmax)}  {systems}")
+        installed = [str(s.get("kind")) for s in ship.get("systems") or []]
+        if installed:
+            parts.append(f"    systems: {', '.join(installed)}")
+        if ship.get("squad_id") is not None:
+            members = ",".join(str(x) for x in ship.get("squad_members") or [])
+            leader = ship.get("squad_leader")
+            parts.append(f"    squad {ship['squad_id']} leader=#{leader} members={members}")
 
     highlight = None
     if vs is not None and not vs.get("destroyed"):
@@ -530,6 +539,9 @@ def format_engagement(me: dict[str, Any], contacts: list[dict[str, Any]]) -> str
                 int(me.get("attack_accuracy_bonus") or 0),
                 int(contact.get("evasion_committed") or 0),
                 int(weapon.get("accuracy_bonus") or 0),
+                computer_bonus(me),
+                bool(contact.get("cloaked")),
+                has_system(contact, "ecm"),
             )
             odds = (
                 f", to-hit≤{preview[0]} ({preview[1]}%)"
@@ -943,6 +955,9 @@ def format_commits(
                 int(atk.get("attack_accuracy_bonus") or 0),
                 int(target.get("evasion_committed") or 0),
                 int(weapon.get("accuracy_bonus") or 0),
+                computer_bonus(atk),
+                bool(target.get("cloaked")),
+                has_system(target, "ecm"),
             )
             damage = damage_preview(
                 str(weapon.get("kind") or ""), int(weapon.get("charge") or 0), rng,
@@ -1039,7 +1054,10 @@ def format_combat_log(snap: dict[str, Any], *, last_n: int = 8) -> str:
         roll = f" roll={e['roll']}" if e.get("roll") is not None else ""
         lines.append(
             f"  {atk_cs} {wpn} → {tgt_cs} "
-            f"{kind}{roll} raw={e.get('damage')} shield={face}:{lab} "
+            f"{kind}{roll}"
+            + (f" packet={e['packet']}" if e.get("packet") is not None else "")
+            + (f" vs={e['vs_weapon']}" if e.get("vs_weapon") else "")
+            + f" raw={e.get('damage')} shield={face}:{lab} "
             f"absorbed={e.get('shield_absorbed', '?')} internal={e.get('hull_damage', '?')}"
         )
     return "\n".join(lines)

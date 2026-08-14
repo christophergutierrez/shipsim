@@ -15,8 +15,10 @@ from hexutil import (
     SHIELD_LABELS,
     distance,
     damage_preview,
+    computer_bonus,
     format_bar,
     hit_preview,
+    has_system,
     legal_shield_facings,
     motion_status_bits,
     path_action_short,
@@ -1400,6 +1402,9 @@ def interactive_fire(
             int(ship.get("attack_accuracy_bonus") or 0),
             int(t.get("evasion_committed") or 0),
             int(chosen.get("accuracy_bonus") or 0),
+            computer_bonus(ship),
+            bool(t.get("cloaked")),
+            has_system(t, "ecm"),
         )
         damage = damage_preview(
             str(chosen.get("kind") or ""), int(chosen.get("charge") or 0), rng,
@@ -1610,6 +1615,9 @@ def direct_fire(
         int(attacker.get("attack_accuracy_bonus") or 0),
         int(target.get("evasion_committed") or 0),
         int(weapon.get("accuracy_bonus") or 0),
+        computer_bonus(attacker),
+        bool(target.get("cloaked")),
+        has_system(target, "ecm"),
     )
     if preview:
         damage = damage_preview(

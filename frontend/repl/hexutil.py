@@ -60,6 +60,7 @@ _TO_HIT = {
     "beam": (18, 17, 15, 13, 11, 10, 8, 7, 5, 4),
     "plasma": (16, 14, 12, 10, 8, 6, 5, 4, 3, 2, 2, 2, 1, 1),
     "torp": (14, 13, 12, 11, 10, 9, 7, 6, 5, 4, 3, 3),
+    "missile": (14, 13, 12, 11, 10, 9, 7, 6, 5, 4, 3, 3),
 }
 
 # combat.accuracy / combat.die_sides in data/rules/default.toml.
@@ -69,6 +70,17 @@ CEILING_FLOOR = 15
 CEILING_MAX = 19
 FIRE_CONTROL_TARGET_SIZE = 2
 EVASION_PER_POINT = 1
+
+
+def computer_bonus(ship: dict) -> int:
+    for system in ship.get("systems") or []:
+        if str(system.get("kind") or "").lower() == "computer":
+            return int(system.get("mk") or 0)
+    return 0
+
+
+def has_system(ship: dict, kind: str) -> bool:
+    return any(str(system.get("kind") or "").lower() == kind for system in ship.get("systems") or [])
 
 
 def natural_defense(size: int) -> int:
@@ -83,6 +95,9 @@ def hit_preview(
     attack_accuracy_bonus: int = 0,
     defender_evasion: int = 0,
     weapon_accuracy_bonus: int = 0,
+    computer_accuracy_bonus: int = 0,
+    defender_cloaked: bool = False,
+    defender_ecm: bool = False,
 ) -> tuple[int, int] | None:
     """Return the engine's final (d20 threshold, percent), including the
     range-aware accuracy ceiling, catalog fire control, and defender evasion.
@@ -102,11 +117,14 @@ def hit_preview(
     scaled = (base * target_size + BASELINE_TARGET_SIZE // 2) // BASELINE_TARGET_SIZE
     ceiling = min(CEILING_MAX, max(base, CEILING_FLOOR))
     threshold = min(ceiling, max(1, scaled))
-    bonus = (attack_accuracy_bonus if target_size == FIRE_CONTROL_TARGET_SIZE else 0) + max(0, int(weapon_accuracy_bonus))
+    bonus = (attack_accuracy_bonus if target_size == FIRE_CONTROL_TARGET_SIZE else 0)
+    bonus += max(0, int(weapon_accuracy_bonus)) + max(0, int(computer_accuracy_bonus))
     final_cap = min(CEILING_MAX, DIE_SIDES - 1)
     evasion_delta = max(0, int(defender_evasion)) * EVASION_PER_POINT
     agility = natural_defense(target_size) - natural_defense(BASELINE_TARGET_SIZE)
-    threshold = max(1, min(final_cap, threshold + bonus - evasion_delta - agility))
+    ecm_delta = 2 if str(kind).lower() == "missile" and defender_ecm else 0
+    cloak_delta = 4 if defender_cloaked else 0
+    threshold = max(1, min(final_cap, threshold + bonus - ecm_delta - cloak_delta - evasion_delta - agility))
     percent = round(threshold * 100 / DIE_SIDES)
     return threshold, percent
 
@@ -120,6 +138,8 @@ def damage_preview(kind: str, charge: int, range_: int, damage_bonus: int = 0) -
             return int(charge * factors[range_ - 1] + 0.5) + max(0, int(damage_bonus))
     if k == "torp" and 1 <= range_ <= 12:
         return 4 + max(0, int(damage_bonus))
+    if k == "missile" and 1 <= range_ <= 12:
+        return 2 + max(0, int(damage_bonus))
     if k == "plasma":
         values = (8, 6, 5, 4, 3, 3, 2, 2, 1, 1, 1, 1, 1, 1)
         if 1 <= range_ <= len(values):

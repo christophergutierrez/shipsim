@@ -21,7 +21,7 @@ torpedo_ammo_base = 3
 torpedo_ammo_per_size = 1
 
 [combat.pd]
-torp = 8
+torp = 5
 missile = 10
 
 [combat.weapons.beam]
