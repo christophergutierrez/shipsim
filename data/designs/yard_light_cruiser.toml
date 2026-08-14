@@ -1,0 +1,20 @@
+id = "yard_light_cruiser"
+name = "Yard Light Cruiser"
+size = 3
+material = "titanium"
+engine = "fission"
+engine_size = "l"
+armored = true
+shields = [8, 6, 4, 4, 4, 6]
+
+[[weapons]]
+component = "beam"
+mount = "forward"
+
+[[weapons]]
+component = "beam"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "torpedo"
+mount = "aft"
