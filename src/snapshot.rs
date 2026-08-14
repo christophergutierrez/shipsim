@@ -2,10 +2,10 @@ use serde::Serialize;
 
 use crate::arc::Mount;
 use crate::combat::{Arc, Weapon};
-use crate::schema::SystemKind;
 use crate::combat_tables;
 use crate::game_state::{FireOpportunity, GameState, ScenarioStatus};
 use crate::path_resolve::PathResult;
+use crate::schema::SystemKind;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MapSnapshot {
@@ -54,6 +54,12 @@ pub struct ShipSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub systems: Vec<SystemKind>,
     pub max_maneuver_actions: u8,
+    /// Design cap reduced by engine damage — the ceiling the engine actually
+    /// enforces (`path::usable_motion`). Distinct from `max_maneuver_actions`,
+    /// which stays the undamaged design value that clients label motion against.
+    /// Clients must clamp movement allocation against **this**: power that buys
+    /// motion above it is truncated on resolve and silently lost.
+    pub effective_max_maneuver_actions: u32,
     pub thrust_per_power: u32,
     pub power_per_thrust: u32,
     /// Usable motion points during movement stage (0 after resolution / other stages).
@@ -192,6 +198,7 @@ impl StateSnapshot {
                     weapon_boxes: ship.ssd.weapon_boxes.clone(),
                     destroyed: ship.destroyed,
                     max_maneuver_actions: ship.max_maneuver_actions,
+                    effective_max_maneuver_actions: ship.effective_max_maneuver_actions(),
                     thrust_per_power: ship.thrust_conversion.thrust_per_power,
                     power_per_thrust: ship.thrust_conversion.power_per_thrust,
                     motion_available: ship.motion_available,

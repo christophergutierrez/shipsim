@@ -87,13 +87,7 @@ impl BaselinePolicy {
     }
 
     fn power_for_motion(ship: &ShipSnapshot, motion: u32) -> u32 {
-        if motion == 0 || ship.thrust_per_power == 0 {
-            return 0;
-        }
-        motion
-            .saturating_mul(ship.power_per_thrust)
-            .saturating_add(ship.thrust_per_power - 1)
-            / ship.thrust_per_power
+        crate::thrust::power_for_thrust(motion, ship.thrust_per_power, ship.power_per_thrust)
     }
 
     fn desired_motion(&mut self, ship: &ShipSnapshot, snapshot: Option<&StateSnapshot>) -> u32 {

@@ -767,6 +767,7 @@ mod tests {
                 pierce: false,
             }],
             max_maneuver_actions: 4,
+            effective_max_maneuver_actions: 4,
             thrust_per_power: 1,
             power_per_thrust: 1,
             motion_available: 0,

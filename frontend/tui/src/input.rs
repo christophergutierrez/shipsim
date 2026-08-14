@@ -972,11 +972,23 @@ fn set_allocate_field(app: &mut App, value: u32) {
         return;
     };
     let (minimum, maximum) = allocation_field_bounds(draft, &ship);
+    let requested = value;
     let value = value.clamp(minimum, maximum);
     if let Some((field, _)) = app.digit_entry {
         app.digit_entry = Some((field, value));
     }
+    let on_movement = draft.cursor == 0;
     draft.set_field_value(value);
+    // Say why a raise was refused. Silently clamping reads as a dead key rather
+    // than a limit, which is the same "the UI said nothing" failure as the
+    // uncapped ceiling above — just in miniature.
+    if requested > value && on_movement {
+        let cap = ship.motion_cap();
+        app.log(format!(
+            "movement capped at {value} power — this hull converts at most {cap} motion points; \
+             extra power would be lost, not banked"
+        ));
+    }
 }
 
 /// True when the allocate cursor sits on a non-operational weapon row.
@@ -1024,10 +1036,18 @@ fn allocation_field_bounds(
     let weapon_count = base.weapons.len();
     if base.cursor == 0 {
         base.movement = 0;
-        return (
-            0,
-            ship.power_available.saturating_sub(base.power_cost(ship)),
-        );
+        let residual = ship.power_available.saturating_sub(base.power_cost(ship));
+        // Movement was the one field with no real ceiling: it offered the whole
+        // power pool while the engine converts at most `motion_cap` motion
+        // points and *destroys* the surplus (`usable_motion` truncates;
+        // `movement_allocated` still records the full spend). A heavy cruiser
+        // could put 20 of 36 power into movement, be told "ok", and get 6.
+        // Weapons clamp to `max_charge` and shields to `shield_cap` just below,
+        // so this field also trained the player's mental model and then broke it.
+        return match ship.movement_power_cap() {
+            Some(cap) => (0, residual.min(cap)),
+            None => (0, residual),
+        };
     }
     if base.cursor <= weapon_count {
         let index = base.cursor - 1;

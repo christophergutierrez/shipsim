@@ -1927,6 +1927,72 @@ fn path_preview_flows_end_to_end() {
     assert_eq!(preview.cost, 1, "one forward step costs one motion point");
 }
 
+/// Regression: movement allocation must not offer power the hull cannot convert.
+///
+/// `yard_heavy_cruiser` has power 36, a 1:1 thrust ratio, and
+/// `max_maneuver_actions = 6`, so at most 6 power buys motion. The allocate
+/// panel used to offer the whole 36-power pool for the movement field and
+/// report "ok"; the engine then truncated to 6 (`path::usable_motion`) while
+/// still recording the full spend, destroying the surplus with no warning.
+/// Drives the real engine so the ship stats and the truncation rule are the
+/// engine's, not the test's.
+#[test]
+fn movement_allocation_is_capped_at_convertible_power() {
+    let bin = engine_bin().expect("shipsim binary not found — cargo build at repo root");
+    let scenario = if std::path::Path::new("../../scenarios/battle.toml").is_file() {
+        "../../scenarios/battle.toml"
+    } else {
+        "scenarios/battle.toml"
+    };
+
+    let mut harness = crate::harness::Harness::spawn(bin.to_str().unwrap(), scenario)
+        .unwrap_or_else(|e| panic!("spawn engine {bin:?}: {e}"));
+    let mut app = App::new();
+    let line = harness.read_line().expect("post-load snapshot");
+    apply_line(&mut app, line);
+
+    let ship = app.focused().cloned().expect("focused ship");
+    assert!(
+        ship.power_available > ship.motion_cap(),
+        "scenario must have more power than convertible motion for this to test anything \
+         (power {}, motion cap {})",
+        ship.power_available,
+        ship.motion_cap()
+    );
+    let expected_cap = ship
+        .movement_power_cap()
+        .expect("mobile hull with a live ratio must expose a movement power cap");
+
+    // Try to dump far more power into movement than the hull can convert.
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    for _ in 0..ship.power_available {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    }
+    let allocated = app.alloc_draft.as_ref().unwrap().movement;
+    assert_eq!(
+        allocated, expected_cap,
+        "movement must clamp at the convertible ceiling, not the power pool"
+    );
+
+    // Commit and confirm the engine agrees nothing was wasted: every allocated
+    // point of movement power became a usable motion point.
+    send_key(
+        &mut app,
+        &mut harness,
+        make_key_code(crossterm::event::KeyCode::Enter),
+    );
+    let ship = app.focused().cloned().expect("focused ship after commit");
+    assert_eq!(
+        ship.motion_available,
+        ship.motion_cap(),
+        "clamped allocation should buy exactly the cap in motion points"
+    );
+    assert_eq!(
+        ship.movement_allocated, allocated,
+        "engine must record the same movement spend the client offered"
+    );
+}
+
 #[test]
 fn allocation_input_clamps_to_affordable_power() {
     let mut app = App::new();
@@ -1941,7 +2007,7 @@ fn allocation_input_clamps_to_affordable_power() {
     let ship = app.focused().unwrap();
     assert_eq!(
         app.alloc_draft.as_ref().unwrap().movement,
-        ship.power_available
+        ship.movement_power_cap().unwrap()
     );
     assert!(app.alloc_draft.as_ref().unwrap().power_cost(ship) <= ship.power_available);
 }
@@ -1977,6 +2043,35 @@ fn map_focus_can_inspect_enemy_and_zoom() {
 
     handle_key(&mut app, make_key('+'));
     assert_eq!(app.map_zoom, Some(1));
+}
+
+#[test]
+fn map_preview_uses_diamond_route_family_and_identity() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    app.path_preview = Some(crate::protocol::PathPreview {
+        kind: "path_preview".into(),
+        ok: true,
+        ship: 1,
+        cost: 1,
+        remaining_motion: 7,
+        final_q: 2,
+        final_r: 4,
+        final_facing: 0,
+        steps: vec![crate::protocol::PathStep {
+            action: "move_f".into(),
+            q: 2,
+            r: 4,
+            facing: 0,
+        }],
+        error: None,
+        error_index: None,
+    });
+    handle_key(&mut app, make_key('v'));
+    let buffer = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buffer, "◇A1"), "planned destination should retain identity: {buffer}");
 }
 
 #[test]

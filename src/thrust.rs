@@ -116,6 +116,33 @@ impl ThrustConversion {
         let remainder = power.saturating_sub(consumed);
         (thrust, remainder)
     }
+
+    /// Inverse of [`Self::convert`]: the least power that yields `thrust`.
+    pub fn power_for_thrust(&self, thrust: u32) -> u32 {
+        power_for_thrust(thrust, self.thrust_per_power, self.power_per_thrust)
+    }
+}
+
+/// Least power that converts to at least `thrust` motion points.
+///
+/// `convert` truncates (`thrust = power * tpp / ppt`), so the inverse must
+/// round **up** — `ceil(thrust * ppt / tpp)` — or a client would offer one
+/// power too few and silently buy one motion point less than the cap.
+///
+/// Free function rather than only a method because clients hold the two ratio
+/// numbers as plain fields (the TUI's `protocol::Ship`) and constructing a
+/// validating [`ThrustConversion`] just to invert it is needless ceremony.
+/// This is the single definition: [`ThrustConversion::power_for_thrust`] and
+/// the simulation policies both delegate here, so the "how much power buys N
+/// motion" rule cannot drift between the engine, the AI, and the UI.
+pub fn power_for_thrust(thrust: u32, thrust_per_power: u32, power_per_thrust: u32) -> u32 {
+    if thrust == 0 || thrust_per_power == 0 {
+        return 0;
+    }
+    thrust
+        .saturating_mul(power_per_thrust)
+        .saturating_add(thrust_per_power - 1)
+        / thrust_per_power
 }
 
 #[cfg(test)]

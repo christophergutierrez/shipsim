@@ -113,6 +113,12 @@ pub struct Ship {
     /// Hull cap on path length (v4).
     #[serde(default)]
     pub max_maneuver_actions: u32,
+    /// Design cap reduced by engine damage — the ceiling the engine enforces.
+    /// Movement allocation clamps against this; power buying motion above it is
+    /// truncated on resolve and lost. Defaults to 0 for pre-field snapshots, so
+    /// `movement_power_cap` falls back to `max_maneuver_actions`.
+    #[serde(default)]
+    pub effective_max_maneuver_actions: u32,
     /// Motion points produced per unit of engine power (v4).
     #[serde(default)]
     pub thrust_per_power: u32,
@@ -649,6 +655,40 @@ impl Ship {
             .copied()
             .filter(|&cap| cap > 0 || self.max_shields.len() == 6)
             .unwrap_or(self.max_shield_per_facing)
+    }
+
+    /// Motion cap the engine will actually enforce this turn.
+    ///
+    /// Prefers the damage-adjusted value; falls back to the design cap when a
+    /// snapshot predates that field (serde default 0), so an older engine
+    /// degrades to "clamp at the undamaged cap" rather than to "no clamp".
+    pub fn motion_cap(&self) -> u32 {
+        if self.effective_max_maneuver_actions > 0 {
+            self.effective_max_maneuver_actions
+        } else {
+            self.max_maneuver_actions
+        }
+    }
+
+    /// Most movement power worth spending: the least power that reaches
+    /// `motion_cap`. Beyond this the engine truncates the surplus
+    /// (`path::usable_motion`) and the power is destroyed, not refunded — so
+    /// this is a real ceiling, not a suggestion.
+    ///
+    /// Returns `None` when the ratio is unusable (immobile hull, or a
+    /// pre-field snapshot with no ratio), meaning "no cap can be derived" —
+    /// callers keep their existing power-pool bound rather than clamping to a
+    /// wrong number.
+    pub fn movement_power_cap(&self) -> Option<u32> {
+        let cap = self.motion_cap();
+        if cap == 0 || self.thrust_per_power == 0 || self.power_per_thrust == 0 {
+            return None;
+        }
+        Some(shipsim_core::thrust::power_for_thrust(
+            cap,
+            self.thrust_per_power,
+            self.power_per_thrust,
+        ))
     }
 }
 
