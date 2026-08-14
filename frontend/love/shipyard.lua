@@ -64,7 +64,10 @@ function shipyard.new_design()
     engine_size = "m",
     armored = true,
     shields = { 6, 4, 2, 2, 2, 4 },
-    weapons = { { component = "beam", mount = "forward" } },
+    weapons = {
+      { component = "beam", mount = "forward" },
+      { component = "torpedo", mount = "forward" },
+    },
   }
 end
 

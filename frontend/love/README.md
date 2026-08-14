@@ -120,5 +120,5 @@ Details: [`assets/ship_art/README.md`](assets/ship_art/README.md).
 
 ```bash
 cargo build -q
-luajit frontend/love/tests/run_all.lua
+luajit frontend/love/tests/run_all.lua  # headless LuaJIT; stock Lua is unsupported
 ```
