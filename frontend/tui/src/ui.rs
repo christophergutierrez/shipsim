@@ -658,15 +658,16 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 };
                 (cell, ship_fg(s, focused))
             } else if is_coast {
-                // Dim shadow of the ship at its planned end hex (callsign +
-                // projected facing), or a plain diamond if we lack the label.
+                // Dim shadow of the ship at its planned end hex. The diamond
+                // prefix keeps the destination visually tied to route cells,
+                // while the callsign and facing keep it distinct from a ship.
                 let label = ghost
                     .as_ref()
                     .filter(|(gq, gr, _, _)| {
                         in_cell(*gq, oq, metrics.scale, q) && in_cell(*gr, or_, metrics.scale, r)
                     })
-                    .map(|(_, _, cs, facing)| format!("{cs}{}", facing_arrow(*facing)))
-                    .unwrap_or_else(|| "◈".to_string());
+                    .map(|(_, _, cs, facing)| format!("◇{cs}{}", facing_arrow(*facing)))
+                    .unwrap_or_else(|| "◇".to_string());
                 (pad_cell(label, metrics.cell_width), Color::Cyan)
             } else if is_preview_endpoint {
                 (
@@ -707,7 +708,7 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A1→ = ship/facing. Dim ghost = planned end (waits for simultaneous move); ◇ route"
+        "A1→ = ship/facing. Cyan ◇ghost = planned end; ◇ route"
     } else {
         "A1→ = ship/facing; +N = more ships here. Shade = weapon arc"
     };
