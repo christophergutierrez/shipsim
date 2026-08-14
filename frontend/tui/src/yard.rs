@@ -27,6 +27,15 @@ pub enum EditField {
     Weapon { index: usize },
 }
 
+/// An action armed by one keypress, awaiting a second confirming keypress.
+/// Any other key cancels it (see `input.rs`) rather than leaving it armed
+/// indefinitely, so a later unrelated `d` can never land on a stale arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingConfirm {
+    DiscardChanges,
+    DeleteWeapon { index: usize },
+}
+
 #[derive(Debug, Clone)]
 pub struct ListedDesign {
     pub path: PathBuf,
@@ -42,26 +51,34 @@ pub struct YardState {
     /// Browse cursor; last row is "new ship" if `listings.len()` is selected.
     pub browse_cursor: usize,
     pub draft: Design,
+    /// The draft as last loaded, saved, or compiled — the baseline `is_dirty`
+    /// compares against so Esc only needs to warn when there is something to
+    /// lose.
+    pub saved: Design,
     pub edit_cursor: EditField,
     pub status: String,
     pub skus: Vec<String>,
     pub sizes: SizeTable,
+    pub pending: Option<PendingConfirm>,
 }
 
 impl YardState {
     pub fn load(root: PathBuf) -> Result<Self, String> {
         let skus = shipyard::weapon_skus(&root).map_err(|e| e.to_string())?;
         let sizes = sizes::load(&root).map_err(|e| e.to_string())?;
+        let draft = shipyard::new_design("yard_custom");
         let mut yard = Self {
             root,
             screen: YardScreen::Browse,
             listings: Vec::new(),
             browse_cursor: 0,
-            draft: shipyard::new_design("yard_custom"),
+            saved: draft.clone(),
+            draft,
             edit_cursor: EditField::Size,
             status: String::new(),
             skus,
             sizes,
+            pending: None,
         };
         yard.refresh_listings();
         Ok(yard)
@@ -72,6 +89,14 @@ impl YardState {
             Ok(list) => {
                 self.listings = list
                     .into_iter()
+                    // Weapon-quality fixtures (yard_baseline/compact/potent/precise)
+                    // are balance-suite controls, not player-facing standards —
+                    // keep them off the interactive picker so "one of each
+                    // standard type" is what a player actually sees. They are
+                    // untouched on disk and still visible to the CLI.
+                    .filter(|(_, design)| {
+                        !shipyard::QUALITY_FIXTURE_IDS.contains(&design.id.as_str())
+                    })
                     .map(|(path, design)| {
                         let preview = shipyard::preview_design(&self.root, &design)
                             .map_err(|e| e.to_string());
@@ -115,6 +140,8 @@ impl YardState {
         }
         let listing = &self.listings[self.browse_cursor];
         self.draft = listing.design.clone();
+        self.saved = self.draft.clone();
+        self.pending = None;
         self.edit_cursor = EditField::Name;
         self.screen = YardScreen::Edit;
         self.status = format!(
@@ -140,12 +167,45 @@ impl YardState {
         let name = shipyard::unique_class_name(hull, taken_names);
         self.draft = shipyard::new_design(id);
         self.draft.name = name;
+        self.saved = self.draft.clone();
+        self.pending = None;
         self.edit_cursor = EditField::Name;
         self.screen = YardScreen::Edit;
         self.status = "new class — type to rename, ↑/↓ to leave the name".into();
     }
 
-    pub fn back_to_browse(&mut self) {
+    pub fn is_dirty(&self) -> bool {
+        self.draft != self.saved
+    }
+
+    /// Esc on the edit screen. Unsaved changes need a second Esc to discard —
+    /// the confirming press is `self.pending == Some(DiscardChanges)`, armed
+    /// below. Nothing to lose leaves immediately.
+    pub fn request_exit(&mut self) {
+        if !self.is_dirty() {
+            self.pending = None;
+            self.back_to_browse();
+            return;
+        }
+        if self.pending == Some(PendingConfirm::DiscardChanges) {
+            self.pending = None;
+            self.back_to_browse();
+        } else {
+            self.pending = Some(PendingConfirm::DiscardChanges);
+            self.status = "unsaved changes — Esc again to discard, or s to save".into();
+        }
+    }
+
+    /// Clears an armed confirmation without acting on it. Call on any key
+    /// that is not the confirming repeat, so an old arm can never fire late
+    /// against a since-changed cursor or field.
+    pub fn cancel_pending(&mut self) {
+        if self.pending.take().is_some() {
+            self.status = "cancelled".into();
+        }
+    }
+
+    fn back_to_browse(&mut self) {
         self.screen = YardScreen::Browse;
         self.refresh_listings();
     }
@@ -205,6 +265,7 @@ impl YardState {
     pub fn save(&mut self) {
         match shipyard::save_design(&self.root, &self.draft) {
             Ok(path) => {
+                self.saved = self.draft.clone();
                 self.status = format!("saved {}", path.display());
                 self.refresh_listings();
             }
@@ -217,6 +278,7 @@ impl YardState {
             self.status = err.to_string();
             return;
         }
+        self.saved = self.draft.clone();
         let path = self.root.join("data/designs").join(format!("{}.toml", self.draft.id));
         match shipyard::compile(&self.root, &path) {
             Ok(out) => {
@@ -310,7 +372,12 @@ impl YardState {
         };
     }
 
-    pub fn delete_weapon(&mut self) {
+    /// 'd' on a weapon row. First press arms it (status names the weapon and
+    /// asks for a repeat); pressing 'd' again on the *same* weapon confirms.
+    /// Moving off the row or pressing any other key cancels the arm
+    /// (`cancel_pending`, called from `input.rs`) rather than leaving a
+    /// dangling confirmation that could later delete the wrong row.
+    pub fn request_delete_weapon(&mut self) {
         let EditField::Weapon { index } = self.edit_cursor else {
             return;
         };
@@ -318,10 +385,19 @@ impl YardState {
             self.status = "a ship needs at least one weapon".into();
             return;
         }
-        self.draft.weapons.remove(index);
-        self.edit_cursor = EditField::Weapon {
-            index: index.min(self.draft.weapons.len() - 1),
-        };
+        if self.pending == Some(PendingConfirm::DeleteWeapon { index }) {
+            self.pending = None;
+            let sku = self.draft.weapons[index].component.clone();
+            self.draft.weapons.remove(index);
+            self.edit_cursor = EditField::Weapon {
+                index: index.min(self.draft.weapons.len() - 1),
+            };
+            self.status = format!("deleted {sku}");
+        } else {
+            self.pending = Some(PendingConfirm::DeleteWeapon { index });
+            let sku = &self.draft.weapons[index].component;
+            self.status = format!("delete {sku}? d again to confirm, any other key cancels");
+        }
     }
 
     pub fn move_edit(&mut self, delta: i32) {

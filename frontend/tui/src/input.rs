@@ -147,27 +147,68 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
         },
         YardScreen::Edit => {
             use crate::yard::EditField;
+            // Esc and 'd' each carry their own arm/confirm state (see
+            // `request_exit` / `request_delete_weapon`) and must not be
+            // cancelled before they get to check it. Every other key clears
+            // any armed confirmation first, so an armed delete or discard can
+            // never fire against a since-changed cursor or field.
             if yard.edit_cursor == EditField::Name {
                 match key.code {
-                    KeyCode::Up => yard.move_edit(-1),
-                    KeyCode::Down => yard.move_edit(1),
-                    KeyCode::Backspace => yard.backspace_name(),
-                    KeyCode::Esc => yard.back_to_browse(),
-                    KeyCode::Char(ch) => yard.type_name(ch),
+                    KeyCode::Esc => yard.request_exit(),
+                    KeyCode::Up => {
+                        yard.cancel_pending();
+                        yard.move_edit(-1);
+                    }
+                    KeyCode::Down => {
+                        yard.cancel_pending();
+                        yard.move_edit(1);
+                    }
+                    KeyCode::Backspace => {
+                        yard.cancel_pending();
+                        yard.backspace_name();
+                    }
+                    KeyCode::Char(ch) => {
+                        yard.cancel_pending();
+                        yard.type_name(ch);
+                    }
                     _ => {}
                 }
             } else {
                 match key.code {
-                    KeyCode::Up | KeyCode::Char('k') => yard.move_edit(-1),
-                    KeyCode::Down | KeyCode::Char('j') => yard.move_edit(1),
-                    KeyCode::Left | KeyCode::Char('h') => yard.nudge(-1),
-                    KeyCode::Right | KeyCode::Char('l') => yard.nudge(1),
-                    KeyCode::Char('m') => yard.cycle_weapon_mount(),
-                    KeyCode::Char('a') => yard.add_weapon(),
-                    KeyCode::Char('d') => yard.delete_weapon(),
-                    KeyCode::Char('s') => yard.save(),
-                    KeyCode::Char('c') => yard.compile(),
-                    KeyCode::Esc => yard.back_to_browse(),
+                    KeyCode::Esc => yard.request_exit(),
+                    KeyCode::Char('d') => yard.request_delete_weapon(),
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        yard.cancel_pending();
+                        yard.move_edit(-1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        yard.cancel_pending();
+                        yard.move_edit(1);
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        yard.cancel_pending();
+                        yard.nudge(-1);
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        yard.cancel_pending();
+                        yard.nudge(1);
+                    }
+                    KeyCode::Char('m') => {
+                        yard.cancel_pending();
+                        yard.cycle_weapon_mount();
+                    }
+                    KeyCode::Char('a') => {
+                        yard.cancel_pending();
+                        yard.add_weapon();
+                    }
+                    KeyCode::Char('s') => {
+                        yard.cancel_pending();
+                        yard.save();
+                    }
+                    KeyCode::Char('c') => {
+                        yard.cancel_pending();
+                        yard.compile();
+                    }
                     KeyCode::Char('q') => return KeyResult::Quit,
                     _ => {}
                 }

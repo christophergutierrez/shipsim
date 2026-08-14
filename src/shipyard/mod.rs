@@ -10,7 +10,7 @@ use std::{
 };
 use thiserror::Error;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Design {
     pub id: String,
@@ -33,18 +33,30 @@ pub struct Design {
     pub systems: Vec<DesignSystem>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesignWeapon {
     pub component: String,
     pub mount: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesignSystem {
     pub component: String,
 }
+
+/// Design ids that exist to hold one weapon SKU constant for balance
+/// comparison (`simulation/suites/weapon_quality_matched.toml`), not as a
+/// player-facing standard. Hidden from the interactive shipyard browser only —
+/// `list_designs`, `compile`, `check_all`, and the CLI still see them, since
+/// hiding here must not change what gets compiled, checked, or drift-audited.
+/// Editing one silently invalidates that suite's controlled comparison, which
+/// is exactly the mistake `docs/plans/catalog-review-remediation.md` locked
+/// these roles against; keeping them out of the interactive picker is cheaper
+/// than relying on everyone re-deriving that history from the plan.
+pub const QUALITY_FIXTURE_IDS: &[&str] =
+    &["yard_baseline", "yard_compact", "yard_potent", "yard_precise"];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

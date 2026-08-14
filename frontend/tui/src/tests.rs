@@ -3473,6 +3473,123 @@ fn yard_lists_existing_designs_with_hull_cost() {
 }
 
 #[test]
+fn yard_browse_hides_weapon_quality_fixtures() {
+    let yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
+    for id in shipsim_core::shipyard::QUALITY_FIXTURE_IDS {
+        assert!(
+            yard.listings.iter().all(|item| item.design.id != *id),
+            "{id} is a weapon-quality balance-suite control, not a player-facing \
+             standard, and must not appear in the interactive picker"
+        );
+    }
+}
+
+#[test]
+fn yard_esc_with_unsaved_changes_requires_confirmation() {
+    let mut app = yard_app();
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard.listings.len();
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    {
+        let yard = app.yard.as_mut().unwrap();
+        assert!(!yard.is_dirty(), "a freshly opened draft has nothing to lose");
+        yard.type_name('X');
+        assert!(yard.is_dirty(), "typing a name change must mark the draft dirty");
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+    {
+        let yard = app.yard.as_ref().unwrap();
+        assert_eq!(
+            yard.screen,
+            crate::yard::YardScreen::Edit,
+            "first Esc on a dirty draft must warn, not discard"
+        );
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+    let yard = app.yard.as_ref().unwrap();
+    assert_eq!(
+        yard.screen,
+        crate::yard::YardScreen::Browse,
+        "second Esc must confirm the discard"
+    );
+}
+
+#[test]
+fn yard_esc_with_no_changes_exits_immediately() {
+    let mut app = yard_app();
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard.listings.len();
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+    let yard = app.yard.as_ref().unwrap();
+    assert_eq!(
+        yard.screen,
+        crate::yard::YardScreen::Browse,
+        "an untouched draft has nothing to warn about"
+    );
+}
+
+#[test]
+fn yard_delete_weapon_requires_a_second_press() {
+    let mut app = yard_app();
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard.listings.len();
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let count_before = {
+        let yard = app.yard.as_mut().unwrap();
+        yard.add_weapon(); // guarantee more than one weapon so delete is legal
+        yard.draft.weapons.len()
+    };
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char('d')));
+    {
+        let yard = app.yard.as_ref().unwrap();
+        assert_eq!(
+            yard.draft.weapons.len(),
+            count_before,
+            "first 'd' must arm the delete, not perform it"
+        );
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char('d')));
+    let yard = app.yard.as_ref().unwrap();
+    assert_eq!(
+        yard.draft.weapons.len(),
+        count_before - 1,
+        "second 'd' on the same row must confirm the delete"
+    );
+}
+
+#[test]
+fn yard_moving_off_a_weapon_cancels_its_armed_delete() {
+    let mut app = yard_app();
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard.listings.len();
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let count_before = {
+        let yard = app.yard.as_mut().unwrap();
+        yard.add_weapon();
+        yard.draft.weapons.len()
+    };
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char('d')));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Up));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char('d')));
+    let yard = app.yard.as_ref().unwrap();
+    assert_eq!(
+        yard.draft.weapons.len(),
+        count_before,
+        "moving off the row must cancel the arm; the following 'd' arms a new \
+         one rather than deleting the row that was armed before the move"
+    );
+}
+
+#[test]
 fn yard_browse_renders_ships_and_new_row_not_a_map() {
     let mut app = yard_app();
     let buf = render_to_string(&mut app, 80, 24);
@@ -3594,6 +3711,10 @@ fn yard_material_cycles_moo_table() {
 #[test]
 fn yard_size_row_shows_hull_ratios() {
     let mut app = yard_app();
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard.listings.len();
+    }
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
     let yard = app.yard.as_ref().unwrap();
@@ -3617,6 +3738,10 @@ fn yard_size_row_shows_hull_ratios() {
 #[test]
 fn yard_engine_is_a_kind_and_size() {
     let mut app = yard_app();
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard.listings.len();
+    }
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     // Name → Size → Material → EngineKind
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));

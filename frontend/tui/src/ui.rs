@@ -2414,7 +2414,7 @@ fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
     }
     lines.extend([
         Line::from(""),
-        Line::from("weapons  (←/→ sku   m mount   a add   d delete)"),
+        Line::from("weapons  (←/→ sku   m mount   a add   d delete, d again to confirm)"),
     ]);
     for (index, weapon) in yard.draft.weapons.iter().enumerate() {
         lines.push(yard_field(
@@ -2427,7 +2427,8 @@ fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
         chunks[1],
     );
     let help = Paragraph::new(format!(
-        "↑/↓ field  type name · ←/→ change  s save (not on name)  c compile  Esc back\n{}",
+        "↑/↓ field  type name · ←/→ change  s save (not on name)  c compile  \
+         Esc back (Esc again if unsaved)\n{}",
         yard.status
     ))
     .block(Block::default().borders(Borders::ALL).title(" keys "));
