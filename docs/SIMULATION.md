@@ -108,6 +108,18 @@ Ship `cost` comes from `data/ships/{class}.toml` (see `docs/SIZE-VARIANTS.md`).
 Both fleets must be within `cost_tolerance` of each other and of `budget` when set
 (unless `skip_cost_validation = true`).
 
+For a deterministic pre-combat policy roster, use the standard-yard budget
+helper (the same composition can be used for both sides):
+
+```bash
+cargo run --release --bin shipsim-budget -- \
+  --budget 1000 --policy balance \
+  --roster yard_swarm,yard_destroyer,yard_light_cruiser,yard_heavy_cruiser
+```
+
+Policies are `largest`, `swarm` (sizes 1–2 only), and `balance` (size 4, then
+3, 2, and 1). The output never creates squads.
+
 ### Power sweeps
 
 Vary design `power` on one class without editing ship TOMLs. Placement overrides

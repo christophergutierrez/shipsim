@@ -15,11 +15,11 @@ Mechanics ADR: `docs/adr/0025-simplified-simultaneous-turns.md`.
 |---|---|
 | **Turn** | Three collection stages: **allocate → path → volley**, then auto next allocate. No `end_turn`. |
 | **Shields** | Re-bought every allocate from **0**. |
-| **Weapons** | Charge **carries** across turns. Allocate pays only for **increases**; cannot strip. Hit or miss spends charge for weapons in the volley. Torpedo-kind weapons also have a finite `ammo` magazine (default `3 + size`); firing spends 1 ammo; at 0 ammo they cannot be charged or fired (`weapon_out_of_ammo`). |
-| **To-hit** | Rules-table d20 threshold × target `size / 2`, half-up, clamped by the accuracy ceiling. Size 2 is neutral. Weapon `accuracy_bonus` is added at every target size; hull fire-control remains size-2-only. Defender `evasion_committed` subtracts `evasion_per_point` per evasive motion point (floor 1). MOO natural defense then shifts the same way relative to size 2 (fighter harder, titan easier). |
+| **Weapons** | Charge **carries** across turns. Allocate pays only for **increases**; cannot strip. Hit or miss spends charge for weapons in the volley. Repeat beams emit one packet per charge; Pierce bypasses shields after halving damage. Torpedoes and missiles use finite magazines; missiles deal flat 2 damage. |
+| **To-hit** | Rules-table d20 threshold × target `size / 2`, half-up, clamped by the accuracy ceiling. Size 2 is neutral. Weapon and computer accuracy apply before cloak, ECM, evasion, natural defense, and the final clamp. Hull fire-control remains size-2-only. Cloak is −4 to incoming fire; ECM is −2 against missiles. |
 | **Motion** | Engine power → motion points via hull `thrust_per_power` / `power_per_thrust`. Cap = `max_maneuver_actions` (engine SSD may lower). |
 | **Path** | One ordered list of actions per living ship: `move_f`, `move_fr`, `move_fl`, `turn_right`, `turn_left` (cost 1 each), plus optional `evasive` motion points from the same budget. No velocity/course. |
-| **Path resolve** | Simultaneous; intermediate crossings OK; final hex unique; stationary immovable; cost then seeded ties; losers fall back along translated history. |
+| **Path resolve** | Simultaneous; intermediate crossings OK; independent final hexes stay unique; squads may share one hex and move on the leader's path. Enemy occupancy is illegal; losers fall back along translated history. |
 | **Volley** | One `commit_volley` per ship (empty = hold fire). Simultaneous fire; destroyed attackers still fire full accepted volley. |
 
 ## CLI
@@ -94,6 +94,11 @@ Facing 0 = +q (East); turning right from East points Southeast (facing 5 `↘`).
 - Each weapon at most once.
 - Resolves when every living ship has committed; then turn advances automatically.
 
+Allocate accepts optional `cloak`, `repair`, `unsquad`, and `squad_leader`
+fields. `commit_path` accepts `follow: true` for a squad member; followers
+must submit an empty action list. Ship snapshots expose `squad_id`,
+`squad_leader`, and `squad_members` when applicable.
+
 ### Retired (rejected under v4)
 
 `commit_maneuver`, `move`, `pass_move`, `commit_fire`, `ready_fire`, `end_turn`.
@@ -150,6 +155,9 @@ Every successful order (and the post-load line) emits a state snapshot with
 | ship `max_shields` | Optional six face caps from the yard (F…FL). Absent → use the scalar |
 | ship `motion_available` | Usable motion points in movement stage |
 | `combat_log` | Resolved shots only (cleared at turn rollover) |
+| ship `systems` | Installed computer, cloak, repair, or ECM systems |
+| ship `cloaked` | Whether cloak was purchased for the current turn |
+| ship `squad_id` / `squad_leader` / `squad_members` | Declared squad membership |
 | `fire_opportunity` | Optional player legal-shot advisory |
 
 Weapon snapshots may additionally contain `accuracy_bonus` and `damage_bonus` for
