@@ -21,8 +21,8 @@ Current catalog-specific levers include:
 
 - range-aware target-size accuracy ceiling: floor 15, maximum 19;
 - fire control only against exact size-2 targets;
-- `titan_light`: accuracy bonus 12, five SSD boxes per weapon;
-- `titan_heavy`: accuracy bonus 10, three SSD boxes per weapon.
+- `yard_capital`: accuracy bonus 12, five SSD boxes per weapon;
+- `yard_capital`: accuracy bonus 10, three SSD boxes per weapon.
 
 Authoritative values are in [`data/rules/default.toml`](../data/rules/default.toml)
 and [`data/ships/`](../data/ships/). The prose above is a readable status
@@ -54,10 +54,10 @@ fair in every scenario.
 
 | Claim | Fleet definition | Intended result |
 |---|---|---|
-| A | 7 `destroyer_line` vs 1 `titan_light` | Minimum-fill capital is inefficient; swarm wins 60-80% |
-| B | 10 `destroyer_line` vs 1 `titan_heavy` | Maximum fill matters; either side can win, player 40-60% |
-| C | Fixed 8 `destroyer_line` vs 1 `titan_heavy` | Scenario track; heavy titan wins at least 90% |
-| Control | 4 `destroyer_line` vs 4 `destroyer_line` | Detect side/policy drift; player 35-65% |
+| A | 7 `yard_destroyer` vs 1 `yard_capital` | Minimum-fill capital is inefficient; swarm wins 60-80% |
+| B | 10 `yard_destroyer` vs 1 `yard_capital` | Maximum fill matters; either side can win, player 40-60% |
+| C | Fixed 8 `yard_destroyer` vs 1 `yard_capital` | Scenario track; heavy titan wins at least 90% |
+| Control | 4 `yard_destroyer` vs 4 `yard_destroyer` | Detect side/policy drift; player 35-65% |
 
 Claims A and B use deliberately chosen fleet counts around current construction
 costs. C is a fixed-count scenario claim, not equal-budget evidence.
@@ -97,7 +97,7 @@ primarily scenario and simulation inputs.
 | Combat data | [`data/rules/default.toml`](../data/rules/default.toml) |
 | Combat formulas | [`src/combat_tables.rs`](../src/combat_tables.rs) |
 | Readable combat tables | [`combat-v2-tables.md`](combat-v2-tables.md) |
-| Hull data and costs | [`data/ships/`](../data/ships/), [`data/ship_costs.toml`](../data/ship_costs.toml) |
+| Hull data and costs | [`data/ships/`](../data/ships/), [`SIZE-VARIANTS.md`](SIZE-VARIANTS.md) |
 | Claims and seed sets | [`simulation/suites/`](../simulation/suites/) |
 | Numeric acceptance bands | [`simulation/rubrics/abc-claims.toml`](../simulation/rubrics/abc-claims.toml) |
 | Simulator operation | [`SIMULATION.md`](SIMULATION.md) |

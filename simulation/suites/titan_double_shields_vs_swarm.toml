@@ -18,17 +18,17 @@ opponent = "greedy"
 # Baseline control (face max 8, power 90 catalog)
 [[engagements]]
 name = "baseline_shield8_p90"
-player = [{ class = "destroyer_line", count = 8 }]
-opponent = [{ class = "titan_line", count = 1 }]
+player = [{ class = "yard_destroyer", count = 8 }]
+opponent = [{ class = "yard_capital", count = 1 }]
 
 # Double face cap (16), power to fill 6×16 shields (96) + some weapons/thrust
 [[engagements]]
 name = "double_shield16_p150"
-player = [{ class = "destroyer_line", count = 8 }]
-opponent = [{ class = "titan_line", count = 1, max_shield_per_facing = 16, power = 150 }]
+player = [{ class = "yard_destroyer", count = 8 }]
+opponent = [{ class = "yard_capital", count = 1, max_shield_per_facing = 16, power = 150 }]
 
 # Intermediate: face max 12 ("one with 12"), same power headroom
 [[engagements]]
 name = "shield12_p150"
-player = [{ class = "destroyer_line", count = 8 }]
-opponent = [{ class = "titan_line", count = 1, max_shield_per_facing = 12, power = 150 }]
+player = [{ class = "yard_destroyer", count = 8 }]
+opponent = [{ class = "yard_capital", count = 1, max_shield_per_facing = 12, power = 150 }]

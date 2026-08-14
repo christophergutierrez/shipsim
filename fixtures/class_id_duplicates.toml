@@ -1,6 +1,6 @@
 # Phase 1 regression fixture: places a base class and its tutorial counterpart
-# side by side. Both `escort` and `tutorial_escort` display "Escort"; both
-# `heavy_cruiser` and `tutorial_heavy_cruiser` display "Heavy Cruiser". The
+# side by side. Both `yard_swarm` and `tutorial_escort` display "Escort"; both
+# `yard_heavy_cruiser` and `tutorial_heavy_cruiser` display "Heavy Cruiser". The
 # snapshot must emit distinct `class_id` values so presentation clients never
 # confuse the two. See docs/SHIP-ART-IMPLEMENTATION-PLAN.md Phase 1.
 width = 10
@@ -14,7 +14,7 @@ target = 4
 
 [[ships]]
 id = 1
-class = "heavy_cruiser"
+class = "yard_heavy_cruiser"
 q = 0
 r = 4
 facing = 0
@@ -30,7 +30,7 @@ controller = "player"
 
 [[ships]]
 id = 3
-class = "escort"
+class = "yard_swarm"
 q = 6
 r = 4
 facing = 3

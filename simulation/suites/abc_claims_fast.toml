@@ -45,20 +45,20 @@ opponent = "greedy"
 
 [[engagements]]
 name = "A_swarm_vs_titan_min"
-player = [{ class = "destroyer_line", count = 7 }]
-opponent = [{ class = "titan_light", count = 1 }]
+player = [{ class = "yard_destroyer", count = 7 }]
+opponent = [{ class = "yard_capital", count = 1 }]
 
 [[engagements]]
 name = "B_swarm_vs_titan_max"
-player = [{ class = "destroyer_line", count = 10 }]
-opponent = [{ class = "titan_heavy", count = 1 }]
+player = [{ class = "yard_destroyer", count = 10 }]
+opponent = [{ class = "yard_capital", count = 1 }]
 
 [[engagements]]
 name = "C_eight_dd_vs_titan_max"
-player = [{ class = "destroyer_line", count = 8 }]
-opponent = [{ class = "titan_heavy", count = 1 }]
+player = [{ class = "yard_destroyer", count = 8 }]
+opponent = [{ class = "yard_capital", count = 1 }]
 
 [[engagements]]
 name = "control_destroyer_mirror"
-player = [{ class = "destroyer_line", count = 4 }]
-opponent = [{ class = "destroyer_line", count = 4 }]
+player = [{ class = "yard_destroyer", count = 4 }]
+opponent = [{ class = "yard_destroyer", count = 4 }]

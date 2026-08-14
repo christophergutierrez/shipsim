@@ -107,13 +107,8 @@ cargo run --release --bin shipsim-sim -- \
   --output tmp/simulation/reports/smoke.json
 ```
 
-Catalog generator edits must regenerate byte-identically when no intentional
-catalog change is requested:
-
-```bash
-python3 tools/generate_size_variants.py
-git diff -- data/ships data/ship_costs.toml
-```
+Yard catalog edits should be regenerated from the checked-in design TOMLs and
+validated with `cargo run --release --bin shipsim-yard -- validate`.
 
 ### 4. Run the fast gate
 

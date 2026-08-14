@@ -8,7 +8,7 @@ target = 2
 
 [[ships]]
 id = 1
-class = "heavy_cruiser"
+class = "yard_heavy_cruiser"
 q = 4
 r = 10
 facing = 0
@@ -16,7 +16,7 @@ controller = "player"
 
 [[ships]]
 id = 2
-class = "escort"
+class = "yard_swarm"
 q = 19
 r = 10
 facing = 3

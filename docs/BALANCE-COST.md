@@ -6,8 +6,8 @@ matrices certify named claims; efficiency only generates candidate catalogs.
 
 ### Status (2026-07-18)
 
-- The frame-plus-modules cost model is implemented by
-  `tools/generate_size_variants.py` and projected into `data/ship_costs.toml`.
+- Standard yard designs carry their authoritative construction cost directly
+  in each generated `data/ships/yard_*.toml` file.
 - A/B/C pass reusable pooled seeds 1-191 for the current catalog.
 - The virgin 264-327 sign-off range has not been run; do not call the catalog
   certified.
@@ -102,9 +102,9 @@ Do not describe these rows as exact equal-budget certification.
 
 | Claim | Current operational definition | Desired outcome |
 |-------|-------------------------------|-----------------|
-| **A** | 7 destroyers (700) vs `titan_light` (762), minimum fill | Swarm wins 60-80% |
-| **B** | 10 destroyers (1000) vs `titan_heavy` (910), maximum fill | Either side can win; player 40-60% |
-| **C** | Fixed 8 destroyers (800) vs `titan_heavy` (910) | Titan wins at least 90%; scenario claim, not cost parity |
+| **A** | 7 destroyers (700) vs `yard_capital` (762), minimum fill | Swarm wins 60-80% |
+| **B** | 10 destroyers (1000) vs `yard_capital` (910), maximum fill | Either side can win; player 40-60% |
+| **C** | Fixed 8 destroyers (800) vs `yard_capital` (910) | Titan wins at least 90%; scenario claim, not cost parity |
 | **Control** | 4 destroyers vs 4 destroyers | Player 35-65%; detect side/policy drift |
 
 Claim **B is ill-posed without forced engagement**. Mobility can refuse battle on
@@ -115,12 +115,12 @@ open maps (empirically: high non-termination under annihilation-only). Either:
 
 ## Implemented catalog model
 
-`tools/generate_size_variants.py` now computes:
+The yard designs use the following construction model:
 
 ```text
 raw cost = C_frame(size) + 1.2 * power + 3 * shield-face-cap
            + sum(flat weapon-kind prices)
-catalog cost = normalize(raw cost so destroyer_line = 100)
+catalog cost = the checked-in yard design cost
 ```
 
 `C_frame(size)` grows approximately with `size^1.85`. Light, line, and heavy
@@ -144,9 +144,8 @@ sign-off evidence.
    (close when far); `stalemate_scoring = "damage_diff"` on suites.
 2. **Forced engagement** — fleet scenarios use **hard** maps and ~9-hex start
    gap (`build_engagement_scenario`).
-3. **Catalog regeneration** — `tools/generate_size_variants.py` emits
-   frame-sunk + flat module costs (normalized `destroyer_line = 100`) and
-   scaled `power_sys` / `engine_boxes` (not a global literal 2).
+3. **Catalog regeneration** — `shipsim-yard` emits the standard size-tier
+   classes and records their checked-in yard costs.
 4. **Tune** — fast seeds 1-32, then pooled seeds 1-191, using the tracked A/B/C
    suites and asymmetric policies.
 5. **Certify once** — spend a virgin sign-off range only on a frozen candidate.
@@ -159,8 +158,8 @@ cargo run --release --bin shipsim-sim -- \
   --output tmp/simulation/reports/abc_claims_pooled.json
 ```
 
-Current costs include `destroyer_line=100`, `titan_light=762`, and
-`titan_heavy=910`. Suite counts are A=7 destroyers vs light, B=10 destroyers vs
+Current costs include `yard_destroyer=100`, `yard_capital=762`, and
+`yard_capital=910`. Suite counts are A=7 destroyers vs light, B=10 destroyers vs
 heavy, and C=8 destroyers vs heavy. Current measured outcomes belong in
 [`BALANCE.md`](BALANCE.md), not in this economic model.
 

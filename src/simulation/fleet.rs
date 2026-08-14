@@ -69,7 +69,7 @@ pub struct EngagementSpec {
 pub struct PowerSweepSpec {
     /// Prefix for generated engagement names (`{name}_p{value}`).
     pub name: String,
-    /// Ship class file id whose `power` is varied (e.g. `titan_line`).
+    /// Ship class file id whose `power` is varied (e.g. `yard_capital`).
     pub class: String,
     /// `player` or `opponent` fleet side containing `class`.
     pub side: String,
@@ -397,21 +397,22 @@ mod tests {
     }
 
     #[test]
-    fn destroyer_line_cost_near_100() {
-        let cost = fleet_cost(&root(), &[FleetLine::new("destroyer_line", 1)]).expect("cost");
+    fn yard_destroyer_cost_near_100() {
+        let cost = fleet_cost(&root(), &[FleetLine::new("yard_destroyer", 1)]).expect("cost");
         // Frame/module model targets ~100 (docs/BALANCE-COST.md).
         assert!((95..=105).contains(&cost), "got {cost}");
     }
 
     #[test]
-    fn titan_min_about_eight_to_ten_destroyers() {
-        // Sunk-frame model: min titan ≈ 8–10× destroyer_line for equal-budget swarms.
-        let dd = fleet_cost(&root(), &[FleetLine::new("destroyer_line", 1)]).expect("dd");
-        let titan = fleet_cost(&root(), &[FleetLine::new("titan_light", 1)]).expect("titan");
+    fn capital_cost_is_a_large_yard_multiple() {
+        // The standard capital is intentionally a large multiple of the
+        // destroyer in the yard-cost budget model.
+        let dd = fleet_cost(&root(), &[FleetLine::new("yard_destroyer", 1)]).expect("dd");
+        let titan = fleet_cost(&root(), &[FleetLine::new("yard_capital", 1)]).expect("titan");
         let ratio = titan as f64 / dd as f64;
         assert!(
-            (7.0..=11.0).contains(&ratio),
-            "titan_light/DD = {ratio:.2} (titan={titan} dd={dd})"
+            (30.0..=40.0).contains(&ratio),
+            "yard_capital/DD = {ratio:.2} (titan={titan} dd={dd})"
         );
     }
 
@@ -419,11 +420,11 @@ mod tests {
     fn power_sweep_expands_named_engagements() {
         let sweep = PowerSweepSpec {
             name: "titan_power".into(),
-            class: "titan_line".into(),
+            class: "yard_capital".into(),
             side: "opponent".into(),
             values: vec![90, 120],
-            player: vec![FleetLine::new("destroyer_line", 8)],
-            opponent: vec![FleetLine::new("titan_line", 1)],
+            player: vec![FleetLine::new("yard_destroyer", 8)],
+            opponent: vec![FleetLine::new("yard_capital", 1)],
         };
         let eng = sweep.expand().expect("expand");
         assert_eq!(eng.len(), 2);
@@ -436,8 +437,8 @@ mod tests {
     fn build_scenario_places_fleets_and_annihilation() {
         let eng = EngagementSpec {
             name: "test".into(),
-            player: vec![FleetLine::new("destroyer_line", 2)],
-            opponent: vec![FleetLine::new("heavy_cruiser_line", 1)],
+            player: vec![FleetLine::new("yard_destroyer", 2)],
+            opponent: vec![FleetLine::new("yard_heavy_cruiser", 1)],
         };
         let def = build_engagement_scenario(&eng, &FleetMapSpec::default(), 1).expect("def");
         assert_eq!(def.ships.len(), 3);

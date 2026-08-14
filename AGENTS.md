@@ -57,7 +57,7 @@ API” means drive the NDJSON harness without claiming that as UI coverage.
 | Rules summary | [`docs/PLAY-V2.md`](docs/PLAY-V2.md) |
 | Hull size tiers (1–7) | [`data/sizes.toml`](data/sizes.toml), [`docs/combat-v2-tables.md`](docs/combat-v2-tables.md) |
 | Ship classes | [`data/ships/`](data/ships/) |
-| Size variants + costs | [`docs/SIZE-VARIANTS.md`](docs/SIZE-VARIANTS.md), [`docs/BALANCE-COST.md`](docs/BALANCE-COST.md), [`data/ship_costs.toml`](data/ship_costs.toml) |
+| Standard catalog + costs | [`docs/SIZE-VARIANTS.md`](docs/SIZE-VARIANTS.md), [`docs/SHIPYARD.md`](docs/SHIPYARD.md) |
 | Component shipyard | [`docs/SHIPYARD.md`](docs/SHIPYARD.md) — TUI `--yard`; CLI `shipsim-yard validate\|cost\|compile` |
 | Human quick start (all launch commands) | [`README.md`](README.md) |
 | REPL commands (UI play) | [`frontend/repl/GAMEPLAY.md`](frontend/repl/GAMEPLAY.md) |

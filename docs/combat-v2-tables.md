@@ -34,7 +34,7 @@ base chances, the ceiling of 15 limits the size multiplier without flattening
 the original range curve. No unmodified attack can become an automatic hit.
 
 Catalog fire-control bonuses apply only against exact size-2 targets, after the
-target-size adjustment. `titan_light` currently has +12 and `titan_heavy` +10. The
+target-size adjustment. `yard_capital` currently has +12 and `yard_capital` +10. The
 final threshold is capped below the configured die maximum. Weapon
 `accuracy_bonus` (yard Precise SKUs) is added at **every** target size, alongside
 fire control when it applies, then defender **evasive action** subtracts
@@ -109,7 +109,7 @@ Combat baseline remains **size 2** (Destroyer): multiplier = `size / 2`.
 
 Twenty-one hulls (`{tier}_{light|line|heavy}`) with frame-plus-modules `cost`:
 see `docs/SIZE-VARIANTS.md`, `docs/BALANCE-COST.md`, and
-`data/ship_costs.toml`. Current evidence and limitations are in
+the `cost` field on each yard-generated ship. Current evidence and limitations are in
 `docs/BALANCE.md`.
 
 ### Legacy scenario hulls (provisional)

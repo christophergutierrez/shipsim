@@ -100,8 +100,8 @@ opponent = "greedy"
 
 [[engagements]]
 name = "swarm_vs_titan"
-player = [{ class = "destroyer_line", count = 8 }]
-opponent = [{ class = "titan_line", count = 1 }]
+player = [{ class = "yard_destroyer", count = 8 }]
+opponent = [{ class = "yard_capital", count = 1 }]
 ```
 
 Ship `cost` comes from `data/ships/{class}.toml` (see `docs/SIZE-VARIANTS.md`).
@@ -118,11 +118,11 @@ skip_cost_validation = true
 
 [[power_sweeps]]
 name = "titan_vs_swarm"
-class = "titan_line"
+class = "yard_capital"
 side = "opponent"
 values = [60, 90, 120, 150, 180]
-player = [{ class = "destroyer_line", count = 8 }]
-opponent = [{ class = "titan_line", count = 1 }]
+player = [{ class = "yard_destroyer", count = 8 }]
+opponent = [{ class = "yard_capital", count = 1 }]
 ```
 
 Generated engagements are named `{name}_p{value}`. Method notes:

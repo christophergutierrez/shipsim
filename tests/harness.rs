@@ -97,19 +97,19 @@ fn test_class_id_emitted_on_every_ship_snapshot() {
     }
 
     // Catalog keys are the expected canonical identities.
-    assert_eq!(by_class_id["heavy_cruiser"].1, "Heavy Cruiser");
+    assert_eq!(by_class_id["yard_heavy_cruiser"].1, "Yard Heavy Cruiser");
     assert_eq!(by_class_id["tutorial_heavy_cruiser"].1, "Heavy Cruiser");
-    assert_eq!(by_class_id["escort"].1, "Escort");
+    assert_eq!(by_class_id["yard_swarm"].1, "Yard Swarm Fighter");
     assert_eq!(by_class_id["tutorial_escort"].1, "Escort");
 
     // Duplicate display names resolve to distinct canonical class_id values.
     assert_ne!(
-        by_class_id["heavy_cruiser"].0, by_class_id["tutorial_heavy_cruiser"].0,
-        "heavy_cruiser and tutorial_heavy_cruiser are distinct ships"
+        by_class_id["yard_heavy_cruiser"].0, by_class_id["tutorial_heavy_cruiser"].0,
+        "yard_heavy_cruiser and tutorial_heavy_cruiser are distinct ships"
     );
     assert_ne!(
-        by_class_id["escort"].0, by_class_id["tutorial_escort"].0,
-        "escort and tutorial_escort are distinct ships"
+        by_class_id["yard_swarm"].0, by_class_id["tutorial_escort"].0,
+        "yard_swarm and tutorial_escort are distinct ships"
     );
 
     // Protocol remains v4.

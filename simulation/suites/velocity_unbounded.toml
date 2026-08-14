@@ -18,5 +18,5 @@ opponent = "defensive"
 
 [[engagements]]
 name = "heavy_cruiser_screen_vs_destroyers"
-player = [{ class = "heavy_cruiser_line", count = 3 }]
-opponent = [{ class = "destroyer_line", count = 10 }]
+player = [{ class = "yard_heavy_cruiser", count = 3 }]
+opponent = [{ class = "yard_destroyer", count = 10 }]
