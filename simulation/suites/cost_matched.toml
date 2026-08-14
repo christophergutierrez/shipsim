@@ -28,7 +28,7 @@ opponent = "aggressive"
 player = "aggressive"
 opponent = "defensive"
 
-# 16×216 = 3456 vs yard_capital = 3454
+# 16×216 = 3456 vs yard_capital = 3470
 [[engagements]]
 name = "swarm_vs_titan"
 player = [{ class = "yard_light_cruiser", count = 16 }]

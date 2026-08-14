@@ -1,4 +1,4 @@
-# Size-ladder claims: the 4 cost_matched.toml engagements plus a mid-ladder
+# Size-ladder calibrated-count claims: the 4 cost_matched.toml engagements plus a mid-ladder
 # mirror control, run through the same asymmetric-policy protocol as
 # abc_claims.toml (docs/BALANCE-COST.md).
 #
@@ -50,7 +50,7 @@ opponent = "defensive"
 player = "aggressive"
 opponent = "greedy"
 
-# 8×100 = 800 vs yard_capital ~822
+# Fixed-count diagnostic; not cost-parity evidence.
 [[engagements]]
 name = "swarm_vs_titan"
 player = [{ class = "yard_destroyer", count = 8 }]

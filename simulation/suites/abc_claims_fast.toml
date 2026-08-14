@@ -1,5 +1,5 @@
 # FAST TUNING SUITE — seeds 1-32 only, for rapid lever iteration.
-# Same engagements/matchups/map as abc_claims_pooled.toml.
+# Same calibrated-count engagements/matchups/map as abc_claims_pooled.toml.
 # 4 engagements × 4 matchups × 32 seeds = 512 matches (~35s).
 # NOT a sign-off gate. Use abc_claims_pooled.toml (1-191) for accept/reject,
 # abc_claims_signoff.toml (264-327) for final lock only.

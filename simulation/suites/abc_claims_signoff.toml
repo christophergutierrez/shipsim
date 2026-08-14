@@ -1,11 +1,11 @@
 # VIRGIN SIGN-OFF SEEDS - RUN ONLY ON A LOCK CANDIDATE, ONE SHOT PER CANDIDATE,
 # NEVER FOR TUNING.
 #
-# Falsifiable cost claims A/B/C (docs/BALANCE-COST.md).
+# Falsifiable calibrated-count claims A/B/C (docs/BALANCE-COST.md).
 # Bounded hard map + close starts + damage-diff stalemate scoring + closing policies.
 #
-# Claim A: equal-budget swarm (destroyers) vs yard_capital (min fill).
-# Claim B: equal-budget destroyers vs yard_capital (max fill) — forced engagement.
+# Claim A: calibrated-count swarm (destroyers) vs yard_capital (min fill).
+# Claim B: calibrated-count destroyers vs yard_capital (max fill) — forced engagement.
 # Claim C: fixed 8 destroyers vs yard_capital (count, not pure cost).
 #
 # Asymmetric policies (not only greedy mirrors).
@@ -58,9 +58,8 @@ opponent = "defensive"
 player = "aggressive"
 opponent = "greedy"
 
-# Lever #5 costs (yard_destroyer=100): yard_capital≈762, yard_capital≈910.
-# Round(cost/100) alone overshot (8 vs light → A 94%; 9 vs heavy → B 100% titan).
-# Tuned counts: A underpays slightly (7×100 < 762); B overpays slightly (10×100 > 910).
+# These are fixed-count probes, not cost-parity evidence; cost validation is
+# intentionally skipped. Current yard costs are destroyer=98 and capital=3470.
 [[engagements]]
 name = "A_swarm_vs_titan_min"
 player = [{ class = "yard_destroyer", count = 7 }]
