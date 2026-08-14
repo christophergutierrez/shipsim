@@ -55,6 +55,7 @@ The file id is not a browse column.
 | `↑`/`↓` `k`/`j` | Select a class, or **+ new ship** |
 | `Enter` / `Space` | Edit the selected class, or start a new one |
 | `n` | New class |
+| `o` | Cycle user-design sort: recency, size, cost |
 | `q` / `Esc` | Quit |
 
 New classes get an **8-hex file token** (not 1, 2, 3 — deletes leave no holes)
@@ -71,7 +72,14 @@ still a `Basic …` default retitles it.
 | `a` / `d` | Add / delete a weapon |
 | `s` | Save design (not while the name is focused — `s` would type) |
 | `c` | Save and compile to `data/ships/<id>.toml` |
-| `Esc` | Back to the list |
+| `Esc` | Back to the list (press again to discard unsaved changes) |
+
+The seven standard size classes are shown first in ascending hull size and are
+reference-only. They can be opened to inspect their components, but cannot be
+renamed, reconfigured, saved, compiled, or have weapons added or removed.
+Weapon rows show the live range-1 damage headline and quality tags such as
+`Precise`, `Potent`, `Repeat`, and `Pierce`; the inspector panel describes the
+currently highlighted field.
 
 Class **names** must be unique (case-insensitive, whitespace-normalized). The
 name is the class, not an individual ship — several instances in a fight can
