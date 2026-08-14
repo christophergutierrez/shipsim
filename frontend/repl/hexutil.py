@@ -33,7 +33,7 @@ def motion_status_bits(ship: dict) -> str:
     """Compact sticky line: face, motion pool, maneuver cap."""
     facing = int(ship.get("facing") or 0)
     motion = int(ship.get("motion_available") or 0)
-    cap = int(ship.get("max_maneuver_actions") or 0)
+    cap = int(ship.get("effective_max_maneuver_actions") or ship.get("max_maneuver_actions") or 0)
     return (
         f"face={dir_glyph(facing)} motion={motion}"
         + (f"/{cap}" if cap else "")

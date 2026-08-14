@@ -180,7 +180,7 @@ def _facing(ship: dict[str, Any]) -> str:
 
 def _motion(ship: dict[str, Any]) -> str:
     motion = int(ship.get("motion_available") or 0)
-    cap = int(ship.get("max_maneuver_actions") or 0)
+    cap = int(ship.get("effective_max_maneuver_actions") or ship.get("max_maneuver_actions") or 0)
     if cap:
         return f"mot={motion}/{cap}"
     return f"mot={motion}"

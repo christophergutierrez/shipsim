@@ -1546,6 +1546,19 @@ do
   assert_eq(cap, 7, "movement is already at its power ceiling")
   assert_eq(math.min(at_cap.movement + 1, cap), 7, "movement '+' does not exceed the ceiling")
 
+  local hull_cap_ship = {
+    power_available = 22,
+    effective_max_maneuver_actions = 6,
+    thrust_per_power = 1,
+    power_per_thrust = 1,
+    weapons = {},
+  }
+  assert_eq(
+    allocation.available_for_movement(hull_cap_ship, { movement = 0 }),
+    6,
+    "movement ceiling uses convertible hull cap"
+  )
+
   local quick_ship = {
     power_available = 22,
     max_shield_per_facing = 6,

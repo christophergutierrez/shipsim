@@ -86,6 +86,17 @@ class CarriedChargeDraftTests(unittest.TestCase):
         self.assertEqual(0, d.weapons["plasma_1"])
         self.assertEqual(0, d.used())
 
+    def test_movement_clamps_to_convertible_hull_cap(self):
+        ship = _ship(power=22)
+        ship.update({
+            "effective_max_maneuver_actions": 6,
+            "thrust_per_power": 1,
+            "power_per_thrust": 1,
+        })
+        d = AllocDraft.from_ship(ship)
+        self.assertTrue(d.set_movement(22))
+        self.assertEqual(6, d.movement)
+
     def test_cloak_costs_four_plus_size_and_serializes(self):
         ship = _ship(power=20)
         ship["size"] = 2

@@ -476,7 +476,7 @@ local function request_reach_preview()
   local a = alloc_for(ship_id)
   local numerator = (a.movement or 0) * (ship.thrust_per_power or 1)
   local budget = math.floor(numerator / math.max(1, ship.power_per_thrust or 1))
-  budget = math.min(budget, ship.max_maneuver_actions or budget)
+  budget = math.min(budget, ship.effective_max_maneuver_actions or ship.max_maneuver_actions or budget)
   local resp = harness.request(app.session, {
     protocol_version = 4,
     request = "reach_preview",

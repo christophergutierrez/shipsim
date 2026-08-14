@@ -509,6 +509,9 @@ class AllocDraft:
     cloak: bool = False
     repair: int = 0
     unsquad: bool = False
+    movement_cap: int = 0
+    thrust_per_power: int = 0
+    power_per_thrust: int = 0
 
     @classmethod
     def from_ship(cls, ship: dict[str, Any]) -> "AllocDraft":
@@ -571,7 +574,15 @@ class AllocDraft:
             has_cloak="cloak" in kinds,
             has_repair="repair" in kinds,
             in_squad=ship.get("squad_id") is not None,
+            movement_cap=int(ship.get("effective_max_maneuver_actions") or ship.get("max_maneuver_actions") or 0),
+            thrust_per_power=int(ship.get("thrust_per_power") or 0),
+            power_per_thrust=int(ship.get("power_per_thrust") or 0),
         )
+
+    def movement_power_cap(self) -> Optional[int]:
+        if self.movement_cap <= 0 or self.thrust_per_power <= 0 or self.power_per_thrust <= 0:
+            return None
+        return (self.movement_cap * self.power_per_thrust + self.thrust_per_power - 1) // self.thrust_per_power
 
     def resolve_weapon(self, token: str) -> Optional[str]:
         return self.aliases.get(token.lower().replace("-", "_"))
@@ -775,6 +786,10 @@ class AllocDraft:
 
     def set_movement(self, n: int) -> bool:
         value = max(0, int(n))
+        cap = self.movement_power_cap()
+        if cap is not None and value > cap:
+            print(f"  clamp: engine power {value} → convertible cap {cap}")
+            value = cap
         available = self.free() + int(self.movement)
         if value > available:
             print(
@@ -852,7 +867,7 @@ def default_allocate(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
     pool -= forward_shield
 
     # Rest goes to movement (graceful degradation on small pools)
-    draft.movement = max(0, pool)
+    draft.set_movement(max(0, pool))
 
     print(draft.summary())
     return draft.to_order()
@@ -925,7 +940,7 @@ def _pending_volley_ship(
 def movement_summary(ship: dict[str, Any], path_draft: Optional[list[str]] = None) -> str:
     """Full path-drafting help (`motion` / `m` / help path)."""
     motion = int(ship.get("motion_available") or 0)
-    cap = int(ship.get("max_maneuver_actions") or 0)
+    cap = int(ship.get("effective_max_maneuver_actions") or ship.get("max_maneuver_actions") or 0)
     lines = [
         f"  ship #{ship['id']} path drafting",
         f"  {motion_status_bits(ship)}",

@@ -12,6 +12,16 @@ local function power_available(ship)
   return (ship and ship.power_available) or (ship and ship.power) or 0
 end
 
+local function movement_power_cap(ship)
+  local cap = ship and (ship.effective_max_maneuver_actions or ship.max_maneuver_actions)
+  local thrust_per_power = ship and (ship.thrust_per_power or 0)
+  local power_per_thrust = ship and (ship.power_per_thrust or 0)
+  if not cap or cap <= 0 or thrust_per_power <= 0 or power_per_thrust <= 0 then
+    return nil
+  end
+  return math.floor((cap * power_per_thrust + thrust_per_power - 1) / thrust_per_power)
+end
+
 --- Live carried charge from the engine snapshot (not the local draft).
 function allocation.carried_charge(ship, weapon_id)
   for _, weapon in ipairs((ship and ship.weapons) or {}) do
@@ -59,7 +69,10 @@ end
 function allocation.available_for_movement(ship, draft)
   local movement = (draft and draft.movement) or 0
   local power = power_available(ship)
-  return math.max(0, power - (allocation.power_spent(ship, draft) - movement))
+  local available = math.max(0, power - (allocation.power_spent(ship, draft) - movement))
+  local cap = movement_power_cap(ship)
+  if cap then available = math.min(available, cap) end
+  return available
 end
 
 --- Raise one weapon desired-total by 1, floored at carried, capped by max_charge
