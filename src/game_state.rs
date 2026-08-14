@@ -232,6 +232,32 @@ fn ecm_penalty(
     }
 }
 
+/// Single construction point for [`crate::combat_tables::ToHitModifiers`].
+/// `resolve_volley_phase` and `fire_decision_preview` read from two different
+/// snapshot/ship types but must derive identical modifiers for the same
+/// attacker/weapon/target — resolution and its preview silently disagreeing is
+/// the one failure mode that must not be possible here. Route both through
+/// this so a future field is wired once, not once-per-call-site-remembered.
+#[allow(clippy::too_many_arguments)]
+fn to_hit_modifiers(
+    attack_accuracy_bonus: u8,
+    weapon_accuracy_bonus: u8,
+    attacker_systems: &[crate::schema::SystemKind],
+    target_cloaked: bool,
+    target_evasion: u32,
+    target_systems: &[crate::schema::SystemKind],
+    kind: crate::combat_tables::WeaponKind,
+) -> crate::combat_tables::ToHitModifiers {
+    crate::combat_tables::ToHitModifiers {
+        attack_accuracy_bonus,
+        weapon_accuracy_bonus,
+        computer_accuracy_bonus: computer_bonus(attacker_systems),
+        defender_cloaked: target_cloaked,
+        defender_evasion: target_evasion,
+        defender_ecm_penalty: ecm_penalty(target_systems, kind),
+    }
+}
+
 /// Staged path commitment during the movement collection stage.
 #[derive(Debug, Clone)]
 struct PathCommit {
@@ -1056,14 +1082,15 @@ impl GameState {
                 kind,
                 range,
                 target.size,
-                crate::combat_tables::ToHitModifiers {
-                    attack_accuracy_bonus: attacker.attack_accuracy_bonus,
-                    weapon_accuracy_bonus: weapon.accuracy_bonus,
-                    computer_accuracy_bonus: computer_bonus(&attacker.systems),
-                    defender_cloaked: target.cloaked,
-                    defender_evasion: target.evasion_committed,
-                    defender_ecm_penalty: ecm_penalty(&target.systems, kind),
-                },
+                to_hit_modifiers(
+                    attacker.attack_accuracy_bonus,
+                    weapon.accuracy_bonus,
+                    &attacker.systems,
+                    target.cloaked,
+                    target.evasion_committed,
+                    &target.systems,
+                    kind,
+                ),
             )
             .ok_or_else(|| crate::movement::OrderError::OutOfRange {
                 weapon: shot.weapon.clone(),
@@ -1418,14 +1445,15 @@ impl GameState {
             weapon.kind,
             range,
             target.size,
-            crate::combat_tables::ToHitModifiers {
-                attack_accuracy_bonus: attacker.attack_accuracy_bonus,
-                weapon_accuracy_bonus: weapon.accuracy_bonus,
-                computer_accuracy_bonus: computer_bonus(&attacker.systems),
-                defender_cloaked: target.cloaked,
-                defender_evasion: target.evasion_committed,
-                defender_ecm_penalty: ecm_penalty(&target.systems, weapon.kind),
-            },
+            to_hit_modifiers(
+                attacker.attack_accuracy_bonus,
+                weapon.accuracy_bonus,
+                &attacker.systems,
+                target.cloaked,
+                target.evasion_committed,
+                &target.systems,
+                weapon.kind,
+            ),
         )
         .ok_or_else(|| crate::movement::OrderError::OutOfRange {
             weapon: weapon_id.to_string(),

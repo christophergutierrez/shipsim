@@ -172,12 +172,15 @@ impl BaselinePolicy {
                 _ => weapon.max_charge.max(have),
             };
             let target = desired.min(weapon.max_charge).max(have);
-            let increase = target.saturating_sub(have);
-            if increase > weapon_remaining {
-                weapons.insert(weapon.id.clone(), have);
-                continue;
-            }
-            weapons.insert(weapon.id.clone(), target);
+            // Spend whatever budget remains rather than skipping the weapon
+            // outright when a full charge does not fit: an all-or-nothing rule
+            // here left small hulls (e.g. yard_swarm: 3 power left for two
+            // beams needing 4 each) permanently uncharged, because movement is
+            // allocated before weapons every turn and the shortfall repeats
+            // forever. Charging what fits still moves toward `target` and lets
+            // the ship fire on a lower-charge shot instead of never firing.
+            let increase = target.saturating_sub(have).min(weapon_remaining);
+            weapons.insert(weapon.id.clone(), have + increase);
             weapon_remaining -= increase;
         }
         remaining -= weapon_budget - weapon_remaining;
