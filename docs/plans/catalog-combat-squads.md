@@ -4,7 +4,10 @@ Finish `docs/TODO.md` and the locked combat additions. Size is a fleet
 tradeoff; the yard is the only construction model; v4 allocate / path /
 volley stays.
 
-**Not coding yet.** This file is the tracked plan (not `.killhouse/`).
+**Implementation status:** M1–M9 are shipped on the current branch. The
+remaining M10–M13 balance work is governed by
+`docs/plans/catalog-review-remediation.md`; this file remains the locked design
+record, not a statement that implementation has not started.
 Each milestone has a **Goal**, **Work**, and an **Exit** table. A phase is
 done only when every exit check passes.
 

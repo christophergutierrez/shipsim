@@ -24,7 +24,15 @@ cargo run --manifest-path frontend/tui/Cargo.toml -- --yard
 cargo run --bin shipsim-yard -- validate data/designs/yard_destroyer.toml
 cargo run --bin shipsim-yard -- cost data/designs/yard_destroyer.toml
 cargo run --bin shipsim-yard -- compile data/designs/yard_destroyer.toml
+cargo run --bin shipsim-yard -- check data/designs/yard_destroyer.toml
+cargo run --bin shipsim-yard -- check-all
 ```
+
+`validate`, `cost`, and `check` are read-only. `compile` is the only command
+that writes a generated ship, and it refuses to replace an unmarked file.
+`check` compares canonical compiler output without writing; `check-all` checks
+all committed `yard_*.toml` designs. A clean `check-all` is the generated-data
+drift gate.
 
 **Fight** a compiled class (`scenarios/yard_destroyer.toml` is a duel):
 
@@ -95,6 +103,10 @@ shields = [6, 4, 2, 2, 2, 4]   # F, FR, RR, R, RL, FL
 
 [[weapons]]
 component = "beam"
+mount = "forward"
+
+[[weapons]]
+component = "torpedo"
 mount = "forward"
 ```
 
@@ -187,6 +199,26 @@ SKUs live in `data/components.toml`. Compact is a space/cost trade and
 compiles with `accuracy_bonus` / `damage_bonus` = 0. Potent and Precise write
 those modifiers onto the compiled weapon.
 
+## Systems
+
+System components are defined under `[systems.<id>]` in
+`data/components.toml` and installed with `[[systems]]` rows in a design:
+
+```toml
+[[systems]]
+component = "computer_mk2"
+
+[[systems]]
+component = "repair"
+```
+
+The compiler emits typed `ShipDef.systems` entries for computer marks 1–3,
+cloak, repair, and ECM. A ship may install each system kind only once;
+computers must have mark 1, 2, or 3. Unknown components, unsupported system
+kinds, duplicate systems, invalid marks, incompatible weapon flags, unknown
+mounts, over-capacity designs, and designs without one motion point are
+rejected before output is written.
+
 ## Formulas
 
 ```text
@@ -203,15 +235,17 @@ Material multiplies the frame, not component prices.
 
 ## Fixtures
 
-`data/designs/yard_*.toml` are committed examples (including
-`yard_destroyer`). `scenarios/yard_destroyer.toml` is a duel that loads the
-compiled class. Compiled `data/ships/yard_*.toml` are durable when a scenario
-or suite names them. Throwaway experiments should stay uncompiled or be
-removed after `compile`.
+`data/designs/yard_*.toml` are committed examples. `yard_swarm` through
+`yard_capital` are the seven standard size-tier classes; `yard_baseline`,
+`yard_compact`, `yard_potent`, and `yard_precise` are controlled weapon-quality
+fixtures, not additional standard classes. Compiled `data/ships/yard_*.toml`
+are durable generated outputs. Throwaway experiments should stay uncompiled
+or be removed after `compile`.
 
 ## Tests
 
 ```bash
 cargo test --lib shipyard::
 cargo test --manifest-path frontend/tui/Cargo.toml -- yard_
+cargo run --bin shipsim-yard -- check-all
 ```

@@ -8,9 +8,11 @@
 
 ## Hull size, movement efficiency, and system capacity
 
-Status: **Not done.** The yard and size ladder exist; the original goal
-(size as a certified fleet tradeoff, catalog unification, sim evidence) does
-not.
+Status: **Implementation milestones shipped; catalog remediation and balance
+evidence are in progress.** The original implementation plan is recorded in
+[`docs/plans/catalog-combat-squads.md`](plans/catalog-combat-squads.md); the
+active remediation plan is
+[`docs/plans/catalog-review-remediation.md`](plans/catalog-review-remediation.md).
 
 **Shipped (yard + combat silhouette):**
 
@@ -22,16 +24,24 @@ not.
 - Compile → ordinary `data/ships/<id>.toml`. Stock catalog is **not**
   regenerated from the yard.
 
+**Shipped implementation:**
+
+- Seven standard yard classes and four controlled quality fixtures are
+  compiled and checked by the catalog drift gate.
+- Typed combat systems, Repeat/Pierce, PD, computer/cloak/repair, squads,
+  graviton, missiles, ECM, budget fleets, and their regression tests are
+  implemented.
+
 **Still open (this TODO):**
 
-- Unify the 21-ship `{size}_{light|line|heavy}` catalog (and legacy escort /
-  huge / starbase) under yard rules.
-- Scenario load does **not** reject stock hulls for space; only the yard
-  validates capacity.
-- No construction *economy* in play (points exist at design time only).
-- Balance certification and the simulation evidence list below.
-- Named `movement_cost` / initiative-from-motion / momentum in the candidate
-  rules are **not** the live v4 path loop (see the note at the top of this file).
+- Run and record the current standard catalog evidence matrix without treating
+  diagnostic fixed-count suites as equal-cost certification.
+- Tune only on seeds 1–191, evaluate once on 328–391, then sign off once on
+  264–327, with catalog and rules fingerprints recorded.
+- Decide whether `torpedo_potent` should be dropped or differentiated after
+  evidence; this is a deliberate SKU decision, not an implementation gap.
+- Named `movement_cost` / initiative-from-motion / momentum are **not** the
+  live v4 path loop (see the note at the top of this file).
 
 ### Size ladder (accepted catalog)
 
@@ -49,12 +59,11 @@ not.
 size IDs — map scraped ships by STCS class number when present. Combat baseline
 remains size **2** until an explicit retune. See `docs/combat-v2-tables.md`.
 
-**Draft variants:** three hulls per size (`*_light` / `*_line` / `*_heavy`).
-HEAD `cost` is Combat-D ratioed (destroyer_line = 100) — **diseconomies of scale
-vs the intended frame-sunk model**; see `docs/BALANCE-COST.md`.
-**Suite:** `simulation/suites/cost_matched.toml`. **Before regenerating costs:**
-engagement/termination instrumentation (stalemates dominate); then frame/module
-catalog regen; certify A/B/C with asymmetric policies.
+**Standard catalog:** one yard-generated hull per size tier; costs live on the
+compiled ship definitions. **Suites:**
+`simulation/suites/catalog_standard.toml` for standard classes and
+`simulation/suites/weapon_quality_matched.toml` for controlled SKU comparisons.
+Diagnostic claim suites are explicitly calibrated-count experiments.
 
 ### Goal
 

@@ -10,25 +10,27 @@ For the tuning procedure, seed discipline, and acceptance gates, read
 
 ## Current status
 
-Status as of **2026-07-18**: **pooled tuning candidate; not certified**.
+Status as of **2026-08-14**: **catalog changed; prior evidence is stale and
+not certified**.
 
-The checked-in catalog passes the reusable A/B/C pooled tuning suite on seeds
-1-191. The replacement sign-off seeds 264-327 have intentionally not been run.
-Passing reusable seeds is evidence that a candidate is ready for review; it is
-not out-of-sample certification.
+The checked-in catalog now has a four-beam capital and corrected quality-control
+fixtures. The older A/B/C pooled report predates those changes and must not be
+used as current evidence. Rebuild the fast, pooled, evaluation, and sign-off
+tiers from the remediation plan before making balance claims.
 
 Current catalog-specific levers include:
 
 - range-aware target-size accuracy ceiling: floor 15, maximum 19;
 - fire control only against exact size-2 targets;
-- `yard_capital`: accuracy bonus 12, five SSD boxes per weapon;
-- `yard_capital`: accuracy bonus 10, three SSD boxes per weapon.
+- standard classes: `yard_swarm` through `yard_capital`;
+- quality fixtures: `yard_baseline`, `yard_compact`, `yard_potent`, and
+  `yard_precise`.
 
 Authoritative values are in [`data/rules/default.toml`](../data/rules/default.toml)
 and [`data/ships/`](../data/ships/). The prose above is a readable status
 summary, not a second source of truth.
 
-### Current reusable-seed evidence
+### Historical reusable-seed evidence
 
 Run on 2026-07-18 from the checked-in `+12/+10` catalog:
 
@@ -59,8 +61,10 @@ fair in every scenario.
 | C | Fixed 8 `yard_destroyer` vs 1 `yard_capital` | Scenario track; heavy titan wins at least 90% |
 | Control | 4 `yard_destroyer` vs 4 `yard_destroyer` | Detect side/policy drift; player 35-65% |
 
-Claims A and B use deliberately chosen fleet counts around current construction
-costs. C is a fixed-count scenario claim, not equal-budget evidence.
+Claims A and B use deliberately chosen fixed counts and skip cost validation;
+they are diagnostic experiments, not equal-budget evidence. Exact cost-matched
+comparisons are in `catalog_standard.toml` and controlled SKU comparisons are
+in `weapon_quality_matched.toml`.
 
 ## What players should infer
 

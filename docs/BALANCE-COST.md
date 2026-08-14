@@ -1,6 +1,6 @@
 # Construction cost, efficiency, and balance claims
 
-Status: **implemented catalog model; pooled balance candidate, not certified**.
+Status: **implemented catalog model; current evidence must be rebuilt, not certified**.
 See [`BALANCE.md`](BALANCE.md) for current measurements and scope. Simulator win
 matrices certify named claims; efficiency only generates candidate catalogs.
 
@@ -8,7 +8,8 @@ matrices certify named claims; efficiency only generates candidate catalogs.
 
 - Standard yard designs carry their authoritative construction cost directly
   in each generated `data/ships/yard_*.toml` file.
-- A/B/C pass reusable pooled seeds 1-191 for the current catalog.
+- A/B/C evidence from the previous battery layout is historical and does not
+  describe the current catalog.
 - The virgin 264-327 sign-off range has not been run; do not call the catalog
   certified.
 - The cross-size ladder remains uncertified. Do not extend destroyer/titan
@@ -102,9 +103,9 @@ Do not describe these rows as exact equal-budget certification.
 
 | Claim | Current operational definition | Desired outcome |
 |-------|-------------------------------|-----------------|
-| **A** | 7 destroyers (700) vs `yard_capital` (762), minimum fill | Swarm wins 60-80% |
-| **B** | 10 destroyers (1000) vs `yard_capital` (910), maximum fill | Either side can win; player 40-60% |
-| **C** | Fixed 8 destroyers (800) vs `yard_capital` (910) | Titan wins at least 90%; scenario claim, not cost parity |
+| **A** | Fixed 7 destroyers (686) vs `yard_capital` (3470) | Diagnostic count probe; not cost parity |
+| **B** | Fixed 10 destroyers (980) vs `yard_capital` (3470) | Diagnostic count probe; not cost parity |
+| **C** | Fixed 8 destroyers (784) vs `yard_capital` (3470) | Scenario claim; not cost parity |
 | **Control** | 4 destroyers vs 4 destroyers | Player 35-65%; detect side/policy drift |
 
 Claim **B is ill-posed without forced engagement**. Mobility can refuse battle on
@@ -158,9 +159,10 @@ cargo run --release --bin shipsim-sim -- \
   --output tmp/simulation/reports/abc_claims_pooled.json
 ```
 
-Current costs include `yard_destroyer=100`, `yard_capital=762`, and
-`yard_capital=910`. Suite counts are A=7 destroyers vs light, B=10 destroyers vs
-heavy, and C=8 destroyers vs heavy. Current measured outcomes belong in
+Current standard costs include `yard_destroyer=98` and `yard_capital=3470`.
+The calibrated A/B/C counts are fixed-count diagnostics, not near-cost pairs:
+A=7 destroyers, B=10 destroyers, and C=8 destroyers versus one capital.
+Current measured outcomes belong in
 [`BALANCE.md`](BALANCE.md), not in this economic model.
 
 Power / shield / structure **sweeps** remain useful for local levers once games
@@ -171,6 +173,7 @@ decide; they do not replace catalog form or engagement rules.
 - Current status: `docs/BALANCE.md`
 - Agent tuning and seed protocol: `docs/BALANCE-PROTOCOL.md`
 - Size ladder: `data/sizes.toml`, `docs/SIZE-VARIANTS.md` (historical D-cost note)
-- Suites: `docs/SIMULATION.md`, `simulation/suites/cost_matched.toml`
+- Suites: `docs/SIMULATION.md`, `simulation/suites/catalog_standard.toml`,
+  `simulation/suites/weapon_quality_matched.toml`
 - FASA component ratios (mass/SS/MCr): `tmp/sfb/Master-Construction-Book.xlsx`
   (Beam / Torpedo / shields / Weight sheets) — input for relative \(c\), not HEAD costs

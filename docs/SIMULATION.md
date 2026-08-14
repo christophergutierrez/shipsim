@@ -108,6 +108,18 @@ Ship `cost` comes from `data/ships/{class}.toml` (see `docs/SIZE-VARIANTS.md`).
 Both fleets must be within `cost_tolerance` of each other and of `budget` when set
 (unless `skip_cost_validation = true`).
 
+The current tracked catalog suites are:
+
+- `simulation/suites/catalog_standard.toml`: standard size mirrors, adjacent
+  cost-matched probes, and the 47-swarm versus one-capital probe;
+- `simulation/suites/weapon_quality_matched.toml`: baseline/Compact/Potent/
+  Precise comparisons with per-engagement cost parity;
+- `simulation/suites/cost_matched.toml`: legacy cost-matched regression matrix.
+
+`abc_claims*.toml`, `ladder_claims.toml`, and the titan sweep files are
+calibrated-count or parameter diagnostics. Their `skip_cost_validation = true`
+is intentional and they must not be described as equal-cost certification.
+
 For a deterministic pre-combat policy roster, use the standard-yard budget
 helper (the same composition can be used for both sides):
 

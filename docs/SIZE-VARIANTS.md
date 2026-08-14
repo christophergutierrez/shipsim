@@ -12,7 +12,7 @@ budget value.
 | 4 | `yard_heavy_cruiser` | 309 |
 | 5 | `yard_battleship` | 546 |
 | 6 | `yard_dreadnought` | 1322 |
-| 7 | `yard_capital` | 3454 |
+| 7 | `yard_capital` | 3470 |
 
 The retired light/line/heavy stock variants and the separate cost index are no
 longer shipped. See [`SHIPYARD.md`](SHIPYARD.md) for compilation commands and
