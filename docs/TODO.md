@@ -42,6 +42,15 @@ active remediation plan is
   evidence; this is a deliberate SKU decision, not an implementation gap.
 - Named `movement_cost` / initiative-from-motion / momentum are **not** the
   live v4 path loop (see the note at the top of this file).
+- Execute the TUI pass against `docs/UI-RUBRIC.md`: no identified
+  Critical/Major issues remain, but the measurable Minor/Polish close-out is
+  M0–M5 in [`docs/plans/ui-rubric-tui.md`](plans/ui-rubric-tui.md). M1 also
+  removes the TUI's incorrect private repair-cap formula by projecting the
+  engine's authoritative cap in snapshots.
+- Follow the TUI pass with separate REPL/Love rubric reviews. In particular,
+  the REPL repair selector currently uses the same stale 1/2 size split as the
+  TUI and must consume the authoritative engine field; the TUI plan does not
+  claim that frontend is fixed.
 
 ### Size ladder (accepted catalog)
 

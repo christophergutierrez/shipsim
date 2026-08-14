@@ -157,6 +157,11 @@ engine acknowledgment.
 
 ## Verify
 
+UI changes are reviewed against [`docs/UI-RUBRIC.md`](../../docs/UI-RUBRIC.md).
+The rendered TUI invariants are numbered `T#` in `src/tests.rs`; combat keeps
+an 80×24 floor and the yard keeps a 60×16 floor. These checks supplement the
+engine and protocol tests and do not claim Love2D or REPL rubric compliance.
+
 ```bash
 cargo test   --manifest-path frontend/tui/Cargo.toml   # TUI + live tutorial tests
 cargo clippy --manifest-path frontend/tui/Cargo.toml
