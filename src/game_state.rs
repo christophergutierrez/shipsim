@@ -94,6 +94,8 @@ struct StagedAllocation {
     shields: [u32; 6],
     cloak: bool,
     repair: u32,
+    unsquad: bool,
+    squad_leader: Option<u32>,
 }
 
 /// One engine-authoritative legal fire opportunity.
@@ -173,6 +175,13 @@ pub struct GameState {
     npcs: BTreeMap<u32, NpcController>,
     path_results: Vec<PathResult>,
     rules: Arc<Ruleset>,
+    squads: BTreeMap<u32, SquadState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SquadState {
+    pub leader: u32,
+    pub members: Vec<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -215,6 +224,18 @@ impl GameState {
         seed: u64,
         rules: Arc<Ruleset>,
     ) -> Self {
+        Self::new_with_squads(board, ships, terminal, npcs, seed, rules, BTreeMap::new())
+    }
+
+    pub(crate) fn new_with_squads(
+        board: Board,
+        ships: Vec<Ship>,
+        terminal: Option<Terminal>,
+        npcs: BTreeMap<u32, NpcController>,
+        seed: u64,
+        rules: Arc<Ruleset>,
+        squad_defs: BTreeMap<u32, (u32, Vec<u32>)>,
+    ) -> Self {
         let mut state = Self {
             board,
             ships,
@@ -233,6 +254,10 @@ impl GameState {
             npcs,
             path_results: Vec::new(),
             rules,
+            squads: squad_defs
+                .into_iter()
+                .map(|(id, (leader, members))| (id, SquadState { leader, members }))
+                .collect(),
         };
         state.reset_all_power();
         state.refresh_status();
@@ -420,7 +445,7 @@ impl GameState {
         weapons: BTreeMap<String, u32>,
         shields: [u32; 6],
     ) -> Result<(), crate::movement::OrderError> {
-        self.allocate_v2_with_systems(ship_id, movement, weapons, shields, false, 0)
+        self.allocate_v2_with_systems(ship_id, movement, weapons, shields, false, 0, false, None)
     }
 
     pub fn allocate_v2_with_systems(
@@ -431,6 +456,8 @@ impl GameState {
         shields: [u32; 6],
         cloak: bool,
         repair: u32,
+        unsquad: bool,
+        squad_leader: Option<u32>,
     ) -> Result<(), crate::movement::OrderError> {
         if self.phase != Phase::Allocate {
             return Err(crate::movement::OrderError::WrongPhase {
@@ -450,7 +477,6 @@ impl GameState {
         if ship.destroyed {
             return Err(crate::movement::OrderError::ShipNotFound(ship_id));
         }
-
         self.validate_allocation_draft(
             ship,
             ship_id,
@@ -469,6 +495,8 @@ impl GameState {
                 shields,
                 cloak,
                 repair,
+                unsquad,
+                squad_leader,
             },
         );
 
@@ -491,13 +519,13 @@ impl GameState {
             .iter()
             .map(|(id, a)| (*id, a.clone()))
             .collect();
-        for (ship_id, alloc) in staged {
-            let Some(ship) = self.ship(ship_id).cloned() else {
+        for (ship_id, alloc) in &staged {
+            let Some(ship) = self.ship(*ship_id).cloned() else {
                 continue;
             };
             let Ok((_, merged_charges)) = self.validate_allocation_draft(
                 &ship,
-                ship_id,
+                *ship_id,
                 alloc.movement,
                 &alloc.weapons,
                 &alloc.shields,
@@ -506,7 +534,7 @@ impl GameState {
             ) else {
                 continue;
             };
-            let Some(ship) = self.ship_mut(ship_id) else {
+            let Some(ship) = self.ship_mut(*ship_id) else {
                 continue;
             };
             ship.movement_allocated = alloc.movement;
@@ -525,12 +553,48 @@ impl GameState {
                     .min(ship.ssd.hull_max);
                 ship.destroyed = ship.ssd.is_destroyed();
             }
-            self.allocated_this_turn.insert(ship_id);
+            self.allocated_this_turn.insert(*ship_id);
         }
+        self.apply_squad_allocation_changes(&staged);
         self.staged_allocations.clear();
         self.phase = Phase::Movement;
         self.path_commits.clear();
         self.path_results.clear();
+    }
+
+    fn apply_squad_allocation_changes(&mut self, staged: &[(u32, StagedAllocation)]) {
+        for (ship_id, alloc) in staged {
+            if alloc.unsquad {
+                let squad_id = self
+                    .squads
+                    .iter()
+                    .find(|(_, squad)| squad.members.contains(ship_id))
+                    .map(|(id, _)| *id);
+                if let Some(squad_id) = squad_id {
+                    if let Some(squad) = self.squads.get_mut(&squad_id) {
+                        squad.members.retain(|member| member != ship_id);
+                        if squad.members.is_empty() {
+                            self.squads.remove(&squad_id);
+                        } else if squad.leader == *ship_id {
+                            squad.leader = *squad.members.iter().min().unwrap();
+                        }
+                    }
+                }
+            }
+            if let Some(requested) = alloc.squad_leader {
+                if let Some(squad) = self
+                    .squads
+                    .values_mut()
+                    .find(|squad| squad.members.contains(ship_id) && squad.members.contains(&requested))
+                {
+                    squad.leader = requested;
+                }
+            }
+        }
+    }
+
+    pub fn squads(&self) -> &BTreeMap<u32, SquadState> {
+        &self.squads
     }
 
     pub fn has_committed_path(&self, ship: u32) -> bool {
@@ -560,6 +624,16 @@ impl GameState {
         actions: Vec<PathAction>,
         evasive: u32,
     ) -> Result<(), crate::movement::OrderError> {
+        self.commit_path_with_follow(ship_id, actions, evasive, false)
+    }
+
+    pub fn commit_path_with_follow(
+        &mut self,
+        ship_id: u32,
+        actions: Vec<PathAction>,
+        evasive: u32,
+        follow: bool,
+    ) -> Result<(), crate::movement::OrderError> {
         if self.phase != Phase::Movement {
             return Err(crate::movement::OrderError::WrongPhase {
                 expected: "movement",
@@ -571,6 +645,14 @@ impl GameState {
             .ok_or(crate::movement::OrderError::ShipNotFound(ship_id))?;
         if ship.destroyed {
             return Err(crate::movement::OrderError::ShipNotFound(ship_id));
+        }
+        if self
+            .squads
+            .values()
+            .any(|squad| squad.leader != ship_id && squad.members.contains(&ship_id))
+            && (!follow || !actions.is_empty())
+        {
+            return Err(crate::movement::OrderError::SquaddedFollowerPath { ship: ship_id });
         }
         if self.path_commits.contains_key(&ship_id) {
             return Err(crate::movement::OrderError::AlreadyCommittedPath(ship_id));
@@ -614,7 +696,19 @@ impl GameState {
         let bounds = self.hard_bounds();
         let mut claims = Vec::new();
         let mut evasion_by_ship: BTreeMap<u32, u32> = BTreeMap::new();
+        let mut claim_ids = BTreeMap::new();
+        for (squad_id, squad) in &self.squads {
+            claim_ids.insert(squad.leader, *squad_id);
+        }
         for ship in self.ships.iter().filter(|s| !s.destroyed) {
+            if self
+                .squads
+                .values()
+                .any(|squad| squad.members.contains(&ship.id) && squad.leader != ship.id)
+            {
+                evasion_by_ship.insert(ship.id, self.path_commits.get(&ship.id).map(|c| c.evasive).unwrap_or(0));
+                continue;
+            }
             let commit = self.path_commits.get(&ship.id);
             let actions = commit.map(|c| c.actions.clone()).unwrap_or_default();
             let evasive = commit.map(|c| c.evasive).unwrap_or(0);
@@ -623,7 +717,19 @@ impl GameState {
                 pos: ship.pos,
                 facing: ship.facing,
             };
-            let budget = ship.motion_available.saturating_sub(evasive);
+            let group_motion = claim_ids
+                .get(&ship.id)
+                .and_then(|squad_id| self.squads.get(squad_id))
+                .map(|squad| {
+                    squad
+                        .members
+                        .iter()
+                        .filter_map(|member| self.ship(*member).map(|ship| ship.motion_available))
+                        .min()
+                        .unwrap_or(ship.motion_available)
+                })
+                .unwrap_or(ship.motion_available);
+            let budget = group_motion.saturating_sub(evasive);
             if let Ok(trace) = path::trace_path(start, &actions, budget, bounds) {
                 claims.push(PathClaim {
                     ship: ship.id,
@@ -633,10 +739,18 @@ impl GameState {
         }
         let results = path_resolve::resolve_paths(&claims, &mut self.prng);
         for result in &results {
-            if let Some(ship) = self.ship_mut(result.ship) {
-                ship.pos = Hex::new(result.final_q, result.final_r);
-                ship.facing = result.final_facing;
-                ship.motion_available = 0;
+            let members = self
+                .squads
+                .values()
+                .find(|squad| squad.leader == result.ship)
+                .map(|squad| squad.members.clone())
+                .unwrap_or_else(|| vec![result.ship]);
+            for member in members {
+                if let Some(ship) = self.ship_mut(member) {
+                    ship.pos = Hex::new(result.final_q, result.final_r);
+                    ship.facing = result.final_facing;
+                    ship.motion_available = 0;
+                }
             }
         }
         // Apply declared evasion for every living ship that committed a path
@@ -1530,6 +1644,8 @@ impl GameState {
                                 shields,
                                 cloak: false,
                                 repair: 0,
+                                unsquad: false,
+                                squad_leader: None,
                             };
                             if self.allocate_v2(id, movement, weapons, shields).is_ok() {
                                 applied.push(order);
@@ -1555,6 +1671,7 @@ impl GameState {
                                 ship: id,
                                 actions: actions.clone(),
                                 evasive: 0,
+                                follow: false,
                             };
                             if self.commit_path(id, actions, 0).is_ok() {
                                 applied.push(order);

@@ -25,6 +25,10 @@ pub enum Order {
         cloak: bool,
         #[serde(default)]
         repair: u32,
+        #[serde(default)]
+        unsquad: bool,
+        #[serde(default)]
+        squad_leader: Option<u32>,
     },
     /// One complete path for `ship` during the movement collection stage.
     /// `evasive` spends motion points from the same budget as path actions
@@ -35,6 +39,8 @@ pub enum Order {
         #[serde(default)]
         #[serde(skip_serializing_if = "is_zero_u32")]
         evasive: u32,
+        #[serde(default)]
+        follow: bool,
     },
     /// One complete volley for `ship` during the firing collection stage.
     /// Empty `shots` is an explicit hold-fire.
@@ -103,6 +109,8 @@ pub enum OrderError {
     SystemNotInstalled(String),
     #[error("ship {0} has already committed a path this turn")]
     AlreadyCommittedPath(u32),
+    #[error("squad follower {ship} must submit follow with an empty path")]
+    SquaddedFollowerPath { ship: u32 },
     #[error("ship {0} has already committed a volley this turn")]
     AlreadyCommittedVolley(u32),
     #[error("ship {ship} path is illegal: {reason}")]
@@ -158,12 +166,24 @@ pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError>
             shields,
             cloak,
             repair,
-        } => game.allocate_v2_with_systems(ship, movement, weapons, shields, cloak, repair),
+            unsquad,
+            squad_leader,
+        } => game.allocate_v2_with_systems(
+            ship,
+            movement,
+            weapons,
+            shields,
+            cloak,
+            repair,
+            unsquad,
+            squad_leader,
+        ),
         Order::CommitPath {
             ship,
             actions,
             evasive,
-        } => game.commit_path(ship, actions, evasive),
+            follow,
+        } => game.commit_path_with_follow(ship, actions, evasive, follow),
         Order::CommitVolley { ship, shots } => game.commit_volley(ship, shots),
         Order::RetiredUnknown => Err(OrderError::RetiredV3Order),
     }

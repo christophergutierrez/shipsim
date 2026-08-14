@@ -869,6 +869,8 @@ mod tests {
                 shields: [0; 6],
                 cloak: false,
                 repair: 0,
+                unsquad: false,
+                squad_leader: None,
             }
         }
 
@@ -879,6 +881,7 @@ mod tests {
                 ship: context.ship.id,
                 actions: vec![crate::path::PathAction::MoveF; 8],
                 evasive: 0,
+                follow: false,
             }
         }
     }

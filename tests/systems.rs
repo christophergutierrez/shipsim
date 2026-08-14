@@ -85,6 +85,8 @@ controller = "player"
                 shields: [0; 6],
                 cloak: ship == 2 && target_systems.contains("cloak"),
                 repair: if ship == 2 && target_systems.contains("repair") { 1 } else { 0 },
+                unsquad: false,
+                squad_leader: None,
             },
         )
         .unwrap();
@@ -96,6 +98,7 @@ controller = "player"
                 ship,
                 actions: vec![],
                 evasive: 0,
+                follow: false,
             },
         )
         .unwrap();

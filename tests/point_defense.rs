@@ -106,6 +106,8 @@ controller = "player"
                 shields: [0; 6],
                 cloak: false,
                 repair: 0,
+                unsquad: false,
+                squad_leader: None,
             },
         )
         .unwrap();
@@ -117,6 +119,7 @@ controller = "player"
                 ship,
                 actions: vec![],
                 evasive: 0,
+                follow: false,
             },
         )
         .unwrap();

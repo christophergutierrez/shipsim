@@ -135,6 +135,8 @@ fn commit_path_validates_budget_and_allows_pure_jink() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -147,6 +149,8 @@ fn commit_path_validates_budget_and_allows_pure_jink() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -161,6 +165,7 @@ fn commit_path_validates_budget_and_allows_pure_jink() {
             ship: 1,
             actions: vec![PathAction::MoveF, PathAction::MoveF, PathAction::MoveF],
             evasive: 2,
+            follow: false,
         },
     )
     .unwrap_err();
@@ -177,6 +182,7 @@ fn commit_path_validates_budget_and_allows_pure_jink() {
             ship: 1,
             actions: Vec::new(),
             evasive: motion,
+            follow: false,
         },
     )
     .unwrap();
@@ -186,6 +192,7 @@ fn commit_path_validates_budget_and_allows_pure_jink() {
             ship: 2,
             actions: Vec::new(),
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -217,6 +224,8 @@ fn evasion_resets_on_next_allocate() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -229,6 +238,8 @@ fn evasion_resets_on_next_allocate() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -239,6 +250,7 @@ fn evasion_resets_on_next_allocate() {
             ship: 1,
             actions: Vec::new(),
             evasive: 2,
+            follow: false,
         },
     )
     .unwrap();
@@ -248,6 +260,7 @@ fn evasion_resets_on_next_allocate() {
             ship: 2,
             actions: Vec::new(),
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -302,6 +315,8 @@ fn fire_preview_uses_target_evasion() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -314,6 +329,8 @@ fn fire_preview_uses_target_evasion() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -323,6 +340,7 @@ fn fire_preview_uses_target_evasion() {
             ship: 1,
             actions: Vec::new(),
             evasive: 2,
+            follow: false,
         },
     )
     .unwrap();
@@ -332,6 +350,7 @@ fn fire_preview_uses_target_evasion() {
             ship: 2,
             actions: Vec::new(),
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();

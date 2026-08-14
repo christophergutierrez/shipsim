@@ -372,6 +372,8 @@ fn place_side(
                 power: line.power,
                 structure: line.structure,
                 max_shield_per_facing: line.max_shield_per_facing,
+                squad: None,
+                leader: None,
             });
             *next_id += 1;
             index += 1;

@@ -124,6 +124,8 @@ fn enter_firing(game: &mut shipsim_core::game_state::GameState) {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -136,6 +138,8 @@ fn enter_firing(game: &mut shipsim_core::game_state::GameState) {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -145,6 +149,7 @@ fn enter_firing(game: &mut shipsim_core::game_state::GameState) {
             ship: 1,
             actions: Vec::new(),
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -154,6 +159,7 @@ fn enter_firing(game: &mut shipsim_core::game_state::GameState) {
             ship: 2,
             actions: Vec::new(),
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();

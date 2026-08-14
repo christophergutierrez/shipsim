@@ -103,6 +103,10 @@ pub struct ShipPlacementDef {
     /// Override per-facing shield cap for this placement.
     #[serde(default)]
     pub max_shield_per_facing: Option<u32>,
+    #[serde(default)]
+    pub squad: Option<u32>,
+    #[serde(default)]
+    pub leader: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -138,6 +142,7 @@ pub struct WeaponDef {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SystemDef {
+    #[serde(flatten)]
     pub kind: SystemKind,
 }
 

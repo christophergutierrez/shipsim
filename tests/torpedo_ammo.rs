@@ -18,6 +18,7 @@ fn empty_path(ship: u32) -> Order {
         ship,
         actions: Vec::new(),
         evasive: 0,
+        follow: false,
     }
 }
 
@@ -224,6 +225,8 @@ controller = "scripted"
                 shields: [0; 6],
                 cloak: false,
                 repair: 0,
+                unsquad: false,
+                squad_leader: None,
             },
         )
         .expect("allocate torp");
@@ -236,6 +239,8 @@ controller = "scripted"
                 shields: [0; 6],
                 cloak: false,
                 repair: 0,
+                unsquad: false,
+                squad_leader: None,
             },
         )
         .expect("target allocate");
@@ -288,6 +293,8 @@ controller = "scripted"
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap_err();

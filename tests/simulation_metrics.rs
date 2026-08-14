@@ -28,6 +28,8 @@ fn metrics_record_path_resolution_and_actual_translation() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .expect("allocate 1");
@@ -40,6 +42,8 @@ fn metrics_record_path_resolution_and_actual_translation() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .expect("allocate 2");
@@ -52,6 +56,7 @@ fn metrics_record_path_resolution_and_actual_translation() {
             ship: 1,
             actions: vec![PathAction::MoveF],
             evasive: 0,
+            follow: false,
         },
     )
     .expect("path 1");
@@ -61,6 +66,7 @@ fn metrics_record_path_resolution_and_actual_translation() {
             ship: 2,
             actions: vec![PathAction::MoveF],
             evasive: 0,
+            follow: false,
         },
     )
     .expect("path 2");
@@ -154,6 +160,8 @@ fn weapon_power_metric_counts_increases_only() {
         shields: [1, 0, 0, 0, 0, 0],
         cloak: false,
         repair: 0,
+        unsquad: false,
+        squad_leader: None,
     };
     let mut metrics = MatchMetrics::default();
     metrics.record_allocation(&ship, &order);

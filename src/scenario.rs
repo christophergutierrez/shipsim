@@ -52,6 +52,12 @@ pub enum LoadError {
     InvalidWeaponBoxes { class: String },
     #[error("ships {a} and {b} both placed on hex ({q},{r})")]
     OverlappingPlacement { a: u32, b: u32, q: i32, r: i32 },
+    #[error("squad {squad} contains ships from different controllers")]
+    MixedSquadController { squad: u32 },
+    #[error("squad {squad} contains {count} ships; maximum is 12")]
+    SquadTooLarge { squad: u32, count: usize },
+    #[error("squad {squad} leader {leader} is not a member")]
+    InvalidSquadLeader { squad: u32, leader: u32 },
     #[error("scenario defines conflicting terminals (objective / destruction / annihilation)")]
     ConflictingTerminals,
     #[error("destruction terminal missing target")]
@@ -155,7 +161,7 @@ pub fn load_scenario_def_with_rules(
 
     let mut ships = Vec::with_capacity(def.ships.len());
     let mut npcs: BTreeMap<u32, NpcController> = BTreeMap::new();
-    let mut occupied: BTreeMap<(i32, i32), u32> = BTreeMap::new();
+    let mut occupied: BTreeMap<(i32, i32), (u32, Option<u32>)> = BTreeMap::new();
 
     for placement in &def.ships {
         if !Hex::is_valid_facing(placement.facing) {
@@ -166,13 +172,15 @@ pub fn load_scenario_def_with_rules(
 
         let pos = Hex::new(placement.q, placement.r);
         validate_on_board(&board, pos)?;
-        if let Some(other) = occupied.insert((pos.q, pos.r), placement.id) {
-            return Err(LoadError::OverlappingPlacement {
-                a: other,
-                b: placement.id,
-                q: pos.q,
-                r: pos.r,
-            });
+        if let Some((other, other_squad)) = occupied.insert((pos.q, pos.r), (placement.id, placement.squad)) {
+            if placement.squad.is_none() || placement.squad != other_squad {
+                return Err(LoadError::OverlappingPlacement {
+                    a: other,
+                    b: placement.id,
+                    q: pos.q,
+                    r: pos.r,
+                });
+            }
         }
 
         let ship_def = load_ship_def(data_root, &placement.class)?;
@@ -335,8 +343,41 @@ pub fn load_scenario_def_with_rules(
         }
     }
 
-    Ok(GameState::new_with_options(
+    let mut squads = BTreeMap::new();
+    let mut members: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    let mut controllers: BTreeMap<u32, String> = BTreeMap::new();
+    let mut requested_leaders: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for placement in &def.ships {
+        let Some(squad) = placement.squad else { continue };
+        members.entry(squad).or_default().push(placement.id);
+        let controller = placement.controller.to_ascii_lowercase();
+        if let Some(existing) = controllers.insert(squad, controller.clone()) {
+            if existing != controller {
+                return Err(LoadError::MixedSquadController { squad });
+            }
+        }
+        if let Some(leader) = placement.leader {
+            requested_leaders.entry(squad).or_default().push(leader);
+        }
+    }
+    for (squad, mut ids) in members {
+        ids.sort_unstable();
+        if ids.len() > 12 {
+            return Err(LoadError::SquadTooLarge { squad, count: ids.len() });
+        }
+        let leader = requested_leaders
+            .remove(&squad)
+            .and_then(|leaders| leaders.into_iter().next())
+            .unwrap_or(ids[0]);
+        if !ids.contains(&leader) {
+            return Err(LoadError::InvalidSquadLeader { squad, leader });
+        }
+        squads.insert(squad, (leader, ids));
+    }
+
+    Ok(GameState::new_with_squads(
         board, ships, terminal, npcs, seed, rules,
+        squads,
     ))
 }
 

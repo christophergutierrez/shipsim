@@ -486,6 +486,7 @@ impl BaselinePolicy {
             ship: context.ship.id,
             actions: self.plan_path(context),
             evasive: 0,
+            follow: false,
         }
     }
 
@@ -511,6 +512,8 @@ impl Policy for BaselinePolicy {
             shields,
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         }
     }
 
@@ -523,6 +526,8 @@ impl Policy for BaselinePolicy {
             shields,
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         }
     }
 
@@ -538,6 +543,7 @@ impl Policy for BaselinePolicy {
                     ship: context.ship.id,
                     actions: Vec::new(),
                     evasive: 0,
+                    follow: false,
                 }),
         }
     }

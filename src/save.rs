@@ -239,6 +239,8 @@ mod tests {
             shields: [1, 0, 0, 0, 0, 0],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         };
         apply_order(&mut game, player_alloc.clone()).expect("player alloc");
         orders.push(player_alloc);
@@ -249,6 +251,7 @@ mod tests {
             ship: 1,
             actions: vec![PathAction::MoveF],
             evasive: 0,
+            follow: false,
         };
         apply_order(&mut game, player_path.clone()).expect("player path");
         orders.push(player_path);

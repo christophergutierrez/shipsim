@@ -66,6 +66,8 @@ fn allocate_both(game: &mut shipsim_core::game_state::GameState) {
             shields: [2, 0, 0, 0, 0, 2],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .expect("player allocate");
@@ -81,6 +83,8 @@ fn allocate_both(game: &mut shipsim_core::game_state::GameState) {
                 shields: [1, 0, 0, 0, 0, 1],
                 cloak: false,
                 repair: 0,
+                unsquad: false,
+                squad_leader: None,
             },
         )
         .expect("escort allocate");
@@ -110,6 +114,8 @@ fn reach_preview_respects_zero_motion_in_movement() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .expect("player zero-motion allocate");
@@ -145,6 +151,7 @@ fn flow_allocate_movement_firing_allocate_next_turn() {
             ship: 1,
             actions: vec![PathAction::MoveF, PathAction::MoveF],
             evasive: 0,
+            follow: false,
         },
     )
     .expect("path 1");
@@ -156,6 +163,7 @@ fn flow_allocate_movement_firing_allocate_next_turn() {
                 ship: 2,
                 actions: vec![],
                 evasive: 0,
+                follow: false,
             },
         )
         .expect("path 2 empty");
@@ -203,6 +211,8 @@ fn partial_allocation_does_not_mutate_public_state() {
             shields: [3, 0, 0, 0, 0, 0],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .expect("stage player only");
@@ -225,6 +235,7 @@ fn empty_path_and_empty_volley_are_legal() {
             ship: 1,
             actions: vec![],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -236,6 +247,7 @@ fn empty_path_and_empty_volley_are_legal() {
                 ship: 2,
                 actions: vec![],
                 evasive: 0,
+                follow: false,
             },
         )
         .unwrap();
@@ -275,6 +287,7 @@ fn over_budget_path_rejected_with_index() {
             ship: 1,
             actions: std::mem::take(&mut actions),
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap_err();
@@ -309,6 +322,7 @@ fn weapon_charge_carries_shields_reset() {
             ship: 1,
             actions: vec![],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -320,6 +334,7 @@ fn weapon_charge_carries_shields_reset() {
                 ship: 2,
                 actions: vec![],
                 evasive: 0,
+                follow: false,
             },
         )
         .unwrap();
@@ -363,6 +378,7 @@ fn snapshot_hides_staged_path_payload() {
             ship: 1,
             actions: vec![PathAction::MoveF],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -405,6 +421,8 @@ fn path_preview_matches_commit_without_conflict() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -418,6 +436,8 @@ fn path_preview_matches_commit_without_conflict() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -429,6 +449,7 @@ fn path_preview_matches_commit_without_conflict() {
             ship: 1,
             actions: actions.clone(),
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -438,6 +459,7 @@ fn path_preview_matches_commit_without_conflict() {
             ship: 2,
             actions: vec![],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -464,6 +486,8 @@ fn simultaneous_volley_with_legal_shot() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -476,6 +500,8 @@ fn simultaneous_volley_with_legal_shot() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -487,6 +513,7 @@ fn simultaneous_volley_with_legal_shot() {
             ship: 1,
             actions: vec![],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -496,6 +523,7 @@ fn simultaneous_volley_with_legal_shot() {
             ship: 2,
             actions: vec![],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -576,6 +604,8 @@ fn mutual_destruction_both_volleys_resolve() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -588,6 +618,8 @@ fn mutual_destruction_both_volleys_resolve() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -597,6 +629,7 @@ fn mutual_destruction_both_volleys_resolve() {
             ship: 1,
             actions: vec![],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -606,6 +639,7 @@ fn mutual_destruction_both_volleys_resolve() {
             ship: 2,
             actions: vec![],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -679,6 +713,8 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -691,6 +727,8 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
         },
     )
     .unwrap();
@@ -700,6 +738,7 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
             ship: 1,
             actions: vec![PathAction::MoveF],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -709,6 +748,7 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
             ship: 2,
             actions: vec![PathAction::MoveF],
             evasive: 0,
+            follow: false,
         },
     )
     .unwrap();
@@ -736,6 +776,8 @@ fn floating_map_preserves_unique_world_endpoints_beyond_nominal_bounds() {
         power: None,
         structure: None,
         max_shield_per_facing: None,
+        squad: None,
+        leader: None,
     };
     let scenario = ScenarioDef {
         width: 3,
@@ -757,6 +799,8 @@ fn floating_map_preserves_unique_world_endpoints_beyond_nominal_bounds() {
             shields: [0; 6],
             cloak: false,
             repair: 0,
+            unsquad: false,
+            squad_leader: None,
             },
         )
         .expect("allocation");
@@ -768,6 +812,7 @@ fn floating_map_preserves_unique_world_endpoints_beyond_nominal_bounds() {
                 ship: id,
                 actions: vec![PathAction::MoveF, PathAction::MoveF],
                 evasive: 0,
+                follow: false,
             },
         )
         .expect("path");
