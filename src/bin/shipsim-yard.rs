@@ -3,17 +3,32 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 2 || !matches!(args[0].as_str(), "validate" | "cost" | "compile") {
-        eprintln!("usage: shipsim-yard <validate|cost|compile> <design.toml>");
+    let valid = (args.len() == 1 && args[0] == "check-all")
+        || (args.len() == 2
+            && matches!(args[0].as_str(), "validate" | "cost" | "compile" | "check"));
+    if !valid {
+        eprintln!("usage: shipsim-yard <validate|cost|compile|check> <design.toml>");
+        eprintln!("       shipsim-yard check-all");
         std::process::exit(2);
     }
     let command = &args[0];
-    let design = Path::new(&args[1]);
-    let root = find_data_root(design).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let design = args.get(1).map(Path::new);
+    let root = design
+        .and_then(find_data_root)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
     let result = match command.as_str() {
-        "validate" => shipyard::validate(&root, design).map(|_| "valid".to_string()),
-        "cost" => shipyard::design_cost(&root, design).map(|cost| cost.to_string()),
-        "compile" => shipyard::compile(&root, design).map(|path| path.display().to_string()),
+        "validate" => {
+            shipyard::validate(&root, design.expect("validated args")).map(|_| "valid".to_string())
+        }
+        "cost" => shipyard::design_cost(&root, design.expect("validated args"))
+            .map(|cost| cost.to_string()),
+        "compile" => shipyard::compile(&root, design.expect("validated args"))
+            .map(|path| path.display().to_string()),
+        "check" => shipyard::check(&root, design.expect("validated args"))
+            .map(|path| path.display().to_string()),
+        "check-all" => {
+            shipyard::check_all(&root).map(|count| format!("checked {count} yard designs"))
+        }
         _ => unreachable!("command validated above"),
     };
     match result {

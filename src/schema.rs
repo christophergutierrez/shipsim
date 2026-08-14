@@ -39,7 +39,7 @@ pub struct ShipDef {
     pub attack_accuracy_bonus: u8,
     #[serde(default)]
     pub weapons: Vec<WeaponDef>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub systems: Vec<SystemDef>,
     /// Motion produced per unit of engine power. Defaults to 1.
     #[serde(default = "default_thrust_per_power")]

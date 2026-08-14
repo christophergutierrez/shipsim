@@ -235,6 +235,10 @@ pub enum Error {
     RefuseOverwrite(PathBuf),
     #[error("output path {0:?} is not a regular file")]
     InvalidOutput(PathBuf),
+    #[error("generated ship file is missing: {0:?}")]
+    GeneratedMissing(PathBuf),
+    #[error("generated ship file is out of date: {0:?}")]
+    GeneratedDrift(PathBuf),
     #[error("size table: {0}")]
     Sizes(#[from] SizeError),
 }
@@ -289,24 +293,22 @@ fn apply_thrust_step(thrust_per_power: u32, power_per_thrust: u32, step: i8) -> 
     THRUST_LADDER[next]
 }
 
-fn shield_install(
-    components: &Components,
-    banks: [u64; 6],
-) -> Result<(u64, u64, [u32; 6]), Error> {
+fn shield_install(components: &Components, banks: [u64; 6]) -> Result<(u64, u64, [u32; 6]), Error> {
     let unit = &components.shield_bank;
     let mut count = 0u64;
     let mut faces = [0u32; 6];
     for (i, banks_here) in banks.iter().copied().enumerate() {
         count = add(count, banks_here)?;
-        faces[i] = u32_field(
-            "shields",
-            mul(banks_here, unit.max_shield_per_facing)?,
-        )?;
+        faces[i] = u32_field("shields", mul(banks_here, unit.max_shield_per_facing)?)?;
     }
     Ok((mul(count, unit.space)?, mul(count, unit.cost)?, faces))
 }
 
-fn plant<'a>(components: &'a Components, kind: &str, size: &str) -> Result<&'a EngineComponent, Error> {
+fn plant<'a>(
+    components: &'a Components,
+    kind: &str,
+    size: &str,
+) -> Result<&'a EngineComponent, Error> {
     if kind.is_empty() || size.is_empty() {
         return Err(Error::InsufficientReactor { power: 0 });
     }
@@ -463,7 +465,10 @@ pub fn validate_design(
                 return Err(Error::IncompatibleWeaponFlags(weapon.component.clone()));
             }
         }
-        if !matches!(c.kind.as_str(), "beam" | "plasma" | "torp" | "missile" | "pd" | "graviton") {
+        if !matches!(
+            c.kind.as_str(),
+            "beam" | "plasma" | "torp" | "missile" | "pd" | "graviton"
+        ) {
             return Err(Error::UnknownWeaponKind(c.kind.clone()));
         }
         if !matches!(
@@ -481,8 +486,11 @@ pub fn validate_design(
             over: used - u64::from(hull.space),
         });
     }
-    let (thrust_per_power, power_per_thrust) =
-        apply_thrust_step(hull.thrust_per_power, hull.power_per_thrust, engine.thrust_step);
+    let (thrust_per_power, power_per_thrust) = apply_thrust_step(
+        hull.thrust_per_power,
+        hull.power_per_thrust,
+        engine.thrust_step,
+    );
     let motion = engine
         .power
         .checked_mul(u64::from(thrust_per_power))
@@ -536,8 +544,7 @@ fn normalize_class_name(name: &str) -> String {
 pub fn allocate_id<'a>(taken: impl IntoIterator<Item = &'a str>) -> String {
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(1);
-    let taken: std::collections::HashSet<String> =
-        taken.into_iter().map(str::to_string).collect();
+    let taken: std::collections::HashSet<String> = taken.into_iter().map(str::to_string).collect();
     for _ in 0..64 {
         let t = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -562,10 +569,8 @@ pub fn allocate_id<'a>(taken: impl IntoIterator<Item = &'a str>) -> String {
 
 /// Default class label for a hull, unique among `taken` names.
 pub fn unique_class_name<'a>(hull: &str, taken: impl IntoIterator<Item = &'a str>) -> String {
-    let taken: std::collections::HashSet<String> = taken
-        .into_iter()
-        .map(normalize_class_name)
-        .collect();
+    let taken: std::collections::HashSet<String> =
+        taken.into_iter().map(normalize_class_name).collect();
     let base = format!("Basic {hull}");
     if !taken.contains(&normalize_class_name(&base)) {
         return base;
@@ -647,10 +652,7 @@ pub fn list_designs(root: &Path) -> Result<Vec<(PathBuf, Design)>, Error> {
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(source) => {
-            return Err(Error::Read {
-                path: dir,
-                source,
-            });
+            return Err(Error::Read { path: dir, source });
         }
     };
     for entry in entries {
@@ -709,8 +711,11 @@ pub fn preview_design(root: &Path, design: &Design) -> Result<DesignPreview, Err
             over: used - u64::from(hull.space),
         });
     }
-    let (thrust_per_power, power_per_thrust) =
-        apply_thrust_step(hull.thrust_per_power, hull.power_per_thrust, engine.thrust_step);
+    let (thrust_per_power, power_per_thrust) = apply_thrust_step(
+        hull.thrust_per_power,
+        hull.power_per_thrust,
+        engine.thrust_step,
+    );
     let motion = engine
         .power
         .checked_mul(u64::from(thrust_per_power))
@@ -725,10 +730,7 @@ pub fn preview_design(root: &Path, design: &Design) -> Result<DesignPreview, Err
             power: engine.power,
         });
     }
-    let cost = add(
-        half_up(f64::from(hull.frame_cost) * mat.cost_mult),
-        parts,
-    )?;
+    let cost = add(half_up(f64::from(hull.frame_cost) * mat.cost_mult), parts)?;
     let power = engine.power;
     let shields = faces.iter().copied().max().unwrap_or(0);
     let structure = plated_structure(hull.base_structure, mat, design.armored);
@@ -782,7 +784,10 @@ pub fn design_cost(root: &Path, path: &Path) -> Result<u32, Error> {
     let engine = plant(&components, &design.engine, &design.engine_size)?;
     checked_count(1, 0, engine.cost, &mut 0, &mut cost)?;
     if design.armored {
-        cost = add(cost, plate_cost(hull.frame_cost, material(&design.material)?))?;
+        cost = add(
+            cost,
+            plate_cost(hull.frame_cost, material(&design.material)?),
+        )?;
     }
     let (_, shield_cost, _) = shield_install(&components, design.shields)?;
     cost = add(cost, shield_cost)?;
@@ -798,14 +803,17 @@ pub fn design_cost(root: &Path, path: &Path) -> Result<u32, Error> {
     u32_field("cost", cost)
 }
 
-pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
+fn project_ship(root: &Path, path: &Path) -> Result<ShipDef, Error> {
     let (design, hull) = validate(root, path)?;
     let components = load_components(root)?;
     let material = material(&design.material)?;
     let engine = plant(&components, &design.engine, &design.engine_size)?;
     let power = engine.power;
-    let (thrust_per_power, power_per_thrust) =
-        apply_thrust_step(hull.thrust_per_power, hull.power_per_thrust, engine.thrust_step);
+    let (thrust_per_power, power_per_thrust) = apply_thrust_step(
+        hull.thrust_per_power,
+        hull.power_per_thrust,
+        engine.thrust_step,
+    );
     let (_, _, faces) = shield_install(&components, design.shields)?;
     let shields = faces.iter().copied().max().unwrap_or(0);
     let structure = plated_structure(hull.base_structure, material, design.armored);
@@ -842,7 +850,7 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
         });
     }
     let cost = design_cost(root, path)?;
-    let ship = ShipDef {
+    Ok(ShipDef {
         id: design.id.clone(),
         name: design.name,
         size: design.size,
@@ -860,8 +868,54 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
         thrust_per_power,
         power_per_thrust,
         cost,
-    };
-    let out = root.join("data/ships").join(format!("{}.toml", design.id));
+    })
+}
+
+pub fn render(root: &Path, path: &Path) -> Result<Vec<u8>, Error> {
+    let ship = project_ship(root, path)?;
+    let body = toml::to_string_pretty(&ship).map_err(|e| Error::Serialize(e.to_string()))?;
+    Ok(format!("# generated by shipsim-yard\n{body}").into_bytes())
+}
+
+pub fn generated_path(root: &Path, path: &Path) -> Result<PathBuf, Error> {
+    let design = load_design(path)?;
+    Ok(root.join("data/ships").join(format!("{}.toml", design.id)))
+}
+
+pub fn check(root: &Path, path: &Path) -> Result<PathBuf, Error> {
+    let out = generated_path(root, path)?;
+    let expected = render(root, path)?;
+    let actual = fs::read(&out).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::NotFound {
+            Error::GeneratedMissing(out.clone())
+        } else {
+            Error::Read {
+                path: out.clone(),
+                source,
+            }
+        }
+    })?;
+    if actual != expected {
+        return Err(Error::GeneratedDrift(out));
+    }
+    Ok(out)
+}
+
+pub fn check_all(root: &Path) -> Result<usize, Error> {
+    let designs = list_designs(root)?;
+    let mut checked = 0;
+    for (path, design) in designs {
+        if design.id.starts_with("yard_") {
+            check(root, &path)?;
+            checked += 1;
+        }
+    }
+    Ok(checked)
+}
+
+pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
+    let out = generated_path(root, path)?;
+    let body = render(root, path)?;
     fs::create_dir_all(out.parent().unwrap()).map_err(|source| Error::Read {
         path: out.clone(),
         source,
@@ -882,13 +936,10 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
             return Err(Error::RefuseOverwrite(out));
         }
     }
-    let body = toml::to_string_pretty(&ship).map_err(|e| Error::Serialize(e.to_string()))?;
     let tmp = out.with_extension("toml.tmp");
-    fs::write(&tmp, format!("# generated by shipsim-yard\n{body}")).map_err(|source| {
-        Error::Read {
-            path: tmp.clone(),
-            source,
-        }
+    fs::write(&tmp, body).map_err(|source| Error::Read {
+        path: tmp.clone(),
+        source,
     })?;
     fs::rename(&tmp, &out).map_err(|source| Error::Read {
         path: out.clone(),
@@ -964,8 +1015,8 @@ mount = "forward"
                     engine_size: "s".into(),
                     armored: false,
                     shields: [0; 6],
-                    weapons: vec![]
-                    , systems: vec![]
+                    weapons: vec![],
+                    systems: vec![]
                 }
             ),
             Err(Error::InvalidId(_))
@@ -1005,7 +1056,10 @@ mount = "forward"
         assert_eq!(listed[0].1.id, "listed");
         let preview = preview_design(root.path(), &listed[0].1).unwrap();
         assert!(preview.cost > 0);
-        assert_eq!(preview.cost, preview_design(root.path(), &design).unwrap().cost);
+        assert_eq!(
+            preview.cost,
+            preview_design(root.path(), &design).unwrap().cost
+        );
     }
 
     #[test]
@@ -1106,9 +1160,12 @@ component = "ecm"
         assert!(ship.weapons[0].repeat);
         assert!(ship.weapons[1].pierce);
         assert_eq!(ship.systems.len(), 4);
-        assert_eq!(ship.systems[0], SystemDef {
-            kind: SystemKind::Computer { mk: 3 }
-        });
+        assert_eq!(
+            ship.systems[0],
+            SystemDef {
+                kind: SystemKind::Computer { mk: 3 }
+            }
+        );
 
         let def: ScenarioDef = toml::from_str(
             r#"
@@ -1250,6 +1307,47 @@ mount = "forward_port"
     }
 
     #[test]
+    fn render_omits_empty_systems_and_is_deterministic() {
+        let root = fixture_root();
+        let path = write_design(
+            root.path(),
+            "rendered.toml",
+            &WORKED.replace("worked", "rendered"),
+        );
+        let first = render(root.path(), &path).unwrap();
+        let second = render(root.path(), &path).unwrap();
+        assert_eq!(first, second);
+        let text = String::from_utf8(first).unwrap();
+        assert!(text.starts_with("# generated by shipsim-yard\n"));
+        assert!(!text.contains("systems = []"));
+    }
+
+    #[test]
+    fn check_detects_missing_and_stale_outputs_without_writing() {
+        let root = fixture_root();
+        let path = write_design(
+            root.path(),
+            "checked.toml",
+            &WORKED.replace("worked", "checked"),
+        );
+        assert!(matches!(
+            check(root.path(), &path),
+            Err(Error::GeneratedMissing(_))
+        ));
+        let output = compile(root.path(), &path).unwrap();
+        assert_eq!(check(root.path(), &path).unwrap(), output);
+        let mut stale = fs::read_to_string(&output).unwrap();
+        stale.push_str("\n# stale\n");
+        fs::write(&output, stale).unwrap();
+        let stale_bytes = fs::read(&output).unwrap();
+        assert!(matches!(
+            check(root.path(), &path),
+            Err(Error::GeneratedDrift(_))
+        ));
+        assert_eq!(fs::read(&output).unwrap(), stale_bytes);
+    }
+
+    #[test]
     fn validation_reports_capacity_and_reactor_errors() {
         let root = fixture_root();
         let over = write_design(
@@ -1313,7 +1411,11 @@ mount = "forward_port"
         let components = fs::read_to_string(root.path().join("data/components.toml")).unwrap();
         fs::write(
             root.path().join("data/components.toml"),
-            components.replacen("[engines.fission_m]", "[engines.fission_m]\nextra = true", 1),
+            components.replacen(
+                "[engines.fission_m]",
+                "[engines.fission_m]\nextra = true",
+                1,
+            ),
         )
         .unwrap();
         let valid = write_design(
@@ -1433,8 +1535,14 @@ max_shield_per_facing = 0
         let hot = compile(root.path(), &fusion).unwrap();
         let cool_ship: ShipDef = toml::from_str(&fs::read_to_string(cool).unwrap()).unwrap();
         let hot_ship: ShipDef = toml::from_str(&fs::read_to_string(hot).unwrap()).unwrap();
-        assert_eq!((cool_ship.thrust_per_power, cool_ship.power_per_thrust), (2, 1));
-        assert_eq!((hot_ship.thrust_per_power, hot_ship.power_per_thrust), (3, 1));
+        assert_eq!(
+            (cool_ship.thrust_per_power, cool_ship.power_per_thrust),
+            (2, 1)
+        );
+        assert_eq!(
+            (hot_ship.thrust_per_power, hot_ship.power_per_thrust),
+            (3, 1)
+        );
         assert!(hot_ship.power > cool_ship.power);
     }
 
@@ -1448,7 +1556,10 @@ max_shield_per_facing = 0
         let off = preview_design(root.path(), &bare).unwrap();
         let on = preview_design(root.path(), &plated).unwrap();
         assert_eq!(on.space_used, off.space_used);
-        assert_eq!(on.structure, half_up(off.structure as f64 * ARMOR_HP_MULT) as u32);
+        assert_eq!(
+            on.structure,
+            half_up(off.structure as f64 * ARMOR_HP_MULT) as u32
+        );
         assert!(on.cost > off.cost);
         plated.size = 7;
         let titan = preview_design(root.path(), &plated).unwrap();
@@ -1469,7 +1580,10 @@ max_shield_per_facing = 0
         let second = unique_class_name("Destroyer", std::iter::once("Basic Destroyer"));
         assert_eq!(second, "Basic Destroyer 2");
         assert!(names_collide("Basic Destroyer", "basic  destroyer"));
-        assert!(is_generated_class_name("Basic Light Cruiser 3", &["Light Cruiser"]));
+        assert!(is_generated_class_name(
+            "Basic Light Cruiser 3",
+            &["Light Cruiser"]
+        ));
         let root = fixture_root();
         let mut one = new_design("n1");
         one.name = "Repeater".into();
