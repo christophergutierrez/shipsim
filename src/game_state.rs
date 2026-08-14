@@ -747,6 +747,7 @@ impl GameState {
                 });
             }
         }
+        let occupancy = self.ships.clone();
         let results = path_resolve::resolve_paths(&claims, &mut self.prng);
         for result in &results {
             let members = self
@@ -755,6 +756,16 @@ impl GameState {
                 .find(|squad| squad.leader == result.ship)
                 .map(|squad| squad.members.clone())
                 .unwrap_or_else(|| vec![result.ship]);
+            let leader_side = self.controller_label(result.ship);
+            let blocked_by_enemy = occupancy.iter().any(|occupant| {
+                occupant.pos == Hex::new(result.final_q, result.final_r)
+                    && !members.contains(&occupant.id)
+                    && !occupant.destroyed
+                    && self.controller_label(occupant.id) != leader_side
+            });
+            if blocked_by_enemy {
+                continue;
+            }
             for member in members {
                 if let Some(ship) = self.ship_mut(member) {
                     ship.pos = Hex::new(result.final_q, result.final_r);
@@ -1024,7 +1035,7 @@ impl GameState {
                         damage,
                         shield_absorbed: 0,
                         hull_damage,
-                        kind: "hit".into(),
+                        kind: "graviton".into(),
                         packet: None,
                         vs_weapon: None,
                     });
@@ -1396,7 +1407,11 @@ impl GameState {
             max_range: self.effective_weapon_max_range(weapon),
         })?;
         let die_sides = self.rules.combat().die_sides();
-        let projected_damage = self.v2_projected_damage(attacker, weapon_id, weapon.kind, range)?;
+        let projected_damage = if weapon.kind == crate::combat_tables::WeaponKind::Graviton {
+            attacker.size.saturating_sub(target.size)
+        } else {
+            self.v2_projected_damage(attacker, weapon_id, weapon.kind, range)?
+        };
 
         Ok(FireDecisionPreview {
             ship: ship_id,
@@ -1860,6 +1875,30 @@ impl GameState {
     }
 
     pub fn refresh_status(&mut self) {
+        let destroyed: std::collections::HashSet<u32> = self
+            .ships
+            .iter()
+            .filter(|ship| ship.destroyed)
+            .map(|ship| ship.id)
+            .collect();
+        let empty_squads: Vec<u32> = self
+            .squads
+            .iter_mut()
+            .filter_map(|(id, squad)| {
+                squad.members.retain(|member| !destroyed.contains(member));
+                if squad.members.is_empty() {
+                    Some(*id)
+                } else {
+                    if !squad.members.contains(&squad.leader) {
+                        squad.leader = *squad.members.iter().min().unwrap();
+                    }
+                    None
+                }
+            })
+            .collect();
+        for id in empty_squads {
+            self.squads.remove(&id);
+        }
         let player_ships: Vec<_> = self
             .ships
             .iter()

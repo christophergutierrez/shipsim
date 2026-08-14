@@ -314,14 +314,14 @@ controller = "scripted"
 fn catalog_ships_get_size_formula_ammo() {
     let game = load_scenario(&root().join("scenarios/battle.toml")).expect("ai.toml");
     let hc = game.ship(1).expect("heavy cruiser");
-    // size 2 → 5 default for torp_1
+    // yard_heavy_cruiser is size 4 → 7 default for torp_1
     if let Some(w) = hc
         .weapons
         .iter()
         .find(|w| w.kind == shipsim_core::combat_tables::WeaponKind::Torp)
     {
-        assert_eq!(w.max_ammo, Some(5));
-        assert_eq!(hc.weapon_ammo.get(&w.id), Some(&5));
+        assert_eq!(w.max_ammo, Some(7));
+        assert_eq!(hc.weapon_ammo.get(&w.id), Some(&7));
     }
 }
 
