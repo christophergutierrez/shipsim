@@ -43,6 +43,10 @@ pub struct AllocDraft {
     pub shields: [u32; 6],
     /// Which sub-field is being edited: 0=movement, 1..=n_weapons=weapons, then shields
     pub cursor: usize,
+    pub cloak: bool,
+    pub repair: u32,
+    pub unsquad: bool,
+    pub squad_leader: Option<i64>,
 }
 
 impl AllocDraft {
@@ -68,6 +72,10 @@ impl AllocDraft {
             weapons,
             shields,
             cursor: 0,
+            cloak: ship.cloaked,
+            repair: 0,
+            unsquad: false,
+            squad_leader: ship.squad_leader,
         }
     }
 
@@ -129,7 +137,16 @@ impl AllocDraft {
             })
             .sum();
         let shields: u32 = self.shields.iter().sum();
-        self.movement + weapons + shields
+        self.movement + weapons + shields + self.system_power(ship)
+    }
+
+    pub fn system_power(&self, ship: &protocol::Ship) -> u32 {
+        let cloak = if self.cloak {
+            4 + ship.size
+        } else {
+            0
+        };
+        cloak + self.repair.saturating_mul(2)
     }
 
     pub fn n_fields(&self) -> usize {
@@ -179,6 +196,7 @@ pub struct PathDraft {
     pub actions: Vec<String>,
     /// Declared evasive motion points (spent from the same budget as path actions).
     pub evasive: u32,
+    pub follow: bool,
 }
 
 impl PathDraft {
@@ -203,10 +221,11 @@ impl PathDraft {
     pub fn clear(&mut self) {
         self.actions.clear();
         self.evasive = 0;
+        self.follow = false;
     }
 
     pub fn is_empty(&self) -> bool {
-        self.actions.is_empty() && self.evasive == 0
+        self.actions.is_empty() && self.evasive == 0 && !self.follow
     }
 }
 
@@ -490,7 +509,6 @@ impl App {
         // Keep the complete resolution visible, including the player's own
         // volley. The old UI only retained the first line in a tiny panel.
         self.recent_events.clear();
-        let mut current_events = Vec::new();
         // In-progress volley resolution auto-advances before emitting its
         // snapshot, while terminal resolution keeps the current turn. Attribute
         // retained logs to the turn in which the shots actually resolved.
@@ -499,30 +517,7 @@ impl App {
         } else {
             snap.turn
         };
-        for e in &snap.combat_log {
-            let atk = snap
-                .ship(e.attacker)
-                .map(protocol::callsign)
-                .unwrap_or_else(|| format!("#{}", e.attacker));
-            let tgt = snap
-                .ship(e.target)
-                .map(protocol::callsign)
-                .unwrap_or_else(|| format!("#{}", e.target));
-            let tag = if e.kind == "hit" { "HIT" } else { "MISS" };
-            let result = if e.kind == "hit" {
-                format!(
-                    " +{} sh-{} int-{}",
-                    e.damage, e.shield_absorbed, e.hull_damage
-                )
-            } else {
-                String::new()
-            };
-            // Include turn so identical volleys on later turns are not deduped away.
-            current_events.push(format!(
-                "T{} {atk} {}>{tgt} {tag}{result}",
-                combat_turn, e.weapon
-            ));
-        }
+        let current_events = protocol::format_combat_lines(&snap.combat_log, &snap, combat_turn);
         self.recent_events = current_events.clone();
         if current_events != self.last_combat_snapshot {
             let common = self

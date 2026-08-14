@@ -837,10 +837,33 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             f,
             &mut y,
             Line::from(format!(
-                "  hull {}  (current structure boxes)",
-                ship.structure
+                "  hull {}  (current structure boxes){}",
+                ship.structure,
+                if ship.cloaked { "  CLOAKED" } else { "" }
             )),
         );
+        if !ship.systems.is_empty() {
+            let systems: Vec<String> = ship
+                .systems
+                .iter()
+                .map(|system| match system.mk {
+                    Some(mk) => format!("{} mk{mk}", system.kind),
+                    None => system.kind.clone(),
+                })
+                .collect();
+            push(f, &mut y, Line::from(format!("  systems {}", systems.join(" · "))));
+        }
+        if let Some(squad) = ship.squad_id {
+            push(
+                f,
+                &mut y,
+                Line::from(format!(
+                    "  squad {squad} leader={} members={:?}",
+                    ship.squad_leader.unwrap_or(ship.id),
+                    ship.squad_members
+                )),
+            );
+        }
 
         push(
             f,
@@ -883,12 +906,18 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 (0, dmg) => format!(" dmg+{dmg}"),
                 (acc, dmg) => format!(" acc+{acc} dmg+{dmg}"),
             };
+            let tags = w.tags();
+            let tag = if tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", tags.join(","))
+            };
             push(
                 f,
                 &mut y,
                 Line::from(format!(
-                    "    {} {} rng≤{} chg={}/{}{}{}{}{}",
-                    w.id, w.kind, w.max_range, w.charge, w.max_charge, ammo, quality, fired, op
+                    "    {} {} rng≤{} chg={}/{}{}{}{}{}{}",
+                    w.id, w.kind, w.max_range, w.charge, w.max_charge, ammo, quality, tag, fired, op
                 )),
             );
         }
@@ -919,7 +948,7 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             f,
             &mut y,
             Line::from(format!(
-                "  {} #{} {} @({},{}) rng={} face={}{}",
+                "  {} #{} {} @({},{}) rng={} face={}{}{}",
                 cs,
                 s.id,
                 s.class,
@@ -927,7 +956,8 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 s.r,
                 dist,
                 s.facing,
-                facing_arrow(s.facing)
+                facing_arrow(s.facing),
+                if s.cloaked { " CLOAKED" } else { "" }
             )),
         );
     }
@@ -1072,7 +1102,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             let footer_y = body_area.y + body_area.height - 1;
             f.render_widget(
                 Paragraph::new(Line::from(Span::styled(
-                    " Enter commit · ↑/↓ select · ←/→ adjust · digits set",
+                    " Enter commit · ↑/↓ field · ←/→ adjust · x cloak · z repair · u unsquad · l leader",
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
@@ -1365,9 +1395,27 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     // Hull line (B2 / criterion 3.3): show current structure only — no fake
     // max. The protocol does not carry max structure, so `N/N` would lie.
     let mut lines = vec![Line::from(Span::styled(
-        format!(" hull {}  (structure boxes)", ship.structure),
+        format!(
+            " hull {}  (structure boxes){}",
+            ship.structure,
+            if ship.cloaked { "  CLOAKED" } else { "" }
+        ),
         Style::default().fg(Color::DarkGray),
     ))];
+    if ship.has_system("cloak") || ship.has_system("repair") || ship.squad_id.is_some() {
+        lines.push(Line::from(format!(
+            " x cloak={} ({}pwr)  z repair={}  u unsquad={}  l leader={}",
+            if draft.cloak { "on" } else { "off" },
+            if draft.cloak { 4 + ship.size } else { 0 },
+            draft.repair,
+            if draft.unsquad { "yes" } else { "no" },
+            draft
+                .squad_leader
+                .or(ship.squad_leader)
+                .map(|id| format!("#{id}"))
+                .unwrap_or_else(|| "—".into())
+        )));
+    }
 
     // Movement row
     let mov_selected = draft.cursor == 0;
@@ -1553,7 +1601,10 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     ))];
 
     // Drafted path as a row of short tokens.
-    let path_tokens = if draft_actions.is_empty() {
+    let following = app.path_draft.as_ref().is_some_and(|d| d.follow);
+    let path_tokens = if following {
+        "(follow leader)".to_string()
+    } else if draft_actions.is_empty() {
         "(empty — will hold position)".to_string()
     } else {
         draft_actions
@@ -1604,7 +1655,7 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        " w/↑ forward · a veer-left · d veer-right · ←/→ turn · e evasive",
+        " w/↑ forward · a veer-left · d veer-right · ←/→ turn · e evasive · y follow",
         Style::default().fg(Color::Yellow),
     )));
     lines.push(Line::from(Span::styled(
@@ -1742,10 +1793,17 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             (0, dmg) => format!(" dmg+{dmg}"),
             (acc, dmg) => format!(" acc+{acc} dmg+{dmg}"),
         };
+        let tags = w.tags();
+        let tag = if tags.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", tags.join(","))
+        };
+        let pd = if w.is_pd() { " auto" } else { "" };
         lines.push(Line::from(Span::styled(
             format!(
-                " {marker} {} {} rng≤{} {}{}{}",
-                w.id, w.kind, w.max_range, charge_str, quality, queued_str
+                " {marker} {} {} rng≤{} {}{}{}{}{}",
+                w.id, w.kind, w.max_range, charge_str, quality, tag, pd, queued_str
             ),
             style,
         )));
@@ -1789,7 +1847,7 @@ fn render_events_log(f: &mut Frame, app: &App, area: Rect) {
         };
         ordered
             .map(|e| {
-                let style = if e.contains("HIT") {
+                let style = if e.contains("HIT") || e.contains("INTERCEPT") || e.contains("GRAV") {
                     Style::default().fg(Color::Yellow)
                 } else {
                     Style::default().fg(Color::DarkGray)
@@ -2423,6 +2481,19 @@ fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
             yard.weapon_row(weapon),
         ));
     }
+    lines.extend([
+        Line::from(""),
+        Line::from("systems  (i add   ←/→ change   d delete)  one computer / cloak / repair / ECM"),
+    ]);
+    if yard.draft.systems.is_empty() {
+        lines.push(Line::from("  (none — i to install a computer for accuracy)"));
+    }
+    for (index, system) in yard.draft.systems.iter().enumerate() {
+        lines.push(yard_field(
+            yard.edit_cursor == EditField::System { index },
+            yard.system_row(system),
+        ));
+    }
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
@@ -2438,7 +2509,7 @@ fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
         columns[1],
     );
     let help = Paragraph::new(format!(
-        "↑/↓ field  type name · ←/→ change  s save (not on name)  c compile  \
+        "↑/↓ field  type name · ←/→ change  a weapon  i system  s save  c compile  \
          Esc back (Esc again if unsaved)\n{}",
         yard.status
     ))

@@ -219,6 +219,10 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
                         yard.cancel_pending();
                         yard.add_weapon();
                     }
+                    KeyCode::Char('i') => {
+                        yard.cancel_pending();
+                        yard.add_system();
+                    }
                     KeyCode::Char('s') => {
                         yard.cancel_pending();
                         yard.save();
@@ -666,13 +670,22 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             let shields = draft.shields.to_vec();
 
             app.log(format!(
-                "allocate: mv={} shields={:?}",
-                draft.movement, shields
+                "allocate: mv={} shields={:?} cloak={} repair={} unsquad={}",
+                draft.movement, shields, draft.cloak, draft.repair, draft.unsquad
             ));
             app.digit_entry = None;
             emit_order(
                 app,
-                Order::allocate(sid, draft.movement, weapons_json, shields),
+                Order::allocate_full(
+                    sid,
+                    draft.movement,
+                    weapons_json,
+                    shields,
+                    draft.cloak,
+                    draft.repair,
+                    draft.unsquad,
+                    draft.squad_leader,
+                ),
             )
         }
         KeyCode::Down | KeyCode::Char('j') => {
@@ -694,6 +707,94 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                     draft.cursor -= 1;
                 }
             }
+            KeyResult::Continue
+        }
+        KeyCode::Char('x') => {
+            app.digit_entry = None;
+            let msg = {
+                let Some(ship) = app.focused().cloned() else {
+                    return KeyResult::Continue;
+                };
+                let Some(draft) = app.alloc_draft.as_mut() else {
+                    return KeyResult::Continue;
+                };
+                if !ship.has_system("cloak") {
+                    "no cloak installed".into()
+                } else {
+                    draft.cloak = !draft.cloak;
+                    format!(
+                        "cloak {} ({} power)",
+                        if draft.cloak { "on" } else { "off" },
+                        4 + ship.size
+                    )
+                }
+            };
+            app.log(msg);
+            KeyResult::Continue
+        }
+        KeyCode::Char('z') => {
+            app.digit_entry = None;
+            let msg = {
+                let Some(ship) = app.focused().cloned() else {
+                    return KeyResult::Continue;
+                };
+                let Some(draft) = app.alloc_draft.as_mut() else {
+                    return KeyResult::Continue;
+                };
+                if !ship.has_system("repair") {
+                    "no repair installed".into()
+                } else {
+                    let cap = if ship.size >= 5 { 2 } else { 1 };
+                    draft.repair = (draft.repair + 1).min(cap);
+                    format!("repair {} box(es)", draft.repair)
+                }
+            };
+            app.log(msg);
+            KeyResult::Continue
+        }
+        KeyCode::Char('u') => {
+            app.digit_entry = None;
+            let msg = {
+                let Some(ship) = app.focused().cloned() else {
+                    return KeyResult::Continue;
+                };
+                let Some(draft) = app.alloc_draft.as_mut() else {
+                    return KeyResult::Continue;
+                };
+                if ship.squad_id.is_none() {
+                    "not in a squad".into()
+                } else {
+                    draft.unsquad = !draft.unsquad;
+                    format!(
+                        "unsquad {}",
+                        if draft.unsquad { "this turn" } else { "off" }
+                    )
+                }
+            };
+            app.log(msg);
+            KeyResult::Continue
+        }
+        KeyCode::Char('l') => {
+            app.digit_entry = None;
+            let msg = {
+                let Some(ship) = app.focused().cloned() else {
+                    return KeyResult::Continue;
+                };
+                let Some(draft) = app.alloc_draft.as_mut() else {
+                    return KeyResult::Continue;
+                };
+                if ship.squad_members.is_empty() {
+                    "not in a squad".into()
+                } else {
+                    let members = &ship.squad_members;
+                    let current = draft.squad_leader.or(ship.squad_leader).unwrap_or(ship.id);
+                    let idx = members.iter().position(|id| *id == current).unwrap_or(0);
+                    let next = members[(idx + 1) % members.len()];
+                    draft.squad_leader = Some(next);
+                    format!("squad leader → #{next}")
+                }
+            };
+            app.log(msg);
             KeyResult::Continue
         }
         KeyCode::Left => {
@@ -889,6 +990,7 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
             path_turn_to(app, (c as u8 - b'0') as u32)
         }
         KeyCode::Char('e') => path_add_evasive(app),
+        KeyCode::Char('y') => path_follow(app),
         KeyCode::Backspace => {
             if let Some(d) = app.path_draft.as_mut() {
                 if d.evasive > 0 {
@@ -936,6 +1038,7 @@ fn path_append(app: &mut App, action: &str) -> KeyResult {
         return KeyResult::Continue;
     }
     if let Some(d) = app.path_draft.as_mut() {
+        d.follow = false;
         d.push(action);
     }
     app.request_path_preview();
@@ -963,6 +1066,36 @@ fn path_add_evasive(app: &mut App) -> KeyResult {
         d.evasive = next;
     }
     app.log(format!("evasive: {next}"));
+    KeyResult::Continue
+}
+
+fn path_follow(app: &mut App) -> KeyResult {
+    let Some(ship) = app.focused() else {
+        return KeyResult::Continue;
+    };
+    if ship.squad_id.is_none() {
+        app.log("follow: not in a squad");
+        return KeyResult::Continue;
+    }
+    if ship.squad_leader == Some(ship.id) {
+        app.log("follow: you are the leader — plot the path");
+        return KeyResult::Continue;
+    }
+    let next = app
+        .path_draft
+        .as_ref()
+        .map(|d| !d.follow)
+        .unwrap_or(true);
+    if let Some(d) = app.path_draft.as_mut() {
+        d.follow = next;
+        if d.follow {
+            d.actions.clear();
+        }
+    }
+    app.log(format!(
+        "follow {}",
+        if next { "on — Enter to commit" } else { "off" }
+    ));
     KeyResult::Continue
 }
 
@@ -1003,18 +1136,18 @@ fn commit_path(app: &mut App) -> KeyResult {
         Some(id) => id,
         None => return KeyResult::Continue,
     };
-    let (actions, evasive) = app
+    let (actions, evasive, follow) = app
         .path_draft
         .as_ref()
-        .map(|d| (d.actions.clone(), d.evasive))
+        .map(|d| (d.actions.clone(), d.evasive, d.follow))
         .unwrap_or_default();
     app.log(format!(
-        "commit_path: {} step(s), evasive {evasive}",
+        "commit_path: {} step(s), evasive {evasive} follow={follow}",
         actions.len()
     ));
     emit_order(
         app,
-        Order::commit_path_with_evasive(sid, actions, evasive),
+        Order::commit_path_full(sid, actions, evasive, follow),
     )
 }
 
@@ -1146,6 +1279,13 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                 };
                 if !weapon.operational {
                     app.log(format!("fire: {} OFFLINE — cannot queue", weapon.id));
+                    return KeyResult::Continue;
+                }
+                if weapon.is_pd() {
+                    app.log(format!(
+                        "fire: {} is point defense — it fires automatically at incoming ordnance",
+                        weapon.id
+                    ));
                     return KeyResult::Continue;
                 }
                 let target = draft.target.or_else(|| {

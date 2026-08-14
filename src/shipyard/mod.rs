@@ -700,6 +700,53 @@ pub fn weapon_skus(root: &Path) -> Result<Vec<String>, Error> {
     Ok(load_components(root)?.weapons.keys().cloned().collect())
 }
 
+pub fn system_skus(root: &Path) -> Result<Vec<String>, Error> {
+    Ok(load_components(root)?.systems.keys().cloned().collect())
+}
+
+/// Public view of one system SKU from the component catalog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemSpec {
+    pub id: String,
+    pub kind: String,
+    pub mk: Option<u8>,
+    pub space: u32,
+    pub cost: u32,
+}
+
+impl SystemSpec {
+    pub fn headline(&self) -> String {
+        match self.kind.as_str() {
+            "computer" => format!("to-hit +{}", self.mk.unwrap_or(0)),
+            "cloak" => "cloak −4 incoming".into(),
+            "repair" => "repair hull".into(),
+            "ecm" => "ECM −2 vs missiles".into(),
+            other => other.to_string(),
+        }
+    }
+}
+
+pub fn system_spec(root: &Path, id: &str) -> Result<SystemSpec, Error> {
+    let components = load_components(root)?;
+    let system = components
+        .systems
+        .get(id)
+        .ok_or_else(|| Error::UnknownComponent(id.to_string()))?;
+    if system.kind == "computer" {
+        let mk = system.mk.ok_or(Error::InvalidComputerMark)?;
+        if !(1..=3).contains(&mk) {
+            return Err(Error::InvalidComputerMark);
+        }
+    }
+    Ok(SystemSpec {
+        id: id.to_string(),
+        kind: system.kind.clone(),
+        mk: system.mk,
+        space: u32_field("space", system.space)?,
+        cost: u32_field("cost", system.cost)?,
+    })
+}
+
 pub fn engine_spec(root: &Path, kind: &str, size: &str) -> Result<EngineSpec, Error> {
     let components = load_components(root)?;
     let plant = plant(&components, kind, size)?;
@@ -1474,6 +1521,18 @@ mount = "forward_port"
             weapon_headline(root.path(), "graviton").unwrap(),
             "dmg = your size − target size"
         );
+    }
+
+    #[test]
+    fn public_system_spec_names_computer_accuracy() {
+        let root = fixture_root();
+        let mk2 = system_spec(root.path(), "computer_mk2").expect("mk2");
+        assert_eq!(mk2.kind, "computer");
+        assert_eq!(mk2.mk, Some(2));
+        assert_eq!(mk2.headline(), "to-hit +2");
+        let ids = system_skus(root.path()).expect("skus");
+        assert!(ids.iter().any(|id| id == "computer_mk1"));
+        assert!(ids.iter().any(|id| id == "cloak"));
     }
 
     #[test]

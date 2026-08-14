@@ -40,6 +40,10 @@ Each step the client **clears and redraws** from the latest engine snapshot:
 
 Type `log` to toggle a longer history panel. `cls` / `status` redraws the frame.
 
+If the ship has the system installed: `cloak` toggles cloak (`4+size` power),
+`repair N` buys hull boxes (2 power each), `unsquad` leaves a squad next
+path. In movement, `path follow` submits `follow: true` for squad members.
+
 ### Callsigns and sides
 
 | Letter | Controller |

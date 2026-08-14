@@ -267,6 +267,7 @@ class ReplContext:
     path_draft: list[str] = field(default_factory=list)
     path_ship: Optional[int] = None
     path_evasive: int = 0
+    path_follow: bool = False
     volley_draft: list[dict[str, Any]] = field(default_factory=list)
     volley_ship: Optional[int] = None
 
@@ -274,6 +275,7 @@ class ReplContext:
         self.path_draft = []
         self.path_ship = None
         self.path_evasive = 0
+        self.path_follow = False
 
     def clear_volley_draft(self) -> None:
         self.volley_draft = []
@@ -281,11 +283,12 @@ class ReplContext:
 
     def ensure_path_ship(self, ship_id: int) -> None:
         if self.path_ship is not None and self.path_ship != ship_id and (
-            self.path_draft or self.path_evasive
+            self.path_draft or self.path_evasive or self.path_follow
         ):
             # Switching ships discards the previous path draft.
             self.path_draft = []
             self.path_evasive = 0
+            self.path_follow = False
         self.path_ship = ship_id
 
     def ensure_volley_ship(self, ship_id: int) -> None:
@@ -499,6 +502,13 @@ class AllocDraft:
     carried_weapons: dict[str, int] = field(default_factory=dict)
     shields: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0, 0])
     dead_weapons: set[str] = field(default_factory=set)
+    size: int = 2
+    has_cloak: bool = False
+    has_repair: bool = False
+    in_squad: bool = False
+    cloak: bool = False
+    repair: int = 0
+    unsquad: bool = False
 
     @classmethod
     def from_ship(cls, ship: dict[str, Any]) -> "AllocDraft":
@@ -543,6 +553,10 @@ class AllocDraft:
             aliases[short.lower()] = wid
         pa = ship.get("power_available")
         pool = int(pa if pa is not None else (ship.get("power") or 0))
+        kinds = {
+            str(system.get("kind") or "").lower()
+            for system in (ship.get("systems") or [])
+        }
         return cls(
             ship_id=int(ship["id"]),
             ship_class=str(ship.get("class") or "?"),
@@ -553,6 +567,10 @@ class AllocDraft:
             weapons=weapons,
             carried_weapons=carried,
             dead_weapons=dead_weapons,
+            size=int(ship.get("size") or 2),
+            has_cloak="cloak" in kinds,
+            has_repair="repair" in kinds,
+            in_squad=ship.get("squad_id") is not None,
         )
 
     def resolve_weapon(self, token: str) -> Optional[str]:
@@ -568,10 +586,13 @@ class AllocDraft:
 
     def used(self) -> int:
         # Protocol 4: carried charge does not consume the power pool.
+        cloak_cost = (4 + int(self.size)) if self.cloak else 0
         return (
             int(self.movement)
             + self.weapon_power_spent()
             + sum(int(v) for v in self.shields)
+            + cloak_cost
+            + 2 * int(self.repair)
         )
 
     def free(self) -> int:
@@ -581,6 +602,9 @@ class AllocDraft:
         self.movement = 0
         self.weapons = {k: int(self.carried_weapons.get(k, 0)) for k in self.weapons}
         self.shields = [0, 0, 0, 0, 0, 0]
+        self.cloak = False
+        self.repair = 0
+        self.unsquad = False
 
     def _weapon_line(self, wid: str, short: str, mx: int, kind: str = "", meta: Optional[dict[str, Any]] = None) -> str:
         ch = int(self.weapons.get(wid, 0))
@@ -656,6 +680,12 @@ class AllocDraft:
                 "  pool math: used = engine + shields + new weapon charge only "
                 "(carried weapon # do not spend the pool)"
             )
+        if self.has_cloak or self.has_repair or self.in_squad:
+            cloak = "on" if self.cloak else "off"
+            lines.append(
+                f"  cloak {cloak} ({4 + self.size} pwr)  repair {self.repair}  "
+                f"unsquad {'yes' if self.unsquad else 'no'}"
+            )
         if free > 0:
             lines.append(
                 f"  ⚠ {free} free in pool — spend on engine / shields / topping weapons"
@@ -669,7 +699,7 @@ class AllocDraft:
                 "reset or lower values."
             )
             return None
-        return {
+        order = {
             "protocol_version": PROTOCOL_VERSION,
             "type": "allocate",
             "ship": self.ship_id,
@@ -677,6 +707,13 @@ class AllocDraft:
             "weapons": {k: int(v) for k, v in self.weapons.items()},
             "shields": [int(x) for x in self.shields],
         }
+        if self.cloak:
+            order["cloak"] = True
+        if self.repair:
+            order["repair"] = int(self.repair)
+        if self.unsquad:
+            order["unsquad"] = True
+        return order
 
     def set_weapon(self, token: str, n: int) -> bool:
         wid = self.resolve_weapon(token)
@@ -934,11 +971,14 @@ def volley_draft_summary(ctx: ReplContext) -> str:
 
 
 def _commit_path_order(
-    ship_id: int, actions: list[str], evasive: int = 0
+    ship_id: int, actions: list[str], evasive: int = 0, follow: bool = False
 ) -> dict[str, Any]:
     order = _order("commit_path", ship=ship_id, actions=list(actions))
     if evasive:
         order["evasive"] = int(evasive)
+    if follow:
+        order["follow"] = True
+        order["actions"] = []
     return order
 
 
@@ -1018,13 +1058,41 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
 
     if cmd in ("help",):
         print(
-            "  draft: engine N | w [alias N] | sh [face N] | show | reset | commit | cancel\n"
+            "  draft: engine N | w [alias N] | sh [face N] | cloak | repair N | unsquad\n"
+            "         show | reset | commit | cancel\n"
             "  in weapons group: b1 2 / t1 1  (no leading w) | done\n"
             "  in shields group: 0 3 / F 2 | done\n"
             "  group names switch directly: sh from weapons, w from shields, engine from either\n"
             "  bare number at draft root = engine power (not ship select)\n"
             "  for global help (status, board, quit): type 'help' again or 'quit' to exit"
         )
+        return Action(side="empty")
+
+    if cmd == "cloak":
+        if not d.has_cloak:
+            print("  this ship has no cloak installed")
+            return Action(side="empty")
+        d.cloak = not d.cloak
+        print(f"  cloak {'on' if d.cloak else 'off'} ({4 + d.size} power)")
+        print(d.summary())
+        return Action(side="empty")
+    if cmd == "repair":
+        if not d.has_repair:
+            print("  this ship has no repair installed")
+            return Action(side="empty")
+        cap = 2 if d.size >= 5 else 1
+        n = int(args[0]) if args and args[0].isdigit() else 1
+        d.repair = max(0, min(n, cap))
+        print(f"  repair {d.repair} box(es) (cap {cap}, 2 power each)")
+        print(d.summary())
+        return Action(side="empty")
+    if cmd == "unsquad":
+        if not d.in_squad:
+            print("  this ship is not in a squad")
+            return Action(side="empty")
+        d.unsquad = not d.unsquad
+        print(f"  unsquad {'this turn' if d.unsquad else 'off'}")
+        print(d.summary())
         return Action(side="empty")
 
     # Group names navigate from inside any group: `sh` while in weapons
@@ -1696,6 +1764,9 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
             "commit",
             "c",
             "ok",
+            "cloak",
+            "repair",
+            "unsquad",
         ) or (
             cmd0 in ("m", "move")
             and len(tokens) > 1
@@ -1803,15 +1874,29 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         # path commit / path hold
         if rest[0].lower() in ("commit", "c", "ok", "apply"):
             actions = list(ctx.path_draft)
-            order = _commit_path_order(sid, actions, ctx.path_evasive)
+            order = _commit_path_order(
+                sid, actions, ctx.path_evasive, ctx.path_follow
+            )
             note = (
                 f"commit_path #{sid} actions={actions or '[]'} "
-                f"evasive={ctx.path_evasive}"
+                f"evasive={ctx.path_evasive} follow={ctx.path_follow}"
             )
             return Action(orders=[order], note=note)
         if rest[0].lower() in ("hold", "pass", "stay", "empty"):
             order = _commit_path_order(sid, [], 0)
             return Action(orders=[order], note=f"commit_path #{sid} empty (hold)")
+        if rest[0].lower() in ("follow", "y"):
+            if ship.get("squad_id") is None:
+                print("  not in a squad")
+                return Action(side="empty")
+            if int(ship.get("squad_leader") or 0) == sid:
+                print("  you are the squad leader — plot the path")
+                return Action(side="empty")
+            ctx.path_follow = not ctx.path_follow
+            if ctx.path_follow:
+                ctx.path_draft = []
+            print(f"  follow {'on' if ctx.path_follow else 'off'}")
+            return Action(side="empty")
         if rest[0].lower() in ("evasive", "e", "jink"):
             motion = int(ship.get("motion_available") or 0)
             try:
@@ -1832,6 +1917,7 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         if rest[0].lower() in ("clear", "reset"):
             ctx.path_draft = []
             ctx.path_evasive = 0
+            ctx.path_follow = False
             print("  path draft cleared")
             return Action(side="empty")
         if rest[0].lower() in ("undo", "u", "pop"):

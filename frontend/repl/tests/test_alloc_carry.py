@@ -86,6 +86,18 @@ class CarriedChargeDraftTests(unittest.TestCase):
         self.assertEqual(0, d.weapons["plasma_1"])
         self.assertEqual(0, d.used())
 
+    def test_cloak_costs_four_plus_size_and_serializes(self):
+        ship = _ship(power=20)
+        ship["size"] = 2
+        ship["systems"] = [{"kind": "cloak"}]
+        d = AllocDraft.from_ship(ship)
+        self.assertTrue(d.has_cloak)
+        d.cloak = True
+        self.assertEqual(6, d.used())
+        order = d.to_order()
+        self.assertTrue(order["cloak"])
+        self.assertNotIn("repair", order)
+
 
 if __name__ == "__main__":
     unittest.main()

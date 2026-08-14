@@ -138,9 +138,32 @@ pub struct Ship {
     pub weapon_boxes: Vec<u32>,
     pub destroyed: bool,
     pub weapons: Vec<Weapon>,
+    #[serde(default)]
+    pub systems: Vec<InstalledSystem>,
     /// Evasive motion points declared on the last resolved path this turn.
     #[serde(default)]
     pub evasion_committed: u32,
+    #[serde(default)]
+    pub cloaked: bool,
+    #[serde(default)]
+    pub squad_id: Option<i64>,
+    #[serde(default)]
+    pub squad_leader: Option<i64>,
+    #[serde(default)]
+    pub squad_members: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InstalledSystem {
+    pub kind: String,
+    #[serde(default)]
+    pub mk: Option<u8>,
+}
+
+impl Ship {
+    pub fn has_system(&self, kind: &str) -> bool {
+        self.systems.iter().any(|system| system.kind == kind)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -167,6 +190,33 @@ pub struct Weapon {
     pub accuracy_bonus: u32,
     #[serde(default)]
     pub damage_bonus: u32,
+    #[serde(default)]
+    pub repeat: bool,
+    #[serde(default)]
+    pub pierce: bool,
+}
+
+impl Weapon {
+    pub fn is_pd(&self) -> bool {
+        self.kind.eq_ignore_ascii_case("pd")
+    }
+
+    pub fn tags(&self) -> Vec<&'static str> {
+        let mut tags = Vec::new();
+        if self.repeat {
+            tags.push("Repeat");
+        }
+        if self.pierce {
+            tags.push("Pierce");
+        }
+        if self.is_pd() {
+            tags.push("PD");
+        }
+        if self.kind.eq_ignore_ascii_case("graviton") {
+            tags.push("hex");
+        }
+        tags
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,9 +232,83 @@ pub struct CombatEvent {
     pub shield_absorbed: u32,
     #[serde(default)]
     pub hull_damage: u32,
-    pub kind: String, // "hit" | "miss"
+    pub kind: String, // "hit" | "miss" | "pd_hit" | "pd_miss" | "graviton"
     #[serde(default)]
     pub roll: Option<u32>,
+    #[serde(default)]
+    pub packet: Option<u8>,
+    #[serde(default)]
+    pub vs_weapon: Option<String>,
+}
+
+/// One or more engine combat-log rows, collapsed for display.
+pub fn format_combat_lines(events: &[CombatEvent], snap: &Snapshot, turn: u32) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < events.len() {
+        let event = &events[i];
+        let attacker = snap
+            .ship(event.attacker)
+            .map(callsign)
+            .unwrap_or_else(|| format!("#{}", event.attacker));
+        let target = snap
+            .ship(event.target)
+            .map(callsign)
+            .unwrap_or_else(|| format!("#{}", event.target));
+        if event.packet.is_some() {
+            let mut end = i + 1;
+            let mut hits = u32::from(event.kind == "hit");
+            let mut damage = event.damage;
+            let mut absorbed = event.shield_absorbed;
+            let mut hull = event.hull_damage;
+            while end < events.len()
+                && events[end].packet.is_some()
+                && events[end].attacker == event.attacker
+                && events[end].target == event.target
+                && events[end].weapon == event.weapon
+            {
+                hits += u32::from(events[end].kind == "hit");
+                damage += events[end].damage;
+                absorbed += events[end].shield_absorbed;
+                hull += events[end].hull_damage;
+                end += 1;
+            }
+            let n = end - i;
+            out.push(format!(
+                "T{turn} {attacker} {}>{target} {hits}/{n} HIT +{damage} sh-{absorbed} int-{hull}",
+                event.weapon
+            ));
+            i = end;
+            continue;
+        }
+        out.push(format_one_combat_line(event, &attacker, &target, turn));
+        i += 1;
+    }
+    out
+}
+
+fn format_one_combat_line(event: &CombatEvent, attacker: &str, target: &str, turn: u32) -> String {
+    match event.kind.as_str() {
+        "pd_hit" => format!(
+            "T{turn} {attacker} {} INTERCEPT {}",
+            event.weapon,
+            event.vs_weapon.as_deref().unwrap_or("ordnance")
+        ),
+        "pd_miss" => format!(
+            "T{turn} {attacker} {} PD-MISS vs {}",
+            event.weapon,
+            event.vs_weapon.as_deref().unwrap_or("ordnance")
+        ),
+        "graviton" => format!(
+            "T{turn} {attacker} {}>{target} GRAV int-{}",
+            event.weapon, event.hull_damage
+        ),
+        "hit" => format!(
+            "T{turn} {attacker} {}>{target} HIT +{} sh-{} int-{}",
+            event.weapon, event.damage, event.shield_absorbed, event.hull_damage
+        ),
+        _ => format!("T{turn} {attacker} {}>{target} MISS", event.weapon),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -303,12 +427,22 @@ pub enum OrderBody {
         weapons: Option<serde_json::Value>,
         #[serde(skip_serializing_if = "Option::is_none")]
         shields: Option<Vec<u32>>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cloak: bool,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        repair: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        unsquad: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        squad_leader: Option<i64>,
     },
     CommitPath {
         ship: i64,
         actions: Vec<String>,
         #[serde(default, skip_serializing_if = "is_zero_u32")]
         evasive: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        follow: bool,
     },
     CommitVolley {
         ship: i64,
@@ -358,6 +492,48 @@ impl Order {
                 movement,
                 weapons: Some(weapons),
                 shields: Some(shields),
+                cloak: false,
+                repair: 0,
+                unsquad: false,
+                squad_leader: None,
+            },
+        }
+    }
+
+    pub fn allocate_with_systems(
+        ship: i64,
+        movement: u32,
+        weapons: serde_json::Value,
+        shields: Vec<u32>,
+        cloak: bool,
+        repair: u32,
+        unsquad: bool,
+    ) -> Self {
+        Self::allocate_full(ship, movement, weapons, shields, cloak, repair, unsquad, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn allocate_full(
+        ship: i64,
+        movement: u32,
+        weapons: serde_json::Value,
+        shields: Vec<u32>,
+        cloak: bool,
+        repair: u32,
+        unsquad: bool,
+        squad_leader: Option<i64>,
+    ) -> Self {
+        Order {
+            protocol_version: PROTOCOL_VERSION,
+            body: OrderBody::Allocate {
+                ship,
+                movement,
+                weapons: Some(weapons),
+                shields: Some(shields),
+                cloak,
+                repair,
+                unsquad,
+                squad_leader,
             },
         }
     }
@@ -367,12 +543,17 @@ impl Order {
     }
 
     pub fn commit_path_with_evasive(ship: i64, actions: Vec<String>, evasive: u32) -> Self {
+        Self::commit_path_full(ship, actions, evasive, false)
+    }
+
+    pub fn commit_path_full(ship: i64, actions: Vec<String>, evasive: u32, follow: bool) -> Self {
         Order {
             protocol_version: PROTOCOL_VERSION,
             body: OrderBody::CommitPath {
                 ship,
                 actions,
                 evasive,
+                follow,
             },
         }
     }
@@ -426,6 +607,10 @@ impl Order {
                 movement: 0,
                 weapons: None,
                 shields: Some(vec![0; 6]),
+                cloak: false,
+                repair: 0,
+                unsquad: false,
+                squad_leader: None,
             },
         }
     }

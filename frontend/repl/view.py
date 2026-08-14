@@ -421,8 +421,13 @@ def format_ship_card(
         )
         if ship.get("keel") is not None:
             systems += f" frame={ship.get('keel')}"
-        parts.append(f"    hull {format_bar(hull, hmax)}  {systems}")
-        installed = [str(s.get("kind")) for s in ship.get("systems") or []]
+        cloak = "  CLOAKED" if ship.get("cloaked") else ""
+        parts.append(f"    hull {format_bar(hull, hmax)}  {systems}{cloak}")
+        installed = []
+        for system in ship.get("systems") or []:
+            kind = str(system.get("kind") or "?")
+            mk = system.get("mk")
+            installed.append(f"{kind} mk{mk}" if mk is not None else kind)
         if installed:
             parts.append(f"    systems: {', '.join(installed)}")
         if ship.get("squad_id") is not None:
@@ -1042,7 +1047,37 @@ def format_combat_log(snap: dict[str, Any], *, last_n: int = 8) -> str:
     if not log:
         return ""
     lines = [f"combat log (last {min(last_n, len(log))}):"]
-    for e in log[-last_n:]:
+    grouped: list[dict] = []
+    for e in log:
+        packet = e.get("packet")
+        if (
+            grouped
+            and packet is not None
+            and grouped[-1].get("packet") is not None
+            and grouped[-1].get("attacker") == e.get("attacker")
+            and grouped[-1].get("target") == e.get("target")
+            and grouped[-1].get("weapon") == e.get("weapon")
+        ):
+            grouped[-1]["_packets"] = grouped[-1].get("_packets", 1) + 1
+            grouped[-1]["_hits"] = grouped[-1].get("_hits", 0) + (
+                1 if e.get("kind") == "hit" else 0
+            )
+            grouped[-1]["damage"] = int(grouped[-1].get("damage") or 0) + int(
+                e.get("damage") or 0
+            )
+            grouped[-1]["hull_damage"] = int(grouped[-1].get("hull_damage") or 0) + int(
+                e.get("hull_damage") or 0
+            )
+            grouped[-1]["shield_absorbed"] = int(
+                grouped[-1].get("shield_absorbed") or 0
+            ) + int(e.get("shield_absorbed") or 0)
+            continue
+        row = dict(e)
+        if packet is not None:
+            row["_packets"] = 1
+            row["_hits"] = 1 if e.get("kind") == "hit" else 0
+        grouped.append(row)
+    for e in grouped[-last_n:]:
         kind = e.get("kind")
         face = int(e.get("shield") or 0)
         lab = SHIELD_LABELS[face] if 0 <= face < 6 else "?"
@@ -1052,10 +1087,12 @@ def format_combat_log(snap: dict[str, Any], *, last_n: int = 8) -> str:
         atk_cs = ship_callsign(atk) if atk else f"#{e.get('attacker')}"
         tgt_cs = ship_callsign(tgt) if tgt else f"#{e.get('target')}"
         roll = f" roll={e['roll']}" if e.get("roll") is not None else ""
+        if e.get("_packets"):
+            kind = f"{e['_hits']}/{e['_packets']} hit, {e.get('damage') or 0} dmg"
+            roll = ""
         lines.append(
             f"  {atk_cs} {wpn} → {tgt_cs} "
             f"{kind}{roll}"
-            + (f" packet={e['packet']}" if e.get("packet") is not None else "")
             + (f" vs={e['vs_weapon']}" if e.get("vs_weapon") else "")
             + f" raw={e.get('damage')} shield={face}:{lab} "
             f"absorbed={e.get('shield_absorbed', '?')} internal={e.get('hull_damage', '?')}"

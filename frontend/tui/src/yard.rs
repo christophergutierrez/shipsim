@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use shipsim_core::shipyard::{
-    self, Design, DesignPreview, DesignWeapon, ENGINE_KINDS, ENGINE_SIZES, MATERIALS, MOUNTS,
+    self, Design, DesignPreview, DesignSystem, DesignWeapon, ENGINE_KINDS, ENGINE_SIZES, MATERIALS,
+    MOUNTS,
 };
 use shipsim_core::sizes::{self, SizeTable};
 
@@ -51,6 +52,7 @@ pub enum EditField {
     ShieldsAll,
     ShieldsFace { index: usize },
     Weapon { index: usize },
+    System { index: usize },
 }
 
 /// An action armed by one keypress, awaiting a second confirming keypress.
@@ -60,6 +62,7 @@ pub enum EditField {
 pub enum PendingConfirm {
     DiscardChanges,
     DeleteWeapon { index: usize },
+    DeleteSystem { index: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +87,7 @@ pub struct YardState {
     pub edit_cursor: EditField,
     pub status: String,
     pub skus: Vec<String>,
+    pub system_skus: Vec<String>,
     pub sizes: SizeTable,
     pub pending: Option<PendingConfirm>,
     pub viewing_readonly: bool,
@@ -93,6 +97,7 @@ pub struct YardState {
 impl YardState {
     pub fn load(root: PathBuf) -> Result<Self, String> {
         let skus = shipyard::weapon_skus(&root).map_err(|e| e.to_string())?;
+        let system_skus = shipyard::system_skus(&root).map_err(|e| e.to_string())?;
         let sizes = sizes::load(&root).map_err(|e| e.to_string())?;
         let draft = shipyard::new_design("yard_custom");
         let mut yard = Self {
@@ -105,6 +110,7 @@ impl YardState {
             edit_cursor: EditField::Size,
             status: String::new(),
             skus,
+            system_skus,
             sizes,
             pending: None,
             viewing_readonly: false,
@@ -318,6 +324,28 @@ impl YardState {
                     Err(_) => "Unknown weapon SKU; choose another component.".into(),
                 }
             }
+            EditField::System { index } => {
+                let Some(system) = self.draft.systems.get(index) else {
+                    return "System row.".into();
+                };
+                match shipyard::system_spec(&self.root, &system.component) {
+                    Ok(spec) => match spec.kind.as_str() {
+                        "computer" => format!(
+                            "Ship computer: +{} to every to-hit, including PD, at every target size.",
+                            spec.mk.unwrap_or(0)
+                        ),
+                        "cloak" => {
+                            "Cloak makes the ship hard to hit (−4) and costs 4+size power this turn.".into()
+                        }
+                        "repair" => {
+                            "Repair spends allocate power to restore hull boxes, capped per turn.".into()
+                        }
+                        "ecm" => "ECM is always on and subtracts 2 from incoming missile to-hit.".into(),
+                        _ => spec.headline(),
+                    },
+                    Err(_) => "Unknown system SKU; choose another component.".into(),
+                }
+            }
         }
     }
 
@@ -338,6 +366,19 @@ impl YardState {
                 tags.join(", ")
             )
         }
+    }
+
+    pub fn system_row(&self, system: &DesignSystem) -> String {
+        let Ok(spec) = shipyard::system_spec(&self.root, &system.component) else {
+            return format!("{}   unknown system", system.component);
+        };
+        format!(
+            "{}   {}   {}sp {}c",
+            spec.id,
+            spec.headline(),
+            spec.space,
+            spec.cost
+        )
     }
 
     pub fn engine_label(&self) -> String {
@@ -492,6 +533,19 @@ impl YardState {
                     }
                 }
             }
+            EditField::System { index } => {
+                let current = self
+                    .draft
+                    .systems
+                    .get(index)
+                    .map(|system| system.component.clone());
+                if let Some(current) = current {
+                    let choices = self.available_system_skus(Some(&current));
+                    if let Some(system) = self.draft.systems.get_mut(index) {
+                        cycle_system_sku(&choices, system, delta.signum());
+                    }
+                }
+            }
         }
     }
 
@@ -522,14 +576,68 @@ impl YardState {
         };
     }
 
-    /// 'd' on a weapon row. First press arms it (status names the weapon and
-    /// asks for a repeat); pressing 'd' again on the *same* weapon confirms.
-    /// Moving off the row or pressing any other key cancels the arm
-    /// (`cancel_pending`, called from `input.rs`) rather than leaving a
-    /// dangling confirmation that could later delete the wrong row.
+    pub fn add_system(&mut self) {
+        if self.viewing_readonly {
+            self.status = "standard classes are reference-only".into();
+            return;
+        }
+        let choices = self.available_system_skus(None);
+        let Some(sku) = choices
+            .iter()
+            .find(|id| id.starts_with("computer_"))
+            .cloned()
+            .or_else(|| choices.into_iter().next())
+        else {
+            self.status = "already have one computer, cloak, repair, and ECM".into();
+            return;
+        };
+        self.draft.systems.push(DesignSystem { component: sku });
+        self.edit_cursor = EditField::System {
+            index: self.draft.systems.len() - 1,
+        };
+        self.status = "added system — ←/→ change mark or type".into();
+    }
+
+    fn available_system_skus(&self, keep: Option<&str>) -> Vec<String> {
+        let keep_kind = keep.and_then(|id| {
+            shipyard::system_spec(&self.root, id)
+                .ok()
+                .map(|spec| spec.kind)
+        });
+        let used: Vec<String> = self
+            .draft
+            .systems
+            .iter()
+            .filter_map(|system| {
+                if keep.is_some_and(|id| id == system.component) {
+                    return None;
+                }
+                shipyard::system_spec(&self.root, &system.component)
+                    .ok()
+                    .map(|spec| spec.kind)
+            })
+            .collect();
+        self.system_skus
+            .iter()
+            .filter(|id| {
+                let Ok(spec) = shipyard::system_spec(&self.root, id) else {
+                    return false;
+                };
+                keep_kind.as_deref() == Some(spec.kind.as_str()) || !used.contains(&spec.kind)
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// 'd' on a weapon or system row. First press arms it; the same key on the
+    /// same row confirms. Any other key cancels (`cancel_pending`).
     pub fn request_delete_weapon(&mut self) {
         if self.viewing_readonly {
             self.status = "standard classes are reference-only".into();
+            return;
+        }
+        if let EditField::System { index } = self.edit_cursor {
+            self.request_delete_system(index);
             return;
         }
         let EditField::Weapon { index } = self.edit_cursor else {
@@ -550,6 +658,31 @@ impl YardState {
         } else {
             self.pending = Some(PendingConfirm::DeleteWeapon { index });
             let sku = &self.draft.weapons[index].component;
+            self.status = format!("delete {sku}? d again to confirm, any other key cancels");
+        }
+    }
+
+    fn request_delete_system(&mut self, index: usize) {
+        if index >= self.draft.systems.len() {
+            return;
+        }
+        if self.pending == Some(PendingConfirm::DeleteSystem { index }) {
+            self.pending = None;
+            let sku = self.draft.systems[index].component.clone();
+            self.draft.systems.remove(index);
+            self.edit_cursor = if self.draft.systems.is_empty() {
+                EditField::Weapon {
+                    index: self.draft.weapons.len().saturating_sub(1),
+                }
+            } else {
+                EditField::System {
+                    index: index.min(self.draft.systems.len() - 1),
+                }
+            };
+            self.status = format!("deleted {sku}");
+        } else {
+            self.pending = Some(PendingConfirm::DeleteSystem { index });
+            let sku = &self.draft.systems[index].component;
             self.status = format!("delete {sku}? d again to confirm, any other key cancels");
         }
     }
@@ -579,6 +712,9 @@ impl YardState {
         }
         for index in 0..self.draft.weapons.len() {
             fields.push(EditField::Weapon { index });
+        }
+        for index in 0..self.draft.systems.len() {
+            fields.push(EditField::System { index });
         }
         fields
     }
@@ -633,6 +769,18 @@ pub fn material_label(id: &str) -> String {
         Some(m) => format!("{}  (tech {}, {:.1}× HP)", m.name, m.tech, m.structure_mult),
         None => id.to_string(),
     }
+}
+
+fn cycle_system_sku(skus: &[String], system: &mut DesignSystem, delta: i32) {
+    if skus.is_empty() {
+        return;
+    }
+    let idx = skus
+        .iter()
+        .position(|s| s == &system.component)
+        .unwrap_or(0);
+    let next = (idx as i32 + delta).rem_euclid(skus.len() as i32) as usize;
+    system.component = skus[next].clone();
 }
 
 fn cycle_sku(skus: &[String], weapon: &mut DesignWeapon, delta: i32) {

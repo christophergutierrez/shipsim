@@ -4,10 +4,25 @@ Finish `docs/TODO.md` and the locked combat additions. Size is a fleet
 tradeoff; the yard is the only construction model; v4 allocate / path /
 volley stays.
 
-**Implementation status:** M1–M9 are shipped on the current branch. The
+**Implementation status:** M1–M9 engine work is on the current branch. The
 remaining M10–M13 balance work is governed by
 `docs/plans/catalog-review-remediation.md`; this file remains the locked design
 record, not a statement that implementation has not started.
+
+**Client-surface gate (do not mark a phase shipped without this).**
+Engine unit tests are not enough. For every new SKU, system, or order field:
+
+1. A player can **install** it in TUI `--yard` (or the phase explicitly
+   leaves Love/TUI out).
+2. The **reference client** (REPL) can **issue** the matching allocate /
+   path / volley field.
+3. TUI combat can **send** the same field and **display** the snapshot
+   result (cloak flag, squad, intercept, computer bonus).
+4. The exit table names the client test, not only the engine test.
+
+Missed once: computers existed in combat and compile, but the yard could
+not mount them. Same class of hole: cloak/repair/follow/unsquad were
+engine-only until the client-surface pass.
 Each milestone has a **Goal**, **Work**, and an **Exit** table. A phase is
 done only when every exit check passes.
 

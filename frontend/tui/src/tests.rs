@@ -2724,6 +2724,8 @@ fn normal_combat_log_keeps_a_full_four_shot_resolution_visible() {
             hull_damage: index + 1,
             kind: "hit".into(),
             roll: Some(1),
+            packet: None,
+            vs_weapon: None,
         })
         .collect();
     app.update_snapshot(snap);
@@ -2749,6 +2751,8 @@ fn floor_combat_log_keeps_a_full_fleet_volley_and_block_notice_visible() {
             hull_damage: index + 1,
             kind: "hit".into(),
             roll: Some(1),
+            packet: None,
+            vs_weapon: None,
         })
         .collect();
     app.update_snapshot(snap);
@@ -2888,6 +2892,8 @@ fn three_weapon_fire_snapshot() -> Snapshot {
             max_ammo: None,
             accuracy_bonus: 0,
             damage_bonus: 0,
+            repeat: false,
+            pierce: false,
         });
     }
     for w in &mut snap.ships[0].weapons {
@@ -3401,6 +3407,8 @@ fn combat_log_shows_chronological_volley_on_tall_terminal() {
             hull_damage: 1,
             kind: "hit".into(),
             roll: Some(1),
+            packet: None,
+            vs_weapon: None,
         })
         .collect();
     app.update_snapshot(snap);
@@ -3414,6 +3422,182 @@ fn combat_log_shows_chronological_volley_on_tall_terminal() {
         buffer_contains(&buf, "shot_5") || buffer_contains(&buf, "shot_4"),
         "log should still include later volley lines on a tall terminal"
     );
+}
+
+#[test]
+fn movement_panel_names_follow_and_allocate_names_cloak() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "allocate".into();
+    snap.ships[0].systems = vec![crate::protocol::InstalledSystem {
+        kind: "cloak".into(),
+        mk: None,
+    }];
+    app.update_snapshot(snap.clone());
+    app.mode = crate::app::Mode::Allocate;
+    let buf = render_to_string(&mut app, 100, 36);
+    assert!(
+        buffer_contains(&buf, "cloak") && buffer_contains(&buf, "x cloak"),
+        "allocate must name the cloak key; got:\n{buf}"
+    );
+
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    app.mode = crate::app::Mode::Movement;
+    app.path_draft = Some(crate::app::PathDraft::default());
+    let buf = render_to_string(&mut app, 100, 36);
+    assert!(
+        buffer_contains(&buf, "follow"),
+        "movement help must name follow; got:\n{buf}"
+    );
+}
+
+#[test]
+fn fire_does_not_queue_point_defense() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.ships[0].weapons.insert(
+        0,
+        crate::protocol::Weapon {
+            id: "pd_1".into(),
+            kind: "Pd".into(),
+            arc: "Forward".into(),
+            mount: "forward".into(),
+            max_range: 10,
+            charge: 1,
+            fired: false,
+            max_charge: 1,
+            operational: true,
+            ammo_remaining: None,
+            max_ammo: None,
+            accuracy_bonus: 0,
+            damage_bonus: 0,
+            repeat: false,
+            pierce: false,
+        },
+    );
+    app.update_snapshot(snap);
+    app.mode = crate::app::Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::for_ship(&app.snap.as_ref().unwrap().ships[0]));
+    assert_eq!(app.fire_draft.as_ref().unwrap().weapon_idx, 0);
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(
+        app.fire_draft.as_ref().unwrap().shots.is_empty(),
+        "PD must not be queued as a ship-to-ship shot"
+    );
+}
+
+#[test]
+fn allocate_with_systems_serializes_cloak_repair_unsquad() {
+    let order = crate::protocol::Order::allocate_with_systems(
+        1,
+        2,
+        serde_json::json!({"beam_1": 1}),
+        vec![1, 0, 0, 0, 0, 0],
+        true,
+        1,
+        true,
+    );
+    let json = order.to_json();
+    assert!(json.contains("\"cloak\":true"), "{json}");
+    assert!(json.contains("\"repair\":1"), "{json}");
+    assert!(json.contains("\"unsquad\":true"), "{json}");
+}
+
+#[test]
+fn combat_log_aggregates_repeat_packets_and_names_pd() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.combat_log = vec![
+        crate::protocol::CombatEvent {
+            attacker: 1,
+            target: 2,
+            weapon: "beam_repeat".into(),
+            shield: 0,
+            damage: 2,
+            shield_absorbed: 1,
+            hull_damage: 1,
+            kind: "hit".into(),
+            roll: Some(4),
+            packet: Some(0),
+            vs_weapon: None,
+        },
+        crate::protocol::CombatEvent {
+            attacker: 1,
+            target: 2,
+            weapon: "beam_repeat".into(),
+            shield: 0,
+            damage: 2,
+            shield_absorbed: 0,
+            hull_damage: 2,
+            kind: "hit".into(),
+            roll: Some(5),
+            packet: Some(1),
+            vs_weapon: None,
+        },
+        crate::protocol::CombatEvent {
+            attacker: 1,
+            target: 2,
+            weapon: "beam_repeat".into(),
+            shield: 0,
+            damage: 0,
+            shield_absorbed: 0,
+            hull_damage: 0,
+            kind: "miss".into(),
+            roll: Some(18),
+            packet: Some(2),
+            vs_weapon: None,
+        },
+        crate::protocol::CombatEvent {
+            attacker: 1,
+            target: 2,
+            weapon: "pd_1".into(),
+            shield: 0,
+            damage: 0,
+            shield_absorbed: 0,
+            hull_damage: 0,
+            kind: "pd_hit".into(),
+            roll: Some(3),
+            packet: None,
+            vs_weapon: Some("torp_1".into()),
+        },
+        crate::protocol::CombatEvent {
+            attacker: 1,
+            target: 2,
+            weapon: "grav_1".into(),
+            shield: 0,
+            damage: 2,
+            shield_absorbed: 0,
+            hull_damage: 2,
+            kind: "graviton".into(),
+            roll: None,
+            packet: None,
+            vs_weapon: None,
+        },
+    ];
+    app.update_snapshot(snap);
+    let joined = app.recent_events.join("\n");
+    assert!(
+        joined.contains("2/3 HIT +4"),
+        "repeat packets should collapse: {joined}"
+    );
+    assert!(
+        joined.contains("INTERCEPT torp_1"),
+        "PD hit should name the incoming weapon: {joined}"
+    );
+    assert!(
+        joined.contains("GRAV int-2"),
+        "graviton should not render as a miss: {joined}"
+    );
+    assert_eq!(app.recent_events.len(), 3);
+}
+
+#[test]
+fn commit_path_follow_serializes_field() {
+    let order = crate::protocol::Order::commit_path_full(2, vec![], 0, true);
+    let json = order.to_json();
+    assert!(json.contains("\"follow\":true"), "{json}");
+    assert!(!json.contains("evasive"), "{json}");
 }
 
 #[test]
@@ -3504,6 +3688,7 @@ fn yard_standards_are_size_ordered_and_read_only() {
     let before = yard.draft.clone();
     yard.nudge(1);
     yard.add_weapon();
+    yard.add_system();
     yard.request_delete_weapon();
     yard.type_name('x');
     yard.backspace_name();
@@ -3898,6 +4083,53 @@ fn yard_shields_move_all_or_one_face() {
     assert!(
         buffer_contains(&buf, "F") && buffer_contains(&buf, "shields all"),
         "yard must show all-faces and per-face rows; got:\n{buf}"
+    );
+}
+
+#[test]
+fn yard_can_install_a_computer_and_cycle_marks() {
+    let mut app = yard_app();
+    handle_key(&mut app, make_key('n'));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    handle_key(&mut app, make_key('i'));
+    {
+        let yard = app.yard.as_ref().unwrap();
+        assert_eq!(yard.draft.systems.len(), 1);
+        assert_eq!(yard.draft.systems[0].component, "computer_mk1");
+        assert!(matches!(
+            yard.edit_cursor,
+            crate::yard::EditField::System { index: 0 }
+        ));
+        assert!(yard.field_description().contains("to-hit"));
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    assert_eq!(
+        app.yard.as_ref().unwrap().draft.systems[0].component,
+        "computer_mk2"
+    );
+    handle_key(&mut app, make_key('i'));
+    {
+        let yard = app.yard.as_ref().unwrap();
+        assert_eq!(yard.draft.systems.len(), 2);
+        assert_ne!(yard.draft.systems[1].component, "computer_mk2");
+    }
+    handle_key(&mut app, make_key('i'));
+    handle_key(&mut app, make_key('i'));
+    handle_key(&mut app, make_key('i'));
+    {
+        let yard = app.yard.as_ref().unwrap();
+        assert_eq!(yard.draft.systems.len(), 4);
+        assert!(yard.status.contains("already have one"));
+        let row = yard.system_row(&yard.draft.systems[0]);
+        assert!(
+            row.contains("computer_mk2") && row.contains("to-hit +2"),
+            "computer row should show mark and accuracy; got {row}"
+        );
+    }
+    let buf = render_to_string(&mut app, 80, 36);
+    assert!(
+        buffer_contains(&buf, "computer_mk2"),
+        "installed computer missing from editor; got:\n{buf}"
     );
 }
 

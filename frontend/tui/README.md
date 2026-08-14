@@ -72,6 +72,7 @@ cargo run --manifest-path frontend/tui/Cargo.toml -- --yard
 | `←`/`→` | Change the field (size, material, engine, armor, shields, SKU) |
 | **shields all** | Step every face together; `↓` onto F…FL for one face |
 | `m` / `a` / `d` | Weapon mount / add / delete |
+| `i` | Install a system (computer first; one of each kind) |
 | `s` | Save (`data/designs/<id>.toml`) — not while naming |
 | `c` | Save and compile to `data/ships/<id>.toml` |
 | `Esc` | Back to the list |
@@ -116,6 +117,8 @@ allocate / path / volley). There is **no** `end_turn`.
 facings; `←`/`→` decrement/increment the focused field; digits start a fresh
 value entry; `Backspace` clears; `Enter` commits the `allocate` order. A ship
 with no power can press `Space` to submit its forced zero allocation.
+If the ship has the system installed: `x` toggles cloak (`4+size` power),
+`z` buys a repair box, `u` unsquads, `l` cycles the squad leader.
 
 **Movement (path) mode** — draft one ordered path, then submit once:
 
@@ -128,6 +131,8 @@ with no power can press `Space` to submit its forced zero allocation.
 | `0`–`5` | turn toward absolute facing (minimal turns) |
 | `Backspace` | undo last action |
 | `x` | clear draft |
+| `e` | +1 evasive |
+| `y` | follow the squad leader (`follow: true`) |
 | `Enter` | `commit_path` with the draft |
 | `Space` | hold position (`commit_path` with empty actions) |
 

@@ -70,6 +70,7 @@ still a `Basic …` default retitles it.
 | `←`/`→` `h`/`l` | Change the focused field |
 | `m` | Cycle weapon mount |
 | `a` / `d` | Add / delete a weapon |
+| `i` | Install a system (computer, cloak, repair, ECM). First install is a Mk I computer. One of each kind. `←`/`→` changes mark or type. |
 | `s` | Save design (not while the name is focused — `s` would type) |
 | `c` | Save and compile to `data/ships/<id>.toml` |
 | `Esc` | Back to the list (press again to discard unsaved changes) |
