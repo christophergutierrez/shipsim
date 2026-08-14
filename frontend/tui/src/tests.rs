@@ -2005,11 +2005,49 @@ fn allocation_input_clamps_to_affordable_power() {
     }
 
     let ship = app.focused().unwrap();
+    // test_snapshot: 1:1 ratio, max_maneuver_actions=8, no effective field.
+    assert_eq!(app.alloc_draft.as_ref().unwrap().movement, 8);
+    assert_eq!(ship.movement_power_cap(), Some(8));
+    assert!(app.alloc_draft.as_ref().unwrap().power_cost(ship) <= ship.power_available);
+}
+
+#[test]
+fn dead_engines_clamp_movement_power_to_zero() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[0].effective_max_maneuver_actions = Some(0);
+    snap.ships[0].power_available = 22;
+    app.update_snapshot(snap);
+    assert_eq!(app.focused().unwrap().motion_cap(), 0);
+    assert_eq!(app.focused().unwrap().movement_power_cap(), Some(0));
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    for _ in 0..10 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    }
     assert_eq!(
         app.alloc_draft.as_ref().unwrap().movement,
-        ship.movement_power_cap().unwrap()
+        0,
+        "destroyed engines must not fall back to the design maneuver cap"
     );
-    assert!(app.alloc_draft.as_ref().unwrap().power_cost(ship) <= ship.power_available);
+}
+
+#[test]
+fn swarm_ratio_movement_power_cap_is_ceil_not_floor() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    // yard_swarm: 3 motion per power, hull cap 8 → ceil(8/3)=3, not floor=2.
+    snap.ships[0].max_maneuver_actions = 8;
+    snap.ships[0].effective_max_maneuver_actions = Some(8);
+    snap.ships[0].thrust_per_power = 3;
+    snap.ships[0].power_per_thrust = 1;
+    snap.ships[0].power_available = 22;
+    app.update_snapshot(snap);
+    assert_eq!(app.focused().unwrap().movement_power_cap(), Some(3));
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    for _ in 0..10 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    }
+    assert_eq!(app.alloc_draft.as_ref().unwrap().movement, 3);
 }
 
 #[test]

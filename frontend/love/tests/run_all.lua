@@ -1559,6 +1559,33 @@ do
     "movement ceiling uses convertible hull cap"
   )
 
+  local dead_engines = {
+    power_available = 22,
+    effective_max_maneuver_actions = 0,
+    max_maneuver_actions = 8,
+    thrust_per_power = 1,
+    power_per_thrust = 1,
+    weapons = {},
+  }
+  assert_eq(
+    allocation.available_for_movement(dead_engines, { movement = 0 }),
+    0,
+    "destroyed engines are a real zero cap, not a missing field"
+  )
+
+  local swarm = {
+    power_available = 22,
+    effective_max_maneuver_actions = 8,
+    thrust_per_power = 3,
+    power_per_thrust = 1,
+    weapons = {},
+  }
+  assert_eq(
+    allocation.available_for_movement(swarm, { movement = 0 }),
+    3,
+    "3:1 hull cap 8 is ceil(8/3)=3 power, not floor=2"
+  )
+
   local quick_ship = {
     power_available = 22,
     max_shield_per_facing = 6,

@@ -12,13 +12,26 @@ local function power_available(ship)
   return (ship and ship.power_available) or (ship and ship.power) or 0
 end
 
-local function movement_power_cap(ship)
-  local cap = ship and (ship.effective_max_maneuver_actions or ship.max_maneuver_actions)
-  local thrust_per_power = ship and (ship.thrust_per_power or 0)
-  local power_per_thrust = ship and (ship.power_per_thrust or 0)
-  if not cap or cap <= 0 or thrust_per_power <= 0 or power_per_thrust <= 0 then
+--- Authoritative motion ceiling. `effective == 0` means engines are gone.
+--- Only fall back to the design cap when the field is absent (nil).
+local function motion_cap(ship)
+  if not ship then
     return nil
   end
+  if ship.effective_max_maneuver_actions ~= nil then
+    return ship.effective_max_maneuver_actions
+  end
+  return ship.max_maneuver_actions
+end
+
+local function movement_power_cap(ship)
+  local cap = motion_cap(ship)
+  local thrust_per_power = ship and (ship.thrust_per_power or 0)
+  local power_per_thrust = ship and (ship.power_per_thrust or 0)
+  if cap == nil or thrust_per_power <= 0 or power_per_thrust <= 0 then
+    return nil
+  end
+  -- cap 0 is a real ceiling (0 power), not "no cap".
   return math.floor((cap * power_per_thrust + thrust_per_power - 1) / thrust_per_power)
 end
 

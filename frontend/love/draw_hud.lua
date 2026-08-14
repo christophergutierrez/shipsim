@@ -749,8 +749,13 @@ function draw_hud.draw_movement_panel(app, snap, px, pad, y, content_w)
     return y
   end
   local avail = ship.motion_available or 0
-  local cap = ship.effective_max_maneuver_actions or ship.max_maneuver_actions
-  if cap and cap < avail then avail = cap end
+  local cap
+  if ship.effective_max_maneuver_actions ~= nil then
+    cap = ship.effective_max_maneuver_actions
+  else
+    cap = ship.max_maneuver_actions
+  end
+  if cap ~= nil and cap < avail then avail = cap end
   local draft = (app.path_drafts and app.path_drafts[ship.id]) or {}
   local used = #draft
   local evasive = (app.path_evasive and app.path_evasive[ship.id]) or 0

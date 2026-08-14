@@ -1416,9 +1416,11 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     let mov_selected = draft.cursor == 0;
     lines.push(Line::from(Span::styled(
         format!(
-            "{}Movement: {:2}   engine power → path this turn   ←/→ or m",
+            "{}Movement: {:>2}/{} pwr → {} path   ←/→ or m",
             if mov_selected { "▶ " } else { "  " },
-            draft.movement
+            draft.movement,
+            ship.movement_power_cap().unwrap_or(ship.power_available),
+            ship.motion_cap()
         ),
         if mov_selected {
             selected_style()

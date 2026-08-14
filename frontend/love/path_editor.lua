@@ -23,8 +23,13 @@ function path_editor.motion_cap(ship)
     return 0
   end
   local avail = ship.motion_available or 0
-  local cap = ship.effective_max_maneuver_actions or ship.max_maneuver_actions
-  if cap and cap < avail then
+  local cap
+  if ship.effective_max_maneuver_actions ~= nil then
+    cap = ship.effective_max_maneuver_actions
+  else
+    cap = ship.max_maneuver_actions
+  end
+  if cap ~= nil and cap < avail then
     avail = cap
   end
   return avail

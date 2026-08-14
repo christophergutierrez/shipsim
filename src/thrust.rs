@@ -339,4 +339,29 @@ mod tests {
         // 1:1 is the boundary (neither exceeds one).
         assert!(ThrustConversion::new(1, 1, 4).is_ok());
     }
+
+    #[test]
+    fn power_for_thrust_is_ceil_inverse_of_convert() {
+        // 1:1 — ceil and floor agree.
+        assert_eq!(power_for_thrust(6, 1, 1), 6);
+        assert_eq!(ThrustConversion::new(1, 1, 6).unwrap().power_for_thrust(6), 6);
+
+        // yard_swarm 3:1, hull cap 8: ceil(8/3)=3 buys 9 raw → 8 after hull cap.
+        // floor(8/3)=2 would only buy 6 motion.
+        assert_eq!(power_for_thrust(8, 3, 1), 3);
+        let swarm = ThrustConversion::new(3, 1, 8).unwrap();
+        assert_eq!(swarm.power_for_thrust(8), 3);
+        assert_eq!(swarm.convert(3).0, 9);
+        assert_eq!(swarm.convert(2).0, 6);
+
+        // Capital 1:2, hull cap 6: ceil(6*2/1)=12.
+        assert_eq!(power_for_thrust(6, 1, 2), 12);
+        let capital = ThrustConversion::new(1, 2, 6).unwrap();
+        assert_eq!(capital.power_for_thrust(6), 12);
+        assert_eq!(capital.convert(12).0, 6);
+        assert_eq!(capital.convert(11).0, 5);
+
+        assert_eq!(power_for_thrust(0, 3, 1), 0);
+        assert_eq!(power_for_thrust(8, 0, 1), 0);
+    }
 }

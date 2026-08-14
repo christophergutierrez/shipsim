@@ -97,6 +97,32 @@ class CarriedChargeDraftTests(unittest.TestCase):
         self.assertTrue(d.set_movement(22))
         self.assertEqual(6, d.movement)
 
+    def test_dead_engines_do_not_fall_back_to_design_cap(self):
+        ship = _ship(power=22)
+        ship.update({
+            "effective_max_maneuver_actions": 0,
+            "max_maneuver_actions": 8,
+            "thrust_per_power": 1,
+            "power_per_thrust": 1,
+        })
+        d = AllocDraft.from_ship(ship)
+        self.assertEqual(0, d.movement_cap)
+        self.assertEqual(0, d.movement_power_cap())
+        self.assertTrue(d.set_movement(22))
+        self.assertEqual(0, d.movement)
+
+    def test_swarm_ratio_uses_ceil_not_floor(self):
+        ship = _ship(power=22)
+        ship.update({
+            "effective_max_maneuver_actions": 8,
+            "thrust_per_power": 3,
+            "power_per_thrust": 1,
+        })
+        d = AllocDraft.from_ship(ship)
+        self.assertEqual(3, d.movement_power_cap())
+        self.assertTrue(d.set_movement(22))
+        self.assertEqual(3, d.movement)
+
     def test_cloak_costs_four_plus_size_and_serializes(self):
         ship = _ship(power=20)
         ship["size"] = 2

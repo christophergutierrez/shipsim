@@ -20,6 +20,7 @@ from hexutil import (
     hit_preview,
     has_system,
     legal_shield_facings,
+    effective_motion_cap,
     motion_status_bits,
     path_action_short,
     ship_callsign,
@@ -574,15 +575,18 @@ class AllocDraft:
             has_cloak="cloak" in kinds,
             has_repair="repair" in kinds,
             in_squad=ship.get("squad_id") is not None,
-            movement_cap=int(ship.get("effective_max_maneuver_actions") or ship.get("max_maneuver_actions") or 0),
+            movement_cap=effective_motion_cap(ship),
             thrust_per_power=int(ship.get("thrust_per_power") or 0),
             power_per_thrust=int(ship.get("power_per_thrust") or 0),
         )
 
     def movement_power_cap(self) -> Optional[int]:
-        if self.movement_cap <= 0 or self.thrust_per_power <= 0 or self.power_per_thrust <= 0:
+        if self.thrust_per_power <= 0 or self.power_per_thrust <= 0:
             return None
-        return (self.movement_cap * self.power_per_thrust + self.thrust_per_power - 1) // self.thrust_per_power
+        # cap 0 (dead engines) is a real ceiling: 0 power, not "no cap".
+        return (
+            self.movement_cap * self.power_per_thrust + self.thrust_per_power - 1
+        ) // self.thrust_per_power
 
     def resolve_weapon(self, token: str) -> Optional[str]:
         return self.aliases.get(token.lower().replace("-", "_"))
@@ -866,8 +870,12 @@ def default_allocate(snap: dict[str, Any], ship_id: int) -> Optional[dict[str, A
     draft.shields[0] = forward_shield
     pool -= forward_shield
 
-    # Rest goes to movement (graceful degradation on small pools)
+    # Rest goes to movement, then leftover after the thrust clamp back to shields.
     draft.set_movement(max(0, pool))
+    leftover = draft.free()
+    if leftover > 0:
+        extra = min(leftover, max(0, draft.max_shield - int(draft.shields[0])))
+        draft.shields[0] = int(draft.shields[0]) + extra
 
     print(draft.summary())
     return draft.to_order()
@@ -940,12 +948,12 @@ def _pending_volley_ship(
 def movement_summary(ship: dict[str, Any], path_draft: Optional[list[str]] = None) -> str:
     """Full path-drafting help (`motion` / `m` / help path)."""
     motion = int(ship.get("motion_available") or 0)
-    cap = int(ship.get("effective_max_maneuver_actions") or ship.get("max_maneuver_actions") or 0)
+    cap = effective_motion_cap(ship)
     lines = [
         f"  ship #{ship['id']} path drafting",
         f"  {motion_status_bits(ship)}",
         f"  position @({ship.get('q')},{ship.get('r')})",
-        f"  motion pool={motion}" + (f" (hull cap {cap})" if cap else ""),
+        f"  motion pool={motion} (motion cap {cap})",
         "  Each path action costs 1 motion: f | fr | fl | tr (r) | tl (l).",
         "  Draft with `path f fr tl`, bare tokens, then `commit` (or `path commit`).",
         "  `evasive N` / `e N` spends N motion on jinking (same budget as path).",

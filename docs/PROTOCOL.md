@@ -151,7 +151,7 @@ Every successful order (and the post-load line) emits a state snapshot with
 | `ships_committed_volley` | Volley stage commits |
 | `path_results` | Last movement resolution telemetry (cost, fallback, conflicts, final hex/facing) |
 | ship `max_maneuver_actions` | Hull path-action cap |
-| ship `effective_max_maneuver_actions` | Current path-action cap after engine/SSD modifiers; clients must prefer this over the hull base |
+| ship `effective_max_maneuver_actions` | Current path-action cap after engine/SSD modifiers. **`0` means engines are gone** (cannot move). Missing field (old snapshot) is the only case that falls back to `max_maneuver_actions`. |
 | ship `max_shield_per_facing` | Scalar face cap (stock catalog; also the max of `max_shields`) |
 | ship `max_shields` | Optional six face caps from the yard (F…FL). Absent → use the scalar |
 | ship `motion_available` | Usable motion points in movement stage |

@@ -60,6 +60,21 @@ class Helpers(unittest.TestCase):
         self.assertIn("motion=2", bits)
         self.assertIn("face=", bits)
 
+    def test_dead_engines_show_zero_cap(self):
+        bits = motion_status_bits(_ship(
+            motion_available=0,
+            effective_max_maneuver_actions=0,
+            max_maneuver_actions=8,
+        ))
+        self.assertIn("motion=0/0", bits)
+        text = movement_summary(_ship(
+            motion_available=0,
+            effective_max_maneuver_actions=0,
+            max_maneuver_actions=8,
+        ))
+        self.assertIn("motion cap 0", text)
+        self.assertNotIn("hull cap", text)
+
 
 class Hints(unittest.TestCase):
     def test_movement_hint_sticky(self):

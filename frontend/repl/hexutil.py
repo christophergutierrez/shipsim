@@ -29,15 +29,23 @@ def dir_glyph(direction: int) -> str:
     return f"{d}{FACING_GLYPH.get(d, '?')}"
 
 
+def effective_motion_cap(ship: dict) -> int:
+    """Engine-enforced motion ceiling.
+
+    `effective_max_maneuver_actions == 0` is "engines destroyed", not "field
+    absent". Only fall back to the design cap when the key is missing.
+    """
+    if "effective_max_maneuver_actions" in ship and ship["effective_max_maneuver_actions"] is not None:
+        return int(ship["effective_max_maneuver_actions"])
+    return int(ship.get("max_maneuver_actions") or 0)
+
+
 def motion_status_bits(ship: dict) -> str:
     """Compact sticky line: face, motion pool, maneuver cap."""
     facing = int(ship.get("facing") or 0)
     motion = int(ship.get("motion_available") or 0)
-    cap = int(ship.get("effective_max_maneuver_actions") or ship.get("max_maneuver_actions") or 0)
-    return (
-        f"face={dir_glyph(facing)} motion={motion}"
-        + (f"/{cap}" if cap else "")
-    )
+    cap = effective_motion_cap(ship)
+    return f"face={dir_glyph(facing)} motion={motion}/{cap}"
 
 
 def path_action_short(action: str) -> str:
