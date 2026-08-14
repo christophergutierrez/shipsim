@@ -20,6 +20,10 @@ evasion_per_point = 1
 torpedo_ammo_base = 3
 torpedo_ammo_per_size = 1
 
+[combat.pd]
+torp = 8
+missile = 10
+
 [combat.weapons.beam]
 to_hit = [18, 17, 15, 13, 11, 10, 8, 7, 5, 4]
 damage_model = "charge_times_range_factor"

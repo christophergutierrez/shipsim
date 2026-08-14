@@ -184,6 +184,17 @@ pub struct CombatLogEvent {
     pub hull_damage: u32,
     pub kind: String,
     pub packet: Option<u8>,
+    pub vs_weapon: Option<String>,
+}
+
+fn computer_bonus(systems: &[crate::schema::SystemKind]) -> u8 {
+    systems
+        .iter()
+        .find_map(|system| match system {
+            crate::schema::SystemKind::Computer { mk } => Some(*mk),
+            _ => None,
+        })
+        .unwrap_or(0)
 }
 
 /// Staged path commitment during the movement collection stage.
@@ -753,8 +764,13 @@ impl GameState {
                 .then_with(|| a.1.target.cmp(&b.1.target))
         });
 
+        let intercepted = self.resolve_point_defense(&snapshot, &shots);
+
         let mut results = Vec::new();
         for (attacker_id, shot) in &shots {
+            if intercepted.contains(&(*attacker_id, shot.weapon.clone(), shot.target)) {
+                continue;
+            }
             // Attacker must have been alive at start; still fire even if destroyed mid-phase.
             if !alive_at_start.contains(attacker_id) {
                 continue;
@@ -865,6 +881,7 @@ impl GameState {
                 hull_damage,
                 kind: if hit { "hit".into() } else { "miss".into() },
                 packet,
+                vs_weapon: None,
             });
         }
 
@@ -877,6 +894,98 @@ impl GameState {
             self.refresh_status();
         }
         Ok(())
+    }
+
+    fn resolve_point_defense(
+        &mut self,
+        snapshot: &[Ship],
+        shots: &[(u32, VolleyShot)],
+    ) -> HashSet<(u32, String, u32)> {
+        let mut intercepted = HashSet::new();
+        let mut used_pd = HashSet::<(u32, String)>::new();
+        let ordinance: Vec<_> = shots
+            .iter()
+            .filter_map(|(attacker_id, shot)| {
+                let attacker = snapshot.iter().find(|ship| ship.id == *attacker_id)?;
+                let weapon = attacker.weapon(&shot.weapon)?;
+                matches!(
+                    weapon.kind,
+                    crate::combat_tables::WeaponKind::Torp
+                        | crate::combat_tables::WeaponKind::Missile
+                )
+                .then_some((*attacker_id, shot.clone()))
+            })
+            .collect();
+
+        for (incoming_id, shot) in ordinance {
+            let Some(incoming) = snapshot.iter().find(|ship| ship.id == incoming_id) else {
+                continue;
+            };
+            let Some(incoming_weapon) = incoming.weapon(&shot.weapon) else {
+                continue;
+            };
+            let Some(defender) = snapshot.iter().find(|ship| ship.id == shot.target) else {
+                continue;
+            };
+            let mut pd_ids: Vec<_> = defender
+                .weapons
+                .iter()
+                .filter(|weapon| weapon.kind == crate::combat_tables::WeaponKind::Pd)
+                .filter(|weapon| {
+                    defender
+                        .weapon_charges
+                        .get(&weapon.id)
+                        .copied()
+                        .unwrap_or(0)
+                        >= 1
+                })
+                .filter(|weapon| {
+                    weapon.mount.is_some_and(|mount| {
+                        crate::arc::in_arc(mount, defender.facing, defender.pos, incoming.pos)
+                    })
+                })
+                .map(|weapon| weapon.id.clone())
+                .collect();
+            pd_ids.sort();
+
+            for pd_id in pd_ids {
+                if used_pd.contains(&(defender.id, pd_id.clone())) {
+                    continue;
+                }
+                used_pd.insert((defender.id, pd_id.clone()));
+                let computer = computer_bonus(&defender.systems);
+                let threshold = self
+                    .rules
+                    .combat()
+                    .pd()
+                    .threshold(incoming_weapon.kind)
+                    .unwrap_or(0)
+                    .saturating_add(computer)
+                    .min(self.rules.combat().die_sides().saturating_sub(1));
+                let roll = self.prng.roll(u32::from(self.rules.combat().die_sides()));
+                if let Some(ship) = self.ship_mut(defender.id) {
+                    ship.weapon_charges.insert(pd_id.clone(), 0);
+                }
+                let hit = roll <= u32::from(threshold);
+                self.combat_log.push(CombatLogEvent {
+                    attacker: defender.id,
+                    target: incoming_id,
+                    weapon: pd_id,
+                    shield: 0,
+                    damage: 0,
+                    shield_absorbed: 0,
+                    hull_damage: 0,
+                    kind: if hit { "pd_hit" } else { "pd_miss" }.into(),
+                    packet: None,
+                    vs_weapon: Some(shot.weapon.clone()),
+                });
+                if hit {
+                    intercepted.insert((incoming_id, shot.weapon.clone(), shot.target));
+                    break;
+                }
+            }
+        }
+        intercepted
     }
 
     pub fn path_preview(

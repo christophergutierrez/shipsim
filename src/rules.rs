@@ -28,6 +28,7 @@ pub struct CombatRules {
     accuracy: AccuracyRules,
     weapons: WeaponRules,
     ammo: AmmoRules,
+    pd: PdRules,
 }
 
 impl CombatRules {
@@ -45,6 +46,27 @@ impl CombatRules {
 
     pub fn ammo(&self) -> &AmmoRules {
         &self.ammo
+    }
+
+    pub fn pd(&self) -> &PdRules {
+        &self.pd
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PdRules {
+    torp: u8,
+    missile: u8,
+}
+
+impl PdRules {
+    pub fn threshold(&self, kind: WeaponKind) -> Option<u8> {
+        match kind {
+            WeaponKind::Torp => Some(self.torp),
+            WeaponKind::Missile => Some(self.missile),
+            _ => None,
+        }
     }
 }
 

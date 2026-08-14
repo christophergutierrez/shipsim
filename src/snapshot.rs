@@ -228,7 +228,7 @@ impl StateSnapshot {
                     hull_damage: e.hull_damage,
                     kind: e.kind.clone(),
                     packet: e.packet,
-                    vs_weapon: None,
+                    vs_weapon: e.vs_weapon.clone(),
                 })
                 .collect(),
             fire_opportunity: game.fire_opportunity(),
