@@ -56,6 +56,8 @@ The file id is not a browse column.
 | `Enter` / `Space` | Edit the selected class, or start a new one |
 | `n` | New class |
 | `o` | Cycle user-design sort: recency, size, cost |
+| `y` | Clone the selected class into an editable draft |
+| `d` | Delete a user class after a second press |
 | `q` / `Esc` | Quit |
 
 New classes get an **8-hex file token** (not 1, 2, 3 — deletes leave no holes)
@@ -66,8 +68,10 @@ still a `Basic …` default retitles it.
 | Edit | |
 |---|---|
 | `↑`/`↓` | Next field (`j`/`k` too, except on the name) |
+| `Enter` | Open the picker for hull, material, engine, weapon, or system; open the shield rosette on shields |
 | type | Class name (first field). `↑`/`↓` leave it |
 | `←`/`→` `h`/`l` | Change the focused field |
+| `PgUp` / `PgDn` | Adjust shield rosette values by five |
 | `m` | Cycle weapon mount |
 | `a` / `d` | Add / delete a weapon |
 | `i` | Install a system (computer, cloak, repair, ECM). First install is a Mk I computer. One of each kind. `←`/`→` changes mark or type. |

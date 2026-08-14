@@ -3669,6 +3669,56 @@ fn yard_browse_hides_weapon_quality_fixtures() {
 }
 
 #[test]
+fn yard_scroll_and_row_model_keep_cursor_reachable() {
+    use crate::yard::{clamp_scroll, YardRowKind};
+    assert_eq!(clamp_scroll(0, 0, 10, 4), 0);
+    assert_eq!(clamp_scroll(4, 2, 10, 4), 2);
+    assert_eq!(clamp_scroll(2, 3, 10, 4), 2);
+    assert_eq!(clamp_scroll(0, 9, 10, 4), 6);
+    assert_eq!(clamp_scroll(0, 0, 3, 4), 0);
+    assert_eq!(clamp_scroll(2, 0, 3, 0), 0);
+
+    let yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
+    let field_rows: Vec<_> = yard.edit_rows().into_iter().filter_map(|row| match row.kind {
+        YardRowKind::Field(field) => Some(field),
+        _ => None,
+    }).collect();
+    assert_eq!(field_rows, yard.field_list());
+}
+
+#[test]
+fn yard_quit_requires_confirmation_when_dirty() {
+    let mut app = yard_app();
+    let new_row = app.yard.as_ref().unwrap().listings.len();
+    app.yard.as_mut().unwrap().browse_cursor = new_row;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    app.yard.as_mut().unwrap().type_name('x');
+    assert!(matches!(handle_key(&mut app, make_key('q')), KeyResult::Continue));
+    assert_eq!(app.yard.as_ref().unwrap().pending, Some(crate::yard::PendingConfirm::DiscardChanges));
+    assert!(matches!(handle_key(&mut app, make_key('q')), KeyResult::Quit));
+}
+
+#[test]
+fn yard_weapon_picker_cancels_exactly_and_filters() {
+    let mut app = yard_app();
+    let new_row = app.yard.as_ref().unwrap().listings.len();
+    app.yard.as_mut().unwrap().browse_cursor = new_row;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    for _ in 0..6 { handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down)); }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert_eq!(app.yard.as_ref().unwrap().picker.as_ref().unwrap().rows.len(), app.yard.as_ref().unwrap().catalog.weapons.len());
+    let saved = app.yard.as_ref().unwrap().saved.clone();
+    handle_key(&mut app, make_key('/'));
+    for ch in "torp".chars() { handle_key(&mut app, make_key(ch)); }
+    assert!(app.yard.as_ref().unwrap().picker.as_ref().unwrap().rows.iter().all(|row| row.id.contains("torp") || row.cells[1].contains("torp")));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+    assert!(app.yard.as_ref().unwrap().picker.is_some());
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+    assert!(app.yard.as_ref().unwrap().picker.is_none());
+    assert_eq!(app.yard.as_ref().unwrap().draft, saved);
+}
+
+#[test]
 fn yard_standards_are_size_ordered_and_read_only() {
     let mut yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
     let standard_count = shipsim_core::shipyard::STANDARD_CLASS_IDS.len();
@@ -4004,23 +4054,23 @@ fn yard_engine_is_a_kind_and_size() {
         yard.browse_cursor = yard.listings.len();
     }
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
-    // Name → Size → Material → EngineKind
+    // Name -> Size -> Material -> Engine
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
-    let before = app.yard.as_ref().unwrap().preview().expect("fission M");
+    let before = app.yard.as_ref().unwrap().engine_label();
     assert_eq!(app.yard.as_ref().unwrap().draft.engine, "fission");
     assert_eq!(app.yard.as_ref().unwrap().draft.engine_size, "m");
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
     let yard = app.yard.as_ref().unwrap();
-    assert_eq!(yard.draft.engine, "fusion");
-    let after = yard.preview().expect("fusion M");
-    assert!(after.power > before.power);
-    assert_eq!(after.space_used, before.space_used);
-    assert!(after.cost > before.cost);
+    assert_eq!(yard.draft.engine, "fission");
+    assert_eq!(yard.draft.engine_size, "l");
+    let after = yard.engine_label();
+    assert_ne!(after, before);
+    assert!(after.contains("fission l"));
     let buf = render_to_string(&mut app, 80, 24);
     assert!(
-        buffer_contains(&buf, "fusion") && buffer_contains(&buf, "pwr"),
+        buffer_contains(&buf, "fission l") && buffer_contains(&buf, "pwr"),
         "engine size row should show the plant stats; got:\n{buf}"
     );
 }
@@ -4031,7 +4081,7 @@ fn yard_armor_toggles_without_using_space() {
     let new_row = app.yard.as_ref().unwrap().listings.len();
     app.yard.as_mut().unwrap().browse_cursor = new_row;
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
-    for _ in 0..5 {
+    for _ in 0..4 {
         handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
     }
     assert!(app.yard.as_ref().unwrap().draft.armored);
@@ -4056,13 +4106,13 @@ fn yard_shields_move_all_or_one_face() {
     let new_row = app.yard.as_ref().unwrap().listings.len();
     app.yard.as_mut().unwrap().browse_cursor = new_row;
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
-    // Name, size, material, engine kind, engine size, armor → shields all
-    for _ in 0..6 {
+    // Name, size, material, engine, armor -> shields
+    for _ in 0..5 {
         handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
     }
     assert_eq!(
         app.yard.as_ref().unwrap().edit_cursor,
-        crate::yard::EditField::ShieldsAll
+        crate::yard::EditField::Shields
     );
     let before = app.yard.as_ref().unwrap().draft.shields;
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
@@ -4070,19 +4120,14 @@ fn yard_shields_move_all_or_one_face() {
     for i in 0..6 {
         assert_eq!(after_all[i], before[i] + 1);
     }
-    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
-    assert_eq!(
-        app.yard.as_ref().unwrap().edit_cursor,
-        crate::yard::EditField::ShieldsFace { index: 0 }
-    );
-    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Left));
+    app.yard.as_mut().unwrap().set_shield_face(0, after_all[0] - 1);
     let faces = app.yard.as_ref().unwrap().draft.shields;
     assert_eq!(faces[0], after_all[0] - 1);
     assert_eq!(faces[1], after_all[1]);
     let buf = render_to_string(&mut app, 80, 24);
     assert!(
-        buffer_contains(&buf, "F") && buffer_contains(&buf, "shields all"),
-        "yard must show all-faces and per-face rows; got:\n{buf}"
+        buffer_contains(&buf, "shields"),
+        "yard must show the shield row; got:\n{buf}"
     );
 }
 

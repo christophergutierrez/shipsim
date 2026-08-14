@@ -136,13 +136,21 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
         return KeyResult::Continue;
     };
     use crate::yard::YardScreen;
+    if yard.shield_editor.is_some() {
+        return handle_yard_shields(yard, key);
+    }
+    if yard.picker.is_some() {
+        return handle_yard_picker(yard, key);
+    }
     match yard.screen {
         YardScreen::Browse => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => yard.move_browse(-1),
-            KeyCode::Down | KeyCode::Char('j') => yard.move_browse(1),
-            KeyCode::Char('o') => yard.cycle_sort(),
+            KeyCode::Up | KeyCode::Char('k') => { yard.cancel_pending(); yard.move_browse(-1); },
+            KeyCode::Down | KeyCode::Char('j') => { yard.cancel_pending(); yard.move_browse(1); },
+            KeyCode::Char('o') => { yard.cancel_pending(); yard.cycle_sort(); },
             KeyCode::Enter | KeyCode::Char(' ') => yard.open_selected(),
             KeyCode::Char('n') => yard.start_new(),
+            KeyCode::Char('y') => yard.clone_selected(),
+            KeyCode::Char('d') => yard.request_delete_design(),
             KeyCode::Char('q') | KeyCode::Esc => return KeyResult::Quit,
             _ => {}
         },
@@ -150,10 +158,17 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
             use crate::yard::EditField;
             if yard.is_readonly() {
                 match key.code {
+                    KeyCode::Enter => yard.open_picker(),
                     KeyCode::Esc => yard.request_exit(),
                     KeyCode::Up | KeyCode::Char('k') => yard.move_edit(-1),
                     KeyCode::Down | KeyCode::Char('j') => yard.move_edit(1),
-                    KeyCode::Char('q') => return KeyResult::Quit,
+                    KeyCode::Char('q') => {
+                        return if yard.request_quit() {
+                            KeyResult::Quit
+                        } else {
+                            KeyResult::Continue
+                        };
+                    }
                     KeyCode::Left
                     | KeyCode::Right
                     | KeyCode::Backspace
@@ -172,6 +187,10 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
             // never fire against a since-changed cursor or field.
             if yard.edit_cursor == EditField::Name {
                 match key.code {
+                    KeyCode::Enter => {}
+                    KeyCode::Char('q') => {
+                        return if yard.request_quit() { KeyResult::Quit } else { KeyResult::Continue };
+                    }
                     KeyCode::Esc => yard.request_exit(),
                     KeyCode::Up => {
                         yard.cancel_pending();
@@ -193,6 +212,7 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
                 }
             } else {
                 match key.code {
+                    KeyCode::Enter => yard.open_picker(),
                     KeyCode::Esc => yard.request_exit(),
                     KeyCode::Char('d') => yard.request_delete_weapon(),
                     KeyCode::Up | KeyCode::Char('k') => {
@@ -231,11 +251,63 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
                         yard.cancel_pending();
                         yard.compile();
                     }
-                    KeyCode::Char('q') => return KeyResult::Quit,
+                    KeyCode::Char('q') => {
+                        return if yard.request_quit() {
+                            KeyResult::Quit
+                        } else {
+                            KeyResult::Continue
+                        };
+                    }
                     _ => {}
                 }
             }
         }
+    }
+    KeyResult::Continue
+}
+
+fn handle_yard_picker(yard: &mut crate::yard::YardState, key: KeyEvent) -> KeyResult {
+    let filtering = yard.picker.as_ref().is_some_and(|picker| picker.filtering);
+    if filtering {
+        match key.code {
+            KeyCode::Esc => {
+                yard.picker_clear_filter();
+            }
+            KeyCode::Backspace => yard.picker_backspace(),
+            KeyCode::Char(ch) => yard.picker_type(ch),
+            _ => {}
+        }
+        return KeyResult::Continue;
+    }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => yard.picker_move(-1),
+        KeyCode::Down | KeyCode::Char('j') => yard.picker_move(1),
+        KeyCode::PageUp => yard.picker_move(-8),
+        KeyCode::PageDown => yard.picker_move(8),
+        KeyCode::Enter => yard.picker_commit(),
+        KeyCode::Esc => yard.picker_cancel(),
+        KeyCode::Char('/') => {
+            if let Some(picker) = yard.picker.as_mut() { picker.filtering = true; }
+        }
+        KeyCode::Char('m') => yard.cycle_weapon_mount(),
+        _ => {}
+    }
+    KeyResult::Continue
+}
+
+fn handle_yard_shields(yard: &mut crate::yard::YardState, key: KeyEvent) -> KeyResult {
+    match key.code {
+        KeyCode::Left | KeyCode::Char('h') => yard.shield_face_move(-1),
+        KeyCode::Right | KeyCode::Char('l') => yard.shield_face_move(1),
+        KeyCode::Up | KeyCode::Char('k') => yard.shield_face_adjust(1),
+        KeyCode::Down | KeyCode::Char('j') => yard.shield_face_adjust(-1),
+        KeyCode::PageUp => yard.shield_face_adjust(5),
+        KeyCode::PageDown => yard.shield_face_adjust(-5),
+        KeyCode::Char('=') => {
+            if let Some(face) = yard.shield_editor { yard.shield_set_all(yard.draft.shields[face]); }
+        }
+        KeyCode::Esc => yard.close_shield_editor(),
+        _ => {}
     }
     KeyResult::Continue
 }

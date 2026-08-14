@@ -14,7 +14,7 @@ use ratatui::Frame;
 
 use crate::app::{App, Mode};
 use crate::protocol::{callsign, facing_arrow, shield_label, Ship, Snapshot};
-use crate::yard::{EditField, YardScreen};
+use crate::yard::YardScreen;
 
 /// Render the full frame.
 pub fn render(f: &mut Frame, app: &mut App) {
@@ -22,20 +22,14 @@ pub fn render(f: &mut Frame, app: &mut App) {
 
     const MIN_WIDTH: u16 = 80;
     const MIN_HEIGHT: u16 = 24;
-    if app.yard.is_some() && (size.width < 60 || size.height < 16) {
+    if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
         app.terminal_too_small = true;
-        let p = Paragraph::new("Shipyard needs at least 60×16\n\nq quits")
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).title("shipsim TUI"));
-        f.render_widget(p, size);
-        return;
-    }
-    if app.yard.is_none() && (size.width < MIN_WIDTH || size.height < MIN_HEIGHT) {
-        app.terminal_too_small = true;
-        let msg = format!(
-            "Terminal too small to play\n\nResize to at least {MIN_WIDTH}×{MIN_HEIGHT}\n\nYour game is paused here and will resume when the window grows."
-        );
-        let p = Paragraph::new(msg)
+        let message = if app.yard.is_some() {
+            format!("Shipyard needs at least {MIN_WIDTH}x{MIN_HEIGHT}\n\nq quits")
+        } else {
+            format!("Terminal too small to play\n\nResize to at least {MIN_WIDTH}x{MIN_HEIGHT}\n\nYour game is paused here and will resume when the window grows.")
+        };
+        let p = Paragraph::new(message)
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL).title("shipsim TUI"));
         f.render_widget(p, size);
@@ -2343,20 +2337,80 @@ fn render_game_over_summary(app: &App, status: &str) -> Vec<Line<'static>> {
     ]
 }
 
-fn render_yard(f: &mut Frame, app: &App, area: Rect) {
-    let Some(yard) = app.yard.as_ref() else {
+fn render_yard(f: &mut Frame, app: &mut App, area: Rect) {
+    let Some(yard) = app.yard.as_mut() else {
         return;
     };
     match yard.screen {
         YardScreen::Browse => render_yard_browse(f, yard, area),
         YardScreen::Edit => render_yard_edit(f, yard, area),
     }
+    if yard.picker.is_some() {
+        render_yard_picker(f, yard, area);
+    }
+    if yard.shield_editor.is_some() {
+        render_yard_shields(f, yard, area);
+    }
+}
+
+fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width.saturating_sub(2));
+    let height = height.min(area.height.saturating_sub(2));
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
+
+fn render_yard_picker(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
+    let Some(picker) = yard.picker.as_ref() else { return };
+    let widths = crate::yard::column_widths(&picker.headers, &picker.rows, 72);
+    let visible = usize::from(area.height.saturating_sub(8)).max(1);
+    let offset = crate::yard::clamp_scroll(picker.scroll, picker.cursor, picker.rows.len(), visible);
+    let height = (visible as u16 + 8).min(area.height.saturating_sub(2));
+    let rect = centered_rect(area, area.width.saturating_sub(4).min(78), height);
+    f.render_widget(Clear, rect);
+    let mut lines = Vec::new();
+    let header = picker.headers.iter().enumerate().map(|(i, header)| format!("{:<width$}", header, width = widths.get(i).copied().unwrap_or(header.len()))).collect::<Vec<_>>().join("  ");
+    lines.push(Line::from(header));
+    for (row_index, row) in picker.rows.iter().enumerate().skip(offset).take(visible) {
+        let cells = row.cells.iter().enumerate().map(|(i, cell)| {
+            let width = widths.get(i).copied().unwrap_or(8);
+            let clipped: String = cell.chars().take(width).collect();
+            format!("{:<width$}", clipped, width = width)
+        }).collect::<Vec<_>>().join("  ");
+        let marker = if row_index == picker.cursor { "▶ " } else { "  " };
+        let suffix = if row.fits { "" } else { " (no space)" };
+        let mut line = Line::from(format!("{marker}{cells}{suffix}"));
+        if !row.fits { line = line.style(Style::default().fg(Color::DarkGray)); }
+        lines.push(line);
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(format!("{}\n↑↓ browse  Enter take  Esc cancel  / filter  m mount", yard.picker_delta_line())));
+    let block = Block::default().borders(Borders::ALL).title(format!(" {} ", picker.title));
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }).block(block), rect);
+}
+
+fn render_yard_shields(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
+    let selected = yard.shield_editor.unwrap_or(0);
+    let total: u64 = yard.draft.shields.iter().sum();
+    let labels = crate::protocol::SHIELD_LABELS;
+    let lines = vec![Line::from(""), Line::from(format!("                 {}  {}", labels[0], shield_value(yard, 0, selected))), Line::from(format!("          {}  {}       {}  {}", labels[5], shield_value(yard, 5, selected), labels[1], shield_value(yard, 1, selected))), Line::from("                ┌────┐"), Line::from(format!("          {}  {} │hull│ {}  {}", labels[4], shield_value(yard, 4, selected), labels[2], shield_value(yard, 2, selected))), Line::from("                └────┘"), Line::from(format!("                 {}  {}", labels[3], shield_value(yard, 3, selected))), Line::from(""), Line::from("←→ face   ↑↓ ±1   PgUp/PgDn ±5   = set all"), Line::from(format!("Esc done                           {total} banks"))];
+    let rect = centered_rect(area, 54, 14);
+    f.render_widget(Clear, rect);
+    f.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(format!(" shields · {total} banks · {total}sp {total}c "))), rect);
+}
+
+fn shield_value(yard: &crate::yard::YardState, index: usize, selected: usize) -> String {
+    if index == selected { format!("▶{}◀", yard.draft.shields[index]) } else { yard.draft.shields[index].to_string() }
 }
 
 fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(8), Constraint::Length(3)])
+        .constraints([Constraint::Min(8), Constraint::Length(4)])
         .split(area);
     let mut items: Vec<ListItem> = yard
         .listings
@@ -2369,14 +2423,16 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
                 .map(|p| format!("{:>5}", p.cost))
                 .unwrap_or_else(|_| "  err".into());
             let marker = if i == yard.browse_cursor { "▶" } else { " " };
+            let standard = if shipsim_core::shipyard::STANDARD_CLASS_IDS.contains(&item.design.id.as_str()) { "[std]" } else { "     " };
             let hull = yard
                 .sizes
                 .get(item.design.size)
                 .map(|h| h.name.as_str())
                 .unwrap_or("?");
             ListItem::new(format!(
-                "{marker} {:<28} {:<16}  cost {cost}",
+                "{marker} {standard} {:<24} {:<12}  wpn {:>2}  sp {:>3}/{:<3}  cost {cost}",
                 item.design.name, hull
+                , item.design.weapons.len(), item.preview.as_ref().map(|p| p.space_used).unwrap_or(0), item.preview.as_ref().map(|p| p.space_cap).unwrap_or(0)
             ))
         })
         .collect();
@@ -2391,14 +2447,15 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
     );
     f.render_widget(list, chunks[0]);
     let help = Paragraph::new(format!(
-        "↑/↓ select   Enter edit   n new   q quit    {}",
+        "↑↓ select  Enter edit  n new  y clone  d delete  o sort  q quit\n{}",
         yard.status
     ))
+    .wrap(Wrap { trim: true })
     .block(Block::default().borders(Borders::ALL).title(" keys "));
     f.render_widget(help, chunks[1]);
 }
 
-fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
+fn render_yard_edit(f: &mut Frame, yard: &mut crate::yard::YardState, area: Rect) {
     let preview = yard.preview();
     let cost_line = match &preview {
         Ok(p) => format!(
@@ -2418,88 +2475,42 @@ fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
     };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(4)])
+        .constraints([Constraint::Length(4), Constraint::Min(8), Constraint::Length(4)])
         .split(area);
     let mode = if yard.viewing_readonly { "  (read-only — standard class)" } else { "" };
-    let header = Paragraph::new(format!("{}{}  —  {cost_line}", yard.draft.name, mode)).block(
+    let header = Paragraph::new(format!("{}{}\n{cost_line}", yard.draft.name, mode))
+        .wrap(Wrap { trim: true })
+        .block(
         Block::default()
             .borders(Borders::ALL)
             .title(" class "),
-    );
+        );
     f.render_widget(header, chunks[0]);
 
-    let mut lines = vec![
-        yard_field(
-            yard.edit_cursor == EditField::Name,
-            format!("name            {}", yard.draft.name),
-        ),
-        yard_field(
-            yard.edit_cursor == EditField::Size,
-            format!("size            {}", yard.size_label()),
-        ),
-        yard_field(
-            yard.edit_cursor == EditField::Material,
-            format!(
-                "material        {}",
-                crate::yard::material_label(&yard.draft.material)
-            ),
-        ),
-        yard_field(
-            yard.edit_cursor == EditField::EngineKind,
-            format!("engine          {}", yard.draft.engine),
-        ),
-        yard_field(
-            yard.edit_cursor == EditField::EngineSize,
-            format!("engine size     {}", yard.engine_label()),
-        ),
-        yard_field(
-            yard.edit_cursor == EditField::Armor,
-            format!("armor           {}", yard.armor_label()),
-        ),
-        yard_field(
-            yard.edit_cursor == EditField::ShieldsAll,
-            {
-                let total: u64 = yard.draft.shields.iter().sum();
-                format!("shields all     {total} banks   {total}sp  {total}c   ←/→ every face")
-            },
-        ),
-    ];
-    for (index, banks) in yard.draft.shields.iter().enumerate() {
-        let name = crate::protocol::SHIELD_LABELS.get(index).copied().unwrap_or("?");
-        lines.push(yard_field(
-            yard.edit_cursor == EditField::ShieldsFace { index },
-            format!("  {name:<3}            {banks}  (max power on this face)"),
-        ));
-    }
-    lines.extend([
-        Line::from(""),
-        Line::from("weapons  (←/→ sku   m mount   a add   d delete, d again to confirm)"),
-    ]);
-    for (index, weapon) in yard.draft.weapons.iter().enumerate() {
-        lines.push(yard_field(
-            yard.edit_cursor == EditField::Weapon { index },
-            yard.weapon_row(weapon),
-        ));
-    }
-    lines.extend([
-        Line::from(""),
-        Line::from("systems  (i add   ←/→ change   d delete)  one computer / cloak / repair / ECM"),
-    ]);
-    if yard.draft.systems.is_empty() {
-        lines.push(Line::from("  (none — i to install a computer for accuracy)"));
-    }
-    for (index, system) in yard.draft.systems.iter().enumerate() {
-        lines.push(yard_field(
-            yard.edit_cursor == EditField::System { index },
-            yard.system_row(system),
-        ));
-    }
+    let rows = yard.edit_rows();
+    let inner_height = usize::from(chunks[1].height.saturating_sub(2));
+    let cursor_row = rows
+        .iter()
+        .position(|row| matches!(&row.kind, crate::yard::YardRowKind::Field(field) if *field == yard.edit_cursor))
+        .unwrap_or(0);
+    yard.edit_scroll = crate::yard::clamp_scroll(yard.edit_scroll, cursor_row, rows.len(), inner_height);
+    let lines: Vec<Line> = rows.iter().map(|row| match &row.kind {
+        crate::yard::YardRowKind::Field(field) => yard_field(*field == yard.edit_cursor, row.text.clone()),
+        _ => Line::from(row.text.clone()),
+    }).collect();
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
+        .constraints([Constraint::Min(52), Constraint::Length(28)])
         .split(chunks[1]);
     f.render_widget(
-        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" components ")),
+        Paragraph::new(lines)
+            .scroll((yard.edit_scroll as u16, 0))
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                " components {}-{}/{} ",
+                yard.edit_scroll + 1,
+                (yard.edit_scroll + inner_height).min(rows.len()),
+                rows.len()
+            ))),
         columns[0],
     );
     f.render_widget(
@@ -2509,10 +2520,10 @@ fn render_yard_edit(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
         columns[1],
     );
     let help = Paragraph::new(format!(
-        "↑/↓ field  type name · ←/→ change  a weapon  i system  s save  c compile  \
-         Esc back (Esc again if unsaved)\n{}",
+        "↑↓ move  Enter change  a weapon  i system  d delete  s save  c compile  Esc back\n{}",
         yard.status
     ))
+    .wrap(Wrap { trim: true })
     .block(Block::default().borders(Borders::ALL).title(" keys "));
     f.render_widget(help, chunks[2]);
 }
