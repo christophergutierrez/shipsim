@@ -321,6 +321,7 @@ pub fn load_scenario_def_with_rules(
             weapon_ammo,
             ssd,
             systems,
+            cloaked: false,
             destroyed: false,
             max_maneuver_actions,
             thrust_conversion,

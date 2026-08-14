@@ -271,6 +271,7 @@ mod tests {
             attack_accuracy_bonus: 0,
             weapons: vec![],
             systems: vec![],
+            cloaked: false,
             shields_powered: [0; 6],
             shields_remaining: [0; 6],
             max_shield_per_facing: 6,

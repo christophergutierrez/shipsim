@@ -222,6 +222,8 @@ controller = "scripted"
                 movement: 0,
                 weapons: BTreeMap::from([("torp_1".into(), 1)]),
                 shields: [0; 6],
+                cloak: false,
+                repair: 0,
             },
         )
         .expect("allocate torp");
@@ -232,6 +234,8 @@ controller = "scripted"
                 movement: 0,
                 weapons: BTreeMap::new(),
                 shields: [0; 6],
+                cloak: false,
+                repair: 0,
             },
         )
         .expect("target allocate");
@@ -282,6 +286,8 @@ controller = "scripted"
             movement: 0,
             weapons: BTreeMap::from([("torp_1".into(), 1)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap_err();

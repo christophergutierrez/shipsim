@@ -21,6 +21,10 @@ pub enum Order {
         #[serde(default)]
         weapons: BTreeMap<String, u32>,
         shields: [u32; 6],
+        #[serde(default)]
+        cloak: bool,
+        #[serde(default)]
+        repair: u32,
     },
     /// One complete path for `ship` during the movement collection stage.
     /// `evasive` spends motion points from the same budget as path actions
@@ -93,6 +97,10 @@ pub enum OrderError {
     IllegalShieldFacing { requested: u8, legal: Vec<u8> },
     #[error("ship {0} has already allocated power this turn")]
     AlreadyAllocated(u32),
+    #[error("ship {ship} requested {requested} repair boxes; maximum is {max}")]
+    RepairTooMuch { ship: u32, requested: u32, max: u32 },
+    #[error("system {0} is not installed")]
+    SystemNotInstalled(String),
     #[error("ship {0} has already committed a path this turn")]
     AlreadyCommittedPath(u32),
     #[error("ship {0} has already committed a volley this turn")]
@@ -148,7 +156,9 @@ pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError>
             movement,
             weapons,
             shields,
-        } => game.allocate_v2(ship, movement, weapons, shields),
+            cloak,
+            repair,
+        } => game.allocate_v2_with_systems(ship, movement, weapons, shields, cloak, repair),
         Order::CommitPath {
             ship,
             actions,

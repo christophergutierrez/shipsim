@@ -237,6 +237,8 @@ mod tests {
             movement: 2,
             weapons: BTreeMap::from([("beam_1".into(), 2)]),
             shields: [1, 0, 0, 0, 0, 0],
+            cloak: false,
+            repair: 0,
         };
         apply_order(&mut game, player_alloc.clone()).expect("player alloc");
         orders.push(player_alloc);

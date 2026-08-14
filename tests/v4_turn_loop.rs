@@ -64,6 +64,8 @@ fn allocate_both(game: &mut shipsim_core::game_state::GameState) {
                 ("plasma_1".into(), 1),
             ]),
             shields: [2, 0, 0, 0, 0, 2],
+            cloak: false,
+            repair: 0,
         },
     )
     .expect("player allocate");
@@ -77,6 +79,8 @@ fn allocate_both(game: &mut shipsim_core::game_state::GameState) {
                 movement: 2,
                 weapons: BTreeMap::from([("beam_1".into(), 2)]),
                 shields: [1, 0, 0, 0, 0, 1],
+                cloak: false,
+                repair: 0,
             },
         )
         .expect("escort allocate");
@@ -104,6 +108,8 @@ fn reach_preview_respects_zero_motion_in_movement() {
             movement: 0,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .expect("player zero-motion allocate");
@@ -195,6 +201,8 @@ fn partial_allocation_does_not_mutate_public_state() {
             movement: 4,
             weapons: BTreeMap::new(),
             shields: [3, 0, 0, 0, 0, 0],
+            cloak: false,
+            repair: 0,
         },
     )
     .expect("stage player only");
@@ -395,6 +403,8 @@ fn path_preview_matches_commit_without_conflict() {
             movement: 4,
             weapons: BTreeMap::from([("beam_1".into(), 4)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -406,6 +416,8 @@ fn path_preview_matches_commit_without_conflict() {
             movement: 0,
             weapons: BTreeMap::from([("beam_1".into(), 1)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -450,6 +462,8 @@ fn simultaneous_volley_with_legal_shot() {
                 ("plasma_1".into(), 1),
             ]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -460,6 +474,8 @@ fn simultaneous_volley_with_legal_shot() {
             movement: 0,
             weapons: BTreeMap::from([("beam_1".into(), 2)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -558,6 +574,8 @@ fn mutual_destruction_both_volleys_resolve() {
             movement: 0,
             weapons: BTreeMap::from([("beam_1".into(), 4)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -568,6 +586,8 @@ fn mutual_destruction_both_volleys_resolve() {
             movement: 0,
             weapons: BTreeMap::from([("beam_1".into(), 4)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -657,6 +677,8 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
             movement: 2,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -667,6 +689,8 @@ fn path_resolve_cascade_does_not_panic_on_chain() {
             movement: 2,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -730,7 +754,9 @@ fn floating_map_preserves_unique_world_endpoints_beyond_nominal_bounds() {
                 ship: id,
                 movement: 1,
                 weapons: BTreeMap::new(),
-                shields: [0; 6],
+            shields: [0; 6],
+            cloak: false,
+            repair: 0,
             },
         )
         .expect("allocation");

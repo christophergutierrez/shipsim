@@ -509,6 +509,8 @@ impl Policy for BaselinePolicy {
             movement,
             weapons,
             shields,
+            cloak: false,
+            repair: 0,
         }
     }
 
@@ -519,6 +521,8 @@ impl Policy for BaselinePolicy {
             movement,
             weapons,
             shields,
+            cloak: false,
+            repair: 0,
         }
     }
 

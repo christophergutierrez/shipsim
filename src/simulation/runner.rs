@@ -771,6 +771,7 @@ mod tests {
             power_per_thrust: 1,
             motion_available: 0,
             evasion_committed: 0,
+            cloaked: false,
         }
     }
 
@@ -866,6 +867,8 @@ mod tests {
                 movement: 0,
                 weapons: BTreeMap::new(),
                 shields: [0; 6],
+                cloak: false,
+                repair: 0,
             }
         }
 

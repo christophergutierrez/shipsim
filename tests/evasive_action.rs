@@ -133,6 +133,8 @@ fn commit_path_validates_budget_and_allows_pure_jink() {
             movement: 4,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -143,6 +145,8 @@ fn commit_path_validates_budget_and_allows_pure_jink() {
             movement: 0,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -211,6 +215,8 @@ fn evasion_resets_on_next_allocate() {
             movement: 3,
             weapons: BTreeMap::from([("beam_1".into(), 1)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -221,6 +227,8 @@ fn evasion_resets_on_next_allocate() {
             movement: 0,
             weapons: BTreeMap::from([("beam_1".into(), 1)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -292,6 +300,8 @@ fn fire_preview_uses_target_evasion() {
             movement: 2,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -302,6 +312,8 @@ fn fire_preview_uses_target_evasion() {
             movement: 0,
             weapons: BTreeMap::from([("beam_1".into(), 2)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();

@@ -25,6 +25,7 @@ pub struct Ship {
     pub attack_accuracy_bonus: u8,
     pub weapons: Vec<Weapon>,
     pub systems: Vec<SystemKind>,
+    pub cloaked: bool,
     /// Per-facing shield power bought during allocation.
     pub shields_powered: [u32; 6],
     /// Remaining per-facing powered shields this turn.
@@ -89,6 +90,7 @@ impl Ship {
         self.motion_available = 0;
         // Evasion is path-declared each turn; clear stale value from last fire.
         self.evasion_committed = 0;
+        self.cloaked = false;
     }
 
     pub fn weapon(&self, weapon_id: &str) -> Option<&Weapon> {

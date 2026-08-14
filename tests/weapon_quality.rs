@@ -122,6 +122,8 @@ fn enter_firing(game: &mut shipsim_core::game_state::GameState) {
             movement: 0,
             weapons: BTreeMap::from([("beam_1".into(), 4)]),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();
@@ -132,6 +134,8 @@ fn enter_firing(game: &mut shipsim_core::game_state::GameState) {
             movement: 0,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .unwrap();

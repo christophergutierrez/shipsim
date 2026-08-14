@@ -104,6 +104,8 @@ controller = "player"
                 movement: 0,
                 weapons,
                 shields: [0; 6],
+                cloak: false,
+                repair: 0,
             },
         )
         .unwrap();

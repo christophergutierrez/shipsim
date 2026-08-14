@@ -26,6 +26,8 @@ fn metrics_record_path_resolution_and_actual_translation() {
             movement: 1,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .expect("allocate 1");
@@ -36,6 +38,8 @@ fn metrics_record_path_resolution_and_actual_translation() {
             movement: 1,
             weapons: BTreeMap::new(),
             shields: [0; 6],
+            cloak: false,
+            repair: 0,
         },
     )
     .expect("allocate 2");
@@ -124,6 +128,7 @@ fn weapon_power_metric_counts_increases_only() {
         power_per_thrust: 1,
         motion_available: 0,
         evasion_committed: 0,
+        cloaked: false,
         weapons: vec![shipsim_core::snapshot::WeaponSnapshot {
             id: "beam_1".into(),
             kind: "Beam".into(),
@@ -147,6 +152,8 @@ fn weapon_power_metric_counts_increases_only() {
         movement: 1,
         weapons: BTreeMap::from([("beam_1".into(), 4)]),
         shields: [1, 0, 0, 0, 0, 0],
+        cloak: false,
+        repair: 0,
     };
     let mut metrics = MatchMetrics::default();
     metrics.record_allocation(&ship, &order);

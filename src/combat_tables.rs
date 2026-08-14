@@ -178,6 +178,30 @@ pub fn final_to_hit_threshold_with_weapon_bonus(
     weapon_accuracy_bonus: u8,
     defender_evasion: u32,
 ) -> Option<u8> {
+    final_to_hit_threshold_with_modifiers(
+        rules,
+        kind,
+        range,
+        target_size,
+        attack_accuracy_bonus,
+        weapon_accuracy_bonus,
+        0,
+        false,
+        defender_evasion,
+    )
+}
+
+pub fn final_to_hit_threshold_with_modifiers(
+    rules: &CombatRules,
+    kind: WeaponKind,
+    range: u32,
+    target_size: u32,
+    attack_accuracy_bonus: u8,
+    weapon_accuracy_bonus: u8,
+    computer_accuracy_bonus: u8,
+    defender_cloaked: bool,
+    defender_evasion: u32,
+) -> Option<u8> {
     let threshold = size_adjusted_to_hit_threshold(rules, kind, range, target_size)?;
     let bonus = if target_size == rules.accuracy().fire_control_target_size() {
         attack_accuracy_bonus
@@ -193,8 +217,13 @@ pub fn final_to_hit_threshold_with_weapon_bonus(
     let with_bonus = u32::from(threshold)
         .saturating_add(u32::from(bonus))
         .saturating_add(u32::from(weapon_accuracy_bonus));
+    let with_bonus = with_bonus.saturating_add(u32::from(computer_accuracy_bonus));
     let agility = natural_defense_delta(target_size, rules.accuracy().baseline_target_size());
-    let reduced = (i64::from(with_bonus) - i64::from(evasion_delta) - i64::from(agility))
+    let cloak = if defender_cloaked { 4 } else { 0 };
+    let reduced = (i64::from(with_bonus)
+        - i64::from(cloak)
+        - i64::from(evasion_delta)
+        - i64::from(agility))
         .clamp(1, i64::from(final_cap));
     Some(reduced as u8)
 }

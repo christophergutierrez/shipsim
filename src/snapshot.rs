@@ -60,6 +60,8 @@ pub struct ShipSnapshot {
     pub motion_available: u32,
     /// Evasive motion points declared on the last resolved path this turn (0 until then).
     pub evasion_committed: u32,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub cloaked: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,6 +190,7 @@ impl StateSnapshot {
                     power_per_thrust: ship.thrust_conversion.power_per_thrust,
                     motion_available: ship.motion_available,
                     evasion_committed: ship.evasion_committed,
+                    cloaked: ship.cloaked,
                     weapons: ship
                         .weapons
                         .iter()

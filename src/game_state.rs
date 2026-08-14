@@ -92,6 +92,8 @@ struct StagedAllocation {
     movement: u32,
     weapons: BTreeMap<String, u32>,
     shields: [u32; 6],
+    cloak: bool,
+    repair: u32,
 }
 
 /// One engine-authoritative legal fire opportunity.
@@ -317,6 +319,8 @@ impl GameState {
         movement: u32,
         weapons: &BTreeMap<String, u32>,
         shields: &[u32; 6],
+        cloak: bool,
+        repair: u32,
     ) -> Result<(u32, BTreeMap<String, u32>), crate::movement::OrderError> {
         let mut weapon_increases: u32 = 0;
         let mut merged_charges = ship.weapon_charges.clone();
@@ -364,9 +368,39 @@ impl GameState {
             }
         }
         let shield_power: u32 = shields.iter().copied().sum();
+        let cloak_power = if cloak {
+            if !ship
+                .systems
+                .iter()
+                .any(|system| matches!(system, crate::schema::SystemKind::Cloak))
+            {
+                return Err(crate::movement::OrderError::SystemNotInstalled("cloak".into()));
+            }
+            4u32.saturating_add(ship.size)
+        } else {
+            0
+        };
+        let repair_cap = ship.size.div_ceil(3).max(1);
+        if repair > repair_cap {
+            return Err(crate::movement::OrderError::RepairTooMuch {
+                ship: ship_id,
+                requested: repair,
+                max: repair_cap,
+            });
+        }
+        if repair > 0
+            && !ship
+                .systems
+                .iter()
+                .any(|system| matches!(system, crate::schema::SystemKind::Repair))
+        {
+            return Err(crate::movement::OrderError::SystemNotInstalled("repair".into()));
+        }
         let total = movement
             .saturating_add(weapon_increases)
-            .saturating_add(shield_power);
+            .saturating_add(shield_power)
+            .saturating_add(cloak_power)
+            .saturating_add(repair.saturating_mul(2));
         let available = ship.effective_power();
         if total > available {
             return Err(crate::movement::OrderError::OverAllocated {
@@ -385,6 +419,18 @@ impl GameState {
         movement: u32,
         weapons: BTreeMap<String, u32>,
         shields: [u32; 6],
+    ) -> Result<(), crate::movement::OrderError> {
+        self.allocate_v2_with_systems(ship_id, movement, weapons, shields, false, 0)
+    }
+
+    pub fn allocate_v2_with_systems(
+        &mut self,
+        ship_id: u32,
+        movement: u32,
+        weapons: BTreeMap<String, u32>,
+        shields: [u32; 6],
+        cloak: bool,
+        repair: u32,
     ) -> Result<(), crate::movement::OrderError> {
         if self.phase != Phase::Allocate {
             return Err(crate::movement::OrderError::WrongPhase {
@@ -405,7 +451,15 @@ impl GameState {
             return Err(crate::movement::OrderError::ShipNotFound(ship_id));
         }
 
-        self.validate_allocation_draft(ship, ship_id, movement, &weapons, &shields)?;
+        self.validate_allocation_draft(
+            ship,
+            ship_id,
+            movement,
+            &weapons,
+            &shields,
+            cloak,
+            repair,
+        )?;
         // Stage only — do not mutate public ship state yet.
         self.staged_allocations.insert(
             ship_id,
@@ -413,6 +467,8 @@ impl GameState {
                 movement,
                 weapons,
                 shields,
+                cloak,
+                repair,
             },
         );
 
@@ -445,6 +501,8 @@ impl GameState {
                 alloc.movement,
                 &alloc.weapons,
                 &alloc.shields,
+                alloc.cloak,
+                alloc.repair,
             ) else {
                 continue;
             };
@@ -458,6 +516,15 @@ impl GameState {
             ship.weapon_charges = merged_charges;
             ship.shields_powered = alloc.shields;
             ship.shields_remaining = alloc.shields;
+            ship.cloaked = alloc.cloak;
+            if alloc.repair > 0 {
+                ship.ssd.hull = ship
+                    .ssd
+                    .hull
+                    .saturating_add(alloc.repair)
+                    .min(ship.ssd.hull_max);
+                ship.destroyed = ship.ssd.is_destroyed();
+            }
             self.allocated_this_turn.insert(ship_id);
         }
         self.staged_allocations.clear();
@@ -806,13 +873,15 @@ impl GameState {
                     weapon: shot.weapon.clone(),
                 });
             }
-            let threshold = crate::combat_tables::final_to_hit_threshold_with_weapon_bonus(
+            let threshold = crate::combat_tables::final_to_hit_threshold_with_modifiers(
                 self.rules.combat(),
                 kind,
                 range,
                 target.size,
                 attacker.attack_accuracy_bonus,
                 weapon.accuracy_bonus,
+                computer_bonus(&attacker.systems),
+                target.cloaked,
                 target.evasion_committed,
             )
             .ok_or_else(|| crate::movement::OrderError::OutOfRange {
@@ -1150,13 +1219,15 @@ impl GameState {
             .weapon(weapon_id)
             .ok_or_else(|| crate::movement::OrderError::WeaponNotFound(weapon_id.to_string()))?;
         let range = attacker.pos.distance(target.pos);
-        let threshold = crate::combat_tables::final_to_hit_threshold_with_weapon_bonus(
+        let threshold = crate::combat_tables::final_to_hit_threshold_with_modifiers(
             self.rules.combat(),
             weapon.kind,
             range,
             target.size,
             attacker.attack_accuracy_bonus,
             weapon.accuracy_bonus,
+            computer_bonus(&attacker.systems),
+            target.cloaked,
             target.evasion_committed,
         )
         .ok_or_else(|| crate::movement::OrderError::OutOfRange {
@@ -1457,6 +1528,8 @@ impl GameState {
                                 movement,
                                 weapons: weapons.clone(),
                                 shields,
+                                cloak: false,
+                                repair: 0,
                             };
                             if self.allocate_v2(id, movement, weapons, shields).is_ok() {
                                 applied.push(order);
