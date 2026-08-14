@@ -5,7 +5,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{App, Confirmation, Mode};
-use crate::protocol::{Order, VolleyShot};
+use crate::protocol::{shield_label, Order, VolleyShot};
 use crate::tutorial::ExpectedAction;
 
 /// Result of handling a key.
@@ -847,9 +847,16 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
                 if !ship.has_system("repair") {
                     "no repair installed".into()
                 } else {
-                    let cap = if ship.size >= 5 { 2 } else { 1 };
-                    draft.repair = (draft.repair + 1).min(cap);
-                    format!("repair {} box(es)", draft.repair)
+                    match ship.repair_cap {
+                        None => "repair cap unavailable from engine".into(),
+                        Some(cap) if draft.repair >= cap => {
+                            format!("repair already at cap {cap}")
+                        }
+                        Some(cap) => {
+                            draft.repair += 1;
+                            format!("repair {}/{} box(es)", draft.repair, cap)
+                        }
+                    }
                 }
             };
             app.log(msg);
@@ -977,17 +984,36 @@ fn set_allocate_field(app: &mut App, value: u32) {
     if let Some((field, _)) = app.digit_entry {
         app.digit_entry = Some((field, value));
     }
-    let on_movement = draft.cursor == 0;
+    let cursor = draft.cursor;
+    let on_movement = cursor == 0;
+    let field_name = if on_movement {
+        "movement".to_string()
+    } else if cursor <= draft.weapons.len() {
+        draft
+            .weapons
+            .get(cursor - 1)
+            .map(|(id, _)| id.clone())
+            .unwrap_or_else(|| "weapon".into())
+    } else {
+        let face = cursor.saturating_sub(draft.weapons.len() + 1);
+        format!("shield {}", shield_label(face as u32))
+    };
     draft.set_field_value(value);
     // Say why a raise was refused. Silently clamping reads as a dead key rather
     // than a limit, which is the same "the UI said nothing" failure as the
     // uncapped ceiling above — just in miniature.
-    if requested > value && on_movement {
-        let cap = ship.motion_cap();
-        app.log(format!(
-            "movement capped at {value} power — this hull converts at most {cap} motion points; \
-             extra power would be lost, not banked"
-        ));
+    if requested != value {
+        if on_movement && requested > value {
+            let cap = ship.motion_cap();
+            app.log(format!(
+                "movement capped at {value} power — this hull converts at most {cap} motion points; \
+                 extra power would be lost, not banked"
+            ));
+        } else if requested > value {
+            app.log(format!("{field_name} capped at {value}"));
+        } else if cursor <= draft.weapons.len() && requested < value {
+            app.log(format!("{field_name} carries {value}; carried charge cannot be removed"));
+        }
     }
 }
 

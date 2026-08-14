@@ -53,6 +53,9 @@ pub struct ShipSnapshot {
     pub weapons: Vec<WeaponSnapshot>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub systems: Vec<SystemKind>,
+    /// Maximum repair boxes this ship may request when repair is installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_cap: Option<u32>,
     pub max_maneuver_actions: u8,
     /// Design cap reduced by engine damage — the ceiling the engine actually
     /// enforces (`path::usable_motion`). Distinct from `max_maneuver_actions`,
@@ -229,6 +232,11 @@ impl StateSnapshot {
                         })
                         .collect(),
                     systems: ship.systems.clone(),
+                    repair_cap: ship
+                        .systems
+                        .iter()
+                        .any(|system| matches!(system, SystemKind::Repair))
+                        .then(|| ship.repair_cap()),
                     squad_id: game
                         .squads()
                         .iter()

@@ -1398,18 +1398,33 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         Style::default().fg(Color::DarkGray),
     ))];
     if ship.has_system("cloak") || ship.has_system("repair") || ship.squad_id.is_some() {
-        lines.push(Line::from(format!(
-            " x cloak={} ({}pwr)  z repair={}  u unsquad={}  l leader={}",
-            if draft.cloak { "on" } else { "off" },
-            if draft.cloak { 4 + ship.size } else { 0 },
-            draft.repair,
-            if draft.unsquad { "yes" } else { "no" },
-            draft
-                .squad_leader
-                .or(ship.squad_leader)
-                .map(|id| format!("#{id}"))
-                .unwrap_or_else(|| "—".into())
-        )));
+        let mut system_bits = Vec::new();
+        if ship.has_system("cloak") {
+            system_bits.push(format!(
+                "x cloak={} ({}pwr)",
+                if draft.cloak { "on" } else { "off" },
+                if draft.cloak { 4 + ship.size } else { 0 }
+            ));
+        }
+        if ship.has_system("repair") {
+            system_bits.push(format!(
+                "z repair={}/{}",
+                draft.repair,
+                ship.repair_cap.map_or_else(|| "?".into(), |cap| cap.to_string())
+            ));
+        }
+        if ship.squad_id.is_some() {
+            system_bits.push(format!(
+                "u unsquad={} l leader={}",
+                if draft.unsquad { "yes" } else { "no" },
+                draft
+                    .squad_leader
+                    .or(ship.squad_leader)
+                    .map(|id| format!("#{id}"))
+                    .unwrap_or_else(|| "—".into())
+            ));
+        }
+        lines.push(Line::from(format!(" {}", system_bits.join("  "))));
     }
 
     // Movement row
@@ -1498,11 +1513,12 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     };
     let face_cell = |i: usize| -> String {
         let v = draft.shields.get(i).copied().unwrap_or(0);
+        let cap = ship.shield_cap(i);
         let lab = shield_label(i as u32);
         if sel_face == Some(i) {
-            format!("[{lab}{v}]")
+            format!("[{lab}{v}/{cap}]")
         } else {
-            format!(" {lab}{v} ")
+            format!(" {lab}{v}/{cap} ")
         }
     };
     let diagram_style = if sel_face.is_some() {
@@ -1543,8 +1559,9 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         };
         lines.push(Line::from(Span::styled(
             format!(
-                "{mark}{name}: {:2}",
-                draft.shields.get(i).copied().unwrap_or(0)
+                "{mark}{name}: {}/{}",
+                draft.shields.get(i).copied().unwrap_or(0),
+                ship.shield_cap(i)
             ),
             if selected {
                 selected_style()
@@ -1776,13 +1793,18 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         let marker = if selected { "▶" } else { " " };
         let queued = draft.is_queued(&w.id);
         let queued_str = if queued { " [QUEUED]" } else { "" };
-        let charge_str = if !w.operational {
-            "OFFLINE".to_string()
-        } else if w.charge > 0 {
-            format!("chg={}", w.charge)
-        } else {
-            "UNCHARGED".to_string()
-        };
+        let charge_str = format!(
+            "chg={}/{}{}",
+            w.charge,
+            w.max_charge,
+            if !w.operational {
+                " OFFLINE"
+            } else if w.charge == 0 {
+                " UNCHARGED"
+            } else {
+                ""
+            }
+        );
         let style = if selected {
             selected_style()
         } else if !w.operational {

@@ -128,6 +128,7 @@ fn weapon_power_metric_counts_increases_only() {
         bridge: 1,
         weapon_boxes: vec![1],
         systems: vec![],
+        repair_cap: None,
         destroyed: false,
         max_maneuver_actions: 4,
         effective_max_maneuver_actions: 4,

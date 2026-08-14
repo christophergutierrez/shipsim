@@ -157,6 +157,7 @@ Every successful order (and the post-load line) emits a state snapshot with
 | ship `motion_available` | Usable motion points in movement stage |
 | `combat_log` | Resolved shots only (cleared at turn rollover) |
 | ship `systems` | Installed computer, cloak, repair, or ECM systems |
+| ship `repair_cap` | Optional engine-authoritative repair-box ceiling; present for ships with repair installed |
 | ship `cloaked` | Whether cloak was purchased for the current turn |
 | ship `squad_id` / `squad_leader` / `squad_members` | Declared squad membership |
 | `fire_opportunity` | Optional player legal-shot advisory |

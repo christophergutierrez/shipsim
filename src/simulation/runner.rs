@@ -748,6 +748,7 @@ mod tests {
             bridge: 1,
             weapon_boxes: vec![u32::from(weapon_operational)],
             systems: vec![],
+            repair_cap: None,
             destroyed,
             weapons: vec![WeaponSnapshot {
                 id: "beam_1".into(),

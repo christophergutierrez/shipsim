@@ -13,6 +13,11 @@ use crate::protocol::{
     callsign, facing_arrow, shield_label, ErrorResponse, Maneuver, Order, Snapshot,
 };
 
+// Rubric invariant index. New checks use the searchable `rubric_tNN_` prefix.
+// T1 V1 movement cap row; T2 E1 dead-engine clamp; T3 V2 ratio ceiling;
+// T4 G2/G4 diamond destination; T5 E3/E4 yard delete confirmation;
+// T6 C2 unsaved-yard Esc. M1–M4 add T7–T18 from docs/plans/ui-rubric-tui.md.
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 /// A minimal but realistic snapshot for testing: two ships on a 10×10 board.
@@ -907,6 +912,98 @@ fn render_shows_allocate_panel_in_allocate_mode() {
             || buffer_contains(&buf, "Alloc"),
         "expected allocate panel content"
     );
+}
+
+#[test]
+fn rubric_t07_allocate_shields_show_authoritative_face_caps() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    for _ in 0..3 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    }
+    let buf = render_to_string(&mut app, 80, 24);
+    let face = buf
+        .lines()
+        .find(|line| line.contains("F  forward"))
+        .unwrap_or("");
+    assert!(face.contains("0/6"), "shield row must show current/cap: {face}\n{buf}");
+}
+
+#[test]
+fn rubric_t08_fire_shows_charge_fraction_and_status() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::default());
+    let buf = render_to_string(&mut app, 80, 24);
+    let beam = buf
+        .lines()
+        .find(|line| line.contains("beam_1") && line.contains("chg="))
+        .unwrap_or("");
+    assert!(beam.contains("chg=4/4"), "fire row must show charge fraction: {beam}\n{buf}");
+}
+
+#[test]
+fn rubric_t10_allocate_ceiling_logs_exact_field() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let draft = app.alloc_draft.as_mut().unwrap();
+    draft.cursor = 1;
+    draft.weapons[0].1 = 4;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    assert!(
+        app.log.last().is_some_and(|line| line.contains("beam_1 capped at 4")),
+        "weapon ceiling should be announced: {:?}",
+        app.log
+    );
+
+    let draft = app.alloc_draft.as_mut().unwrap();
+    draft.cursor = 3;
+    draft.shields[0] = 6;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    assert!(
+        app.log.last().is_some_and(|line| line.contains("shield F capped at 6")),
+        "shield ceiling should be announced: {:?}",
+        app.log
+    );
+}
+
+#[test]
+fn rubric_t11_repair_cap_is_projected_for_size_four_and_seven() {
+    for (size, cap) in [(4, 2), (7, 3)] {
+        let mut app = App::new();
+        let mut snap = test_snapshot();
+        snap.ships[0].size = size;
+        snap.ships[0].repair_cap = Some(cap);
+        snap.ships[0].systems = vec![crate::protocol::InstalledSystem {
+            kind: "repair".into(),
+            mk: None,
+        }];
+        app.update_snapshot(snap);
+        handle_key(&mut app, make_key('z'));
+        let draft = app.alloc_draft.as_ref().unwrap();
+        assert_eq!(draft.repair, 1);
+        let buf = render_to_string(&mut app, 80, 24);
+        assert!(
+            buffer_contains(&buf, &format!("z repair=1/{cap}")),
+            "repair row must show projected cap {cap}:\n{buf}"
+        );
+    }
+}
+
+#[test]
+fn rubric_t12_missing_repair_cap_does_not_guess_from_size() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[0].size = 7;
+    snap.ships[0].systems = vec![crate::protocol::InstalledSystem {
+        kind: "repair".into(),
+        mk: None,
+    }];
+    app.update_snapshot(snap);
+    handle_key(&mut app, make_key('z'));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().repair, 0);
+    assert!(app.log.last().is_some_and(|line| line.contains("cap unavailable")));
 }
 
 #[test]
@@ -1991,6 +2088,11 @@ fn movement_allocation_is_capped_at_convertible_power() {
         ship.movement_allocated, allocated,
         "engine must record the same movement spend the client offered"
     );
+    assert!(
+        app.log.iter().any(|line| line.contains("extra power would be lost")),
+        "movement ceiling should explain the lost surplus: {:?}",
+        app.log
+    );
 }
 
 #[test]
@@ -2614,8 +2716,8 @@ fn fire_panel_shows_offline_for_damaged_weapon() {
         "expected OFFLINE beam_1 in fire panel; got:\n{buf}"
     );
     assert!(
-        !beam_line.to_lowercase().contains("chg="),
-        "offline fire row should not show charge; got: {beam_line}"
+        beam_line.contains("chg=0/4") && beam_line.contains("OFFLINE"),
+        "offline fire row should retain the charge fraction and status; got: {beam_line}"
     );
 }
 

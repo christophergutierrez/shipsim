@@ -145,6 +145,10 @@ pub struct Ship {
     pub weapons: Vec<Weapon>,
     #[serde(default)]
     pub systems: Vec<InstalledSystem>,
+    /// Engine-authoritative repair ceiling. Absent means this snapshot cannot
+    /// safely answer repair-capacity questions; the client must not infer it.
+    #[serde(default)]
+    pub repair_cap: Option<u32>,
     /// Evasive motion points declared on the last resolved path this turn.
     #[serde(default)]
     pub evasion_committed: u32,

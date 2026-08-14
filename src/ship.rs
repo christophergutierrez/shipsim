@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::combat::Weapon;
-use crate::schema::SystemKind;
 use crate::hex::Hex;
+use crate::schema::SystemKind;
 use crate::ssd::Ssd;
 use crate::thrust::ThrustConversion;
 
@@ -54,6 +54,17 @@ pub struct Ship {
 }
 
 impl Ship {
+    /// Maximum repair boxes an installed repair system may restore this turn.
+    /// This is the authoritative rule projection used by order validation and
+    /// protocol snapshots; clients must not derive it from `size` themselves.
+    pub fn repair_cap_for_size(size: u32) -> u32 {
+        size.div_ceil(3).max(1)
+    }
+
+    pub fn repair_cap(&self) -> u32 {
+        Self::repair_cap_for_size(self.size)
+    }
+
     /// Hull boxes exposed as snapshot structure.
     pub fn structure(&self) -> u32 {
         self.ssd.hull
@@ -112,5 +123,19 @@ impl Ship {
             return None;
         }
         self.weapons.get_mut(idx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Ship;
+
+    #[test]
+    fn repair_cap_matches_size_bands() {
+        assert_eq!(Ship::repair_cap_for_size(1), 1);
+        assert_eq!(Ship::repair_cap_for_size(3), 1);
+        assert_eq!(Ship::repair_cap_for_size(4), 2);
+        assert_eq!(Ship::repair_cap_for_size(6), 2);
+        assert_eq!(Ship::repair_cap_for_size(7), 3);
     }
 }

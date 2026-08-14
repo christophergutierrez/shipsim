@@ -445,7 +445,7 @@ impl GameState {
         } else {
             0
         };
-        let repair_cap = ship.size.div_ceil(3).max(1);
+        let repair_cap = ship.repair_cap();
         if options.repair > repair_cap {
             return Err(crate::movement::OrderError::RepairTooMuch {
                 ship: ship_id,
