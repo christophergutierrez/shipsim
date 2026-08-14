@@ -1007,6 +1007,29 @@ fn rubric_t12_missing_repair_cap_does_not_guess_from_size() {
 }
 
 #[test]
+fn rubric_t13_each_combat_form_has_a_visible_escape_exit() {
+    let mut allocate = App::new();
+    allocate.update_snapshot(test_snapshot());
+    let allocate_buf = render_to_string(&mut allocate, 80, 24);
+    assert!(allocate_buf.lines().any(|line| line.contains("Esc back")));
+
+    let mut movement = App::new();
+    let mut movement_snap = test_snapshot();
+    movement_snap.phase = "movement".into();
+    movement.update_snapshot(movement_snap);
+    movement.mode = Mode::Movement;
+    let movement_buf = render_to_string(&mut movement, 80, 24);
+    assert!(movement_buf.lines().any(|line| line.contains("Esc back")));
+
+    let mut fire = App::new();
+    fire.update_snapshot(fire_phase_snapshot());
+    fire.mode = Mode::Fire;
+    fire.fire_draft = Some(crate::app::FireDraft::default());
+    let fire_buf = render_to_string(&mut fire, 80, 24);
+    assert!(fire_buf.lines().any(|line| line.contains("Esc back")));
+}
+
+#[test]
 fn render_shows_fire_panel_in_fire_mode() {
     let mut app = App::new();
     app.update_snapshot(fire_phase_snapshot());
@@ -2212,6 +2235,10 @@ fn map_preview_uses_diamond_route_family_and_identity() {
     handle_key(&mut app, make_key('v'));
     let buffer = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buffer, "◇A1"), "planned destination should retain identity: {buffer}");
+    assert!(
+        buffer_contains(&buffer, "A1→ ship · ◇A1→ end · ◇ route"),
+        "map legend must be complete at the play floor: {buffer}"
+    );
 }
 
 #[test]

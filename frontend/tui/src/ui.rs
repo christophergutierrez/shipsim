@@ -708,7 +708,7 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A1→ = ship/facing. Cyan ◇ghost = planned end; ◇ route"
+        "A1→ ship · ◇A1→ end · ◇ route"
     } else {
         "A1→ = ship/facing; +N = more ships here. Shade = weapon arc"
     };
@@ -1093,24 +1093,6 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                 body_area.height = body_area.height.saturating_sub(1);
             }
         }
-        if body_area.height > 1 {
-            let footer_y = body_area.y + body_area.height - 1;
-            f.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    " Enter commit · ↑/↓ field · m movement · ←/→ adjust · x cloak · z repair · u unsquad",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ))),
-                Rect {
-                    x: body_area.x,
-                    y: footer_y,
-                    width: body_area.width,
-                    height: 1,
-                },
-            );
-            body_area.height = body_area.height.saturating_sub(1);
-        }
     } else if matches!(app.mode, Mode::Fire) {
         // Queue line: fixed header so the pending shot count stays visible
         // when the weapon list scrolls (4.1). Mirrors allocate_budget_line.
@@ -1143,6 +1125,35 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                 body_area.y = body_area.y.saturating_add(1);
                 body_area.height = body_area.height.saturating_sub(1);
             }
+        }
+    }
+
+    // Keep a compact, mode-specific exit row fixed at the bottom of every
+    // combat form. Detailed controls remain in the scrollable panel body.
+    let combat_footer = match app.mode {
+        Mode::Allocate => Some("Esc back · Enter commit · ↑/↓ field · ←/→ adjust · m movement"),
+        Mode::Movement => Some("Esc back · Enter commit · Space hold"),
+        Mode::Fire => Some("Esc back · Enter queue · Space fire"),
+        _ => None,
+    };
+    if let Some(footer) = combat_footer {
+        if body_area.height > 1 {
+            let footer_y = body_area.y + body_area.height - 1;
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    footer,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ))),
+                Rect {
+                    x: body_area.x,
+                    y: footer_y,
+                    width: body_area.width,
+                    height: 1,
+                },
+            );
+            body_area.height = body_area.height.saturating_sub(1);
         }
     }
 
