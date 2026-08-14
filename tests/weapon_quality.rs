@@ -309,3 +309,61 @@ fn stock_snapshot_omits_zero_quality_fields() {
     assert!(weapon.get("accuracy_bonus").is_none());
     assert!(weapon.get("damage_bonus").is_none());
 }
+
+#[test]
+fn repeat_beam_emits_one_log_row_per_charge_packet() {
+    let dir = tempfile::tempdir().unwrap();
+    write_rules(dir.path());
+    write_ship(dir.path(), "attacker", &baseline_ship(2, 0, "repeat = true"));
+    write_ship(dir.path(), "target", &target_ship(2));
+    let mut game = load_pair(dir.path(), "attacker", "target");
+    enter_firing(&mut game);
+    apply_order(
+        &mut game,
+        Order::CommitVolley {
+            ship: 2,
+            shots: vec![],
+        },
+    )
+    .unwrap();
+    apply_order(
+        &mut game,
+        Order::CommitVolley {
+            ship: 1,
+            shots: vec![shipsim_core::movement::VolleyShot {
+                weapon: "beam_1".into(),
+                target: 2,
+                shield_facing: 0,
+            }],
+        },
+    )
+    .unwrap();
+    let packets: Vec<_> = game
+        .combat_log()
+        .iter()
+        .filter_map(|event| event.packet)
+        .collect();
+    assert_eq!(packets, vec![0, 1, 2, 3]);
+}
+
+#[test]
+fn pierce_beam_preview_halves_before_damage_bonus() {
+    let dir = tempfile::tempdir().unwrap();
+    write_rules(dir.path());
+    write_ship(
+        dir.path(),
+        "attacker",
+        &baseline_ship(2, 0, "pierce = true\ndamage_bonus = 2"),
+    );
+    write_ship(dir.path(), "target", &target_ship(2));
+    let mut game = load_pair(dir.path(), "attacker", "target");
+    enter_firing(&mut game);
+    let preview = game.fire_decision_preview(1, "beam_1", 2).unwrap();
+    let normal = shipsim_core::combat_tables::beam_damage(
+        &Ruleset::builtin().combat(),
+        4,
+        preview.range,
+    )
+    .unwrap();
+    assert_eq!(preview.projected_damage, normal.div_ceil(2) + 2);
+}

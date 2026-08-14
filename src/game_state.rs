@@ -183,6 +183,7 @@ pub struct CombatLogEvent {
     pub shield_absorbed: u32,
     pub hull_damage: u32,
     pub kind: String,
+    pub packet: Option<u8>,
 }
 
 /// Staged path commitment during the movement collection stage.
@@ -803,24 +804,36 @@ impl GameState {
                 range,
                 max_range: self.effective_weapon_max_range(weapon),
             })?;
-            let roll = self.prng.roll(u32::from(self.rules.combat().die_sides()));
-            let hit = roll <= threshold as u32;
-            let damage = if hit {
-                self.v2_projected_damage(attacker, &shot.weapon, kind, range)?
+            let packet_count = if weapon.repeat {
+                attacker
+                    .weapon_charges
+                    .get(&shot.weapon)
+                    .copied()
+                    .unwrap_or(0)
             } else {
-                0
+                1
             };
-            results.push((
-                *attacker_id,
-                shot.weapon.clone(),
-                shot.target,
-                shot.shield_facing,
-                hit,
-                damage,
-            ));
+            for packet in 0..packet_count {
+                let roll = self.prng.roll(u32::from(self.rules.combat().die_sides()));
+                let hit = roll <= threshold as u32;
+                let damage = if hit {
+                    self.v2_packet_damage(attacker, weapon, range, if weapon.repeat { 1 } else { attacker.weapon_charges.get(&shot.weapon).copied().unwrap_or(0) })?
+                } else {
+                    0
+                };
+                results.push((
+                    *attacker_id,
+                    shot.weapon.clone(),
+                    shot.target,
+                    shot.shield_facing,
+                    hit,
+                    damage,
+                    weapon.repeat.then_some(packet as u8),
+                ));
+            }
         }
 
-        for (attacker_id, weapon, target, shield_facing, hit, damage) in results {
+        for (attacker_id, weapon, target, shield_facing, hit, damage, packet) in results {
             if let Some(att) = self.ship_mut(attacker_id) {
                 att.weapon_charges.insert(weapon.clone(), 0);
                 if let Some(ammo) = att.weapon_ammo.get_mut(&weapon) {
@@ -829,7 +842,16 @@ impl GameState {
             }
             self.mark_weapon_fired(attacker_id, &weapon);
             let (shield_absorbed, hull_damage) = if hit && damage > 0 {
-                self.apply_v2_damage(target, shield_facing, damage)
+                let pierce = snapshot
+                    .iter()
+                    .find(|ship| ship.id == attacker_id)
+                    .and_then(|ship| ship.weapon(&weapon))
+                    .is_some_and(|weapon| weapon.pierce);
+                if pierce {
+                    self.apply_v2_pierce_damage(target, damage)
+                } else {
+                    self.apply_v2_damage(target, shield_facing, damage)
+                }
             } else {
                 (0, 0)
             };
@@ -842,6 +864,7 @@ impl GameState {
                 shield_absorbed,
                 hull_damage,
                 kind: if hit { "hit".into() } else { "miss".into() },
+                packet,
             });
         }
 
@@ -1158,20 +1181,43 @@ impl GameState {
         &self,
         attacker: &Ship,
         weapon_id: &str,
-        kind: crate::combat_tables::WeaponKind,
+        _kind: crate::combat_tables::WeaponKind,
         range: u32,
     ) -> Result<u32, crate::movement::OrderError> {
+        let weapon = attacker.weapon(weapon_id).ok_or_else(|| {
+            crate::movement::OrderError::WeaponNotFound(weapon_id.to_string())
+        })?;
         let charge = attacker.weapon_charges.get(weapon_id).copied().unwrap_or(0);
-        match kind {
+        if weapon.repeat {
+            return Ok((0..charge)
+                .map(|_| self.v2_packet_damage(attacker, weapon, range, 1))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .sum());
+        }
+        self.v2_packet_damage(attacker, weapon, range, charge)
+    }
+
+    fn v2_packet_damage(
+        &self,
+        attacker: &Ship,
+        weapon: &combat::Weapon,
+        range: u32,
+        charge: u32,
+    ) -> Result<u32, crate::movement::OrderError> {
+        match weapon.kind {
             crate::combat_tables::WeaponKind::Beam => {
                 crate::combat_tables::beam_damage(self.rules.combat(), charge, range)
                     .map(|damage| {
-                        damage.saturating_add(
-                            attacker.weapon(weapon_id).map_or(0, |w| w.damage_bonus),
-                        )
+                        if weapon.pierce {
+                            damage.div_ceil(2)
+                        } else {
+                            damage
+                        }
+                        .saturating_add(weapon.damage_bonus)
                     })
                     .ok_or_else(|| crate::movement::OrderError::NoDamage {
-                        weapon: weapon_id.to_string(),
+                        weapon: weapon.id.clone(),
                         range,
                         charge,
                     })
@@ -1179,32 +1225,28 @@ impl GameState {
             crate::combat_tables::WeaponKind::Plasma => {
                 crate::combat_tables::plasma_damage(self.rules.combat(), range)
                     .map(|damage| {
-                        damage.saturating_add(
-                            attacker.weapon(weapon_id).map_or(0, |w| w.damage_bonus),
-                        )
+                        damage.saturating_add(weapon.damage_bonus)
                     })
                     .ok_or_else(|| crate::movement::OrderError::OutOfRange {
-                        weapon: weapon_id.to_string(),
+                        weapon: weapon.id.clone(),
                         range,
-                        max_range: attacker.weapon(weapon_id).map_or_else(
-                            || self.rules.max_range(kind),
-                            |weapon| self.effective_weapon_max_range(weapon),
+                        max_range: attacker.weapon(&weapon.id).map_or_else(
+                            || self.rules.max_range(weapon.kind),
+                            |installed| self.effective_weapon_max_range(installed),
                         ),
                     })
             }
             crate::combat_tables::WeaponKind::Torp => {
                 crate::combat_tables::torp_damage(self.rules.combat(), range)
                     .map(|damage| {
-                        damage.saturating_add(
-                            attacker.weapon(weapon_id).map_or(0, |w| w.damage_bonus),
-                        )
+                        damage.saturating_add(weapon.damage_bonus)
                     })
                     .ok_or_else(|| crate::movement::OrderError::OutOfRange {
-                        weapon: weapon_id.to_string(),
+                        weapon: weapon.id.clone(),
                         range,
-                        max_range: attacker.weapon(weapon_id).map_or_else(
-                            || self.rules.max_range(kind),
-                            |weapon| self.effective_weapon_max_range(weapon),
+                        max_range: attacker.weapon(&weapon.id).map_or_else(
+                            || self.rules.max_range(weapon.kind),
+                            |installed| self.effective_weapon_max_range(installed),
                         ),
                     })
             }
@@ -1212,11 +1254,11 @@ impl GameState {
             | crate::combat_tables::WeaponKind::Pd
             | crate::combat_tables::WeaponKind::Graviton => {
                 Err(crate::movement::OrderError::OutOfRange {
-                    weapon: weapon_id.to_string(),
+                    weapon: weapon.id.clone(),
                     range,
-                    max_range: attacker.weapon(weapon_id).map_or_else(
-                        || self.rules.max_range(kind),
-                        |weapon| self.effective_weapon_max_range(weapon),
+                    max_range: attacker.weapon(&weapon.id).map_or_else(
+                        || self.rules.max_range(weapon.kind),
+                        |installed| self.effective_weapon_max_range(installed),
                     ),
                 })
             }
@@ -1237,6 +1279,17 @@ impl GameState {
             ship.destroyed = ship.ssd.is_destroyed();
         }
         (absorbed, overflow)
+    }
+
+    fn apply_v2_pierce_damage(&mut self, target: u32, damage: u32) -> (u32, u32) {
+        let rules = self.rules.clone();
+        let Some(ship) = self.ship_mut(target) else {
+            return (0, 0);
+        };
+        let before = ship.ssd.hull;
+        ship.ssd.apply_internal(damage, rules.dac());
+        ship.destroyed = ship.ssd.is_destroyed();
+        (0, before.saturating_sub(ship.ssd.hull))
     }
 
     fn effective_weapon_max_range(&self, weapon: &combat::Weapon) -> u32 {

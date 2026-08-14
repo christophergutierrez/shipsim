@@ -126,6 +126,10 @@ pub struct CombatLogEntry {
     pub shield_absorbed: u32,
     pub hull_damage: u32,
     pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packet: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vs_weapon: Option<String>,
 }
 
 impl StateSnapshot {
@@ -223,6 +227,8 @@ impl StateSnapshot {
                     shield_absorbed: e.shield_absorbed,
                     hull_damage: e.hull_damage,
                     kind: e.kind.clone(),
+                    packet: e.packet,
+                    vs_weapon: None,
                 })
                 .collect(),
             fire_opportunity: game.fire_opportunity(),
