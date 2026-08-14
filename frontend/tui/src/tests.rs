@@ -4248,8 +4248,37 @@ fn yard_browse_renders_ships_and_new_row_not_a_map() {
         "create-new row missing; got:\n{buf}"
     );
     assert!(
+        buffer_contains(&buf, "user sort: recency (o)"),
+        "browse title must co-locate the sort key and current mode; got:\n{buf}"
+    );
+    assert!(
         !buffer_contains(&buf, "Loading"),
         "yard must not wait on a combat snapshot; got:\n{buf}"
+    );
+}
+
+#[test]
+fn rubric_t18_weapon_picker_signifiers_survive_60x16() {
+    let mut app = yard_app();
+    let new_row = app.yard.as_ref().unwrap().listings.len();
+    app.yard.as_mut().unwrap().browse_cursor = new_row;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    for _ in 0..6 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let buf = render_to_string(&mut app, 60, 16);
+    assert!(
+        buffer_contains(&buf, "damage"),
+        "picker damage header clipped:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "cost"),
+        "picker cost header clipped:\n{buf}"
+    );
+    assert!(
+        buffer_contains(&buf, "/ filter"),
+        "picker filter signifier missing:\n{buf}"
     );
 }
 

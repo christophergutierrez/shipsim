@@ -20,14 +20,13 @@ use crate::yard::YardScreen;
 pub fn render(f: &mut Frame, app: &mut App) {
     let size = f.area();
 
-    const MIN_WIDTH: u16 = 80;
-    const MIN_HEIGHT: u16 = 24;
-    if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
+    let (min_width, min_height) = if app.yard.is_some() { (60, 16) } else { (80, 24) };
+    if size.width < min_width || size.height < min_height {
         app.terminal_too_small = true;
         let message = if app.yard.is_some() {
-            format!("Shipyard needs at least {MIN_WIDTH}x{MIN_HEIGHT}\n\nq quits")
+            format!("Shipyard needs at least {min_width}x{min_height}\n\nq quits")
         } else {
-            format!("Terminal too small to play\n\nResize to at least {MIN_WIDTH}x{MIN_HEIGHT}\n\nYour game is paused here and will resume when the window grows.")
+            format!("Terminal too small to play\n\nResize to at least {min_width}x{min_height}\n\nYour game is paused here and will resume when the window grows.")
         };
         let p = Paragraph::new(message)
             .alignment(Alignment::Center)
@@ -2430,11 +2429,18 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
 
 fn render_yard_picker(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
     let Some(picker) = yard.picker.as_ref() else { return };
-    let widths = crate::yard::column_widths(&picker.headers, &picker.rows, 72);
     let visible = usize::from(area.height.saturating_sub(8)).max(1);
     let offset = crate::yard::clamp_scroll(picker.scroll, picker.cursor, picker.rows.len(), visible);
     let height = (visible as u16 + 8).min(area.height.saturating_sub(2));
     let rect = centered_rect(area, area.width.saturating_sub(4).min(78), height);
+    // Size the table to the actual modal, not the normal 80-column layout.
+    // This keeps the required decision columns on one header row at the yard
+    // floor while allowing optional ammo/tags columns to compress first.
+    let widths = crate::yard::column_widths(
+        &picker.headers,
+        &picker.rows,
+        usize::from(rect.width.saturating_sub(2)),
+    );
     f.render_widget(Clear, rect);
     let mut lines = Vec::new();
     let header = picker.headers.iter().enumerate().map(|(i, header)| format!("{:<width$}", header, width = widths.get(i).copied().unwrap_or(header.len()))).collect::<Vec<_>>().join("  ");
@@ -2452,9 +2458,18 @@ fn render_yard_picker(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
         lines.push(line);
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(format!("{}\n↑↓ browse  Enter take  Esc cancel  / filter  m mount", yard.picker_delta_line())));
+    let delta_width = usize::from(rect.width.saturating_sub(4));
+    let delta: String = yard
+        .picker_delta_line()
+        .chars()
+        .take(delta_width)
+        .collect();
+    lines.push(Line::from(delta));
+    lines.push(Line::from("↑↓ browse  Enter take  Esc cancel  / filter  m mount"));
     let block = Block::default().borders(Borders::ALL).title(format!(" {} ", picker.title));
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }).block(block), rect);
+    // Table rows are already width-clipped cell by cell. Wrapping them would
+    // consume the modal's scarce 60x16 height and push `/ filter` off-screen.
+    f.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
 fn render_yard_shields(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
@@ -2507,7 +2522,10 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!(" Shipyard — standards by size · user sort: {} ", yard.sort_mode.label())),
+            .title(format!(
+                " Shipyard — standards by size · user sort: {} (o) ",
+                yard.sort_mode.label()
+            )),
     );
     f.render_widget(list, chunks[0]);
     let help = Paragraph::new(format!(
