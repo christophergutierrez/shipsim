@@ -436,6 +436,9 @@ impl Ruleset {
             WeaponKind::Beam => self.combat.weapons.beam.to_hit.len() as u32,
             WeaponKind::Plasma => self.combat.weapons.plasma.to_hit.len() as u32,
             WeaponKind::Torp => self.combat.weapons.torp.to_hit.len() as u32,
+            WeaponKind::Missile => self.combat.weapons.torp.to_hit.len() as u32,
+            WeaponKind::Pd => self.combat.weapons.beam.to_hit.len() as u32,
+            WeaponKind::Graviton => 2,
         }
     }
 

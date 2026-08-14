@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use crate::arc::Mount;
 use crate::combat::{Arc, Weapon};
+use crate::schema::SystemKind;
 use crate::combat_tables;
 use crate::game_state::{FireOpportunity, GameState, ScenarioStatus};
 use crate::path_resolve::PathResult;
@@ -50,6 +51,8 @@ pub struct ShipSnapshot {
     pub weapon_boxes: Vec<u32>,
     pub destroyed: bool,
     pub weapons: Vec<WeaponSnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub systems: Vec<SystemKind>,
     pub max_maneuver_actions: u8,
     pub thrust_per_power: u32,
     pub power_per_thrust: u32,
@@ -80,6 +83,10 @@ pub struct WeaponSnapshot {
     pub accuracy_bonus: u8,
     #[serde(skip_serializing_if = "is_zero_u32")]
     pub damage_bonus: u32,
+    #[serde(skip_serializing_if = "is_false")]
+    pub repeat: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub pierce: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -197,8 +204,11 @@ impl StateSnapshot {
                                 .map(|_| ship.weapon_ammo.get(&weapon.id).copied().unwrap_or(0)),
                             accuracy_bonus: weapon.accuracy_bonus,
                             damage_bonus: weapon.damage_bonus,
+                            repeat: weapon.repeat,
+                            pierce: weapon.pierce,
                         })
                         .collect(),
+                    systems: ship.systems.clone(),
                 })
                 .collect(),
             combat_log: game
@@ -228,6 +238,9 @@ fn weapon_kind_name(weapon: &Weapon) -> &'static str {
         combat_tables::WeaponKind::Beam => "Beam",
         combat_tables::WeaponKind::Plasma => "Plasma",
         combat_tables::WeaponKind::Torp => "Torp",
+        combat_tables::WeaponKind::Missile => "Missile",
+        combat_tables::WeaponKind::Pd => "Pd",
+        combat_tables::WeaponKind::Graviton => "Graviton",
     }
 }
 
@@ -237,6 +250,10 @@ fn is_zero_u8(value: &u8) -> bool {
 
 fn is_zero_u32(value: &u32) -> bool {
     *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn arc_name(arc: &Arc) -> &'static str {

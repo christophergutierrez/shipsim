@@ -76,7 +76,9 @@ pub fn v2_allocation(
         let kind = weapon.kind;
         let want = match kind {
             V2Kind::Beam => weapon.max_charge,
-            V2Kind::Plasma | V2Kind::Torp => weapon.max_charge.min(1).max(have),
+            V2Kind::Plasma | V2Kind::Torp | V2Kind::Missile | V2Kind::Pd | V2Kind::Graviton => {
+                weapon.max_charge.min(1).max(have)
+            }
         }
         .max(have);
         let increase = want.saturating_sub(have);
@@ -268,6 +270,7 @@ mod tests {
             power: 8,
             attack_accuracy_bonus: 0,
             weapons: vec![],
+            systems: vec![],
             shields_powered: [0; 6],
             shields_remaining: [0; 6],
             max_shield_per_facing: 6,

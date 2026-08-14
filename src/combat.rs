@@ -22,4 +22,6 @@ pub struct Weapon {
     pub max_ammo: Option<u32>,
     pub accuracy_bonus: u8,
     pub damage_bonus: u32,
+    pub repeat: bool,
+    pub pierce: bool,
 }

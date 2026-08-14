@@ -39,6 +39,8 @@ pub struct ShipDef {
     pub attack_accuracy_bonus: u8,
     #[serde(default)]
     pub weapons: Vec<WeaponDef>,
+    #[serde(default)]
+    pub systems: Vec<SystemDef>,
     /// Motion produced per unit of engine power. Defaults to 1.
     #[serde(default = "default_thrust_per_power")]
     pub thrust_per_power: u32,
@@ -128,6 +130,24 @@ pub struct WeaponDef {
     pub accuracy_bonus: u8,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub damage_bonus: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub repeat: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pierce: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SystemDef {
+    pub kind: SystemKind,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SystemKind {
+    Computer { mk: u8 },
+    Cloak,
+    Repair,
+    Ecm,
 }
 
 fn is_zero_u8(value: &u8) -> bool {

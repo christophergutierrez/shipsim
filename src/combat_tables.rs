@@ -11,6 +11,9 @@ pub enum WeaponKind {
     Beam,
     Plasma,
     Torp,
+    Missile,
+    Pd,
+    Graviton,
 }
 
 pub fn half_up(value: f64) -> u32 {
@@ -22,6 +25,9 @@ pub fn max_range(rules: &CombatRules, kind: WeaponKind) -> u32 {
         WeaponKind::Beam => rules.weapons().beam().to_hit().len() as u32,
         WeaponKind::Plasma => rules.weapons().plasma().to_hit().len() as u32,
         WeaponKind::Torp => rules.weapons().torp().to_hit().len() as u32,
+        WeaponKind::Missile => rules.weapons().torp().to_hit().len() as u32,
+        WeaponKind::Pd => rules.weapons().beam().to_hit().len() as u32,
+        WeaponKind::Graviton => 2,
     }
 }
 
@@ -58,6 +64,9 @@ pub fn to_hit_threshold(rules: &CombatRules, kind: WeaponKind, range: u32) -> Op
         WeaponKind::Beam => table_value(rules.weapons().beam().to_hit(), range),
         WeaponKind::Plasma => table_value(rules.weapons().plasma().to_hit(), range),
         WeaponKind::Torp => table_value(rules.weapons().torp().to_hit(), range),
+        WeaponKind::Missile => table_value(rules.weapons().torp().to_hit(), range),
+        WeaponKind::Pd => table_value(rules.weapons().beam().to_hit(), range),
+        WeaponKind::Graviton => (1..=2).contains(&range).then_some(1),
     }
 }
 

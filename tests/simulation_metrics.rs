@@ -117,6 +117,7 @@ fn weapon_power_metric_counts_increases_only() {
         power_sys: 2,
         bridge: 1,
         weapon_boxes: vec![1],
+        systems: vec![],
         destroyed: false,
         max_maneuver_actions: 4,
         thrust_per_power: 1,
@@ -137,6 +138,8 @@ fn weapon_power_metric_counts_increases_only() {
             max_ammo: None,
             accuracy_bonus: 0,
             damage_bonus: 0,
+            repeat: false,
+            pierce: false,
         }],
     };
     let order = Order::Allocate {

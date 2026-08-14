@@ -747,6 +747,7 @@ mod tests {
             power_sys: 1,
             bridge: 1,
             weapon_boxes: vec![u32::from(weapon_operational)],
+            systems: vec![],
             destroyed,
             weapons: vec![WeaponSnapshot {
                 id: "beam_1".into(),
@@ -762,6 +763,8 @@ mod tests {
                 max_ammo: None,
                 accuracy_bonus: 0,
                 damage_bonus: 0,
+                repeat: false,
+                pierce: false,
             }],
             max_maneuver_actions: 4,
             thrust_per_power: 1,

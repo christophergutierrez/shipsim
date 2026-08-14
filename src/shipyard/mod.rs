@@ -1,5 +1,5 @@
 use crate::{
-    schema::{ShipDef, WeaponDef},
+    schema::{ShipDef, SystemDef, SystemKind, WeaponDef},
     sizes::{self, HullSize, SizeError},
 };
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,8 @@ pub struct Design {
     pub shields: [u64; 6],
     #[serde(default)]
     pub weapons: Vec<DesignWeapon>,
+    #[serde(default)]
+    pub systems: Vec<DesignSystem>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -38,12 +40,20 @@ pub struct DesignWeapon {
     pub mount: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesignSystem {
+    pub component: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Components {
     engines: BTreeMap<String, EngineComponent>,
     shield_bank: Component,
     weapons: BTreeMap<String, WeaponComponent>,
+    #[serde(default)]
+    systems: BTreeMap<String, SystemComponent>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -84,9 +94,25 @@ struct WeaponComponent {
     max_charge: u32,
     max_range: u32,
     #[serde(default)]
+    max_ammo: Option<u32>,
+    #[serde(default)]
     accuracy_bonus: u8,
     #[serde(default)]
     damage_bonus: u32,
+    #[serde(default)]
+    repeat: bool,
+    #[serde(default)]
+    pierce: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SystemComponent {
+    kind: String,
+    #[serde(default)]
+    mk: Option<u8>,
+    space: u64,
+    cost: u64,
 }
 
 /// Hull plating. Structure and frame cost use the same multiplier (MOO armor).
@@ -180,6 +206,16 @@ pub enum Error {
     UnknownMaterial(String),
     #[error("unknown component {0:?}")]
     UnknownComponent(String),
+    #[error("unknown system kind {0:?}")]
+    UnknownSystemKind(String),
+    #[error("system {0:?} may be installed only once")]
+    DuplicateSystem(String),
+    #[error("computer system mk must be 1, 2, or 3")]
+    InvalidComputerMark,
+    #[error("weapon component {0:?} has incompatible repeat and pierce flags")]
+    IncompatibleWeaponFlags(String),
+    #[error("weapon component {0:?} has an unknown kind")]
+    UnknownWeaponKind(String),
     #[error("unknown mount {0:?}")]
     UnknownMount(String),
     #[error("design is over capacity by {over} space (used {used}, hull {capacity})")]
@@ -281,6 +317,48 @@ fn plant<'a>(components: &'a Components, kind: &str, size: &str) -> Result<&'a E
         .ok_or_else(|| Error::UnknownComponent(key))
 }
 
+fn compile_systems(
+    components: &Components,
+    requested: &[DesignSystem],
+) -> Result<(Vec<SystemDef>, u64, u64), Error> {
+    let mut systems = Vec::with_capacity(requested.len());
+    let mut used = 0u64;
+    let mut cost = 0u64;
+    let mut seen = BTreeMap::<String, ()>::new();
+    for design in requested {
+        let component = components
+            .systems
+            .get(&design.component)
+            .ok_or_else(|| Error::UnknownComponent(design.component.clone()))?;
+        let kind = match component.kind.as_str() {
+            "computer" => {
+                let mk = component.mk.ok_or(Error::InvalidComputerMark)?;
+                if !(1..=3).contains(&mk) {
+                    return Err(Error::InvalidComputerMark);
+                }
+                SystemKind::Computer { mk }
+            }
+            "cloak" => SystemKind::Cloak,
+            "repair" => SystemKind::Repair,
+            "ecm" => SystemKind::Ecm,
+            other => return Err(Error::UnknownSystemKind(other.to_string())),
+        };
+        let key = match kind {
+            SystemKind::Computer { .. } => "computer",
+            SystemKind::Cloak => "cloak",
+            SystemKind::Repair => "repair",
+            SystemKind::Ecm => "ecm",
+        };
+        if seen.insert(key.to_string(), ()).is_some() {
+            return Err(Error::DuplicateSystem(key.to_string()));
+        }
+        used = add(used, component.space)?;
+        cost = add(cost, component.cost)?;
+        systems.push(SystemDef { kind });
+    }
+    Ok((systems, used, cost))
+}
+
 pub fn material(name: &str) -> Result<&'static MaterialSpec, Error> {
     MATERIALS
         .iter()
@@ -369,11 +447,25 @@ pub fn validate_design(
     let (shield_space, shield_cost, _) = shield_install(&components, design.shields)?;
     used = add(used, shield_space)?;
     cost = add(cost, shield_cost)?;
+    let (_, systems_space, systems_cost) = compile_systems(&components, &design.systems)?;
+    used = add(used, systems_space)?;
+    cost = add(cost, systems_cost)?;
     for weapon in &design.weapons {
         let c = components
             .weapons
             .get(&weapon.component)
             .ok_or_else(|| Error::UnknownComponent(weapon.component.clone()))?;
+        if c.repeat && c.pierce {
+            return Err(Error::IncompatibleWeaponFlags(weapon.component.clone()));
+        }
+        if c.repeat || c.pierce {
+            if c.kind != "beam" {
+                return Err(Error::IncompatibleWeaponFlags(weapon.component.clone()));
+            }
+        }
+        if !matches!(c.kind.as_str(), "beam" | "plasma" | "torp" | "missile" | "pd" | "graviton") {
+            return Err(Error::UnknownWeaponKind(c.kind.clone()));
+        }
         if !matches!(
             weapon.mount.as_str(),
             "forward" | "forward_starboard" | "aft_starboard" | "aft" | "aft_port" | "forward_port"
@@ -517,10 +609,17 @@ pub fn new_design(id: impl Into<String>) -> Design {
         engine_size: "m".into(),
         armored: true,
         shields: [6, 4, 2, 2, 2, 4],
-        weapons: vec![DesignWeapon {
-            component: "beam".into(),
-            mount: "forward".into(),
-        }],
+        weapons: vec![
+            DesignWeapon {
+                component: "beam".into(),
+                mount: "forward".into(),
+            },
+            DesignWeapon {
+                component: "torpedo".into(),
+                mount: "forward".into(),
+            },
+        ],
+        systems: vec![],
     }
 }
 
@@ -590,6 +689,9 @@ pub fn preview_design(root: &Path, design: &Design) -> Result<DesignPreview, Err
     let (shield_space, shield_cost, faces) = shield_install(&components, design.shields)?;
     used = add(used, shield_space)?;
     parts = add(parts, shield_cost)?;
+    let (_, systems_space, systems_cost) = compile_systems(&components, &design.systems)?;
+    used = add(used, systems_space)?;
+    parts = add(parts, systems_cost)?;
     for weapon in &design.weapons {
         let c = components
             .weapons
@@ -684,6 +786,8 @@ pub fn design_cost(root: &Path, path: &Path) -> Result<u32, Error> {
     }
     let (_, shield_cost, _) = shield_install(&components, design.shields)?;
     cost = add(cost, shield_cost)?;
+    let (_, _, systems_cost) = compile_systems(&components, &design.systems)?;
+    cost = add(cost, systems_cost)?;
     for w in design.weapons {
         let c = components
             .weapons
@@ -705,6 +809,7 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
     let (_, _, faces) = shield_install(&components, design.shields)?;
     let shields = faces.iter().copied().max().unwrap_or(0);
     let structure = plated_structure(hull.base_structure, material, design.armored);
+    let (systems, _, _) = compile_systems(&components, &design.systems)?;
     let mut weapons = Vec::new();
     let mut kind_counts = BTreeMap::<String, u32>::new();
     for w in &design.weapons {
@@ -729,9 +834,11 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
             arc: arc.to_string(),
             max_range: c.max_range,
             max_charge: c.max_charge,
-            max_ammo: None,
+            max_ammo: c.max_ammo,
             accuracy_bonus: c.accuracy_bonus,
             damage_bonus: c.damage_bonus,
+            repeat: c.repeat,
+            pierce: c.pierce,
         });
     }
     let cost = design_cost(root, path)?;
@@ -749,6 +856,7 @@ pub fn compile(root: &Path, path: &Path) -> Result<PathBuf, Error> {
         weapon_boxes: 1,
         attack_accuracy_bonus: 0,
         weapons,
+        systems,
         thrust_per_power,
         power_per_thrust,
         cost,
@@ -857,6 +965,7 @@ mount = "forward"
                     armored: false,
                     shields: [0; 6],
                     weapons: vec![]
+                    , systems: vec![]
                 }
             ),
             Err(Error::InvalidId(_))
@@ -941,6 +1050,85 @@ mount = "forward"
         let ship: ShipDef = toml::from_str(&fs::read_to_string(output).unwrap()).unwrap();
         assert_eq!(ship.weapons[0].accuracy_bonus, 0);
         assert_eq!(ship.weapons[0].damage_bonus, 0);
+    }
+
+    #[test]
+    fn typed_combat_kit_round_trips_through_ship_loader() {
+        let root = fixture_root();
+        let path = write_design(
+            root.path(),
+            "kit.toml",
+            r#"
+id = "kit"
+name = "Typed Kit"
+size = 3
+material = "titanium"
+engine = "fission"
+engine_size = "l"
+shields = [4, 2, 0, 0, 0, 2]
+
+[[weapons]]
+component = "beam_repeat"
+mount = "forward"
+
+[[weapons]]
+component = "beam_pierce"
+mount = "forward_port"
+
+[[weapons]]
+component = "pd"
+mount = "aft"
+
+[[weapons]]
+component = "graviton"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "missile"
+mount = "aft_port"
+
+[[systems]]
+component = "computer_mk3"
+
+[[systems]]
+component = "cloak"
+
+[[systems]]
+component = "repair"
+
+[[systems]]
+component = "ecm"
+"#,
+        );
+        let output = compile(root.path(), &path).expect("compile typed kit");
+        let ship: ShipDef = toml::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+        assert_eq!(ship.weapons.len(), 5);
+        assert!(ship.weapons[0].repeat);
+        assert!(ship.weapons[1].pierce);
+        assert_eq!(ship.systems.len(), 4);
+        assert_eq!(ship.systems[0], SystemDef {
+            kind: SystemKind::Computer { mk: 3 }
+        });
+
+        let def: ScenarioDef = toml::from_str(
+            r#"
+width = 8
+height = 8
+[[ships]]
+id = 1
+class = "kit"
+q = 0
+r = 0
+facing = 0
+"#,
+        )
+        .unwrap();
+        let game = load_scenario_def(&def, root.path()).expect("load typed kit");
+        let snapshot = crate::snapshot::StateSnapshot::from_game_state(&game);
+        assert_eq!(snapshot.ships[0].systems.len(), 4);
+        assert!(snapshot.ships[0].weapons[0].repeat);
+        assert!(snapshot.ships[0].weapons[1].pierce);
+        assert_eq!(game.ships()[0].ssd.hull_max, ship.structure);
     }
 
     #[test]

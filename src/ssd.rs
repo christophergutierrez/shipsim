@@ -15,6 +15,7 @@ pub enum DacSlot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Ssd {
     pub hull: u32,
+    pub hull_max: u32,
     pub engine: u32,
     pub engine_max: u32,
     pub power_sys: u32,
@@ -44,6 +45,7 @@ impl Ssd {
         let power_sys = power_sys.max(1);
         Self {
             hull,
+            hull_max: hull,
             engine,
             engine_max: engine,
             power_sys,

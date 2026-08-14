@@ -1208,6 +1208,18 @@ impl GameState {
                         ),
                     })
             }
+            crate::combat_tables::WeaponKind::Missile
+            | crate::combat_tables::WeaponKind::Pd
+            | crate::combat_tables::WeaponKind::Graviton => {
+                Err(crate::movement::OrderError::OutOfRange {
+                    weapon: weapon_id.to_string(),
+                    range,
+                    max_range: attacker.weapon(weapon_id).map_or_else(
+                        || self.rules.max_range(kind),
+                        |weapon| self.effective_weapon_max_range(weapon),
+                    ),
+                })
+            }
         }
     }
 

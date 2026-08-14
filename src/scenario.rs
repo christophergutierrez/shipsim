@@ -11,7 +11,7 @@ use crate::combat_tables::WeaponKind;
 use crate::game_state::{GameState, NpcController, Terminal};
 use crate::hex::Hex;
 use crate::rules::{RulesError, Ruleset};
-use crate::schema::{ScenarioDef, ShipDef, WeaponDef};
+use crate::schema::{ScenarioDef, ShipDef, SystemKind, WeaponDef};
 use crate::ship::Ship;
 
 #[derive(Debug, Error)]
@@ -60,6 +60,10 @@ pub enum LoadError {
     UnknownTerminal(String),
     #[error("unknown weapon kind {kind:?} on weapon {weapon_id}")]
     UnknownWeaponKind { kind: String, weapon_id: String },
+    #[error("ship class {class:?} installs duplicate system {kind:?}")]
+    DuplicateSystem { class: String, kind: String },
+    #[error("ship class {class:?} has invalid computer mark {mk}")]
+    InvalidComputerMark { class: String, mk: u8 },
     #[error("unknown weapon arc {arc:?} on weapon {weapon_id}")]
     UnknownWeaponArc { arc: String, weapon_id: String },
     #[error(
@@ -219,6 +223,31 @@ pub fn load_scenario_def_with_rules(
                 Ok(weapon)
             })
             .collect::<Result<Vec<_>, LoadError>>()?;
+        let mut systems = Vec::new();
+        let mut seen_systems = std::collections::BTreeSet::new();
+        for system in &ship_def.systems {
+            let key = match &system.kind {
+                SystemKind::Computer { mk } => {
+                    if !(1..=3).contains(mk) {
+                        return Err(LoadError::InvalidComputerMark {
+                            class: placement.class.clone(),
+                            mk: *mk,
+                        });
+                    }
+                    "computer"
+                }
+                SystemKind::Cloak => "cloak",
+                SystemKind::Repair => "repair",
+                SystemKind::Ecm => "ecm",
+            };
+            if !seen_systems.insert(key) {
+                return Err(LoadError::DuplicateSystem {
+                    class: placement.class.clone(),
+                    kind: key.to_string(),
+                });
+            }
+            systems.push(system.kind.clone());
+        }
         if ship_def.engine_boxes == 0 {
             return Err(LoadError::InvalidEngineBoxes {
                 class: placement.class.clone(),
@@ -291,6 +320,7 @@ pub fn load_scenario_def_with_rules(
             weapon_charges: BTreeMap::new(),
             weapon_ammo,
             ssd,
+            systems,
             destroyed: false,
             max_maneuver_actions,
             thrust_conversion,
@@ -361,6 +391,9 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
         "plasma" => WeaponKind::Plasma,
         "beam" => WeaponKind::Beam,
         "torp" => WeaponKind::Torp,
+        "missile" => WeaponKind::Missile,
+        "pd" => WeaponKind::Pd,
+        "graviton" => WeaponKind::Graviton,
         other => {
             return Err(LoadError::UnknownWeaponKind {
                 kind: other.to_string(),
@@ -406,6 +439,8 @@ fn parse_weapon(def: WeaponDef) -> Result<Weapon, LoadError> {
         max_ammo: def.max_ammo,
         accuracy_bonus: def.accuracy_bonus,
         damage_bonus: def.damage_bonus,
+        repeat: def.repeat,
+        pierce: def.pierce,
     })
 }
 

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::combat::Weapon;
+use crate::schema::SystemKind;
 use crate::hex::Hex;
 use crate::ssd::Ssd;
 use crate::thrust::ThrustConversion;
@@ -23,6 +24,7 @@ pub struct Ship {
     /// Catalog fire-control bonus applied after target-size accuracy.
     pub attack_accuracy_bonus: u8,
     pub weapons: Vec<Weapon>,
+    pub systems: Vec<SystemKind>,
     /// Per-facing shield power bought during allocation.
     pub shields_powered: [u32; 6],
     /// Remaining per-facing powered shields this turn.

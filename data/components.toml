@@ -169,3 +169,74 @@ cost = 20
 max_charge = 1
 max_range = 6
 accuracy_bonus = 2
+
+[weapons.beam_repeat]
+kind = "beam"
+space = 10
+cost = 28
+max_charge = 4
+max_range = 10
+repeat = true
+
+[weapons.beam_pierce]
+kind = "beam"
+space = 10
+cost = 28
+max_charge = 4
+max_range = 10
+pierce = true
+
+[weapons.pd]
+kind = "pd"
+space = 6
+cost = 20
+max_charge = 1
+max_range = 10
+
+[weapons.graviton]
+kind = "graviton"
+space = 12
+cost = 80
+max_charge = 1
+max_range = 2
+
+[weapons.missile]
+kind = "missile"
+space = 6
+cost = 10
+max_charge = 1
+max_range = 12
+max_ammo = 10
+
+[systems.computer_mk1]
+kind = "computer"
+mk = 1
+space = 4
+cost = 12
+
+[systems.computer_mk2]
+kind = "computer"
+mk = 2
+space = 6
+cost = 24
+
+[systems.computer_mk3]
+kind = "computer"
+mk = 3
+space = 8
+cost = 40
+
+[systems.cloak]
+kind = "cloak"
+space = 8
+cost = 30
+
+[systems.repair]
+kind = "repair"
+space = 6
+cost = 24
+
+[systems.ecm]
+kind = "ecm"
+space = 5
+cost = 18
