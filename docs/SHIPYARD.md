@@ -77,9 +77,11 @@ still a `Basic …` default retitles it.
 The seven standard size classes are shown first in ascending hull size and are
 reference-only. They can be opened to inspect their components, but cannot be
 renamed, reconfigured, saved, compiled, or have weapons added or removed.
-Weapon rows show the live range-1 damage headline and quality tags such as
-`Precise`, `Potent`, `Repeat`, and `Pierce`; the inspector panel describes the
-currently highlighted field.
+Weapon rows show a live headline from the combat tables (full charge at
+range 1 for beams/plasma; flat damage for torpedoes/missiles; mechanic
+text for PD and graviton) plus quality tags from component fields
+(`Precise`, `Potent`, `Repeat`, `Pierce`, ammo), not from the SKU name.
+The inspector panel describes the highlighted field.
 
 Class **names** must be unique (case-insensitive, whitespace-normalized). The
 name is the class, not an individual ship — several instances in a fight can

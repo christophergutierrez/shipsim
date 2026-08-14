@@ -3514,6 +3514,27 @@ fn yard_standards_are_size_ordered_and_read_only() {
 }
 
 #[test]
+fn yard_readonly_still_allows_inspecting_fields() {
+    let mut app = yard_app();
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    {
+        let yard = app.yard.as_ref().unwrap();
+        assert!(yard.viewing_readonly);
+        assert_eq!(yard.edit_cursor, crate::yard::EditField::Name);
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char('j')));
+    {
+        let yard = app.yard.as_ref().unwrap();
+        assert_eq!(yard.edit_cursor, crate::yard::EditField::Size);
+        assert!(yard.viewing_readonly);
+    }
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char('s')));
+    let yard = app.yard.as_ref().unwrap();
+    assert!(yard.status.contains("reference-only"));
+    assert_eq!(yard.edit_cursor, crate::yard::EditField::Size);
+}
+
+#[test]
 fn yard_sort_cycle_preserves_standard_prefix_and_mode() {
     let mut yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
     let prefix: Vec<String> = yard

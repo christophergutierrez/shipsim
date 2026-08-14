@@ -148,20 +148,21 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
         },
         YardScreen::Edit => {
             use crate::yard::EditField;
-            if yard.is_readonly()
-                && matches!(
-                    key.code,
-                    KeyCode::Backspace
-                        | KeyCode::Left
-                        | KeyCode::Right
-                        | KeyCode::Char('a' | 'c' | 'd' | 'h' | 'l' | 'm' | 's')
-                )
-            {
-                yard.status = "standard classes are reference-only".into();
-                return KeyResult::Continue;
-            }
-            if yard.is_readonly() && matches!(key.code, KeyCode::Char(_)) {
-                yard.status = "standard classes are reference-only".into();
+            if yard.is_readonly() {
+                match key.code {
+                    KeyCode::Esc => yard.request_exit(),
+                    KeyCode::Up | KeyCode::Char('k') => yard.move_edit(-1),
+                    KeyCode::Down | KeyCode::Char('j') => yard.move_edit(1),
+                    KeyCode::Char('q') => return KeyResult::Quit,
+                    KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::Backspace
+                    | KeyCode::Char('a' | 'c' | 'd' | 'h' | 'l' | 'm' | 's')
+                    | KeyCode::Char(_) => {
+                        yard.status = "standard classes are reference-only".into();
+                    }
+                    _ => {}
+                }
                 return KeyResult::Continue;
             }
             // Esc and 'd' each carry their own arm/confirm state (see

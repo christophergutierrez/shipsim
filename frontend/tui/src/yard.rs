@@ -299,12 +299,21 @@ impl YardState {
                 let Some(weapon) = self.draft.weapons.get(index) else { return "Weapon row.".into() };
                 match shipyard::weapon_spec(&self.root, &weapon.component) {
                     Ok(spec) => {
-                        let mut tags = Vec::new();
-                        if spec.accuracy_bonus > 0 { tags.push(format!("Precise +{}", spec.accuracy_bonus)); }
-                        if spec.damage_bonus > 0 { tags.push(format!("Potent +{}", spec.damage_bonus)); }
-                        if spec.repeat { tags.push("Repeat".into()); }
-                        if spec.pierce { tags.push("Pierce".into()); }
-                        format!("{}: {}  {}", spec.id, shipyard::weapon_headline(&self.root, &spec.id).unwrap_or_else(|_| "rules unavailable".into()), if tags.is_empty() { "no quality modifier".into() } else { tags.join(" · ") })
+                        let mechanic = match spec.kind.as_str() {
+                            "beam" => "Beam damage is charge × range factor, strongest at range 1.",
+                            "plasma" => "Plasma follows a range table and falls off with distance.",
+                            "torp" => "Torpedoes deal flat damage and spend magazine ammo.",
+                            "missile" => "Missiles deal flat damage and spend magazine ammo.",
+                            "pd" => "Point defense intercepts incoming torpedoes and missiles.",
+                            "graviton" => "Graviton ignores shields and armor and hits every ship in the hex.",
+                            _ => "Weapon mechanic.",
+                        };
+                        let tags = spec.quality_tags();
+                        if tags.is_empty() {
+                            mechanic.into()
+                        } else {
+                            format!("{mechanic} {}", tags.join(" · "))
+                        }
                     }
                     Err(_) => "Unknown weapon SKU; choose another component.".into(),
                 }
@@ -316,12 +325,19 @@ impl YardState {
         let Ok(spec) = shipyard::weapon_spec(&self.root, &weapon.component) else {
             return format!("{}   mount {}   unknown SKU", weapon.component, weapon.mount);
         };
-        let mut tags = Vec::new();
-        if spec.accuracy_bonus > 0 { tags.push(format!("Precise +{}", spec.accuracy_bonus)); }
-        if spec.damage_bonus > 0 { tags.push(format!("Potent +{}", spec.damage_bonus)); }
-        if spec.repeat { tags.push("Repeat".into()); }
-        if spec.pierce { tags.push("Pierce".into()); }
-        format!("{}   mount {}   {}{}", weapon.component, weapon.mount, shipyard::weapon_headline(&self.root, &weapon.component).unwrap_or_else(|_| "rules unavailable".into()), if tags.is_empty() { String::new() } else { format!("   [{}]", tags.join(", ")) })
+        let headline = shipyard::weapon_headline_from_spec(&self.root, &spec)
+            .unwrap_or_else(|_| "rules unavailable".into());
+        let tags = spec.quality_tags();
+        if tags.is_empty() {
+            format!("{}   mount {}   {headline}", weapon.component, weapon.mount)
+        } else {
+            format!(
+                "{}   mount {}   {headline}   [{}]",
+                weapon.component,
+                weapon.mount,
+                tags.join(", ")
+            )
+        }
     }
 
     pub fn engine_label(&self) -> String {

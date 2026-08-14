@@ -121,6 +121,30 @@ pub struct WeaponSpec {
     pub repeat: bool,
     pub pierce: bool,
 }
+
+impl WeaponSpec {
+    /// Quality tags from component fields, never from the SKU name string.
+    pub fn quality_tags(&self) -> Vec<String> {
+        let mut tags = Vec::new();
+        if self.accuracy_bonus > 0 {
+            tags.push(format!("Precise +{}", self.accuracy_bonus));
+        }
+        if self.damage_bonus > 0 {
+            tags.push(format!("Potent +{}", self.damage_bonus));
+        }
+        if self.repeat {
+            tags.push("Repeat".into());
+        }
+        if self.pierce {
+            tags.push("Pierce".into());
+        }
+        if let Some(ammo) = self.max_ammo {
+            tags.push(format!("Ammo {ammo}"));
+        }
+        tags
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Component {
@@ -712,40 +736,41 @@ pub fn weapon_spec(root: &Path, id: &str) -> Result<WeaponSpec, Error> {
 }
 
 /// A compact editor-facing summary evaluated from the authoritative rules.
-/// Damage uses one full charge at range 1; effects that are not ship damage
-/// are named explicitly instead of pretending they have a numeric value.
+/// Beam/plasma use full charge at range 1; torp/missile are flat. PD and
+/// graviton name the mechanic instead of inventing a number.
 pub fn weapon_headline(root: &Path, id: &str) -> Result<String, Error> {
     let spec = weapon_spec(root, id)?;
+    weapon_headline_from_spec(root, &spec)
+}
+
+pub fn weapon_headline_from_spec(root: &Path, spec: &WeaponSpec) -> Result<String, Error> {
     let rules = crate::rules::Ruleset::load(root).map_err(|e| Error::Rules(e.to_string()))?;
-    let kind = match spec.kind.as_str() {
-        "beam" => crate::combat_tables::WeaponKind::Beam,
-        "plasma" => crate::combat_tables::WeaponKind::Plasma,
-        "torp" => crate::combat_tables::WeaponKind::Torp,
-        "missile" => crate::combat_tables::WeaponKind::Missile,
-        "pd" => crate::combat_tables::WeaponKind::Pd,
-        "graviton" => crate::combat_tables::WeaponKind::Graviton,
-        _ => return Err(Error::UnknownWeaponKind(spec.kind)),
-    };
-    let damage = match kind {
-        crate::combat_tables::WeaponKind::Beam => {
-            crate::combat_tables::beam_damage(rules.combat(), 1, 1)
+    let combat = rules.combat();
+    let bonus = spec.damage_bonus;
+    match spec.kind.as_str() {
+        "beam" => {
+            let dmg = crate::combat_tables::beam_damage(combat, spec.max_charge, 1)
+                .unwrap_or(0)
+                .saturating_add(bonus);
+            Ok(format!("dmg {dmg} @ r1"))
         }
-        crate::combat_tables::WeaponKind::Plasma => {
-            crate::combat_tables::plasma_damage(rules.combat(), 1)
+        "plasma" => {
+            let dmg = crate::combat_tables::plasma_damage(combat, 1)
+                .unwrap_or(0)
+                .saturating_add(bonus);
+            Ok(format!("dmg {dmg} @ r1"))
         }
-        crate::combat_tables::WeaponKind::Torp => {
-            crate::combat_tables::torp_damage(rules.combat(), 1)
+        "torp" => {
+            let dmg = crate::combat_tables::torp_damage(combat, 1)
+                .unwrap_or(0)
+                .saturating_add(bonus);
+            Ok(format!("dmg {dmg}"))
         }
-        crate::combat_tables::WeaponKind::Graviton => None,
-        crate::combat_tables::WeaponKind::Missile => Some(1),
-        crate::combat_tables::WeaponKind::Pd => None,
-    };
-    let base = match kind {
-        crate::combat_tables::WeaponKind::Pd => "no ship damage".to_string(),
-        crate::combat_tables::WeaponKind::Graviton => "dmg = your size − target size".to_string(),
-        _ => format!("{} dmg @r1", damage.unwrap_or(0)),
-    };
-    Ok(base)
+        "missile" => Ok(format!("dmg {}", 2u32.saturating_add(bonus))),
+        "pd" => Ok("intercept only".into()),
+        "graviton" => Ok("dmg = your size − target size".into()),
+        other => Err(Error::UnknownWeaponKind(other.to_string())),
+    }
 }
 
 pub fn list_designs(root: &Path) -> Result<Vec<(PathBuf, Design)>, Error> {
@@ -1411,16 +1436,44 @@ mount = "forward_port"
     #[test]
     fn public_weapon_spec_and_headline_use_catalog_and_rules() {
         let root = fixture_root();
+        let rules = crate::rules::Ruleset::load(root.path()).expect("rules");
+        let combat = rules.combat();
         let precise = weapon_spec(root.path(), "beam_precise").expect("precise SKU");
         assert_eq!(precise.kind, "beam");
         assert_eq!(precise.accuracy_bonus, 2);
         assert_eq!(precise.damage_bonus, 0);
-        assert!(weapon_headline(root.path(), "beam")
-            .unwrap()
-            .contains("dmg @r1"));
-        assert!(weapon_headline(root.path(), "pd")
-            .unwrap()
-            .contains("no ship damage"));
+        assert_eq!(precise.quality_tags(), vec!["Precise +2".to_string()]);
+
+        let beam = weapon_spec(root.path(), "beam").expect("beam");
+        let beam_dmg = crate::combat_tables::beam_damage(combat, beam.max_charge, 1).unwrap();
+        assert_eq!(
+            weapon_headline(root.path(), "beam").unwrap(),
+            format!("dmg {beam_dmg} @ r1")
+        );
+        assert!(beam.quality_tags().is_empty());
+
+        let potent = weapon_spec(root.path(), "beam_potent").expect("potent");
+        let potent_dmg = beam_dmg.saturating_add(potent.damage_bonus);
+        assert_eq!(
+            weapon_headline(root.path(), "beam_potent").unwrap(),
+            format!("dmg {potent_dmg} @ r1")
+        );
+        assert_eq!(potent.quality_tags(), vec!["Potent +2".to_string()]);
+
+        let torp = crate::combat_tables::torp_damage(combat, 1).unwrap();
+        assert_eq!(
+            weapon_headline(root.path(), "torpedo").unwrap(),
+            format!("dmg {torp}")
+        );
+        assert_eq!(weapon_headline(root.path(), "missile").unwrap(), "dmg 2");
+        assert_eq!(
+            weapon_headline(root.path(), "pd").unwrap(),
+            "intercept only"
+        );
+        assert_eq!(
+            weapon_headline(root.path(), "graviton").unwrap(),
+            "dmg = your size − target size"
+        );
     }
 
     #[test]
