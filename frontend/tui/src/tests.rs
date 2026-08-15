@@ -4538,6 +4538,28 @@ fn playtest_h05_map_legend_keeps_shade_arc() {
 }
 
 #[test]
+fn playtest_h06_allocate_movement_names_engine_loss() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[0].engine = 2;
+    snap.ships[0].effective_max_maneuver_actions = Some(4);
+    app.update_snapshot(snap);
+    let buf = render_to_string(&mut app, 80, 24);
+    let movement = buf.lines().find(|line| line.contains("Movement:")).unwrap_or("");
+    assert!(movement.contains("engines 2"), "Allocate movement row must name engine loss: {movement}\n{buf}");
+}
+
+#[test]
+fn playtest_h07_undamaged_movement_row_omits_engine_gloss() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    let movement = buf.lines().find(|line| line.contains("Movement:")).unwrap_or("");
+    assert!(movement.contains("max path 8"), "undamaged movement cap missing: {movement}");
+    assert!(!movement.contains("engines"), "undamaged movement row should stay compact: {movement}");
+}
+
+#[test]
 fn fire_preview_unique_face_auto_selects_invalid_default() {
     let mut app = App::new();
     app.update_snapshot(three_weapon_fire_snapshot());

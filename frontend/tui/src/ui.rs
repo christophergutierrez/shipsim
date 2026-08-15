@@ -1625,9 +1625,14 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 
     // Movement row
     let mov_selected = draft.cursor == 0;
+    let engine_note = if ship.motion_cap() < ship.max_maneuver_actions {
+        format!(" (engines {})", ship.engine)
+    } else {
+        String::new()
+    };
     lines.push(Line::from(Span::styled(
         format!(
-            "{}{}Movement: {:>2}/{} pwr (max path {})   ←/→ · m selects Movement",
+            "{}{}Movement: {:>2}/{} pwr (max path {}){}   ←/→ · m selects Movement",
             if mov_selected { "▶ " } else { "  " },
             if mov_selected {
                 app.input_notice
@@ -1639,7 +1644,8 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             },
             draft.movement,
             ship.movement_power_cap().unwrap_or(ship.power_available),
-            ship.motion_cap()
+            ship.motion_cap(),
+            engine_note
         ),
         if mov_selected {
             selected_style()
