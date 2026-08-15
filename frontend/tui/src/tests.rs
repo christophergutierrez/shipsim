@@ -1190,7 +1190,7 @@ fn rubric_t13_each_combat_form_has_a_visible_escape_exit() {
     let mut allocate = App::new();
     allocate.update_snapshot(test_snapshot());
     let allocate_buf = render_to_string(&mut allocate, 80, 24);
-    assert!(allocate_buf.lines().any(|line| line.contains("Esc back")));
+    assert!(allocate_buf.lines().any(|line| line.contains("Esc help")));
 
     let mut movement = App::new();
     let mut movement_snap = test_snapshot();
@@ -1198,14 +1198,122 @@ fn rubric_t13_each_combat_form_has_a_visible_escape_exit() {
     movement.update_snapshot(movement_snap);
     movement.mode = Mode::Movement;
     let movement_buf = render_to_string(&mut movement, 80, 24);
-    assert!(movement_buf.lines().any(|line| line.contains("Esc back")));
+    assert!(movement_buf.lines().any(|line| line.contains("Esc help")));
 
     let mut fire = App::new();
     fire.update_snapshot(fire_phase_snapshot());
     fire.mode = Mode::Fire;
     fire.fire_draft = Some(crate::app::FireDraft::default());
     let fire_buf = render_to_string(&mut fire, 80, 24);
-    assert!(fire_buf.lines().any(|line| line.contains("Esc back")));
+    assert!(fire_buf.lines().any(|line| line.contains("Esc help")));
+}
+
+#[test]
+fn playtest_p17_escape_help_round_trip() {
+    // X5: Help is a reversible surface and drafts survive the round trip.
+    let cases = ["allocate", "movement", "firing"];
+    for phase in cases {
+        let mut app = App::new();
+        let mut snap = if phase == "firing" {
+            fire_phase_snapshot()
+        } else {
+            test_snapshot()
+        };
+        snap.phase = phase.into();
+        app.update_snapshot(snap);
+        app.mode = match phase {
+            "allocate" => Mode::Allocate,
+            "movement" => Mode::Movement,
+            _ => Mode::Fire,
+        };
+        if phase == "allocate" {
+            app.alloc_draft.as_mut().unwrap().shields[0] = 1;
+        } else if phase == "movement" {
+            app.path_draft.as_mut().unwrap().actions.push("move_f".into());
+        } else {
+            app.fire_draft.as_mut().unwrap().target = Some(2);
+        }
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+        assert_eq!(app.mode, Mode::Normal, "Esc must open Help for {phase}");
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+        assert_eq!(
+            app.mode,
+            match phase {
+                "allocate" => Mode::Allocate,
+                "movement" => Mode::Movement,
+                _ => Mode::Fire,
+            },
+            "Help Esc must restore {phase}"
+        );
+    }
+}
+
+#[test]
+fn playtest_p18_help_first_line_return_and_quit() {
+    // X5/X13: return and quit affordances are on the first Help paint.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Esc));
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Overview & Help"));
+    assert!(buffer_contains(&buf, "return"));
+    assert!(buffer_contains(&buf, "q quit"));
+}
+
+#[test]
+fn playtest_p19_question_and_h_open_help() {
+    // X5/X13: both explicit Help keys work from a combat form.
+    for key in ['?', 'h'] {
+        let mut app = App::new();
+        app.update_snapshot(test_snapshot());
+        handle_key(&mut app, make_key(key));
+        assert_eq!(app.mode, Mode::Normal, "{key} must open Help");
+    }
+}
+
+#[test]
+fn playtest_p20_inactive_hotkey_explains() {
+    // X5: a wrong phase shortcut is feedback, not a silent no-op.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key('f'));
+    assert!(app.log.iter().any(|line| line.contains("not active")));
+}
+
+#[test]
+fn playtest_p21_commit_footer_names_next_phase() {
+    // X5: commit controls name the destination phase.
+    let mut allocate = App::new();
+    allocate.update_snapshot(test_snapshot());
+    assert!(buffer_contains(&render_to_string(&mut allocate, 80, 24), "Movement"));
+
+    let mut movement = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    movement.update_snapshot(snap);
+    movement.mode = Mode::Movement;
+    assert!(buffer_contains(&render_to_string(&mut movement, 80, 24), "Space hold → Fire"));
+    movement.path_draft.as_mut().unwrap().actions.push("move_f".into());
+    assert!(buffer_contains(&render_to_string(&mut movement, 80, 24), "commit path → Fire"));
+}
+
+#[test]
+fn playtest_p22_enter_does_not_commit_empty_path() {
+    // X5/X7: Enter is not an accidental empty movement commit; Space is.
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    app.mode = Mode::Movement;
+    assert!(matches!(
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter)),
+        KeyResult::Continue
+    ));
+    assert!(app.log.iter().any(|line| line.contains("Path empty")));
+    assert!(matches!(
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char(' '))),
+        KeyResult::SendOrder(_)
+    ));
 }
 
 #[test]
@@ -1655,7 +1763,13 @@ fn scripted_pump_advances_combat_toml_full_turn() {
     // Empty path + pump scripted empty path. Capture an intermediate snapshot
     // if the engine still has both ships committed before auto-resolve; after
     // resolve the commit lists clear, so prove scripted path via stage advance.
-    send_key(&mut app, &mut harness, enter()); // commit empty path draft
+    // Empty movement is an explicit hold action; Enter only commits a path
+    // containing at least one step.
+    send_key(
+        &mut app,
+        &mut harness,
+        make_key_code(crossterm::event::KeyCode::Char(' ')),
+    );
     assert_eq!(app.last_error, None, "path rejected: {:?}", app.last_error);
     assert_eq!(
         app.snap.as_ref().map(|s| s.phase.as_str()),

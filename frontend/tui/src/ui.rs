@@ -999,10 +999,10 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
 fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool, area: Rect) {
     let (title, lines) = match &app.mode {
         Mode::Normal => (
-            "Help",
+            "Overview & Help",
             vec![
-                Line::from(" q: quit  Tab: cycle focus  Enter: act in phase"),
-                Line::from(" a: allocate  m: move  f: fire  v: map"),
+                Line::from(" Esc/Enter return · q quit · a allocate · m move · f fire"),
+                Line::from(" Tab: cycle focus  v: map-focus"),
                 Line::from(" v: map-focus (WASD pan, +/- zoom, [/] inspect contacts)"),
                 Line::from(""),
             ],
@@ -1174,8 +1174,8 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     // Keep a compact, mode-specific exit row fixed at the bottom of every
     // combat form. Detailed controls remain in the scrollable panel body.
     let combat_footer = match app.mode {
-        Mode::Allocate => Some("Esc back · Enter commit · ↑/↓ field · ←/→ adjust · m movement".to_string()),
-        Mode::Movement => Some("Esc back · Enter commit · Space hold".to_string()),
+        Mode::Allocate => Some("Esc help · Enter commit power → Movement · ↑/↓ field · ←/→ adjust".to_string()),
+        Mode::Movement => Some(movement_footer(app)),
         Mode::Fire => Some(fire_footer(app)),
         _ => None,
     };
@@ -1387,7 +1387,7 @@ fn fire_queue_line(app: &App) -> Option<Line<'static>> {
 
 fn fire_footer(app: &App) -> String {
     let Some(draft) = app.fire_draft.as_ref() else {
-        return "Esc back · Enter unavailable · Space pass".into();
+        return "Esc help · Enter unavailable · Space pass".into();
     };
     let selected = app
         .focused()
@@ -1425,7 +1425,16 @@ fn fire_footer(app: &App) -> String {
     } else {
         "Space fire"
     };
-    format!("Esc back · {action} · {final_action}")
+    format!("Esc help · {action} · {final_action}")
+}
+
+fn movement_footer(app: &App) -> String {
+    let has_path = app.path_draft.as_ref().is_some_and(|draft| !draft.is_empty());
+    if has_path {
+        "Esc help · Enter commit path → Fire · Space hold → Fire".into()
+    } else {
+        "Esc help · Enter unavailable · Space hold → Fire".into()
+    }
 }
 
 fn fire_preview_line(app: &App) -> Option<Line<'static>> {

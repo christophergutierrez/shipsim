@@ -82,11 +82,21 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
                 // Let handle_map own Esc so it can restore the phase-appropriate
                 // mode (not unconditionally Normal). Fall through to the mode
                 // dispatch below.
+            } else if app.mode == Mode::Normal {
+                reopen_phase_form(app);
+                return KeyResult::Continue;
             } else {
                 app.mode = Mode::Normal;
                 app.last_error = None;
                 return KeyResult::Continue;
             }
+        }
+        KeyCode::Char('h') | KeyCode::Char('?')
+            if matches!(app.mode, Mode::Allocate | Mode::Movement | Mode::Fire) =>
+        {
+            app.mode = Mode::Normal;
+            app.last_error = None;
+            return KeyResult::Continue;
         }
         KeyCode::Tab => {
             if tutorial_active {
@@ -646,6 +656,18 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
     }
 }
 
+fn reopen_phase_form(app: &mut App) {
+    let Some(phase) = app.snap.as_ref().map(|snap| snap.phase.as_str()) else {
+        return;
+    };
+    match phase {
+        "allocate" => app.open_allocate_for_focus(),
+        "movement" => app.open_movement_for_focus(),
+        "firing" => app.open_fire_for_focus(),
+        _ => {}
+    }
+}
+
 /// Map-focus mode: WASD/hjkl pans the viewport, +/- zooms, Esc/v returns to Normal.
 ///
 /// Read-only — no orders are sent. The pan is relative to the current origin
@@ -727,6 +749,21 @@ fn phase_hotkey(app: &mut App, key: KeyEvent) -> Option<KeyResult> {
                 draft.cursor = 0;
             }
             app.log("allocate: Movement — ←/→ or digits set engine power for this turn's path");
+            Some(KeyResult::Continue)
+        }
+        (KeyCode::Char('f'), "allocate")
+        | (KeyCode::Char('f'), "movement")
+        | (KeyCode::Char('a'), "firing")
+        | (KeyCode::Char('m'), "firing") => {
+            app.log(format!(
+                "{} is not active; current phase is {}",
+                match key.code {
+                    KeyCode::Char('a') => "allocate",
+                    KeyCode::Char('m') => "movement",
+                    _ => "fire",
+                },
+                phase
+            ));
             Some(KeyResult::Continue)
         }
         _ => None,
@@ -1161,7 +1198,18 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
             app.request_path_preview();
             KeyResult::Continue
         }
-        KeyCode::Enter => commit_path(app),
+        KeyCode::Enter => {
+            let empty = app
+                .path_draft
+                .as_ref()
+                .is_none_or(|draft| draft.is_empty());
+            if empty {
+                app.log("Path empty — Space holds");
+                KeyResult::Continue
+            } else {
+                commit_path(app)
+            }
+        }
         KeyCode::Char(' ') => {
             if let Some(d) = app.path_draft.as_mut() {
                 d.clear();
