@@ -92,9 +92,16 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
                 return KeyResult::Continue;
             }
         }
-        KeyCode::Char('h') | KeyCode::Char('?')
+        // `?` is help. Do not steal `h` here: Movement (and Map) treat `h` as
+        // left. Esc already opens help from every combat form.
+        KeyCode::Char('?')
             if matches!(app.mode, Mode::Allocate | Mode::Movement | Mode::Fire) =>
         {
+            app.mode = Mode::Normal;
+            app.last_error = None;
+            return KeyResult::Continue;
+        }
+        KeyCode::Char('h') if matches!(app.mode, Mode::Allocate | Mode::Fire) => {
             app.mode = Mode::Normal;
             app.last_error = None;
             return KeyResult::Continue;
@@ -107,6 +114,13 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
             } else {
                 cycle_ship_focus(app);
             }
+            return KeyResult::Continue;
+        }
+        KeyCode::Char('[') | KeyCode::Char(']')
+            if app.yard.is_none() && app.mode != Mode::GameOver && app.confirmation.is_none() =>
+        {
+            let direction = if key.code == KeyCode::Char(']') { 1 } else { -1 };
+            app.cycle_scan(direction);
             return KeyResult::Continue;
         }
         _ => {}
@@ -446,28 +460,6 @@ fn cycle_ship_focus(app: &mut App) {
     }
 }
 
-fn cycle_contact_focus(app: &mut App, direction: i8) {
-    let Some(snap) = app.snap.clone() else {
-        return;
-    };
-    let living: Vec<i64> = snap
-        .ships
-        .iter()
-        .filter(|ship| !ship.destroyed)
-        .map(|ship| ship.id)
-        .collect();
-    if living.is_empty() {
-        return;
-    }
-    let current = app
-        .focused_ship
-        .and_then(|id| living.iter().position(|candidate| *candidate == id))
-        .unwrap_or(0);
-    let len = living.len() as i32;
-    let next = (current as i32 + direction as i32).rem_euclid(len) as usize;
-    app.switch_focus(living[next]);
-}
-
 /// Tutorial gate. Returns `Some(Continue)` if the key is blocked.
 /// Returns `None` if the key is allowed (and tutorial may have advanced).
 fn tutorial_gate(app: &mut App, key: &KeyEvent) -> Option<KeyResult> {
@@ -690,8 +682,18 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyResult::Continue
         }
         _ => {
-            notice_unknown_key(app);
-            KeyResult::Continue
+            // Accidental Help (`h` / `?` / Esc) must not swallow the next
+            // movement or allocate key. Return to the live form and apply it.
+            reopen_phase_form(app);
+            match app.mode {
+                Mode::Allocate => handle_allocate(app, key),
+                Mode::Movement => handle_movement(app, key),
+                Mode::Fire => handle_fire(app, key),
+                _ => {
+                    notice_unknown_key(app);
+                    KeyResult::Continue
+                }
+            }
         },
     }
 }
@@ -745,11 +747,11 @@ fn handle_map(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyResult::Continue
         }
         KeyCode::Char('[') => {
-            cycle_contact_focus(app, -1);
+            app.cycle_scan(-1);
             KeyResult::Continue
         }
         KeyCode::Char(']') => {
-            cycle_contact_focus(app, 1);
+            app.cycle_scan(1);
             KeyResult::Continue
         }
         // Re-center on the focused ship.
@@ -1271,9 +1273,10 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
         // Screen-right veer = ship's starboard = facing-decreasing = engine `move_fr`.
         KeyCode::Char('d') => path_append(app, "move_fr"),
         // Turn nose left on screen (counterclockwise) = engine `turn_left`.
-        KeyCode::Left => path_append(app, "turn_left"),
+        // `h` is vim-left; do not open Help from this form.
+        KeyCode::Left | KeyCode::Char('h') => path_append(app, "turn_left"),
         // Turn nose right on screen (clockwise) = engine `turn_right`.
-        KeyCode::Right => path_append(app, "turn_right"),
+        KeyCode::Right | KeyCode::Char('l') => path_append(app, "turn_right"),
         KeyCode::Char(c) if c.is_ascii_digit() && c <= '5' => {
             path_turn_to(app, (c as u8 - b'0') as u32)
         }
@@ -1736,6 +1739,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                 if let Some(draft) = &mut app.fire_draft {
                     draft.target = Some(tid);
                 }
+                app.inspected_ship = Some(tid);
                 app.request_fire_preview();
             }
             KeyResult::Continue

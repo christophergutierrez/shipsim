@@ -308,6 +308,9 @@ pub struct App {
     pub snap: Option<Snapshot>,
     pub mode: Mode,
     pub focused_ship: Option<i64>,
+    /// Read-only contact being scanned for damage. Distinct from command
+    /// focus so `[` / `]` can show an enemy SSD without parking drafts.
+    pub inspected_ship: Option<i64>,
     /// Command focus to restore after read-only contact inspection in Map mode.
     map_return_focus: Option<i64>,
     /// Map viewport pan offset (q, r) of the top-left visible hex. `None`
@@ -383,6 +386,7 @@ impl App {
             snap: None,
             mode: Mode::Normal,
             focused_ship: None,
+            inspected_ship: None,
             map_return_focus: None,
             map_pan: None,
             map_zoom: None,
@@ -465,6 +469,11 @@ impl App {
         // wreck never acts — allocate/fire would keep drafting orders for the
         // dead ship and the engine would reject every one. Re-focus the first
         // living player ship and drop drafts tied to the old focus.
+        if let Some(id) = self.inspected_ship {
+            if snap.ship(id).is_none_or(|ship| ship.destroyed) {
+                self.inspected_ship = None;
+            }
+        }
         if let Some(id) = self.focused_ship {
             let focus_gone = snap.ship(id).is_none_or(|ship| ship.destroyed);
             if focus_gone {
@@ -886,6 +895,78 @@ impl App {
         self.snap
             .as_ref()
             .and_then(|s| self.focused_ship.and_then(|id| s.ship(id)))
+    }
+
+    /// Ship shown in the status panel: a scanned contact, else command focus.
+    pub fn status_ship(&self) -> Option<&protocol::Ship> {
+        let snap = self.snap.as_ref()?;
+        if let Some(id) = self.inspected_ship {
+            if let Some(ship) = snap.ship(id).filter(|ship| !ship.destroyed) {
+                return Some(ship);
+            }
+        }
+        self.focused()
+    }
+
+    /// Enemy whose damage should be visible: the scanned contact, else nearest.
+    pub fn scan_target(&self) -> Option<&protocol::Ship> {
+        let snap = self.snap.as_ref()?;
+        if let Some(id) = self.inspected_ship {
+            if let Some(ship) = snap
+                .ship(id)
+                .filter(|ship| !ship.destroyed && ship.controller != "player")
+            {
+                return Some(ship);
+            }
+        }
+        let id = self.scan_contacts().first().copied()?;
+        snap.ship(id).filter(|ship| !ship.destroyed)
+    }
+
+    /// Living enemy ids, nearest to command focus first.
+    pub fn scan_contacts(&self) -> Vec<i64> {
+        let Some(snap) = self.snap.as_ref() else {
+            return Vec::new();
+        };
+        let origin = self.focused();
+        let mut enemies: Vec<&protocol::Ship> = snap
+            .ships
+            .iter()
+            .filter(|ship| ship.controller != "player" && !ship.destroyed)
+            .collect();
+        enemies.sort_by_key(|ship| {
+            let range = origin
+                .map(|me| crate::ui::hex_dist(me.q, me.r, ship.q, ship.r))
+                .unwrap_or(0);
+            (range, ship.id)
+        });
+        enemies.into_iter().map(|ship| ship.id).collect()
+    }
+
+    /// Cycle the damage scan. Stepping off either end returns to your ship.
+    pub fn cycle_scan(&mut self, direction: i8) {
+        let contacts = self.scan_contacts();
+        if contacts.is_empty() {
+            self.inspected_ship = None;
+            self.log("scan: no enemy contacts");
+            return;
+        }
+        let next = match self
+            .inspected_ship
+            .and_then(|id| contacts.iter().position(|&candidate| candidate == id))
+        {
+            None if direction >= 0 => Some(contacts[0]),
+            None => contacts.last().copied(),
+            Some(index) => {
+                let next_index = index as i32 + i32::from(direction);
+                if next_index < 0 || next_index >= contacts.len() as i32 {
+                    None
+                } else {
+                    Some(contacts[next_index as usize])
+                }
+            }
+        };
+        self.inspected_ship = next;
     }
 
     /// Effective zoom for a viewport with `columns × rows` cells. Negative

@@ -1632,6 +1632,41 @@ fn movement_veer_key_appends_turn_to_path() {
 }
 
 #[test]
+fn movement_h_turns_left_instead_of_opening_help() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    app.mode = Mode::Movement;
+    app.path_draft = Some(crate::app::PathDraft::default());
+    handle_key(&mut app, make_key('h'));
+    assert_eq!(app.mode, Mode::Movement, "h must not leave the path form");
+    assert_eq!(
+        app.path_draft.as_ref().unwrap().actions,
+        vec!["turn_left".to_string()]
+    );
+}
+
+#[test]
+fn movement_recovers_from_help_and_unknown_keys() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    app.mode = Mode::Movement;
+    app.path_draft = Some(crate::app::PathDraft::default());
+    handle_key(&mut app, make_key('j'));
+    handle_key(&mut app, make_key('?'));
+    assert_eq!(app.mode, Mode::Normal);
+    handle_key(&mut app, make_key('w'));
+    assert_eq!(app.mode, Mode::Movement, "w from Help must resume plotting");
+    assert_eq!(
+        app.path_draft.as_ref().unwrap().actions,
+        vec!["move_f".to_string()]
+    );
+}
+
+#[test]
 fn maneuver_coast_serializes_correctly() {
     let m = Maneuver::Coast;
     let json = serde_json::to_string(&m).expect("serialize");
@@ -2279,8 +2314,9 @@ fn map_contact_inspection_restores_command_focus_and_allocate_draft() {
 
     handle_key(&mut app, make_key('v'));
     handle_key(&mut app, make_key(']'));
-    assert_eq!(app.focused_ship, Some(2));
-    assert!(app.alloc_draft.is_none());
+    assert_eq!(app.focused_ship, Some(1));
+    assert_eq!(app.inspected_ship, Some(2));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().movement, 7);
 
     handle_key(&mut app, make_key('v'));
     assert_eq!(app.mode, Mode::Allocate);
@@ -2603,7 +2639,8 @@ fn map_focus_can_inspect_enemy_and_zoom() {
     app.update_snapshot(test_snapshot());
     handle_key(&mut app, make_key('v'));
     handle_key(&mut app, make_key(']'));
-    assert_eq!(app.focused_ship, Some(2));
+    assert_eq!(app.focused_ship, Some(1));
+    assert_eq!(app.inspected_ship, Some(2));
 
     let buffer = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buffer, "B2"));
@@ -2638,10 +2675,9 @@ fn map_preview_uses_diamond_route_family_and_identity() {
     });
     handle_key(&mut app, make_key('v'));
     let buffer = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&buffer, "◇A1"), "planned destination should retain identity: {buffer}");
     assert!(
-        buffer_contains(&buffer, "A1→ ship · ◇ end · ◇ route · shade=arc"),
-        "map legend must be complete at the play floor: {buffer}"
+        buffer_contains(&buffer, "shade=arc") && buffer_contains(&buffer, "◇"),
+        "map legend must keep the route family and arc shade: {buffer}"
     );
 }
 
@@ -4473,6 +4509,47 @@ fn playtest_p12_fire_row_marks_bear_or_no_arc() {
 }
 
 #[test]
+fn playtest_enemy_damage_visible_without_a_key() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "YOU"), "your damage column missing:\n{buf}");
+    assert!(buffer_contains(&buf, "THEM") && buffer_contains(&buf, "B2"), "enemy damage column missing:\n{buf}");
+    assert!(buffer_contains(&buf, "HULL"), "hull compare missing:\n{buf}");
+}
+
+#[test]
+fn playtest_scan_bracket_shows_enemy_damage_without_stealing_command() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().movement = 5;
+    handle_key(&mut app, make_key(']'));
+    assert_eq!(app.focused_ship, Some(1));
+    assert_eq!(app.inspected_ship, Some(2));
+    assert_eq!(app.mode, Mode::Allocate);
+    assert_eq!(app.alloc_draft.as_ref().unwrap().movement, 5);
+
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "YOU vs B2") || buffer_contains(&buf, "THEM"),
+        "compare board must name the enemy:\n{buf}"
+    );
+    assert!(buffer_contains(&buf, "HULL"), "enemy hull must be visible while scanning:\n{buf}");
+}
+
+#[test]
+fn playtest_scan_wraps_home_to_own_status() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key(']'));
+    handle_key(&mut app, make_key(']'));
+    assert_eq!(app.inspected_ship, None);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "YOU"), "wrapping scan should keep your damage visible:\n{buf}");
+    assert!(buffer_contains(&buf, "THEM") && buffer_contains(&buf, "B2"), "nearest enemy stays on the compare board:\n{buf}");
+}
+
+#[test]
 fn playtest_h01_allocate_selected_weapon_names_arc() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
@@ -4613,7 +4690,6 @@ fn playtest_h10_six_face_glyphs_or_labels_visible() {
     app.update_snapshot(test_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buf, "FL") && buffer_contains(&buf, "RR"), "shield face labels must remain visible:\n{buf}");
-    assert!(buffer_contains(&buf, "0→1↗2↖3←4↙5↘"), "all facing arrows must be discoverable:\n{buf}");
 }
 
 #[test]

@@ -94,7 +94,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
             4
         } else {
             match size.height {
-                0..=31 => 6,
+                0..=24 => 3,
+                25..=31 => 6,
                 32..=39 => 8,
                 _ => 10,
             }
@@ -303,7 +304,7 @@ fn render_confirm_modal(f: &mut Frame, app: &App, area: Rect) {
 fn render_middle(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     let mid = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
     render_map(f, app, snap, mid[0]);
@@ -651,7 +652,13 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             let ship = ships_here
                 .iter()
                 .copied()
-                .max_by_key(|s| (app.focused_ship == Some(s.id), !s.destroyed));
+                .max_by_key(|s| {
+                    (
+                        app.focused_ship == Some(s.id),
+                        app.inspected_ship == Some(s.id),
+                        !s.destroyed,
+                    )
+                });
             let multipin = ships_here.len() > 1;
 
             let is_preview_endpoint = preview_endpoints.iter().any(|(q0, r0)| {
@@ -664,6 +671,7 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             let (text, fg) = if let Some(s) = ship {
                 let cs = callsign(s);
                 let focused = app.focused_ship == Some(s.id);
+                let scanned = app.inspected_ship == Some(s.id);
                 let short_cs: String = cs.chars().take(2).collect();
                 let cell = if s.destroyed {
                     format!("x{}  ", short_cs.chars().next().unwrap_or('?'))
@@ -681,7 +689,7 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                     let arrow = facing_arrow(s.facing);
                     pad_cell(format!("{short_cs}{arrow}"), metrics.cell_width)
                 };
-                (cell, ship_fg(s, focused))
+                (cell, ship_fg(s, focused || scanned))
             } else if is_coast {
                 // Dim shadow of the ship at its planned end hex. The diamond
                 // prefix keeps the destination visually tied to route cells,
@@ -725,6 +733,8 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             }
             if ship.is_some() && app.focused_ship == ship.map(|s| s.id) {
                 style = style.add_modifier(Modifier::BOLD);
+            } else if ship.is_some() && app.inspected_ship == ship.map(|s| s.id) {
+                style = style.add_modifier(Modifier::UNDERLINED);
             }
             spans.push(Span::styled(text, style));
         }
@@ -733,9 +743,9 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A1→ ship · ◇ end · ◇ route · shade=arc"
+        "A1→ ship · ◇ end · shade=arc"
     } else {
-        "A1→ ship/facing · +N stacked · shade=arc"
+        "A1→ ship · +N stack · shade=arc"
     };
     lines.push(Line::from(Span::styled(
         legend,
@@ -756,13 +766,29 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 }
 
 pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title("Ship Status");
+    let you = app.focused();
+    let them = app.scan_target().filter(|enemy| Some(enemy.id) != app.focused_ship);
+    let contacts = app.scan_contacts();
+    let them_index = them.and_then(|enemy| {
+        contacts
+            .iter()
+            .position(|&id| id == enemy.id)
+            .map(|i| i + 1)
+    });
+    let title = match (them, them_index) {
+        (Some(enemy), Some(index)) => format!(
+            " YOU vs {}  {index}/{}  ] next ",
+            callsign(enemy),
+            contacts.len().max(1)
+        ),
+        _ => " YOU vs THEM ".to_string(),
+    };
+    let block = Block::default().borders(Borders::ALL).title(title);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let mut y = inner.y;
     let max_y = inner.y.saturating_add(inner.height);
-
     let push = |f: &mut Frame, y: &mut u16, line: Line<'static>| {
         if *y >= max_y {
             return;
@@ -779,258 +805,168 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
         *y = y.saturating_add(1);
     };
 
-    if let Some(ship) = app.focused() {
-        let cs = callsign(ship);
-        push(
-            f,
-            &mut y,
-            Line::from(vec![
-                Span::styled(
-                    format!(" {cs} "),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(format!("#{} {} size {}", ship.id, ship.class, ship.size)),
-            ]),
-        );
-        push(f, &mut y, {
-            // v4 non-inertial kinematics: position + facing, and during the
-            // movement stage the drafted path cost vs available motion.
-            let mut s = format!(
-                "  @({},{}) face {}{} {} · hull {}",
-                ship.q,
-                ship.r,
-                ship.facing,
-                facing_arrow(ship.facing),
-                facing_name(ship.facing),
-                ship.structure,
-            );
-            if snap.phase == "movement" {
-                let cost = app.path_draft.as_ref().map(|d| d.cost()).unwrap_or(0);
-                s.push_str(&format!("  motion {}/{}", cost, ship.motion_available));
-            }
-            Line::from(s)
-        });
-        // v4: short-fall path resolution notice for the focused ship.
-        if let Some(line) = path_notice_for_focus(app, snap) {
-            push(
-                f,
-                &mut y,
-                Line::from(Span::styled(
-                    format!("  {line}"),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )),
-            );
-        }
+    let you_draft = you
+        .filter(|ship| snap.phase == "allocate" && app.focused_ship == Some(ship.id))
+        .and(app.alloc_draft.as_ref());
+    let left = you.map(|ship| damage_card("YOU", ship, you_draft));
+    let right = them.map(|ship| damage_card("THEM", ship, None));
+    let side_by_side = inner.width >= 34 && left.is_some() && right.is_some();
 
-        // Show the projected final position from the drafted path preview.
-        if let Some(preview) = app.path_preview_for_focus() {
-            push(
-                f,
-                &mut y,
-                Line::from(vec![
-                    Span::styled("  ▶ projected: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(format!(
-                        "({},{}) face={}{}  motion left {}",
-                        preview.final_q,
-                        preview.final_r,
-                        preview.final_facing,
-                        facing_arrow(preview.final_facing),
-                        preview.remaining_motion,
-                    )),
-                ]),
-            );
-            if let Some(err) = &preview.error {
+    match (left, right) {
+        (Some(mut you_card), Some(mut them_card)) if side_by_side => {
+            let rows = you_card.len().max(them_card.len());
+            you_card.resize(rows, String::new());
+            them_card.resize(rows, String::new());
+            let width = (inner.width as usize / 2).max(14);
+            for (you_line, them_line) in you_card.iter().zip(them_card.iter()) {
+                push(
+                    f,
+                    &mut y,
+                    Line::from(vec![
+                        Span::styled(
+                            format!("{you_line:<width$}"),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::styled(them_line.clone(), Style::default().fg(Color::Red)),
+                    ]),
+                );
+            }
+        }
+        (Some(you_card), Some(them_card)) => {
+            for line in &you_card {
                 push(
                     f,
                     &mut y,
                     Line::from(Span::styled(
-                        format!("    illegal: {err}"),
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        line.clone(),
+                        Style::default().fg(Color::Yellow),
                     )),
                 );
             }
+            push(f, &mut y, Line::from("────────"));
+            for line in &them_card {
+                push(
+                    f,
+                    &mut y,
+                    Line::from(Span::styled(line.clone(), Style::default().fg(Color::Red))),
+                );
+            }
         }
-        if ship.cloaked {
-            push(f, &mut y, Line::from("  CLOAKED"));
+        (Some(you_card), None) => {
+            for line in &you_card {
+                push(f, &mut y, Line::from(line.clone()));
+            }
+            push(f, &mut y, Line::from(" THEM — no enemy "));
         }
-        if !ship.systems.is_empty() {
-            let systems: Vec<String> = ship
-                .systems
-                .iter()
-                .map(|system| match system.mk {
-                    Some(mk) => format!("{} mk{mk}", system.kind),
-                    None => system.kind.clone(),
-                })
-                .collect();
-            push(f, &mut y, Line::from(format!("  systems {}", systems.join(" · "))));
-        }
-        if let Some(squad) = ship.squad_id {
-            push(
-                f,
-                &mut y,
-                Line::from(format!(
-                    "  squad {squad} leader={} members={:?}",
-                    ship.squad_leader.unwrap_or(ship.id),
-                    ship.squad_members
-                )),
-            );
-        }
-
-        push(
-            f,
-            &mut y,
-            Line::from(format!(
-                "  alloc {}/{} · 0→1↗2↖3←4↙5↘",
-                ship.power.saturating_sub(ship.power_available),
-                ship.power
-            )),
-        );
-
-        let pending_alloc = if snap.phase == "allocate" {
-            app.alloc_draft.as_ref()
-        } else {
-            None
-        };
-        let target_face = app
-            .fire_draft
-            .as_ref()
-            .and_then(|draft| draft.target)
-            .and_then(|target| snap.ship(target))
-            .map(|target| relative_bearing(ship.facing, ship.q, ship.r, target.q, target.r));
-        let shield_str: Vec<String> = (0..6)
-            .map(|i| {
-                let cap = ship.shield_cap(i);
-                let committed = ship.shields_powered.get(i).copied().unwrap_or(0);
-                let (value, pending) = match pending_alloc {
-                    Some(draft) => {
-                        let value = draft.shields.get(i).copied().unwrap_or(0);
-                        (value, value != committed)
-                    }
-                    None => (ship.shields_remaining.get(i).copied().unwrap_or(0), false),
-                };
-                format!(
-                    "{}:{}/{}{}{}",
-                    shield_label(i as u32),
-                    value,
-                    cap,
-                    if pending { "*" } else { "" }
-                    , if target_face == Some(i as u8) { "^" } else { "" }
-                )
-            })
-            .collect();
-        push(
-            f,
-            &mut y,
-            Line::from(format!("  shields {}", shield_str[..3].join(" "))),
-        );
-        push(
-            f,
-            &mut y,
-            Line::from(format!("          {}", shield_str[3..].join(" "))),
-        );
-        if pending_alloc.is_some() {
-            push(f, &mut y, Line::from("  * = not yet committed"));
-        }
-
-        push(f, &mut y, Line::from("  weapons:"));
-        for w in &ship.weapons {
-            let (charge, pending) = pending_alloc
-                .and_then(|draft| {
-                    draft
-                        .weapons
-                        .iter()
-                        .find(|(id, _)| id == &w.id)
-                        .map(|(_, charge)| (*charge, *charge != w.charge))
-                })
-                .unwrap_or((w.charge, false));
-            let fired = if w.fired { " [fired]" } else { "" };
-            let ammo = match (w.ammo_remaining, w.max_ammo) {
-                (Some(left), Some(max)) => format!(" ammo={left}/{max}"),
-                _ => String::new(),
-            };
-            let quality = match (w.accuracy_bonus, w.damage_bonus) {
-                (0, 0) => String::new(),
-                (acc, 0) => format!(" acc+{acc}"),
-                (0, dmg) => format!(" dmg+{dmg}"),
-                (acc, dmg) => format!(" acc+{acc} dmg+{dmg}"),
-            };
-            let tags = w.tags();
-            let tag = if tags.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", tags.join(","))
-            };
-            let state = if w.operational {
-                format!(
-                    "chg={}/{}{}",
-                    charge,
-                    w.max_charge,
-                    if pending { "*" } else { "" }
-                )
-            } else {
-                "DESTROYED".to_string()
-            };
-            push(
-                f,
-                &mut y,
-                Line::from(format!(
-                    "    {} {} rng≤{} {} {}{}{}{}{}",
-                    w.id,
-                    w.kind,
-                    w.max_range,
-                    weapon_arc_token(w),
-                    state,
-                    ammo,
-                    quality,
-                    tag,
-                    fired
-                )),
-            );
-        }
-    } else {
-        push(f, &mut y, Line::from(" (no ship focused)"));
+        _ => push(f, &mut y, Line::from(" (no ship focused)")),
     }
-
-    push(f, &mut y, Line::from(""));
     push(
         f,
         &mut y,
-        Line::from(Span::styled(
-            " Contacts:",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
+        Line::from("F FR RR R RL FL  0→1↗2↖3←4↙5↘  ] next"),
     );
-    for s in &snap.ships {
-        if s.id == app.focused_ship.unwrap_or(-1) || s.destroyed {
-            continue;
-        }
-        let cs = callsign(s);
-        let dist = if let Some(me) = app.focused() {
-            hex_dist(me.q, me.r, s.q, s.r)
+}
+
+fn damage_card(label: &str, ship: &Ship, draft: Option<&crate::app::AllocDraft>) -> Vec<String> {
+    let shields_now: u32 = if let Some(draft) = draft {
+        draft.shields.iter().copied().sum()
+    } else {
+        ship.shields_remaining.iter().copied().sum()
+    };
+    let shields_cap: u32 = (0..6).map(|face| ship.shield_cap(face)).sum();
+    let pending_shields = draft.is_some_and(|draft| {
+        draft
+            .shields
+            .iter()
+            .enumerate()
+            .any(|(i, value)| *value != ship.shields_remaining.get(i).copied().unwrap_or(0))
+    });
+    let face0 = draft
+        .map(|draft| draft.shields[0])
+        .unwrap_or_else(|| ship.shields_remaining.first().copied().unwrap_or(0));
+    let face0_star = draft.is_some_and(|draft| {
+        draft.shields[0] != ship.shields_remaining.first().copied().unwrap_or(0)
+    });
+    let dead: Vec<&str> = ship
+        .weapons
+        .iter()
+        .filter(|weapon| !weapon.operational)
+        .map(|weapon| weapon.id.as_str())
+        .collect();
+    let live = ship.weapons.len().saturating_sub(dead.len());
+    let gun_line = if dead.is_empty() {
+        format!("guns {live} live")
+    } else {
+        format!("guns {live} live  {} DESTROYED", dead.join(","))
+    };
+    let pending_gun = draft.and_then(|draft| {
+        draft.weapons.first().map(|(id, charge)| {
+            let star = ship
+                .weapons
+                .iter()
+                .find(|weapon| &weapon.id == id)
+                .is_some_and(|weapon| weapon.charge != *charge);
+            (id.clone(), *charge, star)
+        })
+    });
+    let mut lines = vec![
+        format!(
+            "{label} {} {}{}",
+            callsign(ship),
+            facing_arrow(ship.facing),
+            facing_name(ship.facing)
+        ),
+        format!("HULL {}", ship.structure),
+        format!(
+            "shields {shields_now}/{shields_cap}{}",
+            if pending_shields { "*" } else { "" }
+        ),
+        format!(
+            "F {}/{}{}",
+            face0,
+            ship.shield_cap(0),
+            if face0_star { "*" } else { "" }
+        ),
+        format!("engines {}", ship.engine),
+        gun_line,
+    ];
+    if let Some((id, charge, star)) = pending_gun {
+        let max = ship
+            .weapons
+            .iter()
+            .find(|weapon| weapon.id == id)
+            .map(|weapon| weapon.max_charge)
+            .unwrap_or(charge);
+        lines.push(format!(
+            "{id} {} chg={charge}/{max}{}",
+            ship.weapons
+                .iter()
+                .find(|weapon| weapon.id == id)
+                .map(weapon_arc_token)
+                .unwrap_or_default(),
+            if star { "*" } else { "" }
+        ));
+    } else if let Some(weapon) = ship.weapons.first() {
+        if weapon.operational {
+            lines.push(format!(
+                "{} {} chg={}/{}",
+                weapon.id,
+                weapon_arc_token(weapon),
+                weapon.charge,
+                weapon.max_charge
+            ));
         } else {
-            0
-        };
-        push(
-            f,
-            &mut y,
-            Line::from(format!(
-                "  {} #{} {} @({},{}) rng={} face={}{}{}",
-                cs,
-                s.id,
-                s.class,
-                s.q,
-                s.r,
-                dist,
-                s.facing,
-                facing_arrow(s.facing),
-                if s.cloaked { " CLOAKED" } else { "" }
-            )),
-        );
+            lines.push(format!("{} DESTROYED", weapon.id));
+        }
     }
+    if !dead.is_empty() {
+        for id in dead {
+            if !lines.iter().any(|line| line.contains(id) && line.contains("DESTROYED")) {
+                lines.push(format!("{id} DESTROYED"));
+            }
+        }
+    }
+    lines
 }
 
 fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool, area: Rect) {
@@ -1039,7 +975,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             "Overview & Help",
             vec![
                 Line::from(" Esc/Enter return · q quit · a allocate · m move · f fire"),
-                Line::from(" Tab: cycle focus  v: map-focus"),
+                Line::from(" Tab: cycle your ships  [ / ]: scan enemy damage  v: map"),
                 Line::from(" You are the yellow ship; spend power, then move and fire."),
                 Line::from(" Glossary: alloc=committed/total · engine boxes=movement capacity."),
                 Line::from(""),
@@ -1058,7 +994,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                     Line::from("          [w]        [+] zoom in"),
                     Line::from("       [a] [c] [d]    [-] zoom out"),
                     Line::from("          [s]        c: auto-fit"),
-                    Line::from(" [ / ]: inspect ships   v / Esc / Enter: return"),
+                    Line::from(" [ / ]: scan enemy damage   v / Esc / Enter: return"),
                     Line::from(""),
                     Line::from(Span::styled(
                         format!(
@@ -1512,9 +1448,9 @@ fn fire_footer(app: &App) -> String {
 fn movement_footer(app: &App) -> String {
     let has_path = app.path_draft.as_ref().is_some_and(|draft| !draft.is_empty());
     if has_path {
-        "Esc help · Enter commit path → Fire · Space hold → Fire".into()
+        "Esc help · Enter commit path → Fire · Space hold → Fire · ] enemy".into()
     } else {
-        "Esc help · Enter unavailable · Space hold → Fire".into()
+        "Esc help · Enter unavailable · Space hold → Fire · ] enemy".into()
     }
 }
 
@@ -2098,13 +2034,13 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         };
         lines.push(Line::from(Span::styled(
             format!(
-                " {marker} {} {} d={} face={}{} size={}",
+                " {marker} {} {} d={} {} face={}{}",
                 i + 1,
                 callsign(s),
                 dist,
+                contact_damage_bits(s),
                 s.facing,
                 facing_arrow(s.facing),
-                s.size
             ),
             style,
         )));
@@ -2324,7 +2260,7 @@ fn fit_log_cell(text: &str, width: usize, pad: bool) -> String {
     value
 }
 
-fn hex_dist(q1: i32, r1: i32, q2: i32, r2: i32) -> u32 {
+pub(crate) fn hex_dist(q1: i32, r1: i32, q2: i32, r2: i32) -> u32 {
     let dq = (q1 - q2).abs();
     let dr = (r1 - r2).abs();
     let ds = (q1 + r1 - q2 - r2).abs();
@@ -2334,22 +2270,40 @@ fn hex_dist(q1: i32, r1: i32, q2: i32, r2: i32) -> u32 {
 /// Range readout for the map title: axial distance from the focused ship to
 /// the nearest living enemy, formatted as ` · → B2 d=6`. Pure geometry from
 /// snapshot q,r — not a combat rule. Empty string if no focused ship or enemy.
+fn contact_damage_bits(ship: &Ship) -> String {
+    let shields: u32 = ship.shields_remaining.iter().copied().sum();
+    let destroyed = ship
+        .weapons
+        .iter()
+        .filter(|weapon| !weapon.operational)
+        .count();
+    let dest = if destroyed > 0 {
+        format!(" dest{destroyed}")
+    } else {
+        String::new()
+    };
+    format!("hull {} sh {shields}{dest}", ship.structure)
+}
+
 fn focused_range_to_nearest_enemy(app: &App, snap: &Snapshot) -> String {
     let Some(me) = app.focused() else {
         return String::new();
     };
-    let nearest = snap
-        .ships
-        .iter()
-        .filter(|s| s.id != me.id && !s.destroyed && s.controller != me.controller)
-        .min_by_key(|s| hex_dist(me.q, me.r, s.q, s.r));
-    match nearest {
-        Some(enemy) => {
-            let d = hex_dist(me.q, me.r, enemy.q, enemy.r);
-            format!(" · → {} d={}", callsign(enemy), d)
-        }
-        None => String::new(),
-    }
+    let Some(enemy) = app.scan_target().or_else(|| {
+        snap.ships
+            .iter()
+            .filter(|s| s.id != me.id && !s.destroyed && s.controller != me.controller)
+            .min_by_key(|s| hex_dist(me.q, me.r, s.q, s.r))
+    }) else {
+        return String::new();
+    };
+    let d = hex_dist(me.q, me.r, enemy.q, enemy.r);
+    format!(
+        " · → {} d={} {}",
+        callsign(enemy),
+        d,
+        contact_damage_bits(enemy)
+    )
 }
 
 /// Build the map Block title, prioritizing the range readout so it is never
@@ -2697,6 +2651,7 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn path_notice_for_focus(app: &App, snap: &Snapshot) -> Option<String> {
     let id = app.focused()?.id;
     let pr = snap.path_results.iter().find(|r| r.ship == id)?;
