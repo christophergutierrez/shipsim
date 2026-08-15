@@ -5,11 +5,12 @@ import unittest
 from commands import AllocDraft
 
 
-def _ship(*, charge_beam=0, charge_torp=0, power=22):
-    return {
+def _ship(*, charge_beam=0, charge_torp=0, power=22, size=2, repair_cap=None, repair=False):
+    ship = {
         "id": 1,
         "class": "Heavy Cruiser",
         "controller": "player",
+        "size": size,
         "power": power,
         "power_available": power,
         "max_shield_per_facing": 6,
@@ -37,9 +38,32 @@ def _ship(*, charge_beam=0, charge_torp=0, power=22):
             },
         ],
     }
+    if repair:
+        ship["systems"] = [{"kind": "repair"}]
+    if repair_cap is not None:
+        ship["repair_cap"] = repair_cap
+    return ship
 
 
 class CarriedChargeDraftTests(unittest.TestCase):
+    def test_repair_size_four_clamps_to_snapshot_cap(self):
+        d = AllocDraft.from_ship(_ship(size=4, repair_cap=2, repair=True))
+        self.assertTrue(d.set_repair(5))
+        self.assertEqual(2, d.repair)
+        self.assertEqual(2, d.to_order()["repair"])
+        self.assertEqual(4, d.used())
+
+    def test_repair_size_seven_clamps_to_snapshot_cap(self):
+        d = AllocDraft.from_ship(_ship(size=7, repair_cap=3, repair=True))
+        self.assertTrue(d.set_repair(5))
+        self.assertEqual(3, d.repair)
+
+    def test_repair_missing_cap_is_unavailable(self):
+        d = AllocDraft.from_ship(_ship(size=7, repair=True))
+        self.assertFalse(d.set_repair(1))
+        self.assertEqual(0, d.repair)
+        self.assertNotIn("repair", d.to_order())
+
     def test_from_ship_seeds_weapon_bars_from_snapshot_charge(self):
         d = AllocDraft.from_ship(_ship(charge_beam=4, charge_torp=1))
         self.assertEqual(4, d.weapons["beam_1"])

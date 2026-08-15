@@ -509,6 +509,7 @@ class AllocDraft:
     in_squad: bool = False
     cloak: bool = False
     repair: int = 0
+    repair_cap: int = 0
     unsquad: bool = False
     movement_cap: int = 0
     thrust_per_power: int = 0
@@ -574,6 +575,7 @@ class AllocDraft:
             size=int(ship.get("size") or 2),
             has_cloak="cloak" in kinds,
             has_repair="repair" in kinds,
+            repair_cap=int(ship.get("repair_cap") or 0),
             in_squad=ship.get("squad_id") is not None,
             movement_cap=effective_motion_cap(ship),
             thrust_per_power=int(ship.get("thrust_per_power") or 0),
@@ -729,6 +731,20 @@ class AllocDraft:
         if self.unsquad:
             order["unsquad"] = True
         return order
+
+    def set_repair(self, n: int) -> bool:
+        if not self.has_repair:
+            print("  this ship has no repair installed")
+            return False
+        if self.repair_cap <= 0:
+            print("  repair cap unavailable from engine")
+            return False
+        self.repair = max(0, min(int(n), self.repair_cap))
+        print(
+            f"  repair {self.repair} box(es) "
+            f"(cap {self.repair_cap}, 2 power each)"
+        )
+        return True
 
     def set_weapon(self, token: str, n: int) -> bool:
         wid = self.resolve_weapon(token)
@@ -1100,13 +1116,8 @@ def _handle_draft_line(ctx: ReplContext, tokens: list[str]) -> Optional[Action]:
         print(d.summary())
         return Action(side="empty")
     if cmd == "repair":
-        if not d.has_repair:
-            print("  this ship has no repair installed")
-            return Action(side="empty")
-        cap = 2 if d.size >= 5 else 1
         n = int(args[0]) if args and args[0].isdigit() else 1
-        d.repair = max(0, min(n, cap))
-        print(f"  repair {d.repair} box(es) (cap {cap}, 2 power each)")
+        d.set_repair(n)
         print(d.summary())
         return Action(side="empty")
     if cmd == "unsquad":
