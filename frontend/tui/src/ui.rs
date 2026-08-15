@@ -720,7 +720,6 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         legend,
         Style::default().fg(Color::DarkGray),
     )));
-
     // Off-map contacts strip: living non-focused ships outside the viewport.
     // `off_map` is computed in the two-pass metrics block at the top of
     // render_map so the footer row is reserved before the hex grid is laid out.
@@ -1046,21 +1045,39 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
         Mode::Allocate if is_disabled_ship(app) => (
             "Allocate",
             vec![Line::from(Span::styled(
-                " DISABLED — no power; cannot move or fire",
+                format!(
+                    " DISABLED — no power; cannot move or fire{}",
+                    app.input_notice
+                        .as_ref()
+                        .map(|notice| format!(" · {notice}"))
+                        .unwrap_or_default()
+                ),
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             ))],
         ),
         Mode::Movement if is_disabled_ship(app) => (
             "Movement",
             vec![Line::from(Span::styled(
-                " DISABLED — no power; cannot move or fire",
+                format!(
+                    " DISABLED — no power; cannot move or fire{}",
+                    app.input_notice
+                        .as_ref()
+                        .map(|notice| format!(" · {notice}"))
+                        .unwrap_or_default()
+                ),
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             ))],
         ),
         Mode::Fire if is_disabled_ship(app) => (
             "Fire",
             vec![Line::from(Span::styled(
-                " DISABLED — no power; cannot move or fire",
+                format!(
+                    " DISABLED — no power; cannot move or fire{}",
+                    app.input_notice
+                        .as_ref()
+                        .map(|notice| format!(" · {notice}"))
+                        .unwrap_or_default()
+                ),
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             ))],
         ),
@@ -1597,8 +1614,16 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     let mov_selected = draft.cursor == 0;
     lines.push(Line::from(Span::styled(
         format!(
-            "{}Movement: {:>2}/{} pwr (max path {})   ←/→ or m",
+            "{}{}Movement: {:>2}/{} pwr (max path {})   ←/→ or m",
             if mov_selected { "▶ " } else { "  " },
+            if mov_selected {
+                app.input_notice
+                    .as_ref()
+                    .map(|notice| format!("[{notice}] "))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            },
             draft.movement,
             ship.movement_power_cap().unwrap_or(ship.power_available),
             ship.motion_cap()
@@ -1633,6 +1658,12 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         ),
         Style::default().fg(Color::DarkGray),
     )));
+    if let Some(notice) = &app.input_notice {
+        lines.push(Line::from(Span::styled(
+            format!(" Input: {notice}"),
+            Style::default().fg(Color::Yellow),
+        )));
+    }
     for (i, (id, chg)) in draft.weapons.iter().enumerate() {
         let max = ship
             .weapons

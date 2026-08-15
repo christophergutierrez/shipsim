@@ -3213,6 +3213,36 @@ fn tui_m43_resolution_summary_is_one_line_at_floor() {
 }
 
 #[test]
+fn tui_m50_accepted_input_is_visible_near_allocate_fields() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let _ = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "ACCEPTED movement"));
+}
+
+#[test]
+fn tui_m51_clamped_input_names_the_cap() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    for _ in 0..99 {
+        let _ = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    }
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "AT CAP movement"));
+}
+
+#[test]
+fn tui_m52_unavailable_enter_is_named_for_disabled_ship() {
+    let mut app = App::new();
+    app.update_snapshot(disabled_snapshot());
+    let _ = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "UNAVAILABLE"));
+    assert!(buffer_contains(&buf, "Enter unavailable"));
+}
+
+#[test]
 fn playtest_p33_no_midword_status_clip() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());

@@ -357,6 +357,8 @@ pub struct App {
     pub disabled_pass_notice: Option<String>,
     /// One-line explanation of the most recent resolved turn.
     pub resolution_summary: Option<String>,
+    /// Immediate feedback for the most recent allocation/input key.
+    pub input_notice: Option<String>,
     /// Message log lines (for the log panel).
     pub log: Vec<String>,
     /// Active tutorial controller (None in free play).
@@ -406,6 +408,7 @@ impl App {
             disabled_autopass_turn: None,
             disabled_pass_notice: None,
             resolution_summary: None,
+            input_notice: None,
             log: Vec::new(),
             tutorial: None,
             tutorial_order_pending: false,

@@ -21,6 +21,7 @@ pub enum KeyResult {
 
 /// Handle a key event.
 pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
+    app.input_notice = None;
     if let Some(confirmation) = app.confirmation {
         return handle_confirmation(app, confirmation, key);
     }
@@ -132,6 +133,14 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
         app.disabled_autopass = app.focused_ship;
         app.disabled_autopass_turn = app.snap.as_ref().map(|snap| snap.turn);
         app.disabled_pass_notice = None;
+    }
+
+    if key.code == KeyCode::Enter
+        && matches!(app.mode, Mode::Allocate | Mode::Movement | Mode::Fire)
+        && crate::ui::is_disabled_ship(app)
+    {
+        app.input_notice = Some("UNAVAILABLE — disabled ship has no action to commit".into());
+        return KeyResult::Continue;
     }
 
     match app.mode {
@@ -353,6 +362,7 @@ fn handle_confirmation(app: &mut App, confirmation: Confirmation, key: KeyEvent)
 }
 
 fn notice_unknown_key(app: &mut App) {
+    app.input_notice = Some("UNAVAILABLE — use the controls below".into());
     if app
         .log
         .last()
@@ -1085,6 +1095,14 @@ fn set_allocate_field(app: &mut App, value: u32) {
         format!("shield {}", shield_label(face as u32))
     };
     draft.set_field_value(value);
+    let outcome = if requested == value {
+        format!("ACCEPTED {field_name} {value}")
+    } else if requested > value {
+        format!("AT CAP {field_name} {value}/{maximum}")
+    } else {
+        format!("CARRIED {field_name} {value}")
+    };
+    app.input_notice = Some(outcome);
     // Say why a raise was refused. Silently clamping reads as a dead key rather
     // than a limit, which is the same "the UI said nothing" failure as the
     // uncapped ceiling above — just in miniature.
