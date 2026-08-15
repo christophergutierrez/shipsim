@@ -3243,6 +3243,43 @@ fn tui_m52_unavailable_enter_is_named_for_disabled_ship() {
 }
 
 #[test]
+fn tui_m53_phase_footers_name_enter_and_space() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let allocate = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&allocate, "Enter commit power"));
+    assert!(buffer_contains(&allocate, "Space unavailable"));
+
+    let mut movement = test_snapshot();
+    movement.phase = "movement".into();
+    app.update_snapshot(movement);
+    let movement = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&movement, "Enter unavailable"));
+    assert!(buffer_contains(&movement, "Space hold"));
+}
+
+#[test]
+fn tui_m54_engine_loss_is_named_as_movement_cause() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    snap.ships[0].effective_max_maneuver_actions = Some(2);
+    app.update_snapshot(snap);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "engine loss: 2/"));
+}
+
+#[test]
+fn tui_m55_full_engines_have_no_loss_annotation() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(!buffer_contains(&buf, "engine loss:"));
+}
+
+#[test]
 fn tui_m60_map_legend_fits_without_midword_copy() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());

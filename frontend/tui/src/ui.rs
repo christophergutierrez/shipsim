@@ -1226,7 +1226,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     let combat_footer = app.disabled_pass_notice.clone().or_else(|| match app.mode {
         Mode::Allocate if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
         Mode::Movement if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
-        Mode::Allocate => Some("Esc help · Enter commit power → Movement · ↑/↓ field · PgDn shields".to_string()),
+        Mode::Allocate => Some("Esc help · Enter commit power → Movement · Space unavailable · ↑/↓ field · PgDn shields".to_string()),
         Mode::Movement => Some(movement_footer(app)),
         Mode::Fire if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
         Mode::Fire => Some(fire_footer(app)),

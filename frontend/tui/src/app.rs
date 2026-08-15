@@ -1176,13 +1176,19 @@ fn resolution_summary(
     if absorbed > 0 {
         parts.push(format!("shields absorbed {absorbed}"));
     }
+    let cause = current
+        .combat_log
+        .iter()
+        .rev()
+        .find(|event| event.target == id && event.kind == "hit")
+        .map(|event| format!(" from {}", event.weapon));
     for (label, old, new) in [
         ("engines", before.engine, after.engine),
         ("power", before.power_sys, after.power_sys),
         ("bridge", before.bridge, after.bridge),
     ] {
         if new < old {
-            parts.push(format!("{label} {old}→{new}"));
+            parts.push(format!("{label} {old}→{new}{}", cause.as_deref().unwrap_or("")));
         }
     }
     for weapon in &before.weapons {
@@ -1193,7 +1199,11 @@ fn resolution_summary(
                 .find(|candidate| candidate.id == weapon.id)
                 .is_some_and(|candidate| !candidate.operational)
         {
-            parts.push(format!("{} destroyed", weapon.id));
+            parts.push(format!(
+                "{} destroyed{}",
+                weapon.id,
+                cause.as_deref().unwrap_or("")
+            ));
         }
     }
     if parts.is_empty() {
