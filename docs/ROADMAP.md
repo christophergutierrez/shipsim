@@ -1,36 +1,5 @@
-# shipsim Roadmap
+# Roadmap
 
-The current product definition is `docs/PRD.md`; system structure is documented in `docs/ARCHITECTURE.md`. Combat Model v2 (ADR-0020) with the protocol-v4 simplified turn loop (ADR-0025) is the only supported ruleset.
-
-## Shipped MVP
-
-- Turn-start allocation across movement, individual weapons, and six shield facings.
-- Power allocation, simultaneous path resolution, and simultaneous volleys.
-- Automatic three-stage turns: allocate, path, volley (protocol v4).
-- Beam, plasma, and torpedo range/damage profiles with deterministic d20 resolution.
-- Powered shields, SSD hull/internals, destruction victory, multi-ship scenarios, and greedy AI.
-- TOML ship/scenario/campaign loading and an NDJSON CLI harness with soft errors.
-- Protocol-v4 thin clients: REPL (reference), Love2D, and ratatui TUI (Small tier).
-- In-process simulation (`shipsim-sim`) and golden fixtures under `tests/fixtures/v4/`.
-
-The retired impulse, FASA, seeking-munition, inertial four-cycle, and multi-bucket compatibility implementations have been removed. Their design history remains in `docs/adr/`.
-
-## Recommended next work
-
-1. Polish client UX (TUI Medium/Large tiers, Love presentation, combat-log clarity).
-2. Add confidence intervals and parameter sweeps to the simulation runner.
-3. Add stochastic table-verification and tactical-diversity metrics.
-4. Use simulation results to drive manual playthroughs focused on high-value gameplay paths and UI behavior.
-5. Add screenshot capture and deterministic layout checks for the tracked visual rubric.
-6. Add campaign save/resume after campaign state and progression semantics are finalized.
-7. Improve combat-log presentation and replay navigation.
-
-## Later features
-
-- Electronic warfare, overloads, sensors, cloak, and crew quality.
-- More ship and weapon content within the generic-content policy.
-- Campaign persistence, branching campaigns, and campaign UI.
-- Richer critical damage and repair.
-- Network multiplayer.
-
-Keep future rules in the Rust core and treat Love2D as a projection and order-entry client.
+This file is a pointer. The living list of shipped work, open items, and
+recommended next steps is [`TODO.md`](TODO.md). Product definition:
+[`PRD.md`](PRD.md). System structure: [`ARCHITECTURE.md`](ARCHITECTURE.md).

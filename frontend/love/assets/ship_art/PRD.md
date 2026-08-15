@@ -1,6 +1,7 @@
 # PRD: Love2D Ship Art Production and Runtime System
 
-Status: Draft for spec audit
+Status: Draft for spec audit. Runtime contract:
+[`README.md`](README.md) in this directory (not `docs/`).
 Source: Reviewed synthesis of the completed Ship Image System creation plan
 
 ## Problem Statement

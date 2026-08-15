@@ -128,3 +128,51 @@ fn no_date_stamped_working_files_are_tracked() {
         stamped.join("\n  ")
     );
 }
+
+/// Durable directories must not accumulate ephemeral scratch, **tracked or not**.
+///
+/// The tracked-file checks above have a blind spot: an untracked working
+/// document can sit in `docs/` indefinitely and no git-based check will see it.
+/// That is exactly how a stale `docs/HANDOFF.md` survived — untracked, ignored
+/// by the guard, and still the first thing a reader saw in the directory.
+/// `docs/` is where durable material lives; scratch belongs under `tmp/`.
+#[test]
+fn durable_directories_contain_no_ephemeral_scratch() {
+    fn walk(dir: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                if let Ok(rel) = path.strip_prefix(repo_root()) {
+                    out.push(rel.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+    }
+
+    let mut found = Vec::new();
+    walk(&repo_root().join("docs"), &mut found);
+
+    let offenders: Vec<_> = found
+        .into_iter()
+        .filter(|p| !allowlisted(p))
+        .filter(|p| {
+            let upper = p.to_uppercase();
+            let name = upper.rsplit('/').next().unwrap_or(&upper).to_string();
+            EPHEMERAL_MARKERS.iter().any(|m| name.contains(*m))
+        })
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "Ephemeral scratch is sitting in a durable directory:\n  {}\n\n\
+         These may be untracked, which is why the git-based checks do not see \
+         them. `docs/` is for durable material; move working files to `tmp/`.\n\
+         Policy: docs/DOC-LIFECYCLE.md",
+        offenders.join("\n  ")
+    );
+}

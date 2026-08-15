@@ -1,5 +1,8 @@
 # Ship art assets (Love2D runtime)
 
+Authoring / production rationale: [`PRD.md`](PRD.md). This file is the
+runtime contract.
+
 ## How a ship TOML gets an image
 
 The engine never loads art. Association is by **catalog key**:

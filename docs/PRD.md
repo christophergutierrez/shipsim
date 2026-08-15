@@ -108,4 +108,4 @@ clients, and in-process simulation (`shipsim-sim`).
 - Play guide: `docs/PLAY-V2.md`
 - Working combat constants: `docs/combat-v2-tables.md`
 - Protocol: `docs/PROTOCOL.md`
-- Deferred work: `docs/ROADMAP.md`
+- Deferred work: `docs/TODO.md`

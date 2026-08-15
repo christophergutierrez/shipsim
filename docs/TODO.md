@@ -51,6 +51,23 @@ and are not tracked; see `docs/DOC-LIFECYCLE.md`.
   stale 1/2 size split and must consume snapshot `repair_cap`; neither TUI
   plan claims those clients are fixed.
 
+**Recommended next (product, not a second list):**
+
+1. Polish client UX (TUI Medium/Large tiers, Love presentation, combat-log
+   clarity and replay navigation).
+2. Add confidence intervals and parameter sweeps to the simulation runner.
+3. Add stochastic table-verification and tactical-diversity metrics.
+4. Use simulation results to drive manual playthroughs of high-value paths
+   and UI behavior.
+5. Add screenshot capture and deterministic layout checks for
+   [`UI-RUBRIC.md`](UI-RUBRIC.md).
+6. Add campaign save/resume after campaign semantics are finalized
+   ([`SAVE-FORMAT.md`](SAVE-FORMAT.md)).
+
+**Later (not current work):** electronic warfare / sensors / crew quality;
+more catalog content; campaign persistence and UI; richer crits and repair;
+network multiplayer. Keep new rules in the Rust core.
+
 ### Size ladder (accepted catalog)
 
 | `size` | Name | FASA Class map |

@@ -156,6 +156,8 @@ Clients never reimplement combat. Wire format: [`docs/PROTOCOL.md`](docs/PROTOCO
 
 ## Documentation map
 
+Index: [`docs/README.md`](docs/README.md).
+
 | Doc | Role |
 |---|---|
 | [`docs/AGENT-PLAY.md`](docs/AGENT-PLAY.md) | UI / API / sim play procedures (agents) |

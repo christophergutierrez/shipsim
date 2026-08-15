@@ -1,6 +1,9 @@
-# Gameplay Rubrics
+# Simulation rubrics
 
-Gameplay rubrics are TOML specifications evaluated against aggregate simulation metrics. They convert selected design expectations into reproducible red/green checks.
+Sim-suite TOML checks (`simulation/rubrics/`), **not** the screen-judgment
+rubric in [`UI-RUBRIC.md`](UI-RUBRIC.md).
+
+These rubrics are evaluated against aggregate simulation metrics. They convert selected design expectations into reproducible red/green checks.
 
 ## Supported checks
 

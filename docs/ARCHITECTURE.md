@@ -151,7 +151,7 @@ PRNG checkpoint; see `docs/SAVE-FORMAT.md`.
 
 Architecture decisions and supersession history live in `docs/adr/`.
 
-Gameplay simulation uses validated production orders as defined by ADR-0026. See `docs/SIMULATION.md` and `docs/GAMEPLAY-RUBRICS.md`.
+Gameplay simulation uses validated production orders as defined by ADR-0026. See `docs/SIMULATION.md` and `docs/SIM-RUBRICS.md`.
 
 Combat values: `data/rules/default.toml`; interpretation: `docs/combat-v2-tables.md`.
 Rules ownership and fingerprinting: ADR-0024. Play guide: `docs/PLAY-V2.md`.

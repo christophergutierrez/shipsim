@@ -29,7 +29,7 @@ A second, sharper form for the ambiguous cases:
 | Reference tables | `docs/combat-v2-tables.md`, `docs/SIZE-VARIANTS.md` |
 | Rubrics & protocols | `docs/UI-RUBRIC.md`, `docs/UI-PLAYTEST-PROTOCOL.md`, `docs/BALANCE-PROTOCOL.md` |
 | How to use / run | `README.md`, `AGENTS.md`, `docs/AGENT-PLAY.md`, per-client `README.md` |
-| Living status | `docs/TODO.md`, `docs/ROADMAP.md` — durable *because* they are maintained |
+| Living status | `docs/TODO.md` — durable *because* it is maintained (`docs/ROADMAP.md` is a pointer) |
 | Deliberate archives | `docs/history/*` — explicitly labelled historical records |
 
 ## Ephemeral — do not track
@@ -75,9 +75,17 @@ git grep -l "THE-DOC.md" -- '*.md' '*.rs' '*.py' '*.lua'
 
 ## The check
 
-`tests/doc_lifecycle.rs` fails if an ephemeral-looking file is tracked. It reads
-patterns from this file's spirit, with a small allowlist for durable files whose
-names would otherwise trip it (e.g. `docs/history/*`).
+`tests/doc_lifecycle.rs` enforces this in three ways:
+
+1. **Tracked ephemeral docs** — a plan/handoff/review/log/etc. committed to git.
+2. **Date-stamped working files** — `-YYYYMMDD` in the name.
+3. **Ephemeral scratch in a durable directory, tracked or not** — an untracked
+   working file can sit in `docs/` forever and no git-based check will see it.
+   That is how a stale `docs/HANDOFF.md` survived the first cleanup pass:
+   untracked, invisible to the guard, and still the first thing a reader saw.
+
+There is a small allowlist for durable files whose names would otherwise trip a
+marker (e.g. `docs/history/*`).
 
 Run it with the normal suite:
 

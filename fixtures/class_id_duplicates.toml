@@ -2,7 +2,8 @@
 # side by side. Both `yard_swarm` and `tutorial_escort` display "Escort"; both
 # `yard_heavy_cruiser` and `tutorial_heavy_cruiser` display "Heavy Cruiser". The
 # snapshot must emit distinct `class_id` values so presentation clients never
-# confuse the two. See docs/SHIP-ART-IMPLEMENTATION-PLAN.md Phase 1.
+# confuse the two. See docs/PROTOCOL.md (snapshot `class_id`) and
+# frontend/love/assets/ship_art/README.md.
 width = 10
 height = 10
 map_mode = "hard"

@@ -9,7 +9,8 @@ Play-type overview (UI / API / sim): `docs/AGENT-PLAY.md`. This file is the
 sim-play reference.
 
 `shipsim-sim` exists to make gameplay claims measurable and reproducible.
-Policy boundary decision: ADR-0026.
+Policy boundary decision: ADR-0026. Suite threshold language:
+[`SIM-RUBRICS.md`](SIM-RUBRICS.md) (not [`UI-RUBRIC.md`](UI-RUBRIC.md)).
 
 For balance work, read [`BALANCE.md`](BALANCE.md) for current claim status and
 [`BALANCE-PROTOCOL.md`](BALANCE-PROTOCOL.md) before choosing seeds or changing a

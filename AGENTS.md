@@ -48,9 +48,10 @@ API” means drive the NDJSON harness without claiming that as UI coverage.
 
 | Need | Doc |
 |---|---|
+| **Doc index** | [`docs/README.md`](docs/README.md) |
 | **Play types & how-to** | [`docs/AGENT-PLAY.md`](docs/AGENT-PLAY.md) |
 | External API | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
-| Batch simulation | [`docs/SIMULATION.md`](docs/SIMULATION.md) |
+| Batch simulation | [`docs/SIMULATION.md`](docs/SIMULATION.md), [`docs/SIM-RUBRICS.md`](docs/SIM-RUBRICS.md) |
 | Balance status & claims | [`docs/BALANCE.md`](docs/BALANCE.md) |
 | Balance tuning protocol | [`docs/BALANCE-PROTOCOL.md`](docs/BALANCE-PROTOCOL.md) |
 | System boundaries | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
