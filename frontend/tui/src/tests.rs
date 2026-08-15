@@ -931,13 +931,13 @@ fn header_phase_cta_replaces_actions_remain() {
 }
 
 #[test]
-fn ship_status_shows_profile_not_size() {
+fn ship_status_shows_size_without_midword_profile_clip() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     let buf = render_to_string(&mut app, 100, 30);
     assert!(
-        buffer_contains(&buf, "profile="),
-        "ship panel should say profile= (silhouette), not bare size="
+        buffer_contains(&buf, "size 2"),
+        "ship panel should expose the compact size token"
     );
 }
 
@@ -947,7 +947,7 @@ fn map_title_uses_hex_per_cell_not_z_notation() {
     app.update_snapshot(distant_enemy_snapshot());
     app.mode = Mode::Map;
     let buf = render_to_string(&mut app, 100, 30);
-    let title = buf.lines().find(|l| l.contains("Map")).unwrap_or("");
+    let title = buf.lines().find(|l| l.contains("View origin")).unwrap_or("");
     assert!(
         !title.contains("z="),
         "map title must not show internal z=; got {title}"
@@ -2777,8 +2777,8 @@ fn map_multipin_marks_stacked_ships_at_coarse_zoom() {
     app.map_zoom = Some(0);
     let buf = render_to_string(&mut app, 100, 40);
     assert!(
-        buf.lines().any(|l| l.contains("+1")),
-        "two ships in one cell should show multipin +N; got:
+        buf.lines().any(|l| l.contains("A1+B2")),
+        "two ships in one cell should name both occupants; got:
 {buf}"
     );
 }
@@ -2990,6 +2990,96 @@ fn playtest_p32_game_over_names_enter_and_q() {
     let buf = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buf, "Enter dismiss"));
     assert!(buffer_contains(&buf, "q quit"));
+}
+
+#[test]
+fn playtest_p33_no_midword_status_clip() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(!buffer_contains(&buf, "structure boxe"));
+    assert!(!buffer_contains(&buf, "profile="));
+}
+
+#[test]
+fn playtest_p34_cta_not_space_p() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    for weapon in &mut snap.ships[0].weapons {
+        weapon.charge = 0;
+    }
+    app.update_snapshot(snap);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(!buf.lines().any(|line| line.trim_end().ends_with("Space p")));
+}
+
+#[test]
+fn playtest_p35_map_origin_not_ship_coords() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Map;
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "View origin") || !buffer_contains(&buf, "Map @("));
+}
+
+#[test]
+fn playtest_p36_stack_names_occupants() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[1].q = snap.ships[0].q;
+    snap.ships[1].r = snap.ships[0].r;
+    app.update_snapshot(snap);
+    app.mode = Mode::Map;
+    let buf = render_to_string(&mut app, 100, 40);
+    assert!(buffer_contains(&buf, "A1+B2"));
+}
+
+#[test]
+fn playtest_p37_combat_legend_or_plain_words() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "sh=shields") || buffer_contains(&buf, "shield"));
+    assert!(buffer_contains(&buf, "int=hull") || buffer_contains(&buf, "hull"));
+}
+
+#[test]
+fn playtest_p38_movement_keys_survive_long_path() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    app.mode = Mode::Movement;
+    for _ in 0..4 {
+        handle_key(&mut app, make_key('w'));
+    }
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "forward") || buffer_contains(&buf, "w/↑"));
+}
+
+#[test]
+fn playtest_p39_unknown_key_rate_limited() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    for _ in 0..5 {
+        handle_key(&mut app, make_key('r'));
+    }
+    assert!(app.log.iter().filter(|line| line.contains("Unknown key")).count() <= 2);
+}
+
+#[test]
+fn playtest_p40_clamp_notice_rate_limited() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    for _ in 0..10 {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Right));
+    }
+    assert!(app.log.iter().filter(|line| line.contains("capped")).count() <= 1);
+}
+
+#[test]
+fn playtest_p41_no_tty_message() {
+    assert!(crate::no_tty_message().contains("PTY"));
 }
 
 #[test]

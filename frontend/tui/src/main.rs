@@ -14,6 +14,7 @@ mod ui;
 mod yard;
 
 use std::path::PathBuf;
+use std::io::IsTerminal;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{self, Event};
@@ -29,6 +30,10 @@ use harness::{EngineLine, Harness};
 use input::{handle_key, KeyResult};
 
 fn main() -> std::io::Result<()> {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        eprintln!("{}", no_tty_message());
+        std::process::exit(1);
+    }
     // Parse args: --tutorial / --yard, then optional scenario path.
     let args: Vec<String> = std::env::args().skip(1).collect();
     let tutorial_mode = args.iter().any(|a| a == "--tutorial");
@@ -114,6 +119,10 @@ fn main() -> std::io::Result<()> {
     }
 
     result
+}
+
+pub(crate) fn no_tty_message() -> &'static str {
+    "shipsim TUI needs an interactive terminal (a PTY)."
 }
 
 fn run_yard() -> std::io::Result<()> {

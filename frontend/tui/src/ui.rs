@@ -647,9 +647,14 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 let cell = if s.destroyed {
                     format!("x{}  ", short_cs.chars().next().unwrap_or('?'))
                 } else if multipin {
-                    // Coarse zoom can pack distinct ships into one cell — mark it.
-                    let extra = ships_here.len().saturating_sub(1);
-                    pad_cell(format!("{short_cs}+{extra}"), metrics.cell_width)
+                    // Coarse zoom can pack distinct ships into one cell — name
+                    // the occupants so a count is never unexplained.
+                    let occupants = ships_here
+                        .iter()
+                        .map(|other| callsign(other))
+                        .collect::<Vec<_>>()
+                        .join("+");
+                    pad_cell(occupants, metrics.cell_width)
                 } else {
                     // v4 is non-inertial: callsign + facing arrow only.
                     let arrow = facing_arrow(s.facing);
@@ -766,7 +771,7 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(format!("#{} {} profile={}", ship.id, ship.class, ship.size)),
+                Span::raw(format!("#{} {} size {}", ship.id, ship.class, ship.size)),
             ]),
         );
         push(f, &mut y, {
@@ -831,7 +836,7 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
             f,
             &mut y,
             Line::from(format!(
-                "  hull {}  (current structure boxes){}",
+                "  hull {}{}",
                 ship.structure,
                 if ship.cloaked { "  CLOAKED" } else { "" }
             )),
@@ -1544,7 +1549,7 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     // max. The protocol does not carry max structure, so `N/N` would lie.
     let mut lines = vec![Line::from(Span::styled(
         format!(
-            " hull {}  (structure boxes){}",
+            " hull {}{}",
             ship.structure,
             if ship.cloaked { "  CLOAKED" } else { "" }
         ),
@@ -1973,7 +1978,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         };
         lines.push(Line::from(Span::styled(
             format!(
-                " {marker} {} {} d={} face={}{} profile={}",
+                " {marker} {} {} d={} face={}{} size={}",
                 i + 1,
                 callsign(s),
                 dist,
@@ -2084,9 +2089,9 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 fn render_events_log(f: &mut Frame, app: &App, area: Rect) {
     let live_volley = !app.recent_events.is_empty();
     let title = if live_volley {
-        format!("Combat Log · volley {}", app.recent_events.len())
+        format!("Combat Log · volley {} · sh=shields", app.recent_events.len())
     } else {
-        "Combat Log".to_string()
+        "Combat Log · sh=shields · int=hull".to_string()
     };
     let event_block = Block::default().borders(Borders::ALL).title(title);
     // Prefer the current volley (recent_events) in chronological order so a
@@ -2257,7 +2262,7 @@ fn build_map_title(
     let budget = max_width.saturating_sub(2).max(12);
 
     // Fable Phase 5: no internal z=N — only hex/cell (and zoom:auto when manual unset is implied by scale).
-    let base = format!("Map @({oq},{or_})");
+    let base = format!("View origin ({oq},{or_})");
     let scale_part = if scale > 1 {
         format!(" · {scale} hex/cell")
     } else {
@@ -2555,7 +2560,7 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
                     format!("{active} active; Tab>{attacker} {w}>{tgt}")
                 }
             } else {
-                "No legal shot; Space passes fire".into()
+                "No legal shot · Space pass".into()
             }
         }
         "turn_end" => "Turn complete; e".into(),

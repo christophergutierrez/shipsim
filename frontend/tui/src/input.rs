@@ -348,7 +348,26 @@ fn handle_confirmation(app: &mut App, confirmation: Confirmation, key: KeyEvent)
             app.log("cancelled");
             KeyResult::Continue
         }
-        _ => KeyResult::Continue,
+        _ => {
+            notice_unknown_key(app);
+            KeyResult::Continue
+        },
+    }
+}
+
+fn notice_unknown_key(app: &mut App) {
+    if app
+        .log
+        .last()
+        .is_none_or(|line| line != "Unknown key — use the controls below")
+    {
+        app.log("Unknown key — use the controls below");
+    }
+}
+
+fn log_once(app: &mut App, message: String) {
+    if app.log.last() != Some(&message) {
+        app.log(message);
     }
 }
 
@@ -663,7 +682,10 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
             }
             KeyResult::Continue
         }
-        _ => KeyResult::Continue,
+        _ => {
+            notice_unknown_key(app);
+            KeyResult::Continue
+        },
     }
 }
 
@@ -734,7 +756,10 @@ fn handle_map(app: &mut App, key: KeyEvent) -> KeyResult {
             app.exit_map_mode();
             KeyResult::Continue
         }
-        _ => KeyResult::Continue,
+        _ => {
+            notice_unknown_key(app);
+            KeyResult::Continue
+        },
     }
 }
 
@@ -992,7 +1017,10 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             }
             KeyResult::Continue
         }
-        _ => KeyResult::Continue,
+        _ => {
+            notice_unknown_key(app);
+            KeyResult::Continue
+        },
     }
 }
 
@@ -1050,14 +1078,14 @@ fn set_allocate_field(app: &mut App, value: u32) {
     if requested != value {
         if on_movement && requested > value {
             let cap = ship.motion_cap();
-            app.log(format!(
+            log_once(app, format!(
                 "movement capped at {value} power — this hull converts at most {cap} motion points; \
                  extra power would be lost, not banked"
             ));
         } else if requested > value {
-            app.log(format!("{field_name} capped at {value}"));
+            log_once(app, format!("{field_name} capped at {value}"));
         } else if cursor <= draft.weapons.len() && requested < value {
-            app.log(format!("{field_name} carries {value}; carried charge cannot be removed"));
+            log_once(app, format!("{field_name} carries {value}; carried charge cannot be removed"));
         }
     }
 }
@@ -1256,7 +1284,10 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
             }
             commit_path(app)
         }
-        _ => KeyResult::Continue,
+        _ => {
+            notice_unknown_key(app);
+            KeyResult::Continue
+        },
     }
 }
 
@@ -1678,7 +1709,10 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
             }
             KeyResult::Continue
         }
-        _ => KeyResult::Continue,
+        _ => {
+            notice_unknown_key(app);
+            KeyResult::Continue
+        },
     }
 }
 
