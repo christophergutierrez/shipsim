@@ -355,6 +355,8 @@ pub struct App {
     pub disabled_autopass_turn: Option<u32>,
     /// Receipt shown after a bounded disabled-ship pass completes.
     pub disabled_pass_notice: Option<String>,
+    /// One-line explanation of the most recent resolved turn.
+    pub resolution_summary: Option<String>,
     /// Message log lines (for the log panel).
     pub log: Vec<String>,
     /// Active tutorial controller (None in free play).
@@ -403,6 +405,7 @@ impl App {
             disabled_autopass: None,
             disabled_autopass_turn: None,
             disabled_pass_notice: None,
+            resolution_summary: None,
             log: Vec::new(),
             tutorial: None,
             tutorial_order_pending: false,
@@ -423,6 +426,17 @@ impl App {
 
     /// Called when a new snapshot arrives from the engine.
     pub fn update_snapshot(&mut self, snap: Snapshot) {
+        if let Some(previous) = self.snap.as_ref() {
+            if previous.turn != snap.turn
+                || (previous.phase == "firing" && snap.phase == "allocate")
+            {
+                self.resolution_summary = resolution_summary(
+                    previous,
+                    &snap,
+                    self.focused_ship.or_else(|| previous.player_ship().map(|s| s.id)),
+                );
+            }
+        }
         if self
             .disabled_autopass_turn
             .is_some_and(|start_turn| start_turn != snap.turn)
@@ -1019,6 +1033,10 @@ impl App {
         self.disabled_autopass_turn = None;
     }
 
+    pub fn clear_resolution_summary(&mut self) {
+        self.resolution_summary = None;
+    }
+
     /// Open (or resume) the path editor for the focused ship.
     pub fn open_movement_for_focus(&mut self) {
         let Some(ship_id) = self.focused_ship else {
@@ -1131,6 +1149,54 @@ impl App {
         let max_r = points.iter().map(|(_, r)| *r).max()?;
         Some((min_q, max_q, min_r, max_r))
     }
+}
+
+fn resolution_summary(
+    previous: &protocol::Snapshot,
+    current: &protocol::Snapshot,
+    focused_ship: Option<i64>,
+) -> Option<String> {
+    let id = focused_ship.or_else(|| previous.player_ship().map(|ship| ship.id))?;
+    let before = previous.ship(id)?;
+    let after = current.ship(id)?;
+    let mut parts = Vec::new();
+
+    if before.structure != after.structure {
+        parts.push(format!("hull {}→{}", before.structure, after.structure));
+    }
+    let absorbed: u32 = current
+        .combat_log
+        .iter()
+        .filter(|event| event.target == id)
+        .map(|event| event.shield_absorbed)
+        .sum();
+    if absorbed > 0 {
+        parts.push(format!("shields absorbed {absorbed}"));
+    }
+    for (label, old, new) in [
+        ("engines", before.engine, after.engine),
+        ("power", before.power_sys, after.power_sys),
+        ("bridge", before.bridge, after.bridge),
+    ] {
+        if new < old {
+            parts.push(format!("{label} {old}→{new}"));
+        }
+    }
+    for weapon in &before.weapons {
+        if weapon.operational
+            && after
+                .weapons
+                .iter()
+                .find(|candidate| candidate.id == weapon.id)
+                .is_some_and(|candidate| !candidate.operational)
+        {
+            parts.push(format!("{} destroyed", weapon.id));
+        }
+    }
+    if parts.is_empty() {
+        parts.push("no hull or system losses".to_string());
+    }
+    Some(format!("Turn {} resolved: {}", current.turn, parts.join(" · ")))
 }
 
 /// Human-readable short-fall path line for the session log / ship panel.

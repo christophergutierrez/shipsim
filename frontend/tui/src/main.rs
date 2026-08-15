@@ -227,6 +227,7 @@ fn run(
         match handle_key(app, key) {
             KeyResult::Quit => return Ok(()),
             KeyResult::SendOrder(order) => {
+                app.clear_resolution_summary();
                 let json = order.to_json();
                 if let Err(e) = harness.send(&json) {
                     app.log(format!("send error: {e}"));

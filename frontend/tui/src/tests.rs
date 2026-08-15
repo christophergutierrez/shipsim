@@ -3142,6 +3142,77 @@ fn tui_m35_game_over_q_is_not_inert() {
 }
 
 #[test]
+fn tui_m40_resolution_summary_names_hull_and_shield_change() {
+    let mut app = App::new();
+    let before = test_snapshot();
+    app.update_snapshot(before.clone());
+    let mut after = before;
+    after.turn = 2;
+    after.ships[0].structure = 9;
+    after.combat_log.push(crate::protocol::CombatEvent {
+        attacker: 2,
+        target: 1,
+        weapon: "beam_1".into(),
+        shield: 0,
+        damage: 3,
+        shield_absorbed: 2,
+        hull_damage: 1,
+        kind: "hit".into(),
+        roll: Some(5),
+        packet: None,
+        vs_weapon: None,
+    });
+    app.update_snapshot(after);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Result: Turn 2 resolved"));
+    assert!(buffer_contains(&buf, "hull 12→9"));
+    assert!(buffer_contains(&buf, "shields absorbed 2"));
+}
+
+#[test]
+fn tui_m41_resolution_summary_names_lost_system_and_weapon() {
+    let mut app = App::new();
+    let before = test_snapshot();
+    app.update_snapshot(before.clone());
+    let mut after = before;
+    after.turn = 2;
+    after.ships[0].engine = 2;
+    after.ships[0].weapons[0].operational = false;
+    app.update_snapshot(after);
+    assert!(app
+        .resolution_summary
+        .as_deref()
+        .is_some_and(|summary| summary.contains("engines 4→2") && summary.contains("beam_1 destroyed")));
+}
+
+#[test]
+fn tui_m42_resolution_summary_clears_when_order_is_sent() {
+    let mut app = App::new();
+    app.resolution_summary = Some("Turn 2 resolved: hull 12→9".into());
+    app.clear_resolution_summary();
+    assert_eq!(app.resolution_summary, None);
+}
+
+#[test]
+fn tui_m43_resolution_summary_is_one_line_at_floor() {
+    let mut app = App::new();
+    let before = test_snapshot();
+    app.update_snapshot(before.clone());
+    let mut after = before;
+    after.turn = 2;
+    after.ships[0].structure = 9;
+    app.update_snapshot(after);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Result: Turn 2 resolved"));
+    assert_eq!(
+        buf.lines()
+            .filter(|line| line.contains("Result: Turn 2 resolved"))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn playtest_p33_no_midword_status_clip() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());

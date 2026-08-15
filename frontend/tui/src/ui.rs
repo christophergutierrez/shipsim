@@ -1557,6 +1557,12 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         ),
         Style::default().fg(Color::DarkGray),
     ))];
+    if let Some(summary) = &app.resolution_summary {
+        lines.push(Line::from(Span::styled(
+            format!(" Result: {summary}"),
+            Style::default().fg(Color::Yellow),
+        )));
+    }
     if ship.has_system("cloak") || ship.has_system("repair") || ship.squad_id.is_some() {
         let mut system_bits = Vec::new();
         if ship.has_system("cloak") {
