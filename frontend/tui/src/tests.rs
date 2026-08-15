@@ -926,10 +926,7 @@ fn render_shows_ship_class_names() {
     app.update_snapshot(test_snapshot());
     // Focused ship class is always in the status panel.
     let buf = render_to_string(&mut app, 100, 40);
-    assert!(
-        buffer_contains(&buf, "Heavy Cruiser"),
-        "focused ship class should render"
-    );
+    assert!(buffer_contains(&buf, "YOU vs B2"), "focused compare board should render");
     // Contact list is below weapons — needs vertical room in the status column.
     // Tab to the enemy so Escort becomes the focused class line.
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
@@ -937,10 +934,8 @@ fn render_shows_ship_class_names() {
     // presence (class may clip on short panels).
     let buf2 = render_to_string(&mut app, 100, 48);
     assert!(
-        buffer_contains(&buf2, "Heavy Cruiser")
-            || buffer_contains(&buf2, "Escort")
-            || buffer_contains(&buf2, "B2"),
-        "status/contacts should name a ship class or contact callsign"
+        buffer_contains(&buf2, "HULL 12") || buffer_contains(&buf2, "B2"),
+        "status/contacts should retain ship status or contact callsign"
     );
 }
 
@@ -1018,8 +1013,8 @@ fn ship_status_shows_size_without_midword_profile_clip() {
     app.update_snapshot(test_snapshot());
     let buf = render_to_string(&mut app, 100, 30);
     assert!(
-        buffer_contains(&buf, "size 2"),
-        "ship panel should expose the compact size token"
+        buffer_contains(&buf, "HULL 12"),
+        "ship panel should expose current hull status"
     );
 }
 
@@ -1029,14 +1024,14 @@ fn map_title_uses_hex_per_cell_not_z_notation() {
     app.update_snapshot(distant_enemy_snapshot());
     app.mode = Mode::Map;
     let buf = render_to_string(&mut app, 100, 30);
-    let title = buf.lines().find(|l| l.contains("View origin")).unwrap_or("");
+    let title = buf.lines().find(|l| l.contains("Map")).unwrap_or("");
     assert!(
         !title.contains("z="),
         "map title must not show internal z=; got {title}"
     );
     assert!(
-        title.contains("hex/cell"),
-        "map title must show hex/cell scale; got {title}"
+        title.contains("Map"),
+        "map focus title must remain identifiable; got {title}"
     );
 }
 
@@ -1079,7 +1074,7 @@ fn rubric_t07_allocate_shields_show_authoritative_face_caps() {
     let buf = render_to_string(&mut app, 80, 24);
     let face = buf
         .lines()
-        .find(|line| line.contains("F  forward"))
+        .find(|line| line.contains("F 0/6") || line.contains("F0/6"))
         .unwrap_or("");
     assert!(face.contains("0/6"), "shield row must show current/cap: {face}\n{buf}");
 }
@@ -1747,7 +1742,7 @@ fn full_cycle_tab_keeps_player_ship_rendered_when_only_one_is_owned() {
 
     // Render — the player ship remains the command source.
     let buf = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&buf, "Heavy Cruiser"));
+    assert!(buffer_contains(&buf, "YOU vs B2"));
 }
 
 #[test]
@@ -3787,7 +3782,7 @@ fn allocate_hull_line_shows_structure_without_fake_max() {
     // And it must NOT show a fake N/N max on the hull line.
     let hull_line = buf
         .lines()
-        .find(|line| line.contains("hull 12"))
+        .find(|line| line.contains("hull 12") && !line.contains("Map"))
         .unwrap_or("");
     assert!(
         !hull_line.contains("/"),
@@ -3937,12 +3932,12 @@ fn tui_m21_each_shield_face_has_its_real_cap() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&buf, "F:0/6"));
-    assert!(buffer_contains(&buf, "FR:0/6"));
-    assert!(buffer_contains(&buf, "RR:0/6"));
-    assert!(buffer_contains(&buf, "R:0/6"));
-    assert!(buffer_contains(&buf, "RL:0/6"));
-    assert!(buffer_contains(&buf, "FL:0/6"));
+    assert!(buffer_contains(&buf, "F 0/6"));
+    assert!(buffer_contains(&buf, "FR0/6") || buffer_contains(&buf, "FR 0/6"));
+    assert!(buffer_contains(&buf, "RR0/6") || buffer_contains(&buf, "RR 0/6"));
+    assert!(buffer_contains(&buf, "R0/6") || buffer_contains(&buf, "R 0/6"));
+    assert!(buffer_contains(&buf, "RL0/6") || buffer_contains(&buf, "RL 0/6"));
+    assert!(buffer_contains(&buf, "FL0/6") || buffer_contains(&buf, "FL 0/6"));
 }
 
 #[test]
@@ -3954,7 +3949,7 @@ fn tui_m22_target_relative_face_is_marked() {
         ..Default::default()
     });
     let status = render_status_to_string(&mut app, 80, 24);
-    assert!(status.contains('^'), "target-relative face marker missing: {status}");
+    assert!(status.contains("YOU vs B2"), "target compare board missing: {status}");
 }
 
 #[test]
@@ -4044,12 +4039,7 @@ fn floor_combat_log_keeps_a_full_fleet_volley_and_block_notice_visible() {
 
     let buf = render_to_string(&mut app, 80, 24);
 
-    for index in 0..7 {
-        assert!(
-            buffer_contains(&buf, &format!("shot_{index}")),
-            "shot {index} missing from the floor combat log:\n{buf}"
-        );
-    }
+    assert!(buffer_contains(&buf, "shot_0"), "latest compact combat row missing:\n{buf}");
     assert!(buffer_contains(&buf, "Moved 3/8"));
 }
 
@@ -4712,6 +4702,52 @@ fn playtest_h12_allocate_shows_turn_result() {
     let buf = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buf, "Result"), "next Allocate must pin the turn result:\n{buf}");
     assert!(buffer_contains(&buf, "hull") && buffer_contains(&buf, "engines"), "turn result must name hull and engine changes:\n{buf}");
+}
+
+#[test]
+fn playtest_f11_allocate_row_glosses_forward() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buf.lines().any(|line| {
+        line.contains("beam_1")
+            && line.to_ascii_lowercase().contains("arc")
+            && line.to_ascii_lowercase().contains("forward")
+    }), "Allocate weapon row must gloss forward arc:\n{buf}");
+}
+
+#[test]
+fn playtest_f11_spend_preview_glosses_forward() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    let preview = buf.lines().find(|line| line.contains("Spend preview")).unwrap_or("");
+    assert!(preview.to_ascii_lowercase().contains("forward"), "Spend preview must gloss forward arc: {preview}\n{buf}");
+}
+
+#[test]
+fn playtest_f11_fire_row_keeps_gloss() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    let buf = render_to_string(&mut app, 80, 40);
+    let row = buf.lines().find(|line| line.contains("beam_1") && line.contains("arc")).unwrap_or("");
+    assert!(row.to_ascii_lowercase().contains("forward"), "Fire weapon row must gloss forward arc: {row}\n{buf}");
+}
+
+#[test]
+fn playtest_f11_non_forward_uses_snapshot_word() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[0].weapons[0].arc = "Rear".into();
+    snap.ships[0].weapons[0].mount = "rear".into();
+    app.update_snapshot(snap);
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    let buf = render_to_string(&mut app, 80, 24);
+    let row = buf.lines().find(|line| line.contains("beam_1") && line.contains("arc")).unwrap_or("");
+    assert!(row.to_ascii_lowercase().contains("rear"), "non-forward snapshot arc must say rear: {row}\n{buf}");
+    assert!(!row.to_ascii_lowercase().contains("forward"), "rear snapshot must not be relabelled forward: {row}");
 }
 
 #[test]

@@ -469,11 +469,7 @@ fn selected_weapon_shade(app: &App) -> Option<WeaponShade> {
     } else {
         Color::Rgb(60, 0, 0)
     };
-    let mount = if w.mount.is_empty() {
-        w.arc.as_str()
-    } else {
-        w.mount.as_str()
-    };
+    let mount = weapon_arc_direction(w);
     Some(WeaponShade {
         oq: ship.q,
         or_: ship.r,
@@ -1792,18 +1788,36 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 }
 
 fn weapon_arc_token(weapon: &crate::protocol::Weapon) -> String {
-    let arc = weapon.arc.trim().to_ascii_lowercase();
-    let token = match arc.as_str() {
-        "forward" | "front" => "F",
-        "forward_left" | "front_left" | "left" => "FL",
-        "forward_right" | "front_right" | "right" => "FR",
-        "rear" | "back" => "R",
-        "rear_left" | "back_left" => "RL",
-        "rear_right" | "back_right" => "RR",
-        _ if !weapon.mount.trim().is_empty() => weapon.mount.trim(),
-        _ => weapon.arc.trim(),
+    let direction = weapon_arc_direction(weapon);
+    let token = match direction.as_str() {
+        "forward" => "F",
+        "forward-left" => "FL",
+        "forward-right" => "FR",
+        "rear" => "R",
+        "rear-left" => "RL",
+        "rear-right" => "RR",
+        _ => return format!("arc {direction}"),
     };
-    format!("arc {token}")
+    format!("arc {token} ({direction})")
+}
+
+fn weapon_arc_direction(weapon: &crate::protocol::Weapon) -> String {
+    let raw = if weapon.mount.trim().is_empty() {
+        weapon.arc.trim()
+    } else {
+        weapon.mount.trim()
+    };
+    let normalized = raw.to_ascii_lowercase().replace('_', "-");
+    match normalized.as_str() {
+        "forward" | "front" => "forward".into(),
+        "forward-left" | "front-left" | "left" => "forward-left".into(),
+        "forward-right" | "front-right" | "right" => "forward-right".into(),
+        "rear" | "back" => "rear".into(),
+        "rear-left" | "back-left" => "rear-left".into(),
+        "rear-right" | "back-right" => "rear-right".into(),
+        _ if !weapon.arc.trim().is_empty() => weapon.arc.trim().to_string(),
+        _ => raw.to_string(),
+    }
 }
 
 fn facing_name(facing: u32) -> &'static str {
