@@ -778,11 +778,12 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
             // v4 non-inertial kinematics: position + facing, and during the
             // movement stage the drafted path cost vs available motion.
             let mut s = format!(
-                "  @({},{}) face={}{}",
+                "  @({},{}) face={}{} · hull {}",
                 ship.q,
                 ship.r,
                 ship.facing,
                 facing_arrow(ship.facing),
+                ship.structure,
             );
             if snap.phase == "movement" {
                 let cost = app.path_draft.as_ref().map(|d| d.cost()).unwrap_or(0);
@@ -832,15 +833,9 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
                 );
             }
         }
-        push(
-            f,
-            &mut y,
-            Line::from(format!(
-                "  hull {}{}",
-                ship.structure,
-                if ship.cloaked { "  CLOAKED" } else { "" }
-            )),
-        );
+        if ship.cloaked {
+            push(f, &mut y, Line::from("  CLOAKED"));
+        }
         if !ship.systems.is_empty() {
             let systems: Vec<String> = ship
                 .systems
@@ -878,6 +873,12 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
         } else {
             None
         };
+        let target_face = app
+            .fire_draft
+            .as_ref()
+            .and_then(|draft| draft.target)
+            .and_then(|target| snap.ship(target))
+            .map(|target| relative_bearing(ship.facing, ship.q, ship.r, target.q, target.r));
         let shield_str: Vec<String> = (0..6)
             .map(|i| {
                 let cap = ship.shield_cap(i);
@@ -890,11 +891,12 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
                     None => (ship.shields_remaining.get(i).copied().unwrap_or(0), false),
                 };
                 format!(
-                    "{}:{}/{}{}",
+                    "{}:{}/{}{}{}",
                     shield_label(i as u32),
                     value,
                     cap,
                     if pending { "*" } else { "" }
+                    , if target_face == Some(i as u8) { "^" } else { "" }
                 )
             })
             .collect();
@@ -1202,7 +1204,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     let combat_footer = match app.mode {
         Mode::Allocate if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
         Mode::Movement if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
-        Mode::Allocate => Some("Esc help · Enter commit power → Movement · ↑/↓ field · ←/→ adjust".to_string()),
+        Mode::Allocate => Some("Esc help · Enter commit power → Movement · ↑/↓ field · PgDn shields".to_string()),
         Mode::Movement => Some(movement_footer(app)),
         Mode::Fire if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
         Mode::Fire => Some(fire_footer(app)),
@@ -1613,10 +1615,15 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     });
     lines.push(Line::from(Span::styled(
         format!(
-            " Spend preview: {} · Shields F:{}/{} (↓ details)",
+            " Spend preview: {} · Faces: F{}/{} FR{}/{} RR{}/{} R{}/{} RL{}/{} FL{}/{}",
             first_weapon.unwrap_or_else(|| "no weapon".to_string()),
             draft.shields[0],
-            ship.shield_cap(0)
+            ship.shield_cap(0),
+            draft.shields[1], ship.shield_cap(1),
+            draft.shields[2], ship.shield_cap(2),
+            draft.shields[3], ship.shield_cap(3),
+            draft.shields[4], ship.shield_cap(4),
+            draft.shields[5], ship.shield_cap(5)
         ),
         Style::default().fg(Color::DarkGray),
     )));

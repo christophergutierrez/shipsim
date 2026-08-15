@@ -882,6 +882,22 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             }
             KeyResult::Continue
         }
+        KeyCode::PageDown => {
+            app.digit_entry = None;
+            if let Some(draft) = &mut app.alloc_draft {
+                draft.cursor = 1 + draft.weapons.len();
+            }
+            app.log("allocate: shields section");
+            KeyResult::Continue
+        }
+        KeyCode::PageUp => {
+            app.digit_entry = None;
+            if let Some(draft) = &mut app.alloc_draft {
+                draft.cursor = 0;
+            }
+            app.log("allocate: Movement section");
+            KeyResult::Continue
+        }
         KeyCode::Char('x') => {
             app.digit_entry = None;
             let msg = {

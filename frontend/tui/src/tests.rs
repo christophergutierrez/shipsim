@@ -1167,7 +1167,7 @@ fn playtest_p13_first_allocate_shows_three_spends() {
     let buf = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buf, "Movement"), "movement missing: {buf}");
     assert!(buffer_contains(&buf, "beam_1") && buffer_contains(&buf, "charge 0/4"), "weapon spend missing: {buf}");
-    assert!(buffer_contains(&buf, "Shields F:0/6"), "shield spend missing: {buf}");
+    assert!(buffer_contains(&buf, "Faces: F0/6"), "shield spend missing: {buf}");
 }
 
 #[test]
@@ -3645,6 +3645,61 @@ fn tui_m14_fire_footer_change_does_not_bypass_legality_gate() {
     let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     assert!(matches!(result, KeyResult::Continue));
     assert!(app.fire_draft.as_ref().unwrap().shots.is_empty());
+}
+
+#[test]
+fn tui_m20_all_six_shield_faces_are_visible_at_floor() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    for label in ["F", "FR", "RR", "R", "RL", "FL"] {
+        assert!(buffer_contains(&buf, label), "missing shield face {label}: {buf}");
+    }
+}
+
+#[test]
+fn tui_m21_each_shield_face_has_its_real_cap() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "F:0/6"));
+    assert!(buffer_contains(&buf, "FR:0/6"));
+    assert!(buffer_contains(&buf, "RR:0/6"));
+    assert!(buffer_contains(&buf, "R:0/6"));
+    assert!(buffer_contains(&buf, "RL:0/6"));
+    assert!(buffer_contains(&buf, "FL:0/6"));
+}
+
+#[test]
+fn tui_m22_target_relative_face_is_marked() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.fire_draft = Some(crate::app::FireDraft {
+        target: Some(2),
+        ..Default::default()
+    });
+    let status = render_status_to_string(&mut app, 80, 24);
+    assert!(status.contains('^'), "target-relative face marker missing: {status}");
+}
+
+#[test]
+fn tui_m23_page_down_jumps_to_shields() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::PageDown));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, 3);
+}
+
+#[test]
+fn tui_m24_destroyed_weapons_are_visible_but_not_editable() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[0].weapons[0].operational = false;
+    app.update_snapshot(snap);
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, 2);
+    assert!(buffer_contains(&render_to_string(&mut app, 80, 24), "DESTROYED"));
 }
 
 #[cfg(any())]
