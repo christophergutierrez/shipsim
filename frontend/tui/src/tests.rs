@@ -4593,6 +4593,20 @@ fn playtest_h11_no_bare_profile_equals() {
 }
 
 #[test]
+fn playtest_h12_allocate_shows_turn_result() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let mut current = test_snapshot();
+    current.turn = 2;
+    current.ships[0].structure = 9;
+    current.ships[0].engine = 2;
+    app.update_snapshot(current);
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Result"), "next Allocate must pin the turn result:\n{buf}");
+    assert!(buffer_contains(&buf, "hull") && buffer_contains(&buf, "engines"), "turn result must name hull and engine changes:\n{buf}");
+}
+
+#[test]
 fn fire_preview_unique_face_auto_selects_invalid_default() {
     let mut app = App::new();
     app.update_snapshot(three_weapon_fire_snapshot());
