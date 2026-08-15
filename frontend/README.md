@@ -23,8 +23,12 @@ frontend/
    Shared rules live in Rust, not in a third frontend.
 4. **Engine boundary only** — clients talk to shipsim via the public NDJSON protocol
    (`docs/PROTOCOL.md`) by spawning `target/{debug,release}/shipsim` (or
-   `SHIPSIM_BIN`). They must not patch `src/`, rewrite scenarios for private wire
-   hacks, or add frontend-only crates into the core workspace.
+   `SHIPSIM_BIN`). The Rust TUI may additionally use `shipsim_core` as a pure,
+   deterministic **read-only projection** for presentation and shipyard views;
+   it must still spawn the harness for play and must not decide legality or
+   mutate `GameState`. REPL and Love remain wire-only. Clients must not patch
+   `src/`, rewrite scenarios for private wire hacks, or add frontend-only crates
+   into the core workspace.
 5. **Core must not depend on frontends** — no `include!`, build scripts, or tests
    under `src/` / `tests/` that load files from `frontend/`. Engine tests use
    `scenarios/` and `tests/fixtures/` only.

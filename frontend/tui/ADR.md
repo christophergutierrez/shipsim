@@ -74,3 +74,10 @@ Not part of the acceptance of this ADR as code — guidance for the first implem
 ## Status of tree
 
 As of this ADR: **directory + decision docs only**. No ratatui binary yet.
+
+## Addendum — 2026-08-15
+
+The implemented TUI may link `shipsim_core` one-way for pure, deterministic
+**read-only projection** helpers/constants used by presentation and shipyard
+views. Combat orders and combat state still use the NDJSON harness. The TUI
+must not apply orders, mutate `GameState`, or decide combat legality in-process.

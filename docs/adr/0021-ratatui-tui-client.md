@@ -25,3 +25,12 @@ The full decision record lives with the client tree:
 - ADR-0017 — Love thin client (same integration pattern)  
 - ADR-0020 — Combat Model v2  
 - ADR-0023 — input model, responsive layout tiers, and verification strategy (refines this ADR's open implementation details)
+
+## Addendum — 2026-08-15
+
+The implemented TUI may link `shipsim_core` one-way for pure, deterministic
+**read-only projection** helpers and constants, primarily for shipyard
+authoring and presentation. Combat orders and combat state still cross the
+NDJSON subprocess boundary. This exception never permits in-process legality
+decisions or `GameState` mutation; see the corresponding exception in
+`docs/ARCHITECTURE.md`.

@@ -63,7 +63,9 @@ All clients live under `frontend/`. Policy is in `frontend/README.md`:
 - each client's code, tests, and untracked scratch stay under that tree
   (`frontend/<name>/local/` is gitignored);
 - clients must not depend on each other or on engine internals beyond the public
-  NDJSON harness (`docs/PROTOCOL.md`);
+  NDJSON harness (`docs/PROTOCOL.md`), except that the Rust TUI may use pure,
+  deterministic `shipsim_core` functions/constants for a **read-only projection**
+  of engine-owned values;
 - the core and its `tests/` must not depend on anything under `frontend/`;
 - adding or deleting a client must not require engine changes beyond optional
   docs pointers.
@@ -74,6 +76,10 @@ Current clients (all protocol **v4** NDJSON):
 - `frontend/love/` — Love2D graphical thin client (display, input, order
   construction only).
 - `frontend/tui/` — ratatui terminal client (Small tier; standalone crate).
+
+The TUI exception is presentation-only: it may not apply orders, mutate
+`GameState`, or decide combat legality in-process. REPL and Love cannot link
+Rust and must consume projected snapshot fields instead.
 
 No client reimplements rules or AI. After load and after each accepted
 order, the harness runs `GameState::resolve_v2_npc_actions` so
