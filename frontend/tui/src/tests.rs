@@ -2641,7 +2641,7 @@ fn map_preview_uses_diamond_route_family_and_identity() {
     let buffer = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buffer, "◇A1"), "planned destination should retain identity: {buffer}");
     assert!(
-        buffer_contains(&buffer, "A1→ ship · ◇A1→ end · ◇ route"),
+        buffer_contains(&buffer, "A1→ ship · ◇ end · ◇ route · shade=arc"),
         "map legend must be complete at the play floor: {buffer}"
     );
 }
@@ -3240,6 +3240,42 @@ fn tui_m52_unavailable_enter_is_named_for_disabled_ship() {
     let buf = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buf, "UNAVAILABLE"));
     assert!(buffer_contains(&buf, "Enter unavailable"));
+}
+
+#[test]
+fn tui_m60_map_legend_fits_without_midword_copy() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.enter_map_mode();
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "shade=arc"), "map legend missing: {buf}");
+    assert!(!buffer_contains(&buf, "shade=weapon ar"));
+}
+
+#[test]
+fn tui_m61_help_defines_first_play_vocabulary() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.mode = Mode::Normal;
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Glossary"));
+    assert!(buffer_contains(&buf, "engine boxes=movement capacity"));
+}
+
+#[test]
+fn tui_m62_movement_copy_names_the_m_key_action() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "m selects Movement"));
+}
+
+#[test]
+fn tui_m63_status_explains_alloc_as_a_ratio() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "alloc 0/"));
 }
 
 #[test]

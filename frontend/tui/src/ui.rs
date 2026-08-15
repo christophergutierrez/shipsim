@@ -712,9 +712,9 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
     lines.push(Line::from(""));
     let legend = if !preview_endpoints.is_empty() {
-        "A1→ ship · ◇A1→ end · ◇ route"
+        "A1→ ship · ◇ end · ◇ route · shade=arc"
     } else {
-        "A1→ = ship/facing; +N = more ships here. Shade = weapon arc"
+        "A1→ ship/facing · +N stacked · shade=arc"
     };
     lines.push(Line::from(Span::styled(
         legend,
@@ -862,8 +862,12 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
             f,
             &mut y,
             Line::from(format!(
-                "  power avail {} · engine boxes {} · sys {}",
-                ship.power_available, ship.engine, ship.power_sys
+                "  alloc {}/{} · power avail {} · engine boxes {} · sys {}",
+                ship.power.saturating_sub(ship.power_available),
+                ship.power,
+                ship.power_available,
+                ship.engine,
+                ship.power_sys
             )),
         );
 
@@ -1009,7 +1013,8 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             vec![
                 Line::from(" Esc/Enter return · q quit · a allocate · m move · f fire"),
                 Line::from(" Tab: cycle focus  v: map-focus"),
-                Line::from(" v: map-focus (WASD pan, +/- zoom, [/] inspect contacts)"),
+                Line::from(" You are the yellow ship; spend power, then move and fire."),
+                Line::from(" Glossary: alloc=committed/total · engine boxes=movement capacity."),
                 Line::from(""),
             ],
         ),
@@ -1614,7 +1619,7 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     let mov_selected = draft.cursor == 0;
     lines.push(Line::from(Span::styled(
         format!(
-            "{}{}Movement: {:>2}/{} pwr (max path {})   ←/→ or m",
+            "{}{}Movement: {:>2}/{} pwr (max path {})   ←/→ · m selects Movement",
             if mov_selected { "▶ " } else { "  " },
             if mov_selected {
                 app.input_notice
