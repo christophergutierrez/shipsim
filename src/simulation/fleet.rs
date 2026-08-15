@@ -237,7 +237,10 @@ pub enum BudgetError {
     #[error("budget roster class {class:?} has zero cost")]
     ZeroCost { class: String },
     #[error("budget roster class {class:?} is not available")]
-    Load { class: String, source: Box<LoadError> },
+    Load {
+        class: String,
+        source: Box<LoadError>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -254,12 +257,11 @@ fn raw_alpha(def: &crate::schema::ShipDef, rules: &crate::rules::CombatRules) ->
         .map(|weapon| {
             let kind = weapon.kind.to_ascii_lowercase();
             let base = match kind.as_str() {
-                "beam" =>
-                    crate::combat_tables::beam_damage(rules, weapon.max_charge, 1).unwrap_or(0),
-                "plasma" =>
-                    crate::combat_tables::plasma_damage(rules, 1).unwrap_or(0),
-                "torp" =>
-                    crate::combat_tables::torp_damage(rules, 1).unwrap_or(0),
+                "beam" => {
+                    crate::combat_tables::beam_damage(rules, weapon.max_charge, 1).unwrap_or(0)
+                }
+                "plasma" => crate::combat_tables::plasma_damage(rules, 1).unwrap_or(0),
+                "torp" => crate::combat_tables::torp_damage(rules, 1).unwrap_or(0),
                 "missile" => 2,
                 _ => 0,
             };
@@ -273,7 +275,10 @@ fn raw_alpha(def: &crate::schema::ShipDef, rules: &crate::rules::CombatRules) ->
         .sum()
 }
 
-fn budget_candidates(data_root: &Path, roster: &[String]) -> Result<Vec<BudgetCandidate>, BudgetError> {
+fn budget_candidates(
+    data_root: &Path,
+    roster: &[String],
+) -> Result<Vec<BudgetCandidate>, BudgetError> {
     if roster.is_empty() {
         return Err(BudgetError::EmptyRoster);
     }
@@ -285,7 +290,9 @@ fn budget_candidates(data_root: &Path, roster: &[String]) -> Result<Vec<BudgetCa
             source: Box::new(source),
         })?;
         if def.cost == 0 {
-            return Err(BudgetError::ZeroCost { class: class.clone() });
+            return Err(BudgetError::ZeroCost {
+                class: class.clone(),
+            });
         }
         candidates.push(BudgetCandidate {
             class: class.clone(),
@@ -304,7 +311,11 @@ fn budget_candidates(data_root: &Path, roster: &[String]) -> Result<Vec<BudgetCa
     Ok(candidates)
 }
 
-fn buy_greedily(candidates: &[BudgetCandidate], budget: &mut u32, allowed: impl Fn(&BudgetCandidate) -> bool) -> Vec<String> {
+fn buy_greedily(
+    candidates: &[BudgetCandidate],
+    budget: &mut u32,
+    allowed: impl Fn(&BudgetCandidate) -> bool,
+) -> Vec<String> {
     let mut bought = Vec::new();
     while let Some(candidate) = candidates
         .iter()
@@ -328,10 +339,15 @@ pub fn build_budget_fleet(
     let mut remaining = budget;
     let classes = match policy {
         BudgetPolicy::Largest => buy_greedily(&candidates, &mut remaining, |_| true),
-        BudgetPolicy::Swarm => buy_greedily(&candidates, &mut remaining, |candidate| candidate.size <= 2),
+        BudgetPolicy::Swarm => {
+            buy_greedily(&candidates, &mut remaining, |candidate| candidate.size <= 2)
+        }
         BudgetPolicy::Balance => {
             let mut chosen = Vec::new();
-            if let Some(candidate) = candidates.iter().find(|c| c.size == 4 && c.cost <= remaining) {
+            if let Some(candidate) = candidates
+                .iter()
+                .find(|c| c.size == 4 && c.cost <= remaining)
+            {
                 remaining -= candidate.cost;
                 chosen.push(candidate.class.clone());
             }
@@ -343,7 +359,10 @@ pub fn build_budget_fleet(
     };
     let mut lines = Vec::new();
     for class in classes {
-        if let Some(line) = lines.iter_mut().find(|line: &&mut FleetLine| line.class == class) {
+        if let Some(line) = lines
+            .iter_mut()
+            .find(|line: &&mut FleetLine| line.class == class)
+        {
             line.count += 1;
         } else {
             lines.push(FleetLine::new(class, 1));
@@ -589,16 +608,25 @@ mod tests {
             "yard_heavy_cruiser".into(),
             "yard_capital".into(),
         ];
-        for policy in [BudgetPolicy::Largest, BudgetPolicy::Swarm, BudgetPolicy::Balance] {
+        for policy in [
+            BudgetPolicy::Largest,
+            BudgetPolicy::Swarm,
+            BudgetPolicy::Balance,
+        ] {
             let fleet = build_budget_fleet(&root(), 1000, policy, &roster).expect("budget fleet");
             assert!(fleet_cost(&root(), &fleet).unwrap() <= 1000);
             if policy == BudgetPolicy::Swarm {
-                assert!(fleet.iter().all(|line| line.class == "yard_swarm" || line.class == "yard_destroyer"));
+                assert!(fleet
+                    .iter()
+                    .all(|line| line.class == "yard_swarm" || line.class == "yard_destroyer"));
             }
             if policy == BudgetPolicy::Balance {
                 assert!(fleet.iter().all(|line| line.class != "yard_capital"));
             }
-            assert_eq!(fleet, build_budget_fleet(&root(), 1000, policy, &roster).unwrap());
+            assert_eq!(
+                fleet,
+                build_budget_fleet(&root(), 1000, policy, &roster).unwrap()
+            );
         }
     }
 

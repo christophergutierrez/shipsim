@@ -6,7 +6,8 @@ criterion it closes and a test that can fail.
 
 **TUI only.** REPL and Love copy patterns later; they are not gates here.
 
-**Not coding yet.** This file is the plan.
+Implemented through M5. This file remains the review instrument; the
+scoreboard below was re-validated against HEAD after close-out.
 
 ## Review disposition
 
@@ -68,12 +69,12 @@ the criterion.
 | **E3 / E4** Combat drafts | — | **Pass** | Allocate/path/volley commits are not destructive of a design. `q` then `y` names quit. |
 | **C1** Exit key on the form | — | **Pass** | Allocate, movement, and fire reserve a fixed `Esc back` row. |
 | **C2** Discard | — | **Pass** | Esc to Normal keeps the allocate/path draft. |
-| **C3** Esc meaning | Polish | **Partial** | Combat Esc = Normal; yard Esc = back / confirm discard; `q` = quit. Yard labels it; combat forms do not. |
+| **C3** Esc meaning | Polish | **Partial** | Combat allocate / movement / fire label `Esc back` (returns to Normal, draft kept). Yard edit also labels `Esc back` (dirty draft warns). Remaining issue is yard **browse**: Esc quits like `q` and is unlabeled (`q quit` only). |
 | **H1–H4** | — | **Pass** | Allocate fields are grouped (movement / weapons / shields). Fire lists are small. `m` jumps to Movement (H4). |
 | **P1 / P3** | — | **Pass** | Allocate scroll follows the cursor. |
 | **P4** Movement vs shields | — | **Pass** | The pinned budget line includes the selected movement or shield current/cap and residual power. |
 | **G2 / G4** Path ghost | — | **Pass** | Destination is `◇A1↗`, route is `◇`. Shape differs without color. |
-| **A1 / A2** Keys at point of use | Minor | **Partial** | Movement and fire decision keys sit on their panels. The allocate footer always advertises `x/z/u` even when those actions are unavailable, while the systems row is conditional. `Esc` is absent from all three combat forms; `v` and `Tab` are primarily global help/header signifiers. |
+| **A1 / A2** Keys at point of use | Minor | **Partial** | Movement and fire decision keys sit on their panels. Allocate footer is `Esc back · Enter commit · ↑/↓ field · ←/→ adjust · m movement`; cloak / repair / squad keys appear only on the conditional systems row. Remaining remainder: global `Tab` / `v` stay in the header / help. |
 | **A3** Inert keys | — | **Pass** (recent) | PD queue logs; follow/cloak/repair log when illegal. |
 | **A5 / P2** Legend | — | **Pass** | Compact glyph-first copy is fully visible at 80×24 and matches the rendered destination/route shapes. |
 | **R2** | — | **Pass** | Callsign+arrow vs `◇` prefix. |
@@ -96,9 +97,12 @@ the criterion.
 
 ### Critical / Major
 
-No Critical/Major issues remain. A1 remains a documented Minor for global
-`Tab`/`v` signifiers that may stay in the header/help when the combat floor
-cannot fit them; this is an explicit remainder, not an unreviewed failure.
+No Critical/Major issues remain. Documented non-blocking remainders:
+
+- **A1 Minor:** global `Tab`/`v` stay in the header/help when the combat
+  floor cannot fit them.
+- **C3 Polish:** yard browse Esc quits and is unlabeled (`q quit` only).
+- **V1 Hull Accept:** snapshot has no `hull_max`; do not invent `N/N`.
 
 ---
 

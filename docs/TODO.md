@@ -42,15 +42,19 @@ active remediation plan is
   evidence; this is a deliberate SKU decision, not an implementation gap.
 - Named `movement_cost` / initiative-from-motion / momentum are **not** the
   live v4 path loop (see the note at the top of this file).
-- Execute the TUI pass against `docs/UI-RUBRIC.md`: no identified
-  Critical/Major issues remain, but the measurable Minor/Polish close-out is
-  M0–M5 in [`docs/plans/ui-rubric-tui.md`](plans/ui-rubric-tui.md). M1 also
-  removes the TUI's incorrect private repair-cap formula by projecting the
-  engine's authoritative cap in snapshots.
-- Follow the TUI pass with separate REPL/Love rubric reviews. In particular,
-  the REPL repair selector currently uses the same stale 1/2 size split as the
-  TUI and must consume the authoritative engine field; the TUI plan does not
-  claim that frontend is fixed.
+- TUI rubric pass against `docs/UI-RUBRIC.md` is closed (M0–M5 in
+  [`docs/plans/ui-rubric-tui.md`](plans/ui-rubric-tui.md)). Remaining rubric
+  notes are Minor/Polish (`Tab`/`v` header-only; yard-browse Esc unlabeled
+  quit).
+- TUI **first-play** remediation is
+  [`docs/plans/tui-first-play.md`](plans/tui-first-play.md) (M0–M8). It
+  merges the Grok, Luna, and Haiku docs-blind playtests. Do not implement
+  the falsified Haiku claims (F-A–F-D). The older
+  [`docs/plans/tui-naive-playtest.md`](plans/tui-naive-playtest.md) is
+  evidence only.
+- Follow with separate REPL/Love rubric reviews. REPL repair still uses a
+  stale 1/2 size split and must consume snapshot `repair_cap`; neither TUI
+  plan claims those clients are fixed.
 
 ### Size ladder (accepted catalog)
 

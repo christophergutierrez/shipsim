@@ -172,7 +172,9 @@ pub fn load_scenario_def_with_rules(
 
         let pos = Hex::new(placement.q, placement.r);
         validate_on_board(&board, pos)?;
-        if let Some((other, other_squad)) = occupied.insert((pos.q, pos.r), (placement.id, placement.squad)) {
+        if let Some((other, other_squad)) =
+            occupied.insert((pos.q, pos.r), (placement.id, placement.squad))
+        {
             if placement.squad.is_none() || placement.squad != other_squad {
                 return Err(LoadError::OverlappingPlacement {
                     a: other,
@@ -348,7 +350,9 @@ pub fn load_scenario_def_with_rules(
     let mut controllers: BTreeMap<u32, String> = BTreeMap::new();
     let mut requested_leaders: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
     for placement in &def.ships {
-        let Some(squad) = placement.squad else { continue };
+        let Some(squad) = placement.squad else {
+            continue;
+        };
         members.entry(squad).or_default().push(placement.id);
         let controller = placement.controller.to_ascii_lowercase();
         if let Some(existing) = controllers.insert(squad, controller.clone()) {
@@ -363,7 +367,10 @@ pub fn load_scenario_def_with_rules(
     for (squad, mut ids) in members {
         ids.sort_unstable();
         if ids.len() > 12 {
-            return Err(LoadError::SquadTooLarge { squad, count: ids.len() });
+            return Err(LoadError::SquadTooLarge {
+                squad,
+                count: ids.len(),
+            });
         }
         let leader = requested_leaders
             .remove(&squad)
@@ -376,8 +383,7 @@ pub fn load_scenario_def_with_rules(
     }
 
     Ok(GameState::new_with_squads(
-        board, ships, terminal, npcs, seed, rules,
-        squads,
+        board, ships, terminal, npcs, seed, rules, squads,
     ))
 }
 

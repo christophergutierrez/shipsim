@@ -344,7 +344,10 @@ mod tests {
     fn power_for_thrust_is_ceil_inverse_of_convert() {
         // 1:1 — ceil and floor agree.
         assert_eq!(power_for_thrust(6, 1, 1), 6);
-        assert_eq!(ThrustConversion::new(1, 1, 6).unwrap().power_for_thrust(6), 6);
+        assert_eq!(
+            ThrustConversion::new(1, 1, 6).unwrap().power_for_thrust(6),
+            6
+        );
 
         // yard_swarm 3:1, hull cap 8: ceil(8/3)=3 buys 9 raw → 8 after hull cap.
         // floor(8/3)=2 would only buy 6 motion.

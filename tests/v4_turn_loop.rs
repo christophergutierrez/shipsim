@@ -796,11 +796,11 @@ fn floating_map_preserves_unique_world_endpoints_beyond_nominal_bounds() {
                 ship: id,
                 movement: 1,
                 weapons: BTreeMap::new(),
-            shields: [0; 6],
-            cloak: false,
-            repair: 0,
-            unsquad: false,
-            squad_leader: None,
+                shields: [0; 6],
+                cloak: false,
+                repair: 0,
+                unsquad: false,
+                squad_leader: None,
             },
         )
         .expect("allocation");

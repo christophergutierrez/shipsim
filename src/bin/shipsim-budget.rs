@@ -34,10 +34,11 @@ fn main() {
         .filter(|id| !id.is_empty())
         .map(str::to_owned)
         .collect();
-    let fleet = build_budget_fleet(Path::new("."), budget, policy, &roster).unwrap_or_else(|error| {
-        eprintln!("budget error: {error}");
-        std::process::exit(1);
-    });
+    let fleet =
+        build_budget_fleet(Path::new("."), budget, policy, &roster).unwrap_or_else(|error| {
+            eprintln!("budget error: {error}");
+            std::process::exit(1);
+        });
     println!("# deterministic budget roster; use once per side");
     for line in fleet {
         println!("class={} count={}", line.class, line.count);
