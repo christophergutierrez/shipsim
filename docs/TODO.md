@@ -17,8 +17,7 @@ and momentum are **not** the current loop.
   ([`BALANCE-PROTOCOL.md`](BALANCE-PROTOCOL.md)).
 - Decide whether `torpedo_potent` is dropped or differentiated after that
   evidence (SKU decision, not an implementation gap).
-- REPL/Love rubric reviews. REPL repair still uses a stale 1/2 size split
-  and must consume snapshot `repair_cap`.
+- REPL/Love rubric reviews.
 - Polish client UX: TUI Medium/Large tiers, Love presentation, combat-log
   clarity and replay navigation.
 - Simulation runner: confidence intervals, parameter sweeps, stochastic

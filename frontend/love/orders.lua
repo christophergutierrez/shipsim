@@ -13,16 +13,20 @@ end
 --- Allocate power: movement points, weapon charges, shield facings.
 --- weapons: map weapon_id -> charge level (must be a JSON object, never []).
 --- shields: array of 6 facings [F, FR, RR, R, RL, FL] -> power.
-function orders.allocate(ship, movement, weapons, shields)
+function orders.allocate(ship, movement, weapons, shields, opts)
   -- Engine deserializes weapons as BTreeMap — empty Lua {} encodes as []
   -- unless tagged as a JSON object (see json.object).
-  return versioned({
+  local order = {
     type = "allocate",
     ship = ship,
     movement = movement,
     weapons = json.object(weapons or {}),
     shields = shields or { 0, 0, 0, 0, 0, 0 },
-  })
+  }
+  if opts and (opts.repair or 0) > 0 then
+    order.repair = opts.repair
+  end
+  return versioned(order)
 end
 
 --- Commit one complete path during movement.

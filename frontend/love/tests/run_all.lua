@@ -83,6 +83,33 @@ assert_eq(a.movement, 4, "allocate movement")
 assert_eq(a.weapons.beam_1, 1, "allocate weapons")
 assert_eq(#a.shields, 6, "allocate shields len")
 
+local repair_ship = { systems = { { kind = "repair" } }, repair_cap = 2 }
+local repair_draft = { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 }, repair = 0 }
+assert_eq(allocation.has_repair(repair_ship), true, "repair system detected")
+assert_eq(allocation.repair_cap(repair_ship), 2, "repair cap reads snapshot")
+allocation.repair_up(repair_ship, repair_draft)
+allocation.repair_up(repair_ship, repair_draft)
+allocation.repair_up(repair_ship, repair_draft)
+assert_eq(repair_draft.repair, 2, "repair draft clamps to snapshot cap")
+local repair_power = allocation.power_spent({ power_available = 20, weapons = {} }, repair_draft)
+local no_repair_power = allocation.power_spent({ power_available = 20, weapons = {} }, { movement = 0, weapons = {}, shields = { 0, 0, 0, 0, 0, 0 }, repair = 0 })
+assert_eq(repair_power, no_repair_power + 4, "repair costs two power per box")
+local no_system = { systems = {}, repair_cap = 2 }
+local no_system_draft = { repair = 0 }
+assert_eq(allocation.has_repair(no_system), false, "repair requires installed system")
+allocation.repair_up(no_system, no_system_draft)
+assert_eq(no_system_draft.repair, 0, "repair absent system is not editable")
+local missing_cap = { systems = { { kind = "repair" } } }
+local missing_cap_draft = { repair = 0 }
+assert_eq(allocation.repair_cap(missing_cap), nil, "missing repair cap is unavailable")
+allocation.repair_up(missing_cap, missing_cap_draft)
+assert_eq(missing_cap_draft.repair, 0, "missing repair cap does not increment")
+local with_repair_order = orders.allocate(1, 0, {}, { 0, 0, 0, 0, 0, 0 }, { repair = 2 })
+assert_eq(with_repair_order.repair, 2, "allocate order emits positive repair")
+local without_repair_order = orders.allocate(1, 0, {}, { 0, 0, 0, 0, 0, 0 })
+assert_eq(without_repair_order.repair, nil, "allocate order omits absent repair")
+ok("repair allocation reads snapshot cap and emits optional order field")
+
 -- v4 motion model: one ordered commit_path per ship (no per-cycle maneuver).
 local cp = orders.commit_path(1, { "move_f", "turn_left" })
 assert_eq(cp.type, "commit_path", "commit_path type")

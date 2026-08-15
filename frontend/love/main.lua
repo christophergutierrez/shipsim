@@ -135,6 +135,7 @@ local function alloc_for(ship_id)
       movement = 0,
       weapons = json.object({}),
       shields = { 0, 0, 0, 0, 0, 0 },
+      repair = 0,
     }
   end
   local snap = app.session and app.session.snapshot
@@ -637,6 +638,13 @@ local function allocation_edit(hit)
       and allocation.increment(old, p.max)
       or allocation.decrement(old)
     return field, old, new
+  elseif id == "alloc_repair_up" or id == "alloc_repair_dn" then
+    local ship = find_ship_in_snap(snap_now(), p.id)
+    local old = draft.repair or 0
+    local new = id == "alloc_repair_up"
+      and allocation.repair_up(ship, draft)
+      or allocation.repair_down(ship, draft)
+    return 10, old, new
   end
   return nil
 end
@@ -1159,7 +1167,7 @@ local function do_allocate(ship_id)
     return
   end
   local a = alloc_for(ship_id)
-  local _, err = submit(orders.allocate(ship_id, a.movement, a.weapons, a.shields), true)
+  local _, err = submit(orders.allocate(ship_id, a.movement, a.weapons, a.shields, { repair = a.repair }), true)
   if not err then
     set_status("info", status_fmt.order_echo(ship_id, "allocate") ..
       string.format(" (move %d)", a.movement))
@@ -1581,6 +1589,20 @@ handle_ui_hit = function(hit)
   if id == "alloc_shield_dn" then
     local a = alloc_for(p.id)
     a.shields[p.face + 1] = allocation.decrement(a.shields[p.face + 1])
+    debounce.trip(app.reach_debounce)
+    return true
+  end
+  if id == "alloc_repair_up" then
+    local a = alloc_for(p.id)
+    local ship = find_ship_in_snap(snap_now(), p.id)
+    allocation.repair_up(ship, a)
+    debounce.trip(app.reach_debounce)
+    return true
+  end
+  if id == "alloc_repair_dn" then
+    local a = alloc_for(p.id)
+    local ship = find_ship_in_snap(snap_now(), p.id)
+    allocation.repair_down(ship, a)
     debounce.trip(app.reach_debounce)
     return true
   end

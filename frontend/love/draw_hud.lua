@@ -721,6 +721,19 @@ function draw_hud.draw_allocate_panel(app, snap, px, pad, y, content_w)
         }, false)
         y = y + row_h
       end
+      if allocation.has_repair(s) then
+        local cap = allocation.repair_cap(s)
+        local repair = a.repair or 0
+        love.graphics.setColor(0.7, 0.75, 0.8)
+        if cap == nil then
+          love.graphics.print("repair unavailable", px + pad, y)
+        else
+          love.graphics.print(string.format("repair %d/%d", repair, cap), px + pad, y)
+          ui.button("-", px + pad + content_w - step * 2 - 4, y - 2, step, step, "alloc_repair_dn", { id = s.id }, false)
+          ui.button("+", px + pad + content_w - step, y - 2, step, step, "alloc_repair_up", { id = s.id }, false)
+        end
+        y = y + row_h
+      end
       love.graphics.setColor(spent > power and { 0.95, 0.4, 0.4 } or { 0.7, 0.75, 0.8 })
       love.graphics.print(string.format("power %d / %d (top-ups only)", spent, power), px + pad, y)
       y = y + ui.line_h(13) + 2

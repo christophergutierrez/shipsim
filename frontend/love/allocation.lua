@@ -45,6 +45,39 @@ function allocation.carried_charge(ship, weapon_id)
   return 0
 end
 
+function allocation.has_repair(ship)
+  for _, system in ipairs((ship and ship.systems) or {}) do
+    if system.kind == "repair" then
+      return true
+    end
+  end
+  return false
+end
+
+function allocation.repair_cap(ship)
+  if not allocation.has_repair(ship) or not ship or ship.repair_cap == nil then
+    return nil
+  end
+  return ship.repair_cap
+end
+
+function allocation.repair_up(ship, draft)
+  local cap = allocation.repair_cap(ship)
+  if cap == nil then
+    return draft.repair or 0
+  end
+  draft.repair = allocation.increment(draft.repair, cap)
+  return draft.repair
+end
+
+function allocation.repair_down(ship, draft)
+  if allocation.repair_cap(ship) == nil then
+    return draft.repair or 0
+  end
+  draft.repair = allocation.decrement(draft.repair)
+  return draft.repair
+end
+
 --- Seed/refresh draft weapon totals from snapshot charge.
 --- Desired totals must start at carried so Allocate never tries to strip,
 --- and so the HUD never shows 0 while the ship still banks charge.
@@ -65,6 +98,7 @@ end
 --- snapshot amount costs power this turn.
 function allocation.power_spent(ship, draft)
   local total = (draft and draft.movement) or 0
+  total = total + 2 * ((draft and draft.repair) or 0)
   local carried = {}
   for _, weapon in ipairs((ship and ship.weapons) or {}) do
     carried[weapon.id] = weapon.charge or 0
@@ -122,7 +156,7 @@ function allocation.maximize_weapons(ship, draft)
   for _, shield in ipairs(draft.shields or {}) do
     shield_cost = shield_cost + shield
   end
-  local remaining = math.max(0, power_available(ship) - (draft.movement or 0) - shield_cost)
+  local remaining = math.max(0, power_available(ship) - (draft.movement or 0) - shield_cost - 2 * (draft.repair or 0))
   -- Prefer filling max charge (play intent of Max wpn); clamp by remaining budget.
   draft.weapons = {}
   for _, weapon in ipairs((ship and ship.weapons) or {}) do
@@ -140,6 +174,7 @@ function allocation.balance_shields(ship, draft)
     movement = draft.movement,
     weapons = draft.weapons,
     shields = { 0, 0, 0, 0, 0, 0 },
+    repair = draft.repair,
   })
   local per = math.floor(math.max(0, power_available(ship) - without_shields) / 6)
   per = math.min(per, (ship and ship.max_shield_per_facing) or per)
