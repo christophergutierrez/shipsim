@@ -2,11 +2,39 @@
 
 ## Purpose
 
-shipsim is a deterministic, turn-based hex-grid starship combat simulator. The Rust crate owns all game rules and exposes a JSON-friendly state and order boundary. Thin frontends under `frontend/` render that state and submit orders without reimplementing combat logic.
+The game is not the UI. Rules live in `shipsim_core`. Every player-facing
+program is a disposable client of one NDJSON contract
+([`PROTOCOL.md`](PROTOCOL.md)). Dropping a client must not change combat,
+the harness, or the other clients.
 
-The current product rules are Combat Model v2 as accepted in ADR-0020, with
-the simplified protocol-v4 turn loop defined by ADR-0025. Earlier impulse and
-inertial loops are historical context only.
+shipsim is a deterministic, turn-based hex-grid starship combat simulator.
+Current product rules are Combat Model v2 (ADR-0020) with the protocol-v4
+turn loop (ADR-0025). Earlier impulse and inertial loops are history.
+
+Product *why* is [`PRD.md`](PRD.md). Screen judgment is
+[`UI-RUBRIC.md`](UI-RUBRIC.md). Dated applications of the cuts below are
+[`adr/`](adr/).
+
+## Principles
+
+Each line is a review test, not a slogan.
+
+1. **The engine owns rules. UIs do not.** To-hit, clamps, paths, volleys,
+   and NPC action are decided in `shipsim_core`. A client that recomputes a
+   threshold or invents a legal shot is an architecture bug.
+2. **One wire, many faces.** REPL, TUI, Love2D, tests, and `shipsim-sim`
+   all drive the same protocol. Isolation policy: `frontend/README.md`.
+3. **KISS means one loop and one authority.** The live turn is allocate →
+   path → volley. Not a second combat model. Not a rules engine in
+   Python or Lua.
+4. **YAGNI means do not build the unused client or the unused rule.**
+   ADR-0004 deferred a graphical stack until the harness played. ADR-0002
+   ships slice behavior but keeps the seam (declare/resolve, data fields)
+   so a later rule is additive. Unqualified YAGNI would have forbidden
+   those seams; that is not this project's YAGNI.
+
+How those ideas apply to a *screen* (Hick, “don’t hide the cap”) lives in
+the UI rubric, not here.
 
 ## System boundaries
 
@@ -60,7 +88,11 @@ The protocol-v4 turn progresses through:
 3. `Volley`: ships commit legal weapon shots or an empty volley; fire resolves simultaneously.
 4. The engine automatically resets turn-scoped resources and begins the next allocation phase.
 
-Every path action costs one motion point. Weapon charge and firing are limited per turn. Powered shields absorb damage by legal facing before overflow reaches hull. Destroyed ships remain eligible to deal already-committed simultaneous damage.
+Every path action costs one motion point. Weapon charge **carries** across
+turns; allocate pays only for increases and cannot strip. Hit or miss spends
+charge for weapons in the volley. Powered shields absorb damage by legal
+facing before overflow reaches hull. Destroyed ships remain eligible to deal
+already-committed simultaneous damage.
 
 ## Module map
 
