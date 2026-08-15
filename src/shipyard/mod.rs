@@ -572,8 +572,8 @@ mount = "forward"
         assert_eq!(ship.power, 14);
         assert_eq!(ship.max_shield_per_facing, 6);
         assert_eq!(ship.max_shields, Some([6, 4, 2, 2, 2, 4]));
-        // frame 9 + plate 5 + fission_m 36 + banks 20 + beam 16
-        assert_eq!(ship.cost, 86);
+        // frame 9 + plate 5 + fission_m 36 + banks 60 + beam 16
+        assert_eq!(ship.cost, 126);
         assert_eq!(ship.thrust_per_power, 2);
         assert_eq!(ship.power_per_thrust, 1);
         let preview = preview_design(root.path(), &load_design(&path).unwrap()).unwrap();

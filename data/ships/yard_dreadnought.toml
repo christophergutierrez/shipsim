@@ -20,7 +20,7 @@ weapon_boxes = 1
 attack_accuracy_bonus = 0
 thrust_per_power = 1
 power_per_thrust = 2
-cost = 1322
+cost = 1506
 
 [[weapons]]
 id = "beam_1"
