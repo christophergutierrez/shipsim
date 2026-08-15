@@ -1113,11 +1113,16 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                         Style::default().fg(Color::Cyan).bg(Color::DarkGray)
                     })
                     .ratio(ratio)
-                    .label(format!(
-                        "power {cost}/{} {}",
-                        ship.power_available,
-                        if over { "OVER" } else { "ok" }
-                    ));
+                    .label(if over {
+                        format!("power {cost}/{} OVER", ship.power_available)
+                    } else if cost == 0 {
+                        format!(
+                            "power 0/{} · no motion · no charge · no shields",
+                            ship.power_available
+                        )
+                    } else {
+                        format!("power {cost}/{} ok", ship.power_available)
+                    });
                 f.render_widget(
                     g,
                     Rect {
@@ -1352,7 +1357,7 @@ fn allocate_budget_line(app: &App) -> Option<Line<'static>> {
             },
             budget_style,
         ),
-        Span::raw(") · engine→thrust")];
+        Span::raw(") · pwr allocation")];
     if let Some(field) = field {
         spans.push(Span::raw(" · "));
         spans.push(Span::styled(field, Style::default().fg(Color::Cyan)));
@@ -1545,7 +1550,7 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     let mov_selected = draft.cursor == 0;
     lines.push(Line::from(Span::styled(
         format!(
-            "{}Movement: {:>2}/{} pwr → {} path   ←/→ or m",
+            "{}Movement: {:>2}/{} pwr (max path {})   ←/→ or m",
             if mov_selected { "▶ " } else { "  " },
             draft.movement,
             ship.movement_power_cap().unwrap_or(ship.power_available),
@@ -1558,8 +1563,22 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         },
     )));
 
+    let first_weapon = draft.weapons.first().and_then(|(id, charge)| {
+        ship.weapons.iter().find(|weapon| &weapon.id == id).map(|weapon| {
+            if weapon.operational {
+                format!("{} charge {charge}/{}", weapon.id, weapon.max_charge)
+            } else {
+                format!("{} DESTROYED", weapon.id)
+            }
+        })
+    });
     lines.push(Line::from(Span::styled(
-        " Weapons (ship order — same as fire list):",
+        format!(
+            " Spend preview: {} · Shields F:{}/{} (↓ details)",
+            first_weapon.unwrap_or_else(|| "no weapon".to_string()),
+            draft.shields[0],
+            ship.shield_cap(0)
+        ),
         Style::default().fg(Color::DarkGray),
     )));
     for (i, (id, chg)) in draft.weapons.iter().enumerate() {

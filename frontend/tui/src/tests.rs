@@ -1077,6 +1077,52 @@ fn playtest_p04_destroyed_weapon_has_no_ready_charge() {
 }
 
 #[test]
+fn playtest_p13_first_allocate_shows_three_spends() {
+    // X3: first paint teaches movement, a weapon spend, and shields.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Movement"), "movement missing: {buf}");
+    assert!(buffer_contains(&buf, "beam_1") && buffer_contains(&buf, "charge 0/4"), "weapon spend missing: {buf}");
+    assert!(buffer_contains(&buf, "Shields F:0/6"), "shield spend missing: {buf}");
+}
+
+#[test]
+fn playtest_p14_zero_draft_names_consequences() {
+    // X4: zero spend is a deliberate consequence, not an apparent success.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "no motion"), "zero motion missing: {buf}");
+    assert!(buffer_contains(&buf, "no charge"), "zero charge missing: {buf}");
+    assert!(buffer_contains(&buf, "no shields"), "zero shields missing: {buf}");
+    assert!(!buffer_contains(&buf, " ok"), "zero spend must not say ok: {buf}");
+}
+
+#[test]
+fn playtest_p15_movement_row_not_fake_purchased_path() {
+    // X7: max path is a cap, not path already bought by zero power.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    let movement = buf.lines().find(|line| line.contains("Movement:")).unwrap_or("");
+    assert!(movement.contains("max path 8"), "movement cap must be named: {movement}");
+    assert!(!movement.contains("→ 8 path"), "zero power must not look purchased: {movement}");
+}
+
+#[test]
+fn playtest_p16_all_alloc_fields_reachable() {
+    // X3: the compact first paint does not remove the detailed cursor path.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let last = app.alloc_draft.as_ref().unwrap().n_fields() - 1;
+    for _ in 0..last {
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    }
+    assert_eq!(app.alloc_draft.as_ref().unwrap().cursor, last);
+}
+
+#[test]
 fn rubric_t10_allocate_ceiling_logs_exact_field() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
