@@ -1,6 +1,8 @@
 use super::*;
 
 impl GameState {
+    /// Commit one complete path for `ship`. Resolves when all living ships commit.
+    /// `evasive` spends motion from the same budget as path actions.
     pub fn commit_path(
         &mut self,
         ship_id: u32,

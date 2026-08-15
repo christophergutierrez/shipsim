@@ -1,6 +1,11 @@
 use super::*;
 
 impl GameState {
+    /// Combat v4 NPC auto-play through collection stages.
+    ///
+    /// Returns every order the AI successfully applied, in application order.
+    /// Harnesses must append these to the save stream so barrier-stage AI
+    /// commits are replayed exactly (player-only saves cannot reconstruct them).
     pub fn resolve_v2_npc_actions(&mut self) -> Vec<crate::movement::Order> {
         use crate::movement::Order;
 
@@ -99,4 +104,3 @@ impl GameState {
         applied
     }
 }
-

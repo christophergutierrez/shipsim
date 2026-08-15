@@ -1,6 +1,7 @@
 use super::*;
 
 impl GameState {
+    /// Validate allocation draft without mutation (shared by stage + apply).
     fn validate_allocation_draft(
         &self,
         ship: &Ship,
@@ -257,4 +258,3 @@ impl GameState {
         }
     }
 }
-

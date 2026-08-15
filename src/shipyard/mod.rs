@@ -18,7 +18,7 @@ mod compile;
 pub use naming::{allocate_id, is_generated_class_name, names_collide, unique_class_name};
 pub use catalog::{design_cost, list_designs, new_design, preview_design, save_design, system_skus, weapon_skus};
 pub use parse::{load_design, validate, validate_design};
-pub use spec::{engine_key, engine_spec, material, system_spec, weapon_headline, weapon_headline_from_spec, weapon_spec};
+pub use spec::{engine_key, engine_spec, material, system_spec, weapon_headline, weapon_headline_from_spec, weapon_spec, SystemSpec};
 pub use compile::{check, check_all, compile, generated_path, render};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]

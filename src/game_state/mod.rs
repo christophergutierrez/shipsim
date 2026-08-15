@@ -378,8 +378,6 @@ impl GameState {
         // automatic turn advance (ADR-0025 observability).
     }
 
-    /// Validate allocation draft without mutation (shared by stage + apply).
-
     pub fn squads(&self) -> &BTreeMap<u32, SquadState> {
         &self.squads
     }
@@ -402,10 +400,6 @@ impl GameState {
             None
         }
     }
-
-    /// Commit one complete path for `ship`. Resolves when all living ships commit.
-    /// `evasive` spends motion from the same budget as path actions.
-
 
     fn v2_projected_damage(
         &self,
@@ -538,12 +532,6 @@ impl GameState {
     pub fn has_player_ship(&self) -> bool {
         self.ships.iter().any(|ship| !self.is_v2_ai(ship.id))
     }
-
-    /// Combat v4 NPC auto-play through collection stages.
-    ///
-    /// Returns every order the AI successfully applied, in application order.
-    /// Harnesses must append these to the save stream so barrier-stage AI
-    /// commits are replayed exactly (player-only saves cannot reconstruct them).
 
     pub fn seed(&self) -> u64 {
         self.seed
