@@ -29,7 +29,7 @@ A second, sharper form for the ambiguous cases:
 | Reference tables | `docs/combat-v2-tables.md`, `docs/SIZE-VARIANTS.md` |
 | Rubrics & protocols | `docs/UI-RUBRIC.md`, `docs/UI-PLAYTEST-PROTOCOL.md`, `docs/BALANCE-PROTOCOL.md` |
 | How to use / run | `README.md`, `AGENTS.md`, `docs/AGENT-PLAY.md`, per-client `README.md` |
-| Living status | `docs/TODO.md` — durable *because* it is maintained (`docs/ROADMAP.md` is a pointer) |
+| Living status | `docs/TODO.md` — the single open-work list (durable *because* it is maintained) |
 | Deliberate archives | `docs/history/*` — explicitly labelled historical records |
 
 ## Ephemeral — do not track

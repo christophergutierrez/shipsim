@@ -15,7 +15,7 @@ launch table; [`AGENTS.md`](../AGENTS.md) is the short agent entry.
 | [`AGENT-PLAY.md`](AGENT-PLAY.md) | UI / API / sim play procedures |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System boundaries |
 | [`SHIPYARD.md`](SHIPYARD.md) | Component yard, compile, catalog |
-| [`TODO.md`](TODO.md) | Living open work (includes former roadmap) |
+| [`TODO.md`](TODO.md) | Single living open-work list |
 | [`PRD.md`](PRD.md) | Why the product exists |
 | [`SAVE-FORMAT.md`](SAVE-FORMAT.md) | Save / resume format |
 
