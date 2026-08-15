@@ -3278,14 +3278,46 @@ fn tui_m53_phase_footers_name_enter_and_space() {
     app.update_snapshot(test_snapshot());
     let allocate = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&allocate, "Enter commit power"));
-    assert!(buffer_contains(&allocate, "Space unavailable"));
+    assert!(buffer_contains(&allocate, "spend power"));
 
     let mut movement = test_snapshot();
     movement.phase = "movement".into();
     app.update_snapshot(movement);
     let movement = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&movement, "Enter unavailable"));
+    assert!(buffer_contains(&movement, "Enter commit"));
     assert!(buffer_contains(&movement, "Space hold"));
+}
+
+#[test]
+fn tui_m56_allocate_footer_explains_row_spending() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "select row"), "allocation footer must explain focus navigation:\n{buf}");
+    assert!(buffer_contains(&buf, "spend power"), "allocation footer must explain arrow-key spending:\n{buf}");
+}
+
+#[test]
+fn tui_m57_no_charge_fire_names_allocation_recovery() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    for weapon in &mut snap.ships[0].weapons {
+        weapon.charge = 0;
+    }
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    app.fire_draft = Some(crate::app::FireDraft::default());
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(buffer_contains(&buf, "charge in Allocate"), "no-charge fire footer must name recovery:\n{buf}");
+}
+
+#[test]
+fn tui_m58_disabled_footer_names_no_recovery_and_quit() {
+    let mut app = App::new();
+    app.update_snapshot(disabled_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "no recovery"), "disabled footer must explain passing cannot recover:\n{buf}");
+    assert!(buffer_contains(&buf, "q quit"), "disabled footer must name the exit affordance:\n{buf}");
 }
 
 #[test]

@@ -450,7 +450,7 @@ impl App {
         {
             if let Some(start_turn) = self.disabled_autopass_turn {
                 self.disabled_pass_notice = Some(format!(
-                    "Disabled turn {start_turn} passed. Space passes turn {}.",
+                    "Disabled turn {start_turn} passed; no recovery. Space passes turn {}.",
                     snap.turn
                 ));
             }

@@ -266,7 +266,7 @@ fn pump_disabled_autopass(app: &mut App, harness: &mut Harness) {
         };
         if snap.turn != start_turn {
             app.disabled_pass_notice = Some(format!(
-                "Disabled turn {start_turn} passed. Space passes turn {}.",
+                "Disabled turn {start_turn} passed; no recovery. Space passes turn {}.",
                 snap.turn
             ));
             app.clear_disabled_autopass();

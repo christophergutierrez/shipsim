@@ -1183,11 +1183,11 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     // Keep a compact, mode-specific exit row fixed at the bottom of every
     // combat form. Detailed controls remain in the scrollable panel body.
     let combat_footer = app.disabled_pass_notice.clone().or_else(|| match app.mode {
-        Mode::Allocate if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
-        Mode::Movement if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
-        Mode::Allocate => Some("Esc help · Enter commit power → Movement · Space unavailable · ↑/↓ field · PgDn shields".to_string()),
+        Mode::Allocate if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
+        Mode::Movement if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
+        Mode::Allocate => Some("Esc help · Enter commit power · ↑/↓ select row · ←/→ spend power · PgDn shields".to_string()),
         Mode::Movement => Some(movement_footer(app)),
-        Mode::Fire if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
+        Mode::Fire if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
         Mode::Fire => Some(fire_footer(app)),
         Mode::GameOver => Some("Enter quit · q quit".to_string()),
         _ => None,
@@ -1431,7 +1431,19 @@ fn fire_footer(app: &App) -> String {
     } else if can_queue {
         "Enter queue"
     } else {
-        "Enter unavailable"
+        let has_usable_weapon = app.focused().is_some_and(|ship| {
+            ship.weapons.iter().any(|weapon| {
+                weapon.operational
+                    && !weapon.is_pd()
+                    && weapon.charge > 0
+                    && weapon.ammo_remaining != Some(0)
+            })
+        });
+        if has_usable_weapon {
+            "Enter unavailable · select a legal target"
+        } else {
+            "Enter unavailable · charge in Allocate"
+        }
     };
     let final_action = if draft.shots.is_empty() {
         "Space pass"
@@ -1446,7 +1458,7 @@ fn movement_footer(app: &App) -> String {
     if has_path {
         "Esc help · Enter commit path → Fire · Space hold → Fire · ] enemy".into()
     } else {
-        "Esc help · Enter unavailable · Space hold → Fire · ] enemy".into()
+        "Esc help · w/↑ add path · Enter commit · Space hold → Fire · ] enemy".into()
     }
 }
 
@@ -2657,7 +2669,7 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
                     format!("{active} active; Tab>{attacker} {w}>{tgt}")
                 }
             } else {
-                "No legal shot · Space pass".into()
+                "No legal shot — charge/aim, or Space pass".into()
             }
         }
         "turn_end" => "Turn complete; e".into(),
