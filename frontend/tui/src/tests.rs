@@ -22,6 +22,52 @@ use crate::protocol::{
 // yard_quit_requires_confirmation_when_dirty / C2. M1–M4 add T7–T18 from
 // docs/plans/ui-rubric-tui.md.
 
+// First-play invariant index for docs/plans/tui-first-play.md. P01–P04 cover
+// X1; P05–P12 cover X2/X9; P13–P16 cover X3/X4/X7; P17–P22 cover X5/X13;
+// P23–P27 cover X6/X7; P28–P32 cover X8; P33–P41 cover X10–X13. The exact
+// test names are added with each milestone so this index stays searchable.
+// P01 playtest_p01_status_and_allocate_shields_agree
+// P02 playtest_p02_status_weapon_draft_matches_allocate
+// P03 playtest_p03_uncommitted_marked_without_color
+// P04 playtest_p04_destroyed_weapon_has_no_ready_charge
+// P05 playtest_p05_uncharged_enter_never_queues
+// P06 playtest_p06_illegal_preview_enter_never_queues
+// P07 playtest_p07_invalid_face_enter_names_valid_faces
+// P08 playtest_p08_stale_preview_cannot_queue_other_weapon
+// P09 playtest_p09_legal_preview_queues_and_removes
+// P10 playtest_p10_space_never_sends_known_illegal_volley
+// P11 playtest_p11_empty_space_is_explicit_pass
+// P12 playtest_p12_fire_row_marks_bear_or_no_arc
+// P13 playtest_p13_first_allocate_shows_three_spends
+// P14 playtest_p14_zero_draft_names_consequences
+// P15 playtest_p15_movement_row_not_fake_purchased_path
+// P16 playtest_p16_all_alloc_fields_reachable
+// P17 playtest_p17_escape_help_round_trip
+// P18 playtest_p18_help_first_line_return_and_quit
+// P19 playtest_p19_question_and_h_open_help
+// P20 playtest_p20_inactive_hotkey_explains
+// P21 playtest_p21_commit_footer_names_next_phase
+// P22 playtest_p22_enter_does_not_commit_empty_path
+// P23 playtest_p23_destroyed_and_uncharged_are_distinct
+// P24 playtest_p24_allocate_skips_destroyed
+// P25 playtest_p25_carried_charge_names_power_to_ready
+// P26 playtest_p26_movement_row_names_engine_loss
+// P27 playtest_p27_no_usable_weapons_is_pass_only
+// P28 playtest_p28_disabled_banner_names_cause
+// P29 playtest_p29_disabled_space_emits_empty_allocate
+// P30 playtest_p30_autopass_stops_on_focus_change
+// P31 playtest_p31_repairable_not_forced_autopass
+// P32 playtest_p32_game_over_names_enter_and_q
+// P33 playtest_p33_no_midword_status_clip
+// P34 playtest_p34_cta_not_space_p
+// P35 playtest_p35_map_origin_not_ship_coords
+// P36 playtest_p36_stack_names_occupants
+// P37 playtest_p37_combat_legend_or_plain_words
+// P38 playtest_p38_movement_keys_survive_long_path
+// P39 playtest_p39_unknown_key_rate_limited
+// P40 playtest_p40_clamp_notice_rate_limited
+// P41 playtest_p41_no_tty_message
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 /// A minimal but realistic snapshot for testing: two ships on a 10×10 board.
