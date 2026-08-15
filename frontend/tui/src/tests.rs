@@ -4560,6 +4560,39 @@ fn playtest_h07_undamaged_movement_row_omits_engine_gloss() {
 }
 
 #[test]
+fn playtest_h08_header_glosses_alloc_ratio() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "alloc") && buffer_contains(&buf, "ships"), "stage ratio needs an inline gloss:\n{buf}");
+}
+
+#[test]
+fn playtest_h09_facing_names_a_direction() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "east"), "facing must name its direction:\n{buf}");
+}
+
+#[test]
+fn playtest_h10_six_face_glyphs_or_labels_visible() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "FL") && buffer_contains(&buf, "RR"), "shield face labels must remain visible:\n{buf}");
+    assert!(buffer_contains(&buf, "0→1↗2↖3←4↙5↘"), "all facing arrows must be discoverable:\n{buf}");
+}
+
+#[test]
+fn playtest_h11_no_bare_profile_equals() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(!buffer_contains(&buf, "profile="), "first Allocate paint must not expose undefined profile jargon:\n{buf}");
+}
+
+#[test]
 fn fire_preview_unique_face_auto_selects_invalid_default() {
     let mut app = App::new();
     app.update_snapshot(three_weapon_fire_snapshot());

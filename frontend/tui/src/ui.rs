@@ -204,7 +204,10 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     if let Some((label, done, total)) = stage_progress(snap) {
         status_spans.push(Span::raw("│"));
         status_spans.push(Span::styled(
-            format!(" {label} {done}/{total} "),
+            format!(
+                " {label} {done}/{total}{} ",
+                if snap.phase == "allocate" { " ships" } else { "" }
+            ),
             Style::default().fg(Color::DarkGray),
         ));
     }
@@ -777,11 +780,12 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
             // v4 non-inertial kinematics: position + facing, and during the
             // movement stage the drafted path cost vs available motion.
             let mut s = format!(
-                "  @({},{}) face={}{} · hull {}",
+                "  @({},{}) face {}{} {} · hull {}",
                 ship.q,
                 ship.r,
                 ship.facing,
                 facing_arrow(ship.facing),
+                facing_name(ship.facing),
                 ship.structure,
             );
             if snap.phase == "movement" {
@@ -862,12 +866,9 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
             f,
             &mut y,
             Line::from(format!(
-                "  alloc {}/{} · power avail {} · engine boxes {} · sys {}",
+                "  alloc {}/{} · 0→1↗2↖3←4↙5↘",
                 ship.power.saturating_sub(ship.power_available),
-                ship.power,
-                ship.power_available,
-                ship.engine,
-                ship.power_sys
+                ship.power
             )),
         );
 
@@ -1849,6 +1850,18 @@ fn weapon_arc_token(weapon: &crate::protocol::Weapon) -> String {
         _ => weapon.arc.trim(),
     };
     format!("arc {token}")
+}
+
+fn facing_name(facing: u32) -> &'static str {
+    match facing {
+        0 => "east",
+        1 => "northeast",
+        2 => "northwest",
+        3 => "west",
+        4 => "southwest",
+        5 => "southeast",
+        _ => "unknown",
+    }
 }
 
 /// Short display token for one path action.
