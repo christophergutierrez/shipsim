@@ -4484,6 +4484,38 @@ fn playtest_h01_allocate_selected_weapon_names_arc() {
 }
 
 #[test]
+fn playtest_h01b_allocate_weapon_shades_map_arc_like_fire() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().cursor = 0;
+    let movement = render_to_string(&mut app, 80, 24);
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    let allocate = render_to_string(&mut app, 80, 24);
+
+    assert!(
+        !movement.contains("··"),
+        "Movement field must not paint a weapon arc:\n{movement}"
+    );
+    assert!(
+        allocate.contains("··"),
+        "selected Allocate weapon must shade its fire arc on the map:\n{allocate}"
+    );
+
+    app.mode = crate::app::Mode::Fire;
+    if app.fire_draft.is_none() {
+        app.open_fire_for_focus();
+    }
+    if let Some(draft) = app.fire_draft.as_mut() {
+        draft.weapon_idx = 0;
+    }
+    let fire = render_to_string(&mut app, 80, 24);
+    assert!(
+        fire.contains("··"),
+        "Fire phase still shades the selected weapon:\n{fire}"
+    );
+}
+
+#[test]
 fn playtest_h02_status_weapon_names_arc() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());

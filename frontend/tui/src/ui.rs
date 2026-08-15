@@ -433,17 +433,35 @@ impl WeaponShade {
     }
 }
 
-fn selected_weapon_shade(app: &App) -> Option<WeaponShade> {
-    if app.mode != Mode::Fire {
-        return None;
-    }
+fn selected_weapon_for_shade(app: &App) -> Option<&crate::protocol::Weapon> {
     let ship = app.focused()?;
-    let draft = app.fire_draft.as_ref()?;
-    let w = ship.weapons.get(draft.weapon_idx)?;
+    match app.mode {
+        Mode::Fire => {
+            let draft = app.fire_draft.as_ref()?;
+            ship.weapons.get(draft.weapon_idx)
+        }
+        Mode::Allocate => {
+            let draft = app.alloc_draft.as_ref()?;
+            if draft.cursor == 0 {
+                return None;
+            }
+            let index = draft.cursor - 1;
+            let (id, _) = draft.weapons.get(index)?;
+            ship.weapons.iter().find(|weapon| &weapon.id == id)
+        }
+        _ => None,
+    }
+}
+
+fn selected_weapon_shade(app: &App) -> Option<WeaponShade> {
+    let ship = app.focused()?;
+    let w = selected_weapon_for_shade(app)?;
     if !w.operational || w.max_range == 0 {
         return None;
     }
-    let bg = if w.charge == 0 || w.fired {
+    // Fire dims uncharged/fired guns because they cannot shoot. Allocate is
+    // the moment you buy charge, so keep the arc as visible as a ready gun.
+    let bg = if app.mode == Mode::Fire && (w.charge == 0 || w.fired) {
         Color::Rgb(40, 40, 40)
     } else if ship.controller == "player" {
         Color::Rgb(0, 60, 0)
