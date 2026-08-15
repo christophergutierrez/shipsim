@@ -125,6 +125,13 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
         return KeyResult::Continue;
     }
 
+    if key.code == KeyCode::Char(' ')
+        && matches!(app.mode, Mode::Allocate | Mode::Movement | Mode::Fire)
+        && crate::ui::is_disabled_ship(app)
+    {
+        app.disabled_autopass = app.focused_ship;
+    }
+
     match app.mode {
         Mode::Normal => handle_normal(app, key),
         Mode::Map => handle_map(app, key),
@@ -132,9 +139,13 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
         Mode::Movement => handle_movement(app, key),
         Mode::Fire => handle_fire(app, key),
         Mode::GameOver => {
-            if key.code == KeyCode::Enter {
+            if matches!(key.code, KeyCode::Enter | KeyCode::Char('q')) {
                 // Dismiss is local only (tutorial advance already done in gate).
-                return KeyResult::Continue;
+                return if key.code == KeyCode::Char('q') {
+                    KeyResult::Quit
+                } else {
+                    KeyResult::Continue
+                };
             }
             KeyResult::Continue
         }

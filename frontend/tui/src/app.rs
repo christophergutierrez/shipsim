@@ -349,6 +349,8 @@ pub struct App {
     fire_previews: std::collections::BTreeMap<FirePreviewKey, crate::protocol::FireDecisionPreview>,
     /// True if the engine subprocess has exited.
     pub engine_dead: bool,
+    /// Player requested automatic empty orders for this disabled ship.
+    pub disabled_autopass: Option<i64>,
     /// Message log lines (for the log panel).
     pub log: Vec<String>,
     /// Active tutorial controller (None in free play).
@@ -394,6 +396,7 @@ impl App {
             fire_preview: None,
             fire_previews: std::collections::BTreeMap::new(),
             engine_dead: false,
+            disabled_autopass: None,
             log: Vec::new(),
             tutorial: None,
             tutorial_order_pending: false,
@@ -450,6 +453,7 @@ impl App {
         // Update mode based on phase.
         if snap.is_over() {
             self.mode = Mode::GameOver;
+            self.disabled_autopass = None;
             self.path_preview = None;
             self.pending_path_preview = None;
             self.fire_preview = None;
@@ -523,6 +527,17 @@ impl App {
                     self.path_draft = Some(PathDraft::default());
                     self.mode = Mode::Movement;
                 }
+            }
+        }
+        if let Some(id) = self.disabled_autopass {
+            let keep = self.focused_ship == Some(id)
+                && self
+                    .snap
+                    .as_ref()
+                    .and_then(|current| current.ship(id))
+                    .is_some_and(|ship| ship.power_available == 0);
+            if !keep {
+                self.disabled_autopass = None;
             }
         }
 
@@ -950,6 +965,8 @@ impl App {
         if self.focused_ship == Some(ship_id) {
             return;
         }
+
+        self.disabled_autopass = None;
 
         if let Some(previous) = self.focused_ship {
             if let Some(draft) = self.alloc_draft.take() {

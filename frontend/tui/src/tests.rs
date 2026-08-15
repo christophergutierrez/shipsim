@@ -2917,6 +2917,81 @@ fn playtest_p27_no_usable_weapons_is_pass_only() {
     assert!(!buffer_contains(&buf, "Enter queue"));
 }
 
+fn disabled_snapshot() -> Snapshot {
+    let mut snap = test_snapshot();
+    snap.ships[0].power_available = 0;
+    snap.ships[0].power = 0;
+    snap.ships[0].effective_max_maneuver_actions = Some(0);
+    for weapon in &mut snap.ships[0].weapons {
+        weapon.operational = false;
+    }
+    snap
+}
+
+#[test]
+fn playtest_p28_disabled_banner_names_cause() {
+    let mut app = App::new();
+    app.update_snapshot(disabled_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "DISABLED"));
+    assert!(buffer_contains(&buf, "Space"));
+    assert!(buffer_contains(&buf, "cannot move or fire"));
+}
+
+#[test]
+fn playtest_p29_disabled_space_emits_empty_allocate() {
+    let mut app = App::new();
+    app.update_snapshot(disabled_snapshot());
+    let result = handle_key(&mut app, make_key(' '));
+    assert!(matches!(result, KeyResult::SendOrder(_)));
+    assert_eq!(app.disabled_autopass, Some(1));
+}
+
+#[test]
+fn playtest_p30_autopass_stops_on_focus_change() {
+    let mut app = App::new();
+    let mut snap = disabled_snapshot();
+    snap.ships.push({
+        let mut other = snap.ships[0].clone();
+        other.id = 3;
+        other.power_available = 5;
+        other.power = 5;
+        other.effective_max_maneuver_actions = Some(5);
+        other.weapons[0].operational = true;
+        other
+    });
+    app.update_snapshot(snap);
+    let _ = handle_key(&mut app, make_key(' '));
+    assert_eq!(app.disabled_autopass, Some(1));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
+    assert_eq!(app.focused_ship, Some(3));
+    assert_eq!(app.disabled_autopass, None);
+}
+
+#[test]
+fn playtest_p31_repairable_not_forced_autopass() {
+    let mut app = App::new();
+    let mut snap = disabled_snapshot();
+    snap.ships[0].systems = vec![crate::protocol::InstalledSystem {
+        kind: "repair".into(),
+        mk: None,
+    }];
+    snap.ships[0].repair_cap = Some(2);
+    app.update_snapshot(snap);
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(!buffer_contains(&buf, "DISABLED"));
+    assert!(buffer_contains(&buf, "repair=0/2"));
+}
+
+#[test]
+fn playtest_p32_game_over_names_enter_and_q() {
+    let mut app = App::new();
+    app.update_snapshot(game_over_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Enter dismiss"));
+    assert!(buffer_contains(&buf, "q quit"));
+}
+
 #[test]
 fn allocate_right_on_dead_weapon_does_not_change_charge() {
     // 2.1: cursor on a !operational weapon → Right leaves draft charge unchanged.

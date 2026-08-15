@@ -230,9 +230,76 @@ fn run(
                         app.log("engine exited");
                     }
                 }
+                pump_disabled_autopass(app, harness);
                 pump_scripted(app, harness);
             }
             KeyResult::Continue => {}
+        }
+    }
+}
+
+/// Continue a disabled ship through the engine's ordinary empty orders after
+/// the player explicitly chose Space. This never fabricates a special order
+/// or advances another player ship.
+fn pump_disabled_autopass(app: &mut App, harness: &mut Harness) {
+    for _ in 0..8 {
+        let Some(ship_id) = app.disabled_autopass else {
+            return;
+        };
+        let Some(snap) = app.snap.as_ref() else {
+            app.disabled_autopass = None;
+            return;
+        };
+        if app.focused_ship != Some(ship_id)
+            || !crate::ui::is_disabled_ship(app)
+            || snap.is_over()
+        {
+            app.disabled_autopass = None;
+            return;
+        }
+        let already_committed = match snap.phase.as_str() {
+            "allocate" => snap.ships_allocated_this_turn.contains(&ship_id),
+            "movement" => snap.ships_committed_path.contains(&ship_id),
+            "firing" => snap.ships_committed_volley.contains(&ship_id),
+            _ => {
+                app.disabled_autopass = None;
+                return;
+            }
+        };
+        if already_committed {
+            return;
+        }
+        let order = match snap.phase.as_str() {
+            "allocate" => crate::protocol::Order::allocate_full(
+                ship_id,
+                0,
+                serde_json::Value::Object(serde_json::Map::new()),
+                vec![0; 6],
+                false,
+                0,
+                false,
+                None,
+            ),
+            "movement" => crate::protocol::Order::commit_path(ship_id, Vec::new()),
+            "firing" => crate::protocol::Order::commit_volley(ship_id, Vec::new()),
+            _ => unreachable!(),
+        };
+        if harness.send(&order.to_json()).is_err() {
+            app.engine_dead = true;
+            app.disabled_autopass = None;
+            return;
+        }
+        match harness.read_line() {
+            Some(line) => apply_engine_line(app, line),
+            None => {
+                app.engine_dead = true;
+                app.disabled_autopass = None;
+                return;
+            }
+        }
+        if app.last_error.is_some() {
+            app.disabled_autopass = None;
+            return;
         }
     }
 }

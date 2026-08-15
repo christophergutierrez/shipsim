@@ -1036,6 +1036,27 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                 ],
             )
         }
+        Mode::Allocate if is_disabled_ship(app) => (
+            "Allocate",
+            vec![Line::from(Span::styled(
+                " DISABLED — no power; cannot move or fire",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ))],
+        ),
+        Mode::Movement if is_disabled_ship(app) => (
+            "Movement",
+            vec![Line::from(Span::styled(
+                " DISABLED — no power; cannot move or fire",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ))],
+        ),
+        Mode::Fire if is_disabled_ship(app) => (
+            "Fire",
+            vec![Line::from(Span::styled(
+                " DISABLED — no power; cannot move or fire",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ))],
+        ),
         Mode::Allocate => render_allocate_panel(app),
         Mode::Movement => render_movement_panel(app),
         Mode::Fire => render_fire_panel(app),
@@ -1174,9 +1195,13 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     // Keep a compact, mode-specific exit row fixed at the bottom of every
     // combat form. Detailed controls remain in the scrollable panel body.
     let combat_footer = match app.mode {
+        Mode::Allocate if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
+        Mode::Movement if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
         Mode::Allocate => Some("Esc help · Enter commit power → Movement · ↑/↓ field · ←/→ adjust".to_string()),
         Mode::Movement => Some(movement_footer(app)),
+        Mode::Fire if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
         Mode::Fire => Some(fire_footer(app)),
+        Mode::GameOver => Some("Enter dismiss · q quit".to_string()),
         _ => None,
     };
     if let Some(footer) = combat_footer {
@@ -2402,6 +2427,28 @@ fn render_tutorial_panel(f: &mut Frame, app: &App, area: Rect) {
             height: body_h,
         },
     );
+}
+
+/// Whether the focused player ship has no action available and no repair
+/// choice worth presenting. This is presentation state derived from the
+/// authoritative snapshot; orders still use the engine's normal empty forms.
+pub(crate) fn is_disabled_ship(app: &App) -> bool {
+    let Some(ship) = app.focused() else {
+        return false;
+    };
+    let repairable = ship.repair_cap.is_some_and(|cap| cap > 0) && ship.has_system("repair");
+    let usable_weapon = ship.weapons.iter().any(|weapon| {
+        weapon.operational
+            && !weapon.is_pd()
+            && weapon.charge > 0
+            && weapon.ammo_remaining != Some(0)
+    });
+    ship.controller == "player"
+        && !ship.destroyed
+        && ship.power_available == 0
+        && ship.motion_cap() == 0
+        && !usable_weapon
+        && !repairable
 }
 
 /// Fable Phase 4: phase-specific call-to-action for the header (replaces "actions remain").
