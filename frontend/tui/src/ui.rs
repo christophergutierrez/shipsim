@@ -1185,7 +1185,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     let combat_footer = app.disabled_pass_notice.clone().or_else(|| match app.mode {
         Mode::Allocate if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
         Mode::Movement if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
-        Mode::Allocate => Some("Esc help · Enter commit power · ↑/↓ select row · ←/→ spend power · PgDn shields".to_string()),
+        Mode::Allocate => Some("Esc help · Enter commit power · ↑/↓ select · ←/→ spend selected · PgDn shields".to_string()),
         Mode::Movement => Some(movement_footer(app)),
         Mode::Fire if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
         Mode::Fire => Some(fire_footer(app)),
@@ -1385,6 +1385,14 @@ fn fire_queue_line(app: &App) -> Option<Line<'static>> {
     let _snap = app.snap.as_ref()?;
     let _ship = app.focused()?;
     let mine_count = app.fire_draft.as_ref().map(|d| d.shots.len()).unwrap_or(0);
+    let has_usable_weapon = app.focused().is_some_and(|ship| {
+        ship.weapons.iter().any(|weapon| {
+            weapon.operational
+                && !weapon.is_pd()
+                && weapon.charge > 0
+                && weapon.ammo_remaining != Some(0)
+        })
+    });
     let style = if mine_count == 0 {
         Style::default().fg(Color::DarkGray)
     } else {
@@ -1393,7 +1401,16 @@ fn fire_queue_line(app: &App) -> Option<Line<'static>> {
             .add_modifier(Modifier::BOLD)
     };
     Some(Line::from(Span::styled(
-        format!(" Queued: {mine_count} shot(s) pending"),
+        format!(
+            " Queued: {mine_count} shot(s) pending · {}",
+            if mine_count == 0 && has_usable_weapon {
+                "Enter queue · Space pass"
+            } else if mine_count == 0 {
+                "Space pass"
+            } else {
+                "Enter remove · Space fire"
+            }
+        ),
         style,
     )))
 }

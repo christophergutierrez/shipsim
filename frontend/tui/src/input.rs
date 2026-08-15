@@ -376,7 +376,13 @@ fn handle_confirmation(app: &mut App, confirmation: Confirmation, key: KeyEvent)
 }
 
 fn notice_unknown_key(app: &mut App) {
-    app.input_notice = Some("UNAVAILABLE — use the controls below".into());
+    let guidance = match app.mode {
+        Mode::Allocate => "UNAVAILABLE — ↑/↓ select; ←/→ spend selected; Enter commit",
+        Mode::Movement => "UNAVAILABLE — w/↑ add path; Enter commit; Space hold",
+        Mode::Fire => "UNAVAILABLE — ↑/↓ gun; 1–9 target; Enter queue; Space fire/pass",
+        _ => "UNAVAILABLE — use the controls below",
+    };
+    app.input_notice = Some(guidance.into());
     if app
         .log
         .last()

@@ -3278,7 +3278,7 @@ fn tui_m53_phase_footers_name_enter_and_space() {
     app.update_snapshot(test_snapshot());
     let allocate = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&allocate, "Enter commit power"));
-    assert!(buffer_contains(&allocate, "spend power"));
+    assert!(buffer_contains(&allocate, "spend selected"));
 
     let mut movement = test_snapshot();
     movement.phase = "movement".into();
@@ -3293,8 +3293,24 @@ fn tui_m56_allocate_footer_explains_row_spending() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&buf, "select row"), "allocation footer must explain focus navigation:\n{buf}");
-    assert!(buffer_contains(&buf, "spend power"), "allocation footer must explain arrow-key spending:\n{buf}");
+    assert!(buffer_contains(&buf, "select"), "allocation footer must explain focus navigation:\n{buf}");
+    assert!(buffer_contains(&buf, "spend selected"), "allocation footer must explain arrow-key spending:\n{buf}");
+}
+
+#[test]
+fn tui_m59_unknown_key_notice_names_phase_controls() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let _ = handle_key(&mut app, make_key('r'));
+    let allocate = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&allocate, "spend selected"), "allocate error must name its correction:\n{allocate}");
+
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    let _ = handle_key(&mut app, make_key('r'));
+    let movement = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&movement, "add path"), "movement error must name its correction:\n{movement}");
 }
 
 #[test]
