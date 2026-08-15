@@ -726,29 +726,13 @@ mod tests {
         weapon_operational: bool,
     ) -> ShipSnapshot {
         ShipSnapshot {
-            id,
             class: "Test".into(),
             class_id: "test".into(),
-            size: 2,
             controller: controller.into(),
-            q: 0,
-            r: 0,
-            facing: 0,
             power: 10,
-            attack_accuracy_bonus: 0,
             power_available: 10,
-            movement_allocated: 0,
-            shields_powered: [0; 6],
-            shields_remaining: [0; 6],
-            max_shield_per_facing: 4,
-            max_shields: None,
             structure: if destroyed { 0 } else { 5 },
-            engine: 1,
-            power_sys: 1,
-            bridge: 1,
             weapon_boxes: vec![u32::from(weapon_operational)],
-            systems: vec![],
-            repair_cap: None,
             destroyed,
             weapons: vec![WeaponSnapshot {
                 id: "beam_1".into(),
@@ -767,16 +751,7 @@ mod tests {
                 repeat: false,
                 pierce: false,
             }],
-            max_maneuver_actions: 4,
-            effective_max_maneuver_actions: 4,
-            thrust_per_power: 1,
-            power_per_thrust: 1,
-            motion_available: 0,
-            evasion_committed: 0,
-            cloaked: false,
-            squad_id: None,
-            squad_leader: None,
-            squad_members: vec![],
+            ..ShipSnapshot::test_fixture(id)
         }
     }
 

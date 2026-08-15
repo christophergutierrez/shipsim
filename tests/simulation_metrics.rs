@@ -106,40 +106,10 @@ fn weapon_power_metric_counts_increases_only() {
 
     // Synthetic: ship already carries charge 2, allocates want 4 → spent 2.
     let ship = ShipSnapshot {
-        id: 1,
         class: "test".into(),
-        class_id: "test".into(),
-        size: 2,
-        controller: "player".into(),
-        q: 0,
-        r: 0,
-        facing: 0,
         power: 10,
-        attack_accuracy_bonus: 0,
         power_available: 10,
-        movement_allocated: 0,
-        shields_powered: [0; 6],
-        shields_remaining: [0; 6],
-        max_shield_per_facing: 4,
-        max_shields: None,
-        structure: 10,
-        engine: 2,
-        power_sys: 2,
-        bridge: 1,
         weapon_boxes: vec![1],
-        systems: vec![],
-        repair_cap: None,
-        destroyed: false,
-        max_maneuver_actions: 4,
-        effective_max_maneuver_actions: 4,
-        thrust_per_power: 1,
-        power_per_thrust: 1,
-        motion_available: 0,
-        evasion_committed: 0,
-        cloaked: false,
-        squad_id: None,
-        squad_leader: None,
-        squad_members: vec![],
         weapons: vec![shipsim_core::snapshot::WeaponSnapshot {
             id: "beam_1".into(),
             kind: "Beam".into(),
@@ -157,6 +127,7 @@ fn weapon_power_metric_counts_increases_only() {
             repeat: false,
             pierce: false,
         }],
+        ..ShipSnapshot::test_fixture(1)
     };
     let order = Order::Allocate {
         ship: 1,

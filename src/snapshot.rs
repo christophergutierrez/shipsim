@@ -82,6 +82,63 @@ pub struct ShipSnapshot {
     pub squad_members: Vec<u32>,
 }
 
+impl ShipSnapshot {
+    /// Synthetic snapshot for tests; not a legal in-game ship.
+    pub fn test_fixture(id: u32) -> Self {
+        Self {
+            id,
+            class: String::new(),
+            class_id: String::new(),
+            size: 0,
+            controller: "player".into(),
+            q: 0,
+            r: 0,
+            facing: 0,
+            power: 0,
+            attack_accuracy_bonus: 0,
+            power_available: 0,
+            movement_allocated: 0,
+            shields_powered: [0; 6],
+            shields_remaining: [0; 6],
+            max_shield_per_facing: 0,
+            max_shields: None,
+            structure: 0,
+            engine: 0,
+            power_sys: 0,
+            bridge: 0,
+            weapon_boxes: Vec::new(),
+            destroyed: false,
+            weapons: Vec::new(),
+            systems: Vec::new(),
+            repair_cap: None,
+            max_maneuver_actions: 0,
+            effective_max_maneuver_actions: 0,
+            thrust_per_power: 0,
+            power_per_thrust: 0,
+            motion_available: 0,
+            evasion_committed: 0,
+            cloaked: false,
+            squad_id: None,
+            squad_leader: None,
+            squad_members: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ShipSnapshot;
+
+    #[test]
+    fn test_fixture_has_safe_defaults() {
+        let ship = ShipSnapshot::test_fixture(7);
+        assert_eq!(ship.id, 7);
+        assert!(!ship.destroyed);
+        assert!(ship.repair_cap.is_none());
+        assert!(ship.weapons.is_empty());
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct WeaponSnapshot {
     pub id: String,
