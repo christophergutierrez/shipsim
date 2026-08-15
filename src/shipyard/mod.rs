@@ -13,9 +13,11 @@ use thiserror::Error;
 mod naming;
 mod catalog;
 mod parse;
+mod spec;
 pub use naming::{allocate_id, is_generated_class_name, names_collide, unique_class_name};
-pub use catalog::{design_cost, engine_spec, list_designs, new_design, preview_design, save_design, system_skus, system_spec, weapon_headline, weapon_headline_from_spec, weapon_skus, weapon_spec};
+pub use catalog::{design_cost, list_designs, new_design, preview_design, save_design, system_skus, weapon_skus};
 pub use parse::{load_design, validate, validate_design};
+pub use spec::{engine_key, engine_spec, material, system_spec, weapon_headline, weapon_headline_from_spec, weapon_spec};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -357,9 +359,6 @@ const THRUST_LADDER: &[(u32, u32)] = &[
     (1, 6),
 ];
 
-pub fn engine_key(kind: &str, size: &str) -> String {
-    format!("{kind}_{size}")
-}
 
 fn apply_thrust_step(thrust_per_power: u32, power_per_thrust: u32, step: i8) -> (u32, u32) {
     let idx = THRUST_LADDER
@@ -438,12 +437,6 @@ fn compile_systems(
     Ok((systems, used, cost))
 }
 
-pub fn material(name: &str) -> Result<&'static MaterialSpec, Error> {
-    MATERIALS
-        .iter()
-        .find(|m| m.id == name)
-        .ok_or_else(|| Error::UnknownMaterial(name.to_string()))
-}
 fn load_components(root: &Path) -> Result<Components, Error> {
     let path = root.join("data/components.toml");
     let text = fs::read_to_string(&path).map_err(|source| Error::Read {
