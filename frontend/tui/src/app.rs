@@ -286,6 +286,23 @@ impl FireDraft {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct FirePreviewKey {
+    ship: i64,
+    weapon: String,
+    target: i64,
+}
+
+impl FirePreviewKey {
+    fn new(ship: i64, weapon: &str, target: i64) -> Self {
+        Self {
+            ship,
+            weapon: weapon.to_string(),
+            target,
+        }
+    }
+}
+
 /// The full application state.
 pub struct App {
     pub snap: Option<Snapshot>,
@@ -329,6 +346,7 @@ pub struct App {
     /// route, cost, and projected final position).
     pub path_preview: Option<crate::protocol::PathPreview>,
     pub fire_preview: Option<crate::protocol::FireDecisionPreview>,
+    fire_previews: std::collections::BTreeMap<FirePreviewKey, crate::protocol::FireDecisionPreview>,
     /// True if the engine subprocess has exited.
     pub engine_dead: bool,
     /// Message log lines (for the log panel).
@@ -374,6 +392,7 @@ impl App {
             pending_fire_preview: None,
             path_preview: None,
             fire_preview: None,
+            fire_previews: std::collections::BTreeMap::new(),
             engine_dead: false,
             log: Vec::new(),
             tutorial: None,
@@ -396,6 +415,7 @@ impl App {
     /// Called when a new snapshot arrives from the engine.
     pub fn update_snapshot(&mut self, snap: Snapshot) {
         self.digit_entry = None;
+        self.fire_previews.clear();
         // A fresh accepted snapshot resolves any previous soft rejection.
         self.last_error = None;
         // Auto-focus the player ship on the first snapshot.
@@ -695,6 +715,10 @@ impl App {
                 .as_ref()
                 .is_some_and(|snap| snap.phase == "firing")
         {
+            self.fire_previews.insert(
+                FirePreviewKey::new(preview.ship, &preview.weapon, preview.target),
+                preview.clone(),
+            );
             // Fable Phase 2: auto-select only when exactly one legal face and
             // the current draft face is not among them. Preserve multi-face
             // player agency and keep a shared face across the volley.
@@ -708,6 +732,23 @@ impl App {
             }
             self.fire_preview = Some(preview);
         }
+    }
+
+    pub fn matching_fire_preview(
+        &self,
+        ship: i64,
+        weapon: &str,
+        target: i64,
+    ) -> Option<&crate::protocol::FireDecisionPreview> {
+        self.fire_previews
+            .get(&FirePreviewKey::new(ship, weapon, target))
+            .or_else(|| {
+                self.fire_preview.as_ref().filter(|preview| {
+                    preview.ship == ship
+                        && preview.weapon == weapon
+                        && preview.target == target
+                })
+            })
     }
 
     pub fn request_fire_preview(&mut self) {

@@ -1314,6 +1314,56 @@ fn commit_volley(app: &mut App) -> KeyResult {
         .as_ref()
         .map(|d| d.shots.clone())
         .unwrap_or_default();
+    let Some(snap) = app.snap.as_ref() else {
+        return KeyResult::Continue;
+    };
+    let Some(ship) = snap.ship(sid).cloned() else {
+        return KeyResult::Continue;
+    };
+    for shot in &shots {
+        let Some(weapon) = ship.weapons.iter().find(|w| w.id == shot.weapon) else {
+            app.log(format!("fire: {} is not available", shot.weapon));
+            return KeyResult::Continue;
+        };
+        let reason = if !weapon.operational {
+            Some(format!("{} DESTROYED — cannot fire", weapon.id))
+        } else if weapon.is_pd() {
+            Some(format!("{} is point defense — it fires automatically", weapon.id))
+        } else if weapon.charge == 0 {
+            Some(format!("{} UNCHARGED — charge in Allocate", weapon.id))
+        } else if weapon.ammo_remaining == Some(0) {
+            Some(format!("{} out of ammo", weapon.id))
+        } else {
+            match app.matching_fire_preview(sid, &shot.weapon, shot.target) {
+                None => Some(format!("{} checking shot — select it for a fresh preview", weapon.id)),
+                Some(preview) if !preview.legal => Some(
+                    preview
+                        .reason
+                        .clone()
+                        .unwrap_or_else(|| "illegal shot".to_string()),
+                ),
+                Some(preview) if !preview.legal_shield_facings.contains(&shot.shield_facing) => {
+                    Some(format!(
+                        "{} invalid shield face — choose an indicated legal face",
+                        weapon.id
+                    ))
+                }
+                Some(_) => None,
+            }
+        };
+        if let Some(reason) = reason {
+            app.log(format!("fire: {reason}"));
+            if let Some(draft) = app.fire_draft.as_mut() {
+                if let Some(index) = ship.weapons.iter().position(|w| w.id == shot.weapon) {
+                    draft.weapon_idx = index;
+                    draft.target = Some(shot.target);
+                    draft.shield_facing = shot.shield_facing;
+                }
+            }
+            app.request_fire_preview();
+            return KeyResult::Continue;
+        }
+    }
     app.log(format!("commit_volley: {} shot(s)", shots.len()));
     emit_order(app, Order::commit_volley(sid, shots))
 }
@@ -1433,7 +1483,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                     None => return KeyResult::Continue,
                 };
                 if !weapon.operational {
-                    app.log(format!("fire: {} OFFLINE — cannot queue", weapon.id));
+                    app.log(format!("fire: {} DESTROYED — cannot queue", weapon.id));
                     return KeyResult::Continue;
                 }
                 if weapon.is_pd() {
@@ -1453,6 +1503,46 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                     Some(t) => t,
                     None => return KeyResult::Continue,
                 };
+                if weapon.charge == 0 {
+                    app.log(format!(
+                        "fire: {} UNCHARGED — charge in Allocate",
+                        weapon.id
+                    ));
+                    return KeyResult::Continue;
+                }
+                if weapon.ammo_remaining == Some(0) {
+                    app.log(format!("fire: {} out of ammo", weapon.id));
+                    return KeyResult::Continue;
+                }
+                let preview = match app.matching_fire_preview(sid, &weapon.id, target) {
+                    Some(preview) => preview,
+                    None => {
+                        app.log(format!("fire: {} checking shot…", weapon.id));
+                        app.request_fire_preview();
+                        return KeyResult::Continue;
+                    }
+                };
+                if !preview.legal {
+                    app.log(format!(
+                        "fire: {} {}",
+                        weapon.id,
+                        preview.reason.as_deref().unwrap_or("illegal shot")
+                    ));
+                    return KeyResult::Continue;
+                }
+                if !preview.legal_shield_facings.contains(&draft.shield_facing) {
+                    let valid = preview
+                        .legal_shield_facings
+                        .iter()
+                        .map(|face| shield_label(*face))
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    app.log(format!(
+                        "fire: {} invalid shield face — use {}",
+                        weapon.id, valid
+                    ));
+                    return KeyResult::Continue;
+                }
                 (weapon.id.clone(), draft.shield_facing, target)
             };
             if let Some(draft) = app.fire_draft.as_mut() {
@@ -1467,6 +1557,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                     ));
                 } else {
                     app.log(format!("volley: removed {weapon}"));
+                    app.last_error = None;
                 }
             }
             app.request_fire_preview();

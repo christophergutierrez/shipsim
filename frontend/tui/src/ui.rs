@@ -1169,9 +1169,9 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     // Keep a compact, mode-specific exit row fixed at the bottom of every
     // combat form. Detailed controls remain in the scrollable panel body.
     let combat_footer = match app.mode {
-        Mode::Allocate => Some("Esc back · Enter commit · ↑/↓ field · ←/→ adjust · m movement"),
-        Mode::Movement => Some("Esc back · Enter commit · Space hold"),
-        Mode::Fire => Some("Esc back · Enter queue · Space fire"),
+        Mode::Allocate => Some("Esc back · Enter commit · ↑/↓ field · ←/→ adjust · m movement".to_string()),
+        Mode::Movement => Some("Esc back · Enter commit · Space hold".to_string()),
+        Mode::Fire => Some(fire_footer(app)),
         _ => None,
     };
     if let Some(footer) = combat_footer {
@@ -1378,6 +1378,49 @@ fn fire_queue_line(app: &App) -> Option<Line<'static>> {
         format!(" Queued: {mine_count} shot(s) pending"),
         style,
     )))
+}
+
+fn fire_footer(app: &App) -> String {
+    let Some(draft) = app.fire_draft.as_ref() else {
+        return "Esc back · Enter unavailable · Space pass".into();
+    };
+    let selected = app
+        .focused()
+        .and_then(|ship| ship.weapons.get(draft.weapon_idx));
+    let target = draft.target.or_else(|| {
+        app.snap.as_ref()?.ships.iter().find(|ship| {
+            ship.controller != "player" && !ship.destroyed
+        }).map(|ship| ship.id)
+    });
+    let preview = selected.and_then(|weapon| {
+        target.and_then(|target| {
+            app.focused_ship
+                .and_then(|ship| app.matching_fire_preview(ship, &weapon.id, target))
+        })
+    });
+    let can_queue = selected.is_some_and(|weapon| {
+        weapon.operational
+            && !weapon.is_pd()
+            && weapon.charge > 0
+            && weapon.ammo_remaining != Some(0)
+            && preview.is_some_and(|preview| {
+                preview.legal && preview.legal_shield_facings.contains(&draft.shield_facing)
+            })
+    });
+    let queued = selected.is_some_and(|weapon| draft.is_queued(&weapon.id));
+    let action = if queued {
+        "Enter remove"
+    } else if can_queue {
+        "Enter queue"
+    } else {
+        "Enter unavailable"
+    };
+    let final_action = if draft.shots.is_empty() {
+        "Space pass"
+    } else {
+        "Space fire"
+    };
+    format!("Esc back · {action} · {final_action}")
 }
 
 fn fire_preview_line(app: &App) -> Option<Line<'static>> {
@@ -1869,7 +1912,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             w.charge,
             w.max_charge,
             if !w.operational {
-                " OFFLINE"
+                " DESTROYED"
             } else if w.charge == 0 {
                 " UNCHARGED"
             } else {
@@ -1896,10 +1939,35 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             format!(" [{}]", tags.join(","))
         };
         let pd = if w.is_pd() { " auto" } else { "" };
+        let preview_issue = if selected {
+            let target = draft.target.or_else(|| {
+                snap.ships
+                    .iter()
+                    .find(|s| s.controller != "player" && !s.destroyed)
+                    .map(|s| s.id)
+            });
+            target
+                .and_then(|target| app.matching_fire_preview(ship.id, &w.id, target))
+                .and_then(|preview| {
+                    if !preview.legal
+                        && preview
+                            .reason
+                            .as_deref()
+                            .is_some_and(|reason| reason.to_ascii_lowercase().contains("bear"))
+                    {
+                        Some(" NO ARC")
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("")
+        } else {
+            ""
+        };
         lines.push(Line::from(Span::styled(
             format!(
-                " {marker} {} {} rng≤{} {}{}{}{}{}",
-                w.id, w.kind, w.max_range, charge_str, quality, tag, pd, queued_str
+                " {marker} {} {} rng≤{} {}{}{}{}{}{}",
+                w.id, w.kind, w.max_range, charge_str, preview_issue, quality, tag, pd, queued_str
             ),
             style,
         )));

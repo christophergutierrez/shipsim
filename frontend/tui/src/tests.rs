@@ -639,6 +639,7 @@ fn accepted_order_focuses_the_next_player_ship_that_is_still_pending() {
 fn fire_target_selection_excludes_player_ships() {
     let mut snap = fleet_snapshot();
     snap.phase = "firing".into();
+    snap.ships[0].weapons[0].charge = 4;
     let mut app = App::new();
     app.update_snapshot(snap);
     assert_eq!(app.focused_ship, Some(1));
@@ -646,6 +647,7 @@ fn fire_target_selection_excludes_player_ships() {
     handle_key(&mut app, make_key('1'));
 
     assert_eq!(app.fire_draft.as_ref().unwrap().target, Some(3));
+    app.accept_fire_preview(fire_preview(1, "beam_1", 3, vec![0]));
     // Enter queues into draft; Space submits the volley.
     let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     assert!(matches!(result, KeyResult::Continue));
@@ -2805,8 +2807,8 @@ fn fire_enter_on_dead_weapon_does_not_emit_commit_fire() {
         "Enter on a dead weapon must not emit commit_fire"
     );
     assert!(
-        app.log.iter().any(|line| line.contains("OFFLINE")),
-        "dead-weapon Enter should soft-log OFFLINE; log={:?}",
+        app.log.iter().any(|line| line.contains("DESTROYED")),
+        "dead-weapon Enter should soft-log DESTROYED; log={:?}",
         app.log
     );
 }
@@ -2825,6 +2827,7 @@ fn fire_enter_on_operational_weapon_emits_commit_fire() {
     });
     app.fire_draft.as_mut().unwrap().weapon_idx = 0;
     app.fire_draft.as_mut().unwrap().target = Some(2);
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![0]));
     let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     assert!(
         matches!(result, KeyResult::Continue),
@@ -2878,8 +2881,8 @@ fn allocate_panel_shows_offline_for_damaged_weapon() {
 }
 
 #[test]
-fn fire_panel_shows_offline_for_damaged_weapon() {
-    // 2.6 (fire mode): damaged weapon shows OFFLINE in the fire panel.
+fn fire_panel_shows_destroyed_for_damaged_weapon() {
+    // 2.6 (fire mode): damaged weapon shows DESTROYED in the fire panel.
     let mut app = App::new();
     let mut snap = fire_phase_snapshot();
     snap.ships[0].weapons[0].operational = false;
@@ -2891,20 +2894,20 @@ fn fire_panel_shows_offline_for_damaged_weapon() {
     });
     let buf = render_to_string(&mut app, 80, 40);
     assert!(
-        buffer_contains(&buf, "OFFLINE"),
-        "fire panel should mark damaged weapons OFFLINE"
+        buffer_contains(&buf, "DESTROYED"),
+        "fire panel should mark damaged weapons DESTROYED"
     );
     let beam_line = buf
         .lines()
-        .find(|line| line.contains("beam_1") && line.contains("OFFLINE"))
+        .find(|line| line.contains("beam_1") && line.contains("DESTROYED"))
         .unwrap_or("");
     assert!(
         !beam_line.is_empty(),
-        "expected OFFLINE beam_1 in fire panel; got:\n{buf}"
+        "expected DESTROYED beam_1 in fire panel; got:\n{buf}"
     );
     assert!(
-        beam_line.contains("chg=4/4") && beam_line.contains("OFFLINE"),
-        "offline fire row should retain the charge fraction and status; got: {beam_line}"
+        !beam_line.contains("chg=") && beam_line.contains("DESTROYED"),
+        "destroyed fire row must not look charge-ready; got: {beam_line}"
     );
 }
 
@@ -3377,6 +3380,12 @@ fn fire_shield_facing_persists_when_cycling_weapons_and_emitting() {
             Some(3),
             "face R must persist at weapon_idx {expected_idx}"
         );
+        let weapon = app
+            .focused()
+            .and_then(|ship| ship.weapons.get(expected_idx))
+            .map(|weapon| weapon.id.clone())
+            .unwrap();
+        app.accept_fire_preview(fire_preview(1, &weapon, 2, vec![3]));
         let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
         assert!(
             matches!(result, KeyResult::Continue),
@@ -3500,6 +3509,144 @@ fn fire_preview(
         legal_shield_facings: legal,
         reason: None,
     }
+}
+
+fn illegal_fire_preview(
+    ship: i64,
+    weapon: &str,
+    target: i64,
+    legal_faces: Vec<u32>,
+    reason: &str,
+) -> crate::protocol::FireDecisionPreview {
+    let mut preview = fire_preview(ship, weapon, target, legal_faces);
+    preview.legal = false;
+    preview.reason = Some(reason.into());
+    preview
+}
+
+#[test]
+fn playtest_p05_uncharged_enter_never_queues() {
+    // X2: a live weapon with no charge cannot be queued.
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    snap.ships[0].weapons[0].charge = 0;
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(matches!(result, KeyResult::Continue));
+    assert!(app.fire_draft.as_ref().is_none_or(|draft| draft.shots.is_empty()));
+    assert!(buffer_contains(&render_to_string(&mut app, 80, 24), "UNCHARGED"));
+}
+
+#[test]
+fn playtest_p06_illegal_preview_enter_never_queues() {
+    // X2/X9: authoritative arc rejection is shown before queueing.
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.accept_fire_preview(illegal_fire_preview(
+        1,
+        "beam_1",
+        2,
+        vec![0],
+        "cannot bear on target",
+    ));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(app.fire_draft.as_ref().is_none_or(|draft| draft.shots.is_empty()));
+    assert!(buffer_contains(
+        &render_to_string(&mut app, 80, 24),
+        "cannot bear"
+    ));
+}
+
+#[test]
+fn playtest_p07_invalid_face_enter_names_valid_faces() {
+    // X2: the client exposes authoritative legal faces instead of guessing.
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.fire_draft.as_mut().unwrap().shield_facing = 0;
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![2, 3]));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(app.fire_draft.as_ref().is_none_or(|draft| draft.shots.is_empty()));
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "use RR/R"), "valid faces must be named: {buf}");
+}
+
+#[test]
+fn playtest_p08_stale_preview_cannot_queue_other_weapon() {
+    // X2: a preview for one weapon cannot authorize another weapon.
+    let mut app = App::new();
+    app.update_snapshot(three_weapon_fire_snapshot());
+    app.mode = Mode::Fire;
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![0]));
+    app.fire_draft.as_mut().unwrap().weapon_idx = 1;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(app.fire_draft.as_ref().is_none_or(|draft| draft.shots.is_empty()));
+    assert!(app.log.iter().any(|line| line.contains("checking shot")));
+}
+
+#[test]
+fn playtest_p09_legal_preview_queues_and_removes() {
+    // X2: legal Enter toggles a shot, and a second Enter removes it.
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![0]));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert_eq!(app.fire_draft.as_ref().map(|draft| draft.shots.len()), Some(1));
+    assert!(buffer_contains(&render_to_string(&mut app, 80, 24), "Enter remove"));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(app.fire_draft.as_ref().is_none_or(|draft| draft.shots.is_empty()));
+    assert!(buffer_contains(&render_to_string(&mut app, 80, 24), "Enter queue"));
+}
+
+#[test]
+fn playtest_p10_space_never_sends_known_illegal_volley() {
+    // X2: defense in depth blocks a stale illegal local draft.
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.fire_draft.as_mut().unwrap().shots.push(crate::protocol::VolleyShot {
+        weapon: "beam_1".into(),
+        target: 2,
+        shield_facing: 0,
+    });
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char(' ')));
+    assert!(matches!(result, KeyResult::Continue));
+    assert!(app.log.iter().any(|line| line.contains("checking shot")));
+}
+
+#[test]
+fn playtest_p11_empty_space_is_explicit_pass() {
+    // X2: an intentional empty volley remains the legal hold-fire action.
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char(' ')));
+    match result {
+        KeyResult::SendOrder(order) => match order.body {
+            crate::protocol::OrderBody::CommitVolley { shots, .. } => assert!(shots.is_empty()),
+            other => panic!("expected empty commit_volley, got {other:?}"),
+        },
+        other => panic!("expected pass order, got {other:?}"),
+    }
+}
+
+#[test]
+fn playtest_p12_fire_row_marks_bear_or_no_arc() {
+    // X9: the selected weapon row carries the preview's arc failure.
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.accept_fire_preview(illegal_fire_preview(
+        1,
+        "beam_1",
+        2,
+        vec![],
+        "cannot bear on target",
+    ));
+    assert!(buffer_contains(&render_to_string(&mut app, 80, 24), "NO ARC"));
 }
 
 #[test]
