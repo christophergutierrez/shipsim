@@ -730,7 +730,7 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     f.render_widget(p, area);
 }
 
-fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
+pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     let block = Block::default().borders(Borders::ALL).title("Ship Status");
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -868,11 +868,29 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             )),
         );
 
+        let pending_alloc = if snap.phase == "allocate" {
+            app.alloc_draft.as_ref()
+        } else {
+            None
+        };
         let shield_str: Vec<String> = (0..6)
             .map(|i| {
-                let powered = ship.shields_powered.get(i).copied().unwrap_or(0);
-                let remaining = ship.shields_remaining.get(i).copied().unwrap_or(0);
-                format!("{}:{}/{}", shield_label(i as u32), remaining, powered)
+                let cap = ship.shield_cap(i);
+                let committed = ship.shields_powered.get(i).copied().unwrap_or(0);
+                let (value, pending) = match pending_alloc {
+                    Some(draft) => {
+                        let value = draft.shields.get(i).copied().unwrap_or(0);
+                        (value, value != committed)
+                    }
+                    None => (ship.shields_remaining.get(i).copied().unwrap_or(0), false),
+                };
+                format!(
+                    "{}:{}/{}{}",
+                    shield_label(i as u32),
+                    value,
+                    cap,
+                    if pending { "*" } else { "" }
+                )
             })
             .collect();
         push(
@@ -885,10 +903,21 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             &mut y,
             Line::from(format!("          {}", shield_str[3..].join(" "))),
         );
+        if pending_alloc.is_some() {
+            push(f, &mut y, Line::from("  * = not yet committed"));
+        }
 
         push(f, &mut y, Line::from("  weapons:"));
         for w in &ship.weapons {
-            let op = if w.operational { "" } else { " [DAMAGED]" };
+            let (charge, pending) = pending_alloc
+                .and_then(|draft| {
+                    draft
+                        .weapons
+                        .iter()
+                        .find(|(id, _)| id == &w.id)
+                        .map(|(_, charge)| (*charge, *charge != w.charge))
+                })
+                .unwrap_or((w.charge, false));
             let fired = if w.fired { " [fired]" } else { "" };
             let ammo = match (w.ammo_remaining, w.max_ammo) {
                 (Some(left), Some(max)) => format!(" ammo={left}/{max}"),
@@ -906,12 +935,22 @@ fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             } else {
                 format!(" [{}]", tags.join(","))
             };
+            let state = if w.operational {
+                format!(
+                    "chg={}/{}{}",
+                    charge,
+                    w.max_charge,
+                    if pending { "*" } else { "" }
+                )
+            } else {
+                "DESTROYED".to_string()
+            };
             push(
                 f,
                 &mut y,
                 Line::from(format!(
-                    "    {} {} rng≤{} chg={}/{}{}{}{}{}{}",
-                    w.id, w.kind, w.max_range, w.charge, w.max_charge, ammo, quality, tag, fired, op
+                    "    {} {} rng≤{} {}{}{}{}{}",
+                    w.id, w.kind, w.max_range, state, ammo, quality, tag, fired
                 )),
             );
         }

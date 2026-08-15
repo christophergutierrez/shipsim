@@ -5,6 +5,7 @@
 //! subprocess is required.
 
 use ratatui::backend::TestBackend;
+use ratatui::layout::Rect;
 use ratatui::Terminal;
 
 use crate::app::{AllocDraft, App, Confirmation, Mode};
@@ -228,6 +229,26 @@ fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
         for x in 0..width {
             let cell = &buf[(x, y)];
             out.push_str(cell.symbol());
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn render_status_to_string(app: &mut App, width: u16, height: u16) -> String {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    terminal
+        .draw(|f| {
+            let snap = app.snap.as_ref().expect("snapshot");
+            crate::ui::render_ship_status(f, app, snap, Rect::new(0, 0, width, height));
+        })
+        .expect("draw");
+    let buf = terminal.backend().buffer();
+    let mut out = String::new();
+    for y in 0..height {
+        for x in 0..width {
+            out.push_str(buf[(x, y)].symbol());
         }
         out.push('\n');
     }
@@ -991,6 +1012,66 @@ fn rubric_t08_fire_shows_charge_fraction_and_status() {
         .find(|line| line.contains("beam_1") && line.contains("chg="))
         .unwrap_or("");
     assert!(beam.contains("chg=4/4"), "fire row must show charge fraction: {beam}\n{buf}");
+}
+
+#[test]
+fn playtest_p01_status_and_allocate_shields_agree() {
+    // X1: Allocate Status and the Allocate panel must show the same pending
+    // numerator and authoritative cap, rather than powered shields as max.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().shields[0] = 3;
+    app.alloc_draft.as_mut().unwrap().cursor = 3;
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buf.matches("3/6").count() >= 2,
+        "pending shield value/cap must appear in Status and Allocate: {buf}"
+    );
+    assert!(!buffer_contains(&buf, "F:0/0"), "status must not use powered as cap: {buf}");
+}
+
+#[test]
+fn playtest_p02_status_weapon_draft_matches_allocate() {
+    // X1: the pending weapon draft is visible in both panels.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().weapons[0].1 = 4;
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    let status = render_status_to_string(&mut app, 80, 24);
+    let allocate = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&status, "chg=4/4*") && buffer_contains(&allocate, "charge 4/4"),
+        "pending weapon charge must agree across Status and Allocate:\n{status}\n{allocate}"
+    );
+}
+
+#[test]
+fn playtest_p03_uncommitted_marked_without_color() {
+    // X1: shape, not terminal colour, identifies a pending projection.
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().shields[0] = 1;
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(
+        buffer_contains(&buf, "1/6*"),
+        "pending values need a visible marker: {buf}"
+    );
+}
+
+#[test]
+fn playtest_p04_destroyed_weapon_has_no_ready_charge() {
+    // X1/X6: a destroyed weapon is not represented as a ready charge value.
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[0].weapons[0].operational = false;
+    app.update_snapshot(snap);
+    let buf = render_status_to_string(&mut app, 80, 24);
+    let beam = buf
+        .lines()
+        .find(|line| line.contains("beam_1"))
+        .unwrap_or("");
+    assert!(beam.contains("DESTROYED"), "dead weapon must say DESTROYED: {beam}\n{buf}");
+    assert!(!beam.contains("chg="), "dead weapon must not look ready: {beam}\n{buf}");
 }
 
 #[test]
