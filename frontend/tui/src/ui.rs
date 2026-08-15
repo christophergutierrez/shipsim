@@ -959,8 +959,16 @@ pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area
                 f,
                 &mut y,
                 Line::from(format!(
-                    "    {} {} rng≤{} {}{}{}{}{}",
-                    w.id, w.kind, w.max_range, state, ammo, quality, tag, fired
+                    "    {} {} rng≤{} {} {}{}{}{}{}",
+                    w.id,
+                    w.kind,
+                    w.max_range,
+                    weapon_arc_token(w),
+                    state,
+                    ammo,
+                    quality,
+                    tag,
+                    fired
                 )),
             );
         }
@@ -1293,7 +1301,7 @@ fn allocate_scroll(app: &App, area: Rect) -> u16 {
             if face_line.saturating_sub(diagram_top) < visible {
                 diagram_top
             } else {
-                face_line.saturating_sub(visible.saturating_sub(1))
+                face_line.saturating_sub(visible.saturating_sub(2))
             }
         }
     }
@@ -1643,7 +1651,12 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     let first_weapon = draft.weapons.first().and_then(|(id, charge)| {
         ship.weapons.iter().find(|weapon| &weapon.id == id).map(|weapon| {
             if weapon.operational {
-                format!("{} charge {charge}/{}", weapon.id, weapon.max_charge)
+                format!(
+                    "{} {} charge {charge}/{}",
+                    weapon.id,
+                    weapon_arc_token(weapon),
+                    weapon.max_charge
+                )
             } else {
                 format!("{} DESTROYED", weapon.id)
             }
@@ -1695,6 +1708,12 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             .find(|w| &w.id == id)
             .map(|w| w.kind.as_str())
             .unwrap_or("?");
+        let arc = ship
+            .weapons
+            .iter()
+            .find(|w| &w.id == id)
+            .map(weapon_arc_token)
+            .unwrap_or_else(|| "arc ?".to_string());
         let operational = ship
             .weapons
             .iter()
@@ -1703,7 +1722,7 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             .unwrap_or(true);
         let row = if operational {
             let state = if *chg == 0 { " UNCHARGED" } else { "" };
-            format!("{mark}{id} ({kind}) charge {chg}/{max}{state}{carried}")
+            format!("{mark}{id} ({kind}) {arc} charge {chg}/{max}{state}{carried}")
         } else {
             // Non-operational weapon: display-only, no editable charge prompt.
             format!("{mark}{id} ({kind}) DESTROYED")
@@ -1809,6 +1828,21 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     }
 
     ("Allocate", lines)
+}
+
+fn weapon_arc_token(weapon: &crate::protocol::Weapon) -> String {
+    let arc = weapon.arc.trim().to_ascii_lowercase();
+    let token = match arc.as_str() {
+        "forward" | "front" => "F",
+        "forward_left" | "front_left" | "left" => "FL",
+        "forward_right" | "front_right" | "right" => "FR",
+        "rear" | "back" => "R",
+        "rear_left" | "back_left" => "RL",
+        "rear_right" | "back_right" => "RR",
+        _ if !weapon.mount.trim().is_empty() => weapon.mount.trim(),
+        _ => weapon.arc.trim(),
+    };
+    format!("arc {token}")
 }
 
 /// Short display token for one path action.
@@ -2061,18 +2095,16 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         let marker = if selected { "▶" } else { " " };
         let queued = draft.is_queued(&w.id);
         let queued_str = if queued { " [QUEUED]" } else { "" };
-        let charge_str = format!(
-            "chg={}/{}{}",
-            w.charge,
-            w.max_charge,
-            if !w.operational {
-                " DESTROYED"
-            } else if w.charge == 0 {
-                " UNCHARGED"
-            } else {
-                ""
-            }
-        );
+        let charge_str = if w.operational {
+            format!(
+                "chg={}/{}{}",
+                w.charge,
+                w.max_charge,
+                if w.charge == 0 { " UNCHARGED" } else { "" }
+            )
+        } else {
+            "DESTROYED".to_string()
+        };
         let style = if selected {
             selected_style()
         } else if !w.operational {
@@ -2093,35 +2125,46 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             format!(" [{}]", tags.join(","))
         };
         let pd = if w.is_pd() { " auto" } else { "" };
-        let preview_issue = if selected {
-            let target = draft.target.or_else(|| {
-                snap.ships
-                    .iter()
-                    .find(|s| s.controller != "player" && !s.destroyed)
-                    .map(|s| s.id)
-            });
-            target
-                .and_then(|target| app.matching_fire_preview(ship.id, &w.id, target))
-                .and_then(|preview| {
-                    if !preview.legal
-                        && preview
-                            .reason
-                            .as_deref()
-                            .is_some_and(|reason| reason.to_ascii_lowercase().contains("bear"))
-                    {
-                        Some(" NO ARC")
+        let target = draft.target.or_else(|| {
+            snap.ships
+                .iter()
+                .find(|s| s.controller != "player" && !s.destroyed)
+                .map(|s| s.id)
+        });
+        let preview_status = target
+            .and_then(|target| app.matching_fire_preview(ship.id, &w.id, target))
+            .map(|preview| {
+                if !w.operational {
+                    return String::new();
+                }
+                if preview.legal {
+                    " BEARS".to_string()
+                } else {
+                    let reason = preview.reason.as_deref().unwrap_or("illegal shot");
+                    let lower = reason.to_ascii_lowercase();
+                    if lower.contains("bear") || lower.contains("arc") {
+                        " NO ARC".to_string()
+                    } else if lower.contains("range") {
+                        " NO RANGE".to_string()
                     } else {
-                        None
+                        format!(" {reason}")
                     }
-                })
-                .unwrap_or("")
-        } else {
-            ""
-        };
+                }
+            })
+            .unwrap_or_default();
         lines.push(Line::from(Span::styled(
             format!(
-                " {marker} {} {} rng≤{} {}{}{}{}{}{}",
-                w.id, w.kind, w.max_range, charge_str, preview_issue, quality, tag, pd, queued_str
+                " {marker} {} {} rng≤{} {} {}{}{}{}{}{}",
+                w.id,
+                w.kind,
+                w.max_range,
+                weapon_arc_token(w),
+                charge_str,
+                preview_status,
+                quality,
+                tag,
+                pd,
+                queued_str
             ),
             style,
         )));

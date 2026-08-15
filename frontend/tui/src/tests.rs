@@ -847,7 +847,6 @@ fn allocation_scroll_keeps_last_shield_visible() {
     draft.cursor = 1 + draft.weapons.len() + 5;
 
     let buf = render_to_string(&mut app, 80, 28);
-
     assert!(
         buffer_contains(&buf, "FL") && buffer_contains(&buf, "forward-left"),
         "expected FL forward-left row visible; buf has FL? {}",
@@ -4471,6 +4470,71 @@ fn playtest_p12_fire_row_marks_bear_or_no_arc() {
         "cannot bear on target",
     ));
     assert!(buffer_contains(&render_to_string(&mut app, 80, 24), "NO ARC"));
+}
+
+#[test]
+fn playtest_h01_allocate_selected_weapon_names_arc() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buf.lines().any(|line| {
+        line.contains("beam_1") && line.to_ascii_lowercase().contains("arc")
+    }), "selected allocation weapon must name its arc:\n{buf}");
+}
+
+#[test]
+fn playtest_h02_status_weapon_names_arc() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buf.lines().any(|line| {
+        line.contains("beam_1") && line.to_ascii_lowercase().contains("arc")
+    }), "Status weapon row must name its arc:\n{buf}");
+}
+
+#[test]
+fn playtest_h03_fire_every_row_marks_bear_or_not() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![0]));
+    app.fire_draft.as_mut().unwrap().weapon_idx = 1;
+    app.accept_fire_preview(illegal_fire_preview(
+        1,
+        "torp_1",
+        2,
+        vec![],
+        "cannot bear on target",
+    ));
+    let buf = render_to_string(&mut app, 120, 40);
+    assert!(buffer_contains(&buf, "beam_1") && buffer_contains(&buf, "BEARS"), "legal row missing bearing mark:\n{buf}");
+    assert!(buffer_contains(&buf, "torp_1") && buffer_contains(&buf, "NO ARC"), "illegal row missing arc mark:\n{buf}");
+}
+
+#[test]
+fn playtest_h04_range_reason_is_not_no_arc() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.mode = Mode::Fire;
+    app.accept_fire_preview(illegal_fire_preview(
+        1,
+        "beam_1",
+        2,
+        vec![],
+        "out of range",
+    ));
+    let buf = render_to_string(&mut app, 120, 30);
+    assert!(buffer_contains(&buf, "NO RANGE") || buffer_contains(&buf, "out of range"), "range refusal missing:\n{buf}");
+    assert!(!buffer_contains(&buf, "NO ARC"), "range refusal must not be called arc failure:\n{buf}");
+}
+
+#[test]
+fn playtest_h05_map_legend_keeps_shade_arc() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "shade=arc"), "map legend lost arc shading explanation:\n{buf}");
 }
 
 #[test]
