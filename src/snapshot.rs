@@ -54,6 +54,7 @@ pub struct ShipSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub systems: Vec<SystemKind>,
     /// Maximum repair boxes this ship may request when repair is installed.
+    /// Clients must not derive this rule projection from `size`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repair_cap: Option<u32>,
     pub max_maneuver_actions: u8,
@@ -66,8 +67,10 @@ pub struct ShipSnapshot {
     pub thrust_per_power: u32,
     pub power_per_thrust: u32,
     /// Usable motion points during movement stage (0 after resolution / other stages).
+    /// Clients must not derive this rule projection from other snapshot fields.
     pub motion_available: u32,
     /// Evasive motion points declared on the last resolved path this turn (0 until then).
+    /// Clients must not derive this rule projection from other snapshot fields.
     pub evasion_committed: u32,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub cloaked: bool,
