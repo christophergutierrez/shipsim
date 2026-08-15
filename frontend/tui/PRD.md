@@ -186,7 +186,7 @@ map permanently visible — before any larger/denser tier is attempted.
   2. **Secondary (thin, integration-level only):** the subprocess adapter defined above, run against the real `shipsim` binary. This cannot be collapsed into seam 1 without losing real coverage of the process boundary itself; keep it minimal (smoke-level: does a real allocate→move→fire→end_turn loop against `scenarios/battle.toml` complete without protocol errors), mirroring how `frontend/repl/client.py` is smoke-tested against the real binary today.
 - A real-pty smoke test (actual compiled binary, actual pseudo-terminal, real resize/raw-mode/alt-screen behavior) is optional polish per ADR-0023 and does not block any slice.
 - Prior art to follow, not reinvent: `frontend/repl/tests/` already has the equivalent split for the Python client (pure `commands.py`/`view.py` tests vs. session-level `test_m3_scripted_driver.py`/`test_m4_recent_events.py`-style tests that replay a snapshot sequence through the wiring layer). The Rust TUI's two seams are the same shape.
-- `cargo build`/`cargo test` from the repo root will **not** exercise this package (per ADR-0023's standalone-package decision) — its tests run via `cd frontend/tui && cargo test`. Document this explicitly wherever the project's "how to verify a change" instructions live (e.g. any future equivalent of `docs/BUGFIX-PLAN-20260714.md`'s Ground Rules), so it isn't silently skipped.
+- `cargo build`/`cargo test` from the repo root will **not** exercise this package (per ADR-0023's standalone-package decision) — its tests run via `cd frontend/tui && cargo test`. Document this explicitly wherever the project's "how to verify a change" instructions live, so it isn't silently skipped.
 
 ## Out of Scope
 

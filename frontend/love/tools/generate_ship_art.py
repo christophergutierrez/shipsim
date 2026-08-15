@@ -15,7 +15,7 @@ replace accepted output only after success.
 
 No default test reads GEMINI_API_KEY or accesses the network.
 
-Phase 3 of ``docs/SHIP-ART-IMPLEMENTATION-PLAN.md``.
+See ``frontend/love/assets/ship_art/README.md`` for the art contract.
 """
 
 from __future__ import annotations

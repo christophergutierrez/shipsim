@@ -15,7 +15,7 @@ answer: how input works, how the screen is laid out, how it behaves on small
 terminals, how an agent verifies it, and how the crate is packaged.
 
 The REPL's plain-print + ANSI-clear + alternate-screen approach (see recent
-history: `docs/BUGFIX-PLAN-20260714.md` and the follow-up fixed-frame-height
+history: a since-archived 2026-07-14 bugfix plan and the follow-up fixed-frame-height
 work) hit a hard ceiling — no real scrollback, no per-panel scrolling, no
 terminal-size-aware layout — which is the immediate motivation for building
 the TUI now rather than continuing to patch the REPL.

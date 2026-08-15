@@ -21,7 +21,7 @@ from allocated movement power. This has several limitations:
 - Single-active-mover movement phase prevents simultaneous resolution.
 - Initiative based on raw reactor expenditure creates gameable exploits.
 
-The plan in `docs/MOVEMENT-INERTIA-PLAN.md` proposes replacing this with a
+A since-archived inertia plan proposed replacing this with a
 persistent velocity, inertial movement system with four movement phases per
 turn and simultaneous maneuver resolution.
 

@@ -1,11 +1,11 @@
--- Ship Art runtime loader and fallback (UPGRADE-PLAN / SHIP-ART Phase 4).
+-- Ship Art runtime loader and fallback.
 --
 -- Pure Lua core: no love.* APIs. Runs under plain luajit so it is testable
 -- headless, matching the convention established by geom.lua and hex.lua. The
 -- only Love touchpoint (image loading) is injected via the `load_image` seam so
 -- the loader can be unit-tested with a stub.
 --
--- Responsibilities (frozen contracts, PHASE0-INVENTORY.md §4):
+-- Responsibilities (contract: assets/ship_art/README.md):
 --   * Canonical identity is `class_id` (catalog key / file stem), never the
 --     numeric instance `id` and never the display `class` name.
 --   * Alias resolution: tutorial_* class_ids borrow a base class's art.

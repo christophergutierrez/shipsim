@@ -13,7 +13,7 @@ The engine never reads art.  Love reads only the runtime manifest.  Per-class
 ``sprite.toml`` sidecars are authoring/provenance sidecars; Love does not parse
 them at runtime — only this tool does, to build the manifest.
 
-Phase 2 of ``docs/SHIP-ART-IMPLEMENTATION-PLAN.md``.
+See ``frontend/love/assets/ship_art/README.md`` for the art contract.
 """
 
 from __future__ import annotations

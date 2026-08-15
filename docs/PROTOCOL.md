@@ -150,6 +150,7 @@ Every successful order (and the post-load line) emits a state snapshot with
 | `ships_committed_path` | Path stage commits |
 | `ships_committed_volley` | Volley stage commits |
 | `path_results` | Last movement resolution telemetry (cost, fallback, conflicts, final hex/facing) |
+| ship `class_id` | Canonical catalog key (ship-definition file stem). Presentation clients key art off this; distinct from numeric `id` and display `class`. Art contract: `frontend/love/assets/ship_art/README.md` |
 | ship `max_maneuver_actions` | Hull path-action cap |
 | ship `effective_max_maneuver_actions` | Current path-action cap after engine/SSD modifiers. **`0` means engines are gone** (cannot move). Missing field (old snapshot) is the only case that falls back to `max_maneuver_actions`. |
 | ship `max_shield_per_facing` | Scalar face cap (stock catalog; also the max of `max_shields`) |

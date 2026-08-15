@@ -112,9 +112,6 @@ Details: [`assets/ship_art/README.md`](assets/ship_art/README.md).
 |---|---|
 | **This README** | Live |
 | `assets/ship_art/README.md` | Image ↔ `class_id` association |
-| `FIX-PLAN.md` | Landed F1–F4 history; suite note current |
-| `REVIEW-FINDINGS.md` | Hygiene review + residual notes |
-| `UPGRADE-PLAN.md`, `UPGRADE-LOG.md`, `HANDOFF-REVIEW.md`, `REVIEW-VERDICT.md` | **SUPERSEDED** (pre-v4 cycle) |
 
 ## Verification
 

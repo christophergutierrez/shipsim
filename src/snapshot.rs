@@ -26,7 +26,7 @@ pub struct ShipSnapshot {
     pub class: String,
     /// Canonical catalog key (ship-definition file stem). Additive identity
     /// field for presentation clients; distinct from numeric `id` and display
-    /// `class`. Protocol remains v4. See `docs/SHIP-ART-IMPLEMENTATION-PLAN.md`.
+    /// `class`. Protocol remains v4. See `frontend/love/assets/ship_art/README.md`.
     pub class_id: String,
     pub size: u32,
     /// `player`, `ai`, or `scripted` (ADR-0018).

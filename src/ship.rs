@@ -13,7 +13,7 @@ pub struct Ship {
     /// Canonical catalog key (ship-definition file stem). Distinct from the
     /// numeric scenario-instance `id` and the human-readable display `class`.
     /// Presentation clients use this to resolve data-driven art; the engine
-    /// never reads art. See `docs/SHIP-ART-IMPLEMENTATION-PLAN.md` Phase 1.
+    /// never reads art. See `frontend/love/assets/ship_art/README.md`.
     pub class_id: String,
     /// Relative target silhouette used to scale d20 hit thresholds (1..=7 tiers in `data/sizes.toml`).
     pub size: u32,

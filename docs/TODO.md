@@ -9,10 +9,8 @@
 ## Hull size, movement efficiency, and system capacity
 
 Status: **Implementation milestones shipped; catalog remediation and balance
-evidence are in progress.** The original implementation plan is recorded in
-[`docs/plans/catalog-combat-squads.md`](plans/catalog-combat-squads.md); the
-active remediation plan is
-[`docs/plans/catalog-review-remediation.md`](plans/catalog-review-remediation.md).
+evidence are in progress.** Implementation and remediation plans are ephemeral
+and are not tracked; see `docs/DOC-LIFECYCLE.md`.
 
 **Shipped (yard + combat silhouette):**
 
@@ -42,16 +40,13 @@ active remediation plan is
   evidence; this is a deliberate SKU decision, not an implementation gap.
 - Named `movement_cost` / initiative-from-motion / momentum are **not** the
   live v4 path loop (see the note at the top of this file).
-- TUI rubric pass against `docs/UI-RUBRIC.md` is closed (M0–M5 in
-  [`docs/plans/ui-rubric-tui.md`](plans/ui-rubric-tui.md)). Remaining rubric
-  notes are Minor/Polish (`Tab`/`v` header-only; yard-browse Esc unlabeled
-  quit).
-- TUI **first-play** remediation is closed for the executed Haiku findings in
-  [`docs/plans/tui-haiku-findings.md`](plans/tui-haiku-findings.md) (M0–M5).
-  The older [`docs/plans/tui-first-play.md`](plans/tui-first-play.md) and
-  [`docs/plans/tui-naive-playtest.md`](plans/tui-naive-playtest.md) remain
-  evidence/planning context; do not implement the falsified Haiku claims
-  (F-A–F-D).
+- TUI rubric pass against `docs/UI-RUBRIC.md` is closed (M0–M5). Remaining
+  rubric notes are Minor/Polish (`Tab`/`v` header-only; yard-browse Esc
+  unlabeled quit).
+- TUI **first-play** remediation is closed for the executed blind-playtest
+  findings (M0–M5). Do not implement the falsified claims from that study
+  (budget header, arrow keys, power-bar fill): they were verified correct.
+  Re-run the study via `docs/UI-PLAYTEST-PROTOCOL.md`.
 - Follow with separate REPL/Love rubric reviews. REPL repair still uses a
   stale 1/2 size split and must consume snapshot `repair_cap`; neither TUI
   plan claims those clients are fixed.

@@ -52,7 +52,7 @@ pub struct DesignSystem {
 /// `list_designs`, `compile`, `check_all`, and the CLI still see them, since
 /// hiding here must not change what gets compiled, checked, or drift-audited.
 /// Editing one silently invalidates that suite's controlled comparison, which
-/// is exactly the mistake `docs/plans/catalog-review-remediation.md` locked
+/// is exactly the mistake the catalog-remediation review locked
 /// these roles against; keeping them out of the interactive picker is cheaper
 /// than relying on everyone re-deriving that history from the plan.
 pub const QUALITY_FIXTURE_IDS: &[&str] = &[

@@ -16,7 +16,7 @@ Features:
 API keys are read only from the environment and never written to logs or
 provenance.
 
-Phase 3 of ``docs/SHIP-ART-IMPLEMENTATION-PLAN.md``.
+See ``frontend/love/assets/ship_art/README.md`` for the art contract.
 """
 
 from __future__ import annotations

@@ -66,7 +66,6 @@ python3 frontend/love/tools/ship_art_catalog.py --check-manifest
 | `manifest.json` | **Runtime** index Love loads |
 | `<class_id>/sprite.toml` | Sidecar metadata used to build the manifest |
 | `<class_id>/*.png` | Image pixels |
-| `PHASE0-INVENTORY.md` | Full class_id inventory |
 
 AI generation / the tkinter reviewer are optional; this register path is enough
 to associate existing images with ship classes for play.

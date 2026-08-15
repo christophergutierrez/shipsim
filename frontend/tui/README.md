@@ -259,7 +259,8 @@ assumptions from the inertial era).
 
 ## Older design notes in this tree
 
-`PRD.md`, `AGENT-HANDOFF.md`, `PLAY-UX-MILESTONES.md`, and the UX recommendation
-docs capture **pre-v4 / build-out** planning. Prefer this README + live
-`src/` for current behavior; those files may still describe inertial orders or
-`end_turn` as historical context.
+`PRD.md` captures **pre-v4 / build-out** planning. Prefer this README + live
+`src/` for current behavior; it may still describe inertial orders or
+`end_turn` as historical context. Superseded handoff, milestone, and UX
+recommendation docs were archived out of the tree (see
+`docs/DOC-LIFECYCLE.md`).

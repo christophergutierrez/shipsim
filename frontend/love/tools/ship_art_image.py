@@ -4,7 +4,7 @@
 Ports the reusable NorRust image primitives behind shipsim-specific interfaces.
 All functions are provider-free and testable with fixture PNGs.
 
-Phase 3 of ``docs/SHIP-ART-IMPLEMENTATION-PLAN.md``.
+See ``frontend/love/assets/ship_art/README.md`` for the art contract.
 """
 
 from __future__ import annotations

@@ -117,7 +117,7 @@ fn active_catalog_suites_validate_every_engagement() {
     }
 }
 
-/// Held-out seed discipline (`docs/plans/catalog-review-remediation.md`):
+/// Held-out seed discipline (catalog remediation review; see docs/BALANCE-PROTOCOL.md):
 /// 264-327 is virgin sign-off data and 328-391 is eval data. Neither may
 /// appear in an ordinary suite — burning either ahead of its evidence phase
 /// is exactly the mistake the ranges exist to prevent. `abc_claims_signoff.toml`

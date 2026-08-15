@@ -21,9 +21,9 @@ use crate::protocol::{
 // map_preview_uses_diamond_route_family_and_identity / G2+G4; T5
 // yard_delete_weapon_requires_a_second_press / E3+E4; T6
 // yard_quit_requires_confirmation_when_dirty / C2. M1–M4 add T7–T18 from
-// docs/plans/ui-rubric-tui.md.
+// docs/UI-RUBRIC.md.
 
-// First-play invariant index for docs/plans/tui-first-play.md. P01–P04 cover
+// First-play invariant index (see docs/UI-PLAYTEST-PROTOCOL.md). P01–P04 cover
 // X1; P05–P12 cover X2/X9; P13–P16 cover X3/X4/X7; P17–P22 cover X5/X13;
 // P23–P27 cover X6/X7; P28–P32 cover X8; P33–P41 cover X10–X13. The exact
 // test names are added with each milestone so this index stays searchable.
