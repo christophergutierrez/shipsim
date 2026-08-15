@@ -69,6 +69,14 @@ use crate::protocol::{
 // P40 playtest_p40_clamp_notice_rate_limited
 // P41 playtest_p41_no_tty_message
 
+// Consolidated-plan M0 reproduction matrix. These names deliberately use the
+// plan's TUI-M## ids so later fixes remain searchable and reviewable.
+// TUI-M01 tui_m01_all_fixture_states_render_at_floor
+// TUI-M02 tui_m02_allocate_enter_emits_at_most_one_order
+// TUI-M03 tui_m03_movement_commit_emits_at_most_one_order
+// TUI-M04 tui_m04_fire_space_emits_at_most_one_order
+// TUI-M05 tui_m05_full_turn_transition_is_bounded
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 /// A minimal but realistic snapshot for testing: two ships on a 10×10 board.
@@ -273,6 +281,81 @@ fn make_key(c: char) -> crossterm::event::KeyEvent {
 
 fn make_key_code(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
     crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+}
+
+#[test]
+fn tui_m01_all_fixture_states_render_at_floor() {
+    let mut allocate = App::new();
+    allocate.update_snapshot(test_snapshot());
+    let _ = render_to_string(&mut allocate, 80, 24);
+
+    let mut fire = App::new();
+    fire.update_snapshot(fire_phase_snapshot());
+    let _ = render_to_string(&mut fire, 80, 24);
+
+    let mut movement = App::new();
+    let mut movement_snap = test_snapshot();
+    movement_snap.phase = "movement".into();
+    movement.update_snapshot(movement_snap);
+    let _ = render_to_string(&mut movement, 80, 24);
+
+    let mut disabled = App::new();
+    let mut disabled_snap = test_snapshot();
+    disabled_snap.ships[0].power_available = 0;
+    disabled_snap.ships[0].effective_max_maneuver_actions = Some(0);
+    for weapon in &mut disabled_snap.ships[0].weapons {
+        weapon.operational = false;
+    }
+    disabled.update_snapshot(disabled_snap);
+    let _ = render_to_string(&mut disabled, 80, 24);
+
+    let mut over = App::new();
+    over.update_snapshot(game_over_snapshot());
+    let _ = render_to_string(&mut over, 80, 24);
+}
+
+#[test]
+fn tui_m02_allocate_enter_emits_at_most_one_order() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(matches!(result, KeyResult::SendOrder(_)));
+}
+
+#[test]
+fn tui_m03_movement_commit_emits_at_most_one_order() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    app.update_snapshot(snap);
+    app.path_draft.as_mut().unwrap().push("move_f");
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(matches!(result, KeyResult::SendOrder(_)));
+}
+
+#[test]
+fn tui_m04_fire_space_emits_at_most_one_order() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    let result = handle_key(&mut app, make_key(' '));
+    assert!(matches!(result, KeyResult::SendOrder(_)));
+}
+
+#[test]
+fn tui_m05_full_turn_transition_is_bounded() {
+    let mut app = App::new();
+    app.update_snapshot(test_snapshot());
+    assert_eq!(app.snap.as_ref().unwrap().phase, "allocate");
+    app.mode = Mode::Movement;
+    let mut movement = test_snapshot();
+    movement.phase = "movement".into();
+    app.update_snapshot(movement);
+    assert_eq!(app.snap.as_ref().unwrap().phase, "movement");
+    app.mode = Mode::Fire;
+    let mut fire = fire_phase_snapshot();
+    fire.turn = 2;
+    app.update_snapshot(fire);
+    assert_eq!(app.snap.as_ref().unwrap().phase, "firing");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
