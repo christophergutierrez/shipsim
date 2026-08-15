@@ -96,7 +96,7 @@ impl AllocDraft {
     ///
     /// Omits non-operational weapons: the engine rejects unknown/destroyed
     /// weapon ids with `weapon … not found`. Dead rows stay in the draft for
-    /// display only (OFFLINE).
+    /// display only (DESTROYED).
     pub fn weapons_json(&self, ship: &protocol::Ship) -> serde_json::Value {
         let mut map = serde_json::Map::new();
         for (id, chg) in &self.weapons {
@@ -245,7 +245,7 @@ pub struct FireDraft {
 
 impl FireDraft {
     /// New draft with `weapon_idx` snapped to the first operational weapon
-    /// (if any). Avoids opening fire mode on an OFFLINE gun (Phase 2).
+    /// (if any). Avoids opening fire mode on a DESTROYED gun.
     pub fn for_ship(ship: &protocol::Ship) -> Self {
         let mut draft = Self::default();
         draft.snap_to_operational(ship);

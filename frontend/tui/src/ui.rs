@@ -1262,7 +1262,7 @@ fn fire_scroll(app: &App, area: Rect) -> u16 {
         None => return 0,
     };
     // Mirror render_fire_panel's line layout so the selected weapon stays in
-    // view: 2 legend lines, the volley summary line, an optional "No charge"
+    // view: 2 legend lines, the volley summary line, an optional pass coach
     // coach line, blank, Targets header, one line per enemy, blank, Weapons
     // header, then the weapon rows. (The `Queued:` summary is a fixed header
     // rendered by render_input_panel, not part of the scrollable body.)
@@ -1606,7 +1606,7 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         let selected = draft.cursor == i + 1;
         let mark = if selected { "▶ " } else { "  " };
         let carried = if cur > 0 && *chg >= cur {
-            format!(" · carried {cur}")
+            format!(" · carried {cur}; add {} for ready {}/{}", chg.saturating_sub(cur), chg, max)
         } else {
             String::new()
         };
@@ -1623,10 +1623,11 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             .map(|w| w.operational)
             .unwrap_or(true);
         let row = if operational {
-            format!("{mark}{id} ({kind}) charge {chg}/{max}{carried}")
+            let state = if *chg == 0 { " UNCHARGED" } else { "" };
+            format!("{mark}{id} ({kind}) charge {chg}/{max}{state}{carried}")
         } else {
-            // Non-operational weapon: display-only, no editable charge prompt (M2/2.6).
-            format!("{mark}{id} ({kind}) OFFLINE")
+            // Non-operational weapon: display-only, no editable charge prompt.
+            format!("{mark}{id} ({kind}) DESTROYED")
         };
         lines.push(Line::from(Span::styled(
             row,
@@ -1713,6 +1714,21 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         )));
     }
 
+    if draft.cursor > 0 && draft.cursor <= draft.weapons.len() {
+        let index = draft.cursor - 1;
+        let (id, _) = &draft.weapons[index];
+        let kind = ship
+            .weapons
+            .iter()
+            .find(|weapon| &weapon.id == id)
+            .map(|weapon| weapon.kind.as_str())
+            .unwrap_or("?");
+        lines.push(Line::from(Span::styled(
+            format!(" Selected weapon {}/{}: {id} ({kind})", index + 1, draft.weapons.len()),
+            Style::default().fg(Color::Cyan),
+        )));
+    }
+
     ("Allocate", lines)
 }
 
@@ -1793,6 +1809,16 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             Style::default().fg(Color::Green)
         },
     )));
+    if ship.motion_cap() < ship.max_maneuver_actions {
+        lines.push(Line::from(Span::styled(
+            format!(
+                " engine loss: {}/{} maneuver capacity",
+                ship.motion_cap(),
+                ship.max_maneuver_actions
+            ),
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )));
+    }
 
     // Projected final position/facing and any illegality from the preview.
     if let Some(preview) = app.path_preview_for_focus() {
@@ -1845,13 +1871,20 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 
     // v4 volley builder: the whole volley is assembled client-side in
     // `app.fire_draft.shots` and submitted as one `commit_volley` on Space.
+    let has_usable_weapon = ship.weapons.iter().any(|w| {
+        w.operational && !w.is_pd() && w.charge > 0 && w.ammo_remaining != Some(0)
+    });
     let mut lines = vec![
         Line::from(Span::styled(
             " ↑↓ weapon · 1–9 target · ←→ shield face",
             Style::default().fg(Color::Yellow),
         )),
         Line::from(Span::styled(
-            " Enter queue/unqueue · Backspace remove · Space fire volley",
+            if has_usable_weapon {
+                " Enter queue/unqueue · Backspace remove · Space fire volley"
+            } else {
+                " Enter unavailable · Backspace remove · Space pass"
+            },
             Style::default().fg(Color::Yellow),
         )),
     ];
@@ -1889,12 +1922,11 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         },
     )));
 
-    // "No charge" coach: if every operational weapon is out of charge
+    // Coach: if no weapon can make a legal firing attempt,
     // mid-fire-phase, tell the player Space passes instead of firing.
-    let has_charge = ship.weapons.iter().any(|w| w.operational && w.charge > 0);
-    if !has_charge && snap.phase == "firing" {
+    if !has_usable_weapon && snap.phase == "firing" {
         lines.push(Line::from(Span::styled(
-            " No charge left this turn — Space to pass fire",
+            " No usable weapons — Space passes",
             Style::default().fg(Color::Yellow),
         )));
     }
@@ -1929,7 +1961,22 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(" Weapons:"));
+    lines.push(Line::from(Span::styled(
+        format!(
+            " Weapons: selected {}/{} {} ({})",
+            draft.weapon_idx + 1,
+            ship.weapons.len(),
+            ship.weapons
+                .get(draft.weapon_idx)
+                .map(|w| w.id.as_str())
+                .unwrap_or("—"),
+            ship.weapons
+                .get(draft.weapon_idx)
+                .map(|w| w.kind.as_str())
+                .unwrap_or("?")
+        ),
+        Style::default().fg(Color::Cyan),
+    )));
     for (i, w) in ship.weapons.iter().enumerate() {
         let selected = i == draft.weapon_idx;
         let marker = if selected { "▶" } else { " " };

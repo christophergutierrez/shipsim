@@ -829,22 +829,19 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
             )
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            // Fable Phase 1: clamp at last field — never wrap to movement.
             app.digit_entry = None;
-            if let Some(draft) = &mut app.alloc_draft {
-                let last = draft.n_fields().saturating_sub(1);
-                if draft.cursor < last {
-                    draft.cursor += 1;
+            if let Some(ship) = app.focused().cloned() {
+                if let Some(draft) = &mut app.alloc_draft {
+                    draft.cursor = next_alloc_cursor(draft, &ship, 1);
                 }
             }
             KeyResult::Continue
         }
         KeyCode::Up | KeyCode::Char('k') => {
-            // Fable Phase 1: clamp at first field — never wrap to last shield.
             app.digit_entry = None;
-            if let Some(draft) = &mut app.alloc_draft {
-                if draft.cursor > 0 {
-                    draft.cursor -= 1;
+            if let Some(ship) = app.focused().cloned() {
+                if let Some(draft) = &mut app.alloc_draft {
+                    draft.cursor = next_alloc_cursor(draft, &ship, -1);
                 }
             }
             KeyResult::Continue
@@ -1087,7 +1084,39 @@ fn dead_weapon_id_under_cursor(app: &App) -> Option<String> {
 /// Soft notice when the player tries to charge an offline gun (mirrors fire path).
 fn notice_dead_weapon_edit(app: &mut App) {
     if let Some(id) = dead_weapon_id_under_cursor(app) {
-        app.log(format!("allocate: {id} OFFLINE — cannot charge"));
+        app.log(format!("allocate: {id} DESTROYED — cannot charge"));
+    }
+}
+
+/// Move between editable allocation fields without stopping on a destroyed
+/// weapon. The cursor remains bounded and the six shield faces stay reachable.
+fn next_alloc_cursor(
+    draft: &crate::app::AllocDraft,
+    ship: &crate::protocol::Ship,
+    direction: i32,
+) -> usize {
+    let last = draft.n_fields().saturating_sub(1);
+    let mut cursor = draft.cursor;
+    loop {
+        let next = if direction > 0 {
+            cursor.saturating_add(1).min(last)
+        } else {
+            cursor.saturating_sub(1)
+        };
+        if next == cursor {
+            return cursor;
+        }
+        cursor = next;
+        let dead = cursor > 0
+            && cursor <= draft.weapons.len()
+            && draft
+                .weapons
+                .get(cursor - 1)
+                .and_then(|(id, _)| ship.weapons.iter().find(|w| &w.id == id))
+                .is_some_and(|weapon| !weapon.operational);
+        if !dead {
+            return cursor;
+        }
     }
 }
 

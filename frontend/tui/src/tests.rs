@@ -2848,6 +2848,76 @@ fn damaged_weapon_snapshot() -> Snapshot {
 }
 
 #[test]
+fn playtest_p23_destroyed_and_uncharged_are_distinct() {
+    let mut app = App::new();
+    let mut snap = damaged_weapon_snapshot();
+    for weapon in &mut snap.ships[0].weapons {
+        if weapon.operational {
+            weapon.charge = 0;
+        }
+    }
+    app.update_snapshot(snap);
+    app.mode = Mode::Allocate;
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(buffer_contains(&buf, "DESTROYED"));
+    assert!(buffer_contains(&buf, "UNCHARGED"));
+    assert!(!buffer_contains(&buf, "OFFLINE"));
+    assert!(!buffer_contains(&buf, "[DAMAGED]"));
+}
+
+#[test]
+fn playtest_p24_allocate_skips_destroyed() {
+    let mut app = App::new();
+    app.update_snapshot(damaged_weapon_snapshot());
+    app.mode = Mode::Allocate;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    let draft = app.alloc_draft.as_ref().unwrap();
+    assert_eq!(draft.cursor, 2, "Down should skip destroyed beam_1");
+    assert_eq!(app.focused().unwrap().weapons[1].id, "torp_1");
+}
+
+#[test]
+fn playtest_p25_carried_charge_names_power_to_ready() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.ships[0].weapons[0].charge = 2;
+    app.update_snapshot(snap);
+    app.mode = Mode::Allocate;
+    app.alloc_draft.as_mut().unwrap().weapons[0].1 = 4;
+    app.alloc_draft.as_mut().unwrap().cursor = 1;
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(buffer_contains(&buf, "carried 2"), "missing carried charge: {buf}");
+    assert!(buffer_contains(&buf, "ready 4/4"), "missing ready target: {buf}");
+}
+
+#[test]
+fn playtest_p26_movement_row_names_engine_loss() {
+    let mut app = App::new();
+    let mut snap = test_snapshot();
+    snap.phase = "movement".into();
+    snap.ships[0].effective_max_maneuver_actions = Some(2);
+    app.update_snapshot(snap);
+    app.mode = Mode::Movement;
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(buffer_contains(&buf, "engine loss"), "missing engine loss: {buf}");
+}
+
+#[test]
+fn playtest_p27_no_usable_weapons_is_pass_only() {
+    let mut app = App::new();
+    let mut snap = fire_phase_snapshot();
+    for weapon in &mut snap.ships[0].weapons {
+        weapon.operational = false;
+    }
+    app.update_snapshot(snap);
+    app.mode = Mode::Fire;
+    let buf = render_to_string(&mut app, 80, 40);
+    assert!(buffer_contains(&buf, "No usable weapons"));
+    assert!(buffer_contains(&buf, "Space passes"));
+    assert!(!buffer_contains(&buf, "Enter queue"));
+}
+
+#[test]
 fn allocate_right_on_dead_weapon_does_not_change_charge() {
     // 2.1: cursor on a !operational weapon → Right leaves draft charge unchanged.
     let mut app = App::new();
@@ -3015,28 +3085,28 @@ fn fire_enter_on_operational_weapon_emits_commit_fire() {
 }
 
 #[test]
-fn allocate_panel_shows_offline_for_damaged_weapon() {
-    // 2.6: buffer contains OFFLINE and no editable charge prompt for that row.
+fn allocate_panel_shows_destroyed_for_damaged_weapon() {
+    // 2.6: buffer contains DESTROYED and no editable charge prompt for that row.
     let mut app = App::new();
     app.update_snapshot(damaged_weapon_snapshot());
     app.mode = Mode::Allocate;
     let buf = render_to_string(&mut app, 80, 40);
     assert!(
-        buffer_contains(&buf, "OFFLINE"),
-        "allocate panel should mark damaged weapons OFFLINE"
+        buffer_contains(&buf, "DESTROYED"),
+        "allocate panel should mark damaged weapons DESTROYED"
     );
     // The damaged beam row must not show an editable charge N/M prompt.
     let beam_line = buf
         .lines()
-        .find(|line| line.contains("beam_1") && line.contains("OFFLINE"))
+        .find(|line| line.contains("beam_1") && line.contains("DESTROYED"))
         .unwrap_or("");
     assert!(
         !beam_line.is_empty(),
-        "expected an OFFLINE beam_1 row; got:\n{buf}"
+        "expected a DESTROYED beam_1 row; got:\n{buf}"
     );
     assert!(
         !beam_line.to_lowercase().contains("charge"),
-        "offline beam row must not show editable charge; got: {beam_line}"
+        "destroyed beam row must not show editable charge; got: {beam_line}"
     );
 }
 
@@ -3122,7 +3192,7 @@ fn allocate_edit_dead_weapon_logs_soft_notice() {
     assert!(
         app.log
             .iter()
-            .any(|line| line.contains("OFFLINE") && line.contains("cannot charge")),
+            .any(|line| line.contains("DESTROYED") && line.contains("cannot charge")),
         "blocked allocate edit should soft-log; log={:?}",
         app.log
     );
@@ -3389,7 +3459,7 @@ fn end_turn_confirmation_counts_queued_fire_across_player_fleet() {
 #[test]
 fn fire_panel_shows_no_charge_coach() {
     // 4.2: every operational weapon out of charge mid-fire-phase → buffer
-    // contains the "No charge" / "Space to pass" coach.
+    // contains the "No usable weapons" / pass coach.
     let mut app = App::new();
     let mut snap = fire_phase_snapshot();
     // Drain both player weapons to 0 charge.
@@ -3404,12 +3474,12 @@ fn fire_panel_shows_no_charge_coach() {
     });
     let buf = render_to_string(&mut app, 80, 40);
     assert!(
-        buffer_contains(&buf, "No charge"),
-        "fire panel must show No charge coach when all weapons are empty"
+        buffer_contains(&buf, "No usable weapons"),
+        "fire panel must show no-usable-weapons coach when all weapons are empty"
     );
     assert!(
-        buffer_contains(&buf, "Space to pass"),
-        "fire panel must tell the player to Space to pass fire"
+        buffer_contains(&buf, "Space passes"),
+        "fire panel must tell the player to Space passes fire"
     );
 }
 
