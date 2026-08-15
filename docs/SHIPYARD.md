@@ -21,10 +21,10 @@ cargo run --manifest-path frontend/tui/Cargo.toml -- --yard
 **CLI** (never writes except `compile`):
 
 ```bash
-cargo run --bin shipsim-yard -- validate data/designs/yard_destroyer.toml
-cargo run --bin shipsim-yard -- cost data/designs/yard_destroyer.toml
-cargo run --bin shipsim-yard -- compile data/designs/yard_destroyer.toml
-cargo run --bin shipsim-yard -- check data/designs/yard_destroyer.toml
+cargo run --bin shipsim-yard -- validate data/designs/basic_destroyer.toml
+cargo run --bin shipsim-yard -- cost data/designs/basic_destroyer.toml
+cargo run --bin shipsim-yard -- compile data/designs/basic_destroyer.toml
+cargo run --bin shipsim-yard -- check data/designs/basic_destroyer.toml
 cargo run --bin shipsim-yard -- check-all
 ```
 
@@ -34,12 +34,12 @@ that writes a generated ship, and it refuses to replace an unmarked file.
 all committed `yard_*.toml` designs. A clean `check-all` is the generated-data
 drift gate.
 
-**Fight** a compiled class (`scenarios/yard_destroyer.toml` is a duel):
+**Fight** a compiled class (`scenarios/basic_destroyer.toml` is a duel):
 
 ```bash
 cargo build -q
-cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/yard_destroyer.toml
-python3 frontend/repl/repl.py scenarios/yard_destroyer.toml
+cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/basic_destroyer.toml
+python3 frontend/repl/repl.py scenarios/basic_destroyer.toml
 ```
 
 Love2D still has a yard (`./frontend/love/play.sh yard`); TUI `--yard` is the
@@ -96,7 +96,7 @@ share one class.
 
 | Piece | Role |
 |---|---|
-| `id` | File token. `[a-z0-9_]+`. Stem of `data/designs/<id>.toml` and compile output `data/ships/<id>.toml`. Existing fixtures keep names like `yard_destroyer`; new work uses 8 hex. |
+| `id` | File token. `[a-z0-9_]+`. Stem of `data/designs/<id>.toml` and compile output `data/ships/<id>.toml`. Existing fixtures keep names like `basic_destroyer`; new work uses 8 hex. |
 | `name` | Unique class label. Shown in the list and on the compiled ship. |
 | Store | TOML under `data/designs/` today. A later sqlite catalog can replace that directory without changing the class-name rules. |
 
@@ -107,7 +107,7 @@ catalog files are protected.
 ## Design schema
 
 ```toml
-id = "yard_destroyer"
+id = "basic_destroyer"
 name = "Yard Destroyer"
 size = 2
 material = "titanium"
@@ -250,8 +250,8 @@ Material multiplies the frame, not component prices.
 
 ## Fixtures
 
-`data/designs/yard_*.toml` are committed examples. `yard_swarm` through
-`yard_capital` are the seven standard size-tier classes; `yard_baseline`,
+`data/designs/yard_*.toml` are committed examples. `basic_swarm` through
+`basic_capital` are the seven standard size-tier classes; `yard_baseline`,
 `yard_compact`, `yard_potent`, and `yard_precise` are controlled weapon-quality
 fixtures, not additional standard classes. Compiled `data/ships/yard_*.toml`
 are durable generated outputs. Throwaway experiments should stay uncompiled

@@ -2,9 +2,9 @@
 # Historical note: one-off diagnostic suite, retained for BALANCE-CAMPAIGN-SUMMARY.md §13.3 reproduction.
 # Bounded hard map + close starts + damage-diff stalemate scoring + closing policies.
 #
-# Claim A: calibrated-count swarm (destroyers) vs yard_capital (min fill).
-# Claim B: calibrated-count destroyers vs yard_capital (max fill) — forced engagement.
-# Claim C: fixed 8 destroyers vs yard_capital (count, not pure cost).
+# Claim A: calibrated-count swarm (destroyers) vs basic_capital (min fill).
+# Claim B: calibrated-count destroyers vs basic_capital (max fill) — forced engagement.
+# Claim C: fixed 8 destroyers vs basic_capital (count, not pure cost).
 #
 # Asymmetric policies (not only greedy mirrors).
 #
@@ -55,5 +55,5 @@ opponent = "greedy"
 # intentionally skipped. Current yard costs are destroyer=98 and capital=3470.
 [[engagements]]
 name = "A_swarm_vs_titan_min"
-player = [{ class = "yard_destroyer", count = 7 }]
-opponent = [{ class = "yard_capital", count = 1 }]
+player = [{ class = "basic_destroyer", count = 7 }]
+opponent = [{ class = "basic_capital", count = 1 }]

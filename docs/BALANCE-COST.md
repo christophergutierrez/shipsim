@@ -103,9 +103,9 @@ Do not describe these rows as exact equal-budget certification.
 
 | Claim | Current operational definition | Desired outcome |
 |-------|-------------------------------|-----------------|
-| **A** | Fixed 7 destroyers (686) vs `yard_capital` (3470) | Diagnostic count probe; not cost parity |
-| **B** | Fixed 10 destroyers (980) vs `yard_capital` (3470) | Diagnostic count probe; not cost parity |
-| **C** | Fixed 8 destroyers (784) vs `yard_capital` (3470) | Scenario claim; not cost parity |
+| **A** | Fixed 7 destroyers (686) vs `basic_capital` (3470) | Diagnostic count probe; not cost parity |
+| **B** | Fixed 10 destroyers (980) vs `basic_capital` (3470) | Diagnostic count probe; not cost parity |
+| **C** | Fixed 8 destroyers (784) vs `basic_capital` (3470) | Scenario claim; not cost parity |
 | **Control** | 4 destroyers vs 4 destroyers | Player 35-65%; detect side/policy drift |
 
 Claim **B is ill-posed without forced engagement**. Mobility can refuse battle on
@@ -159,7 +159,7 @@ cargo run --release --bin shipsim-sim -- \
   --output tmp/simulation/reports/abc_claims_pooled.json
 ```
 
-Current standard costs include `yard_destroyer=98` and `yard_capital=3470`.
+Current standard costs include `basic_destroyer=98` and `basic_capital=3470`.
 The calibrated A/B/C counts are fixed-count diagnostics, not near-cost pairs:
 A=7 destroyers, B=10 destroyers, and C=8 destroyers versus one capital.
 Current measured outcomes belong in

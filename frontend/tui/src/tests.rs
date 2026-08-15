@@ -2484,7 +2484,7 @@ fn path_preview_flows_end_to_end() {
 
 /// Regression: movement allocation must not offer power the hull cannot convert.
 ///
-/// `yard_heavy_cruiser` has power 36, a 1:1 thrust ratio, and
+/// `basic_heavy_cruiser` has power 36, a 1:1 thrust ratio, and
 /// `max_maneuver_actions = 6`, so at most 6 power buys motion. The allocate
 /// panel used to offer the whole 36-power pool for the movement field and
 /// report "ok"; the engine then truncated to 6 (`path::usable_motion`) while
@@ -2595,7 +2595,7 @@ fn dead_engines_clamp_movement_power_to_zero() {
 fn swarm_ratio_movement_power_cap_is_ceil_not_floor() {
     let mut app = App::new();
     let mut snap = test_snapshot();
-    // yard_swarm: 3 motion per power, hull cap 8 → ceil(8/3)=3, not floor=2.
+    // basic_swarm: 3 motion per power, hull cap 8 → ceil(8/3)=3, not floor=2.
     snap.ships[0].max_maneuver_actions = 8;
     snap.ships[0].effective_max_maneuver_actions = Some(8);
     snap.ships[0].thrust_per_power = 3;
@@ -5389,10 +5389,10 @@ fn yard_lists_existing_designs_with_hull_cost() {
     let destroyer = yard
         .listings
         .iter()
-        .find(|item| item.design.id == "yard_destroyer")
-        .expect("yard_destroyer design must be listed");
+        .find(|item| item.design.id == "basic_destroyer")
+        .expect("basic_destroyer design must be listed");
     assert!(
-        destroyer.path.ends_with("yard_destroyer.toml"),
+        destroyer.path.ends_with("basic_destroyer.toml"),
         "listing path {:?}",
         destroyer.path
     );
@@ -5671,7 +5671,7 @@ fn yard_browse_renders_ships_and_new_row_not_a_map() {
         "create-new row missing; got:\n{buf}"
     );
     assert!(
-        buffer_contains(&buf, "user sort: recency (o)"),
+        buffer_contains(&buf, "filter: all (g) · sort: recency (o)"),
         "browse title must co-locate the sort key and current mode; got:\n{buf}"
     );
     assert!(
@@ -5737,8 +5737,9 @@ fn yard_n_and_new_row_create_a_ship() {
         let yard = app.yard.as_ref().unwrap();
         assert_eq!(yard.screen, crate::yard::YardScreen::Edit);
         assert!(
-            yard.draft.id.len() == 8
-                && yard.draft.id.bytes().all(|b| b.is_ascii_hexdigit()),
+            yard.draft.id.starts_with("user_")
+                && yard.draft.id[5..].len() == 8
+                && yard.draft.id[5..].bytes().all(|b| b.is_ascii_hexdigit()),
             "new draft id {} should be a short hex token",
             yard.draft.id
         );
@@ -5762,7 +5763,7 @@ fn yard_n_and_new_row_create_a_ship() {
     handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
     let yard = app.yard.as_ref().unwrap();
     assert_eq!(yard.screen, crate::yard::YardScreen::Edit);
-    assert_eq!(yard.draft.id.len(), 8);
+    assert!(yard.draft.id.starts_with("user_"));
 }
 
 #[test]

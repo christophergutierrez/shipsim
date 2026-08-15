@@ -168,7 +168,7 @@ impl BaselinePolicy {
             let target = desired.min(weapon.max_charge).max(have);
             // Spend whatever budget remains rather than skipping the weapon
             // outright when a full charge does not fit: an all-or-nothing rule
-            // here left small hulls (e.g. yard_swarm: 3 power left for two
+            // here left small hulls (e.g. basic_swarm: 3 power left for two
             // beams needing 4 each) permanently uncharged, because movement is
             // allocated before weapons every turn and the shortfall repeats
             // forever. Charging what fits still moves toward `target` and lets

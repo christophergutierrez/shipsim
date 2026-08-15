@@ -1,11 +1,12 @@
-id = "yard_dreadnought"
-name = "Yard Dreadnought"
-size = 6
+id = "basic_capital"
+group = "basic"
+name = "Yard Capital"
+size = 7
 material = "titanium"
-engine = "fusion"
-engine_size = "l"
+engine = "fission"
+engine_size = "h"
 armored = true
-shields = [24, 16, 12, 12, 12, 16]
+shields = [16, 10, 6, 6, 6, 10]
 
 [[weapons]]
 component = "beam"
@@ -21,16 +22,20 @@ mount = "forward_port"
 
 [[weapons]]
 component = "beam"
-mount = "aft"
-
-[[weapons]]
-component = "torpedo"
 mount = "aft_port"
 
 [[weapons]]
 component = "torpedo"
-mount = "aft_starboard"
+mount = "forward"
+
+[[weapons]]
+component = "torpedo"
+mount = "aft"
 
 [[weapons]]
 component = "plasma"
-mount = "forward_port"
+mount = "forward"
+
+[[weapons]]
+component = "plasma"
+mount = "aft_starboard"

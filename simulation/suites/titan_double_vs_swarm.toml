@@ -15,5 +15,5 @@ opponent = "greedy"
 
 [[engagements]]
 name = "swarm_vs_titan_double"
-player = [{ class = "yard_destroyer", count = 8 }]
-opponent = [{ class = "yard_capital", count = 1 }]
+player = [{ class = "basic_destroyer", count = 8 }]
+opponent = [{ class = "basic_capital", count = 1 }]

@@ -314,7 +314,7 @@ controller = "scripted"
 fn catalog_ships_get_size_formula_ammo() {
     let game = load_scenario(&root().join("scenarios/battle.toml")).expect("ai.toml");
     let hc = game.ship(1).expect("heavy cruiser");
-    // yard_heavy_cruiser is size 4 → 7 default for torp_1
+    // basic_heavy_cruiser is size 4 → 7 default for torp_1
     if let Some(w) = hc
         .weapons
         .iter()

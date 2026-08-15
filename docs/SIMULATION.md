@@ -101,8 +101,8 @@ opponent = "greedy"
 
 [[engagements]]
 name = "swarm_vs_titan"
-player = [{ class = "yard_destroyer", count = 8 }]
-opponent = [{ class = "yard_capital", count = 1 }]
+player = [{ class = "basic_destroyer", count = 8 }]
+opponent = [{ class = "basic_capital", count = 1 }]
 ```
 
 Ship `cost` comes from `data/ships/{class}.toml` (see `docs/SIZE-VARIANTS.md`).
@@ -127,7 +127,7 @@ helper (the same composition can be used for both sides):
 ```bash
 cargo run --release --bin shipsim-budget -- \
   --budget 1000 --policy balance \
-  --roster yard_swarm,yard_destroyer,yard_light_cruiser,yard_heavy_cruiser
+  --roster basic_swarm,basic_destroyer,basic_light_cruiser,basic_heavy_cruiser
 ```
 
 Policies are `largest`, `swarm` (sizes 1–2 only), and `balance` (size 4, then
@@ -143,11 +143,11 @@ skip_cost_validation = true
 
 [[power_sweeps]]
 name = "titan_vs_swarm"
-class = "yard_capital"
+class = "basic_capital"
 side = "opponent"
 values = [60, 90, 120, 150, 180]
-player = [{ class = "yard_destroyer", count = 8 }]
-opponent = [{ class = "yard_capital", count = 1 }]
+player = [{ class = "basic_destroyer", count = 8 }]
+opponent = [{ class = "basic_capital", count = 1 }]
 ```
 
 Generated engagements are named `{name}_p{value}`. Method notes:

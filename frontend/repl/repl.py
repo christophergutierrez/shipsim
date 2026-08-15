@@ -105,7 +105,7 @@ def pick_scenario(repo: Path, preferred: str | None, ui: TerminalUI) -> str:
             f"  looked under {repo}/\n"
             "  ship classes are data/ships/*.toml; fights are scenarios/*.toml\n"
             "  play the compiled destroyer with: "
-            "python3 frontend/repl/repl.py scenarios/yard_destroyer.toml"
+            "python3 frontend/repl/repl.py scenarios/basic_destroyer.toml"
         )
 
     scenarios = list_scenarios(repo)

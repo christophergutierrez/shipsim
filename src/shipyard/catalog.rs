@@ -4,6 +4,7 @@ pub fn new_design(id: impl Into<String>) -> Design {
     Design {
         id: id.into(),
         name: "New Ship".into(),
+        group: "user".into(),
         size: 2,
         material: "titanium".into(),
         engine: "fission".into(),

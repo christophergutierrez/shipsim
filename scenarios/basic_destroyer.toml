@@ -2,9 +2,9 @@ width = 24
 height = 20
 seed = 1
 
-# Play the compiled yard destroyer (data/ships/yard_destroyer.toml).
+# Play the compiled yard destroyer (data/ships/basic_destroyer.toml).
 # Compile first if you edited the design:
-#   cargo run --bin shipsim-yard -- compile data/designs/yard_destroyer.toml
+#   cargo run --bin shipsim-yard -- compile data/designs/basic_destroyer.toml
 
 [terminal]
 type = "destruction"
@@ -12,7 +12,7 @@ target = 2
 
 [[ships]]
 id = 1
-class = "yard_destroyer"
+class = "basic_destroyer"
 q = 4
 r = 10
 facing = 0
@@ -20,7 +20,7 @@ controller = "player"
 
 [[ships]]
 id = 2
-class = "yard_destroyer"
+class = "basic_destroyer"
 q = 19
 r = 10
 facing = 3

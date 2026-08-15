@@ -156,8 +156,8 @@ fn annihilation_engagement_match_runs() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let eng = EngagementSpec {
         name: "mirror_smoke".into(),
-        player: vec![FleetLine::new("yard_destroyer", 1)],
-        opponent: vec![FleetLine::new("yard_destroyer", 1)],
+        player: vec![FleetLine::new("basic_destroyer", 1)],
+        opponent: vec![FleetLine::new("basic_destroyer", 1)],
     };
     let def = build_engagement_scenario(&eng, &FleetMapSpec::default(), 3).unwrap();
     let mut config = MatchConfig::from_scenario(

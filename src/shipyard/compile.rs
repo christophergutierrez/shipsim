@@ -106,7 +106,7 @@ pub fn check_all(root: &Path) -> Result<usize, Error> {
     let designs = list_designs(root)?;
     let mut checked = 0;
     for (path, design) in designs {
-        if design.id.starts_with("yard_") {
+        if STANDARD_CLASS_IDS.contains(&design.id.as_str()) {
             check(root, &path)?;
             checked += 1;
         }

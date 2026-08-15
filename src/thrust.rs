@@ -349,7 +349,7 @@ mod tests {
             6
         );
 
-        // yard_swarm 3:1, hull cap 8: ceil(8/3)=3 buys 9 raw → 8 after hull cap.
+        // basic_swarm 3:1, hull cap 8: ceil(8/3)=3 buys 9 raw → 8 after hull cap.
         // floor(8/3)=2 would only buy 6 motion.
         assert_eq!(power_for_thrust(8, 3, 1), 3);
         let swarm = ThrustConversion::new(3, 1, 8).unwrap();

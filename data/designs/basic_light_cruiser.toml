@@ -1,11 +1,12 @@
-id = "yard_battleship"
-name = "Yard Battleship"
-size = 5
+id = "basic_light_cruiser"
+group = "basic"
+name = "Yard Light Cruiser"
+size = 3
 material = "titanium"
 engine = "fission"
 engine_size = "l"
 armored = true
-shields = [16, 12, 8, 8, 8, 12]
+shields = [8, 6, 4, 4, 4, 6]
 
 [[weapons]]
 component = "beam"
@@ -16,13 +17,5 @@ component = "beam"
 mount = "forward_starboard"
 
 [[weapons]]
-component = "beam"
-mount = "forward_port"
-
-[[weapons]]
 component = "torpedo"
 mount = "aft"
-
-[[weapons]]
-component = "torpedo"
-mount = "aft_port"

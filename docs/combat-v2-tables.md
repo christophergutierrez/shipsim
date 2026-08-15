@@ -34,7 +34,7 @@ base chances, the ceiling of 15 limits the size multiplier without flattening
 the original range curve. No unmodified attack can become an automatic hit.
 
 Catalog fire-control bonuses apply only against exact size-2 targets, after the
-target-size adjustment. `yard_capital` currently has +12 and `yard_capital` +10. The
+target-size adjustment. `basic_capital` currently has +12 and `basic_capital` +10. The
 final threshold is capped below the configured die maximum. Weapon
 `accuracy_bonus` (yard Precise SKUs) is added at **every** target size, alongside
 fire control when it applies, then defender **evasive action** subtracts

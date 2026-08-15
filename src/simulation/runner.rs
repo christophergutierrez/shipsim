@@ -829,7 +829,7 @@ mod tests {
 
         let fleet = SimulationError::from(FleetError::ZeroCount {
             engagement: "test".into(),
-            class: "yard_destroyer".into(),
+            class: "basic_destroyer".into(),
         });
         assert!(std::error::Error::source(&fleet).is_some());
     }

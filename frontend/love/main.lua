@@ -969,7 +969,7 @@ end
 
 open_yard = function()
   local design = shipyard.new_design()
-  local starter = (app.repo_root or ".") .. "/data/designs/yard_destroyer.toml"
+  local starter = (app.repo_root or ".") .. "/data/designs/basic_destroyer.toml"
   local loaded = shipyard.read_design(starter)
   if loaded then
     design = loaded
@@ -1787,12 +1787,12 @@ handle_ui_hit = function(hit)
     return true
   end
   if id == "yard_load" then
-    local loaded = shipyard.read_design((app.repo_root or ".") .. "/data/designs/yard_destroyer.toml")
+    local loaded = shipyard.read_design((app.repo_root or ".") .. "/data/designs/basic_destroyer.toml")
     if loaded then
       app.yard.design = loaded
-      app.yard.status = "loaded yard_destroyer"
+      app.yard.status = "loaded basic_destroyer"
     else
-      app.yard.status = "could not load yard_destroyer design"
+      app.yard.status = "could not load basic_destroyer design"
     end
     return true
   end

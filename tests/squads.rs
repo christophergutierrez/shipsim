@@ -16,7 +16,7 @@ fn squad_game() -> shipsim_core::game_state::GameState {
         ships: vec![
             ShipPlacementDef {
                 id: 1,
-                class: "yard_destroyer".into(),
+                class: "basic_destroyer".into(),
                 q: 2,
                 r: 2,
                 facing: 0,
@@ -29,7 +29,7 @@ fn squad_game() -> shipsim_core::game_state::GameState {
             },
             ShipPlacementDef {
                 id: 2,
-                class: "yard_destroyer".into(),
+                class: "basic_destroyer".into(),
                 q: 2,
                 r: 2,
                 facing: 0,

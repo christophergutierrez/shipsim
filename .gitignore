@@ -11,6 +11,8 @@
 
 # Local scratch / caches (not part of the project)
 /tmp
+data/designs/user_*.toml
+data/ships/user_*.toml
 .fastembed_cache/
 __pycache__/
 *.py[cod]

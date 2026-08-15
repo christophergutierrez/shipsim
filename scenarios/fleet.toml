@@ -11,7 +11,7 @@ target = 4
 
 [[ships]]
 id = 1
-class = "yard_heavy_cruiser"
+class = "basic_heavy_cruiser"
 q = 1
 r = 4
 facing = 0
@@ -19,7 +19,7 @@ controller = "player"
 
 [[ships]]
 id = 2
-class = "yard_destroyer"
+class = "basic_destroyer"
 q = 1
 r = 2
 facing = 0
@@ -27,7 +27,7 @@ controller = "player"
 
 [[ships]]
 id = 3
-class = "yard_destroyer"
+class = "basic_destroyer"
 q = 1
 r = 6
 facing = 0
@@ -35,7 +35,7 @@ controller = "player"
 
 [[ships]]
 id = 4
-class = "yard_heavy_cruiser"
+class = "basic_heavy_cruiser"
 q = 14
 r = 4
 facing = 3
@@ -43,7 +43,7 @@ controller = "ai"
 
 [[ships]]
 id = 5
-class = "yard_destroyer"
+class = "basic_destroyer"
 q = 14
 r = 2
 facing = 3
@@ -51,7 +51,7 @@ controller = "ai"
 
 [[ships]]
 id = 6
-class = "yard_destroyer"
+class = "basic_destroyer"
 q = 14
 r = 6
 facing = 3

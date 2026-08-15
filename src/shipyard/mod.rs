@@ -26,6 +26,8 @@ pub use compile::{check, check_all, compile, generated_path, render};
 pub struct Design {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_design_group")]
+    pub group: String,
     pub size: u32,
     pub material: String,
     #[serde(default)]
@@ -42,6 +44,10 @@ pub struct Design {
     pub weapons: Vec<DesignWeapon>,
     #[serde(default)]
     pub systems: Vec<DesignSystem>,
+}
+
+fn default_design_group() -> String {
+    "user".into()
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -76,13 +82,40 @@ pub const QUALITY_FIXTURE_IDS: &[&str] = &[
 /// Player-facing stock classes. These remain visible in the yard, but are
 /// reference material rather than editable user designs.
 pub const STANDARD_CLASS_IDS: &[&str] = &[
-    "yard_swarm",
-    "yard_destroyer",
-    "yard_light_cruiser",
-    "yard_heavy_cruiser",
-    "yard_battleship",
-    "yard_dreadnought",
-    "yard_capital",
+    "basic_swarm",
+    "basic_destroyer",
+    "basic_light_cruiser",
+    "basic_heavy_cruiser",
+    "basic_battleship",
+    "basic_dreadnought",
+    "basic_capital",
+    "range_swarm",
+    "range_destroyer",
+    "range_light_cruiser",
+    "range_heavy_cruiser",
+    "range_battleship",
+    "range_dreadnought",
+    "range_capital",
+    "brute_swarm",
+    "brute_destroyer",
+    "brute_light_cruiser",
+    "brute_heavy_cruiser",
+    "brute_battleship",
+    "brute_dreadnought",
+    "brute_capital",
+];
+
+pub const BASIC_CLASS_IDS: &[&str] = &[
+    "basic_swarm", "basic_destroyer", "basic_light_cruiser", "basic_heavy_cruiser",
+    "basic_battleship", "basic_dreadnought", "basic_capital",
+];
+pub const RANGE_CLASS_IDS: &[&str] = &[
+    "range_swarm", "range_destroyer", "range_light_cruiser", "range_heavy_cruiser",
+    "range_battleship", "range_dreadnought", "range_capital",
+];
+pub const BRUTE_CLASS_IDS: &[&str] = &[
+    "brute_swarm", "brute_destroyer", "brute_light_cruiser", "brute_heavy_cruiser",
+    "brute_battleship", "brute_dreadnought", "brute_capital",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -547,6 +580,7 @@ mount = "forward"
                 Design {
                     id: "../x".into(),
                     name: "x".into(),
+                    group: "user".into(),
                     size: 2,
                     material: "titanium".into(),
                     engine: "fission".into(),

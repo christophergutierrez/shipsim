@@ -29,7 +29,7 @@ fn yard_catalog_roles_and_costs_are_locked() {
     }
 
     let baseline = load_ship_def(root(), "yard_baseline").unwrap();
-    let destroyer = load_ship_def(root(), "yard_destroyer").unwrap();
+    let destroyer = load_ship_def(root(), "basic_destroyer").unwrap();
     assert_eq!(baseline.weapons.len(), 1);
     assert_eq!(destroyer.weapons.len(), 2);
     assert_eq!(
@@ -41,7 +41,7 @@ fn yard_catalog_roles_and_costs_are_locked() {
         1
     );
 
-    let capital = load_ship_def(root(), "yard_capital").unwrap();
+    let capital = load_ship_def(root(), "basic_capital").unwrap();
     let counts = capital
         .weapons
         .iter()

@@ -69,7 +69,7 @@ pub struct EngagementSpec {
 pub struct PowerSweepSpec {
     /// Prefix for generated engagement names (`{name}_p{value}`).
     pub name: String,
-    /// Ship class file id whose `power` is varied (e.g. `yard_capital`).
+    /// Ship class file id whose `power` is varied (e.g. `basic_capital`).
     pub class: String,
     /// `player` or `opponent` fleet side containing `class`.
     pub side: String,
@@ -546,8 +546,8 @@ mod tests {
     }
 
     #[test]
-    fn yard_destroyer_cost_near_100() {
-        let cost = fleet_cost(&root(), &[FleetLine::new("yard_destroyer", 1)]).expect("cost");
+    fn basic_destroyer_cost_near_100() {
+        let cost = fleet_cost(&root(), &[FleetLine::new("basic_destroyer", 1)]).expect("cost");
         // Frame/module model targets ~100 (docs/BALANCE-COST.md).
         assert!((95..=105).contains(&cost), "got {cost}");
     }
@@ -556,12 +556,12 @@ mod tests {
     fn capital_cost_is_a_large_yard_multiple() {
         // The standard capital is intentionally a large multiple of the
         // destroyer in the yard-cost budget model.
-        let dd = fleet_cost(&root(), &[FleetLine::new("yard_destroyer", 1)]).expect("dd");
-        let titan = fleet_cost(&root(), &[FleetLine::new("yard_capital", 1)]).expect("titan");
+        let dd = fleet_cost(&root(), &[FleetLine::new("basic_destroyer", 1)]).expect("dd");
+        let titan = fleet_cost(&root(), &[FleetLine::new("basic_capital", 1)]).expect("titan");
         let ratio = titan as f64 / dd as f64;
         assert!(
             (30.0..=40.0).contains(&ratio),
-            "yard_capital/DD = {ratio:.2} (titan={titan} dd={dd})"
+            "basic_capital/DD = {ratio:.2} (titan={titan} dd={dd})"
         );
     }
 
@@ -569,11 +569,11 @@ mod tests {
     fn power_sweep_expands_named_engagements() {
         let sweep = PowerSweepSpec {
             name: "titan_power".into(),
-            class: "yard_capital".into(),
+            class: "basic_capital".into(),
             side: "opponent".into(),
             values: vec![90, 120],
-            player: vec![FleetLine::new("yard_destroyer", 8)],
-            opponent: vec![FleetLine::new("yard_capital", 1)],
+            player: vec![FleetLine::new("basic_destroyer", 8)],
+            opponent: vec![FleetLine::new("basic_capital", 1)],
         };
         let eng = sweep.expand().expect("expand");
         assert_eq!(eng.len(), 2);
@@ -586,8 +586,8 @@ mod tests {
     fn build_scenario_places_fleets_and_annihilation() {
         let eng = EngagementSpec {
             name: "test".into(),
-            player: vec![FleetLine::new("yard_destroyer", 2)],
-            opponent: vec![FleetLine::new("yard_heavy_cruiser", 1)],
+            player: vec![FleetLine::new("basic_destroyer", 2)],
+            opponent: vec![FleetLine::new("basic_heavy_cruiser", 1)],
         };
         let def = build_engagement_scenario(&eng, &FleetMapSpec::default(), 1).expect("def");
         assert_eq!(def.ships.len(), 3);
@@ -602,11 +602,11 @@ mod tests {
     #[test]
     fn budget_policies_are_deterministic_and_within_budget() {
         let roster = vec![
-            "yard_swarm".into(),
-            "yard_destroyer".into(),
-            "yard_light_cruiser".into(),
-            "yard_heavy_cruiser".into(),
-            "yard_capital".into(),
+            "basic_swarm".into(),
+            "basic_destroyer".into(),
+            "basic_light_cruiser".into(),
+            "basic_heavy_cruiser".into(),
+            "basic_capital".into(),
         ];
         for policy in [
             BudgetPolicy::Largest,
@@ -618,10 +618,10 @@ mod tests {
             if policy == BudgetPolicy::Swarm {
                 assert!(fleet
                     .iter()
-                    .all(|line| line.class == "yard_swarm" || line.class == "yard_destroyer"));
+                    .all(|line| line.class == "basic_swarm" || line.class == "basic_destroyer"));
             }
             if policy == BudgetPolicy::Balance {
-                assert!(fleet.iter().all(|line| line.class != "yard_capital"));
+                assert!(fleet.iter().all(|line| line.class != "basic_capital"));
             }
             assert_eq!(
                 fleet,

@@ -2852,11 +2852,17 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(8), Constraint::Length(4)])
         .split(area);
-    let mut items: Vec<ListItem> = yard
-        .listings
-        .iter()
-        .enumerate()
-        .map(|(i, item)| {
+    let mut items: Vec<ListItem> = Vec::new();
+    let mut last_group = None;
+    for (i, item) in yard.listings.iter().enumerate() {
+        if last_group != Some(item.design.group.as_str()) {
+            items.push(ListItem::new(format!(
+                "── {} ──",
+                item.design.group.to_ascii_uppercase()
+            )));
+            last_group = Some(item.design.group.as_str());
+        }
+        items.push({
             let cost = item
                 .preview
                 .as_ref()
@@ -2874,8 +2880,8 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
                 item.design.name, hull
                 , item.design.weapons.len(), item.preview.as_ref().map(|p| p.space_used).unwrap_or(0), item.preview.as_ref().map(|p| p.space_cap).unwrap_or(0)
             ))
-        })
-        .collect();
+        });
+    }
     let new_mark = if yard.is_new_row() { "▶" } else { " " };
     items.push(ListItem::new(format!(
         "{new_mark} + new ship                                  create a hull"
@@ -2884,13 +2890,13 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
         Block::default()
             .borders(Borders::ALL)
             .title(format!(
-                " Shipyard — standards by size · user sort: {} (o) ",
-                yard.sort_mode.label()
+                " Shipyard — filter: {} (g) · sort: {} (o) ",
+                yard.group_filter.label(), yard.sort_mode.label()
             )),
     );
     f.render_widget(list, chunks[0]);
     let help = Paragraph::new(format!(
-        "↑↓ select  Enter edit  n new  y clone  d delete  o sort  q quit\n{}",
+        "↑↓ select  Enter edit  n new  y clone  d delete  g filter  o sort  q quit\n{}",
         yard.status
     ))
     .wrap(Wrap { trim: true })

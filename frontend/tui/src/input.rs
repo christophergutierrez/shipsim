@@ -188,6 +188,7 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyCode::Up | KeyCode::Char('k') => { yard.cancel_pending(); yard.move_browse(-1); },
             KeyCode::Down | KeyCode::Char('j') => { yard.cancel_pending(); yard.move_browse(1); },
             KeyCode::Char('o') => { yard.cancel_pending(); yard.cycle_sort(); },
+            KeyCode::Char('g') => { yard.cancel_pending(); yard.cycle_group_filter(); },
             KeyCode::Enter | KeyCode::Char(' ') => yard.open_selected(),
             KeyCode::Char('n') => yard.start_new(),
             KeyCode::Char('y') => yard.clone_selected(),

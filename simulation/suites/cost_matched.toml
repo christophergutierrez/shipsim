@@ -28,34 +28,34 @@ opponent = "aggressive"
 player = "aggressive"
 opponent = "defensive"
 
-# 16×216 = 3456 vs yard_capital = 3470
+# 16×216 = 3456 vs basic_capital = 3470
 [[engagements]]
 name = "swarm_vs_titan"
-player = [{ class = "yard_light_cruiser", count = 16 }]
-opponent = [{ class = "yard_capital", count = 1 }]
+player = [{ class = "basic_light_cruiser", count = 16 }]
+opponent = [{ class = "basic_capital", count = 1 }]
 
 # 3×309 = 927 vs 9×98 = 882
 [[engagements]]
 name = "heavies_vs_swarm"
-player = [{ class = "yard_heavy_cruiser", count = 3 }]
-opponent = [{ class = "yard_destroyer", count = 9 }]
+player = [{ class = "basic_heavy_cruiser", count = 3 }]
+opponent = [{ class = "basic_destroyer", count = 9 }]
 
 # 2×546 = 1092 vs 11×98 = 1078
 [[engagements]]
 name = "battleships_vs_swarm"
-player = [{ class = "yard_battleship", count = 2 }]
-opponent = [{ class = "yard_destroyer", count = 11 }]
+player = [{ class = "basic_battleship", count = 2 }]
+opponent = [{ class = "basic_destroyer", count = 11 }]
 
 # 1322+2×98 = 1518 vs 5×309 = 1545
 [[engagements]]
 name = "dreadnought_screen_vs_heavies"
 player = [
-  { class = "yard_dreadnought", count = 1 },
-  { class = "yard_destroyer", count = 2 },
+  { class = "basic_dreadnought", count = 1 },
+  { class = "basic_destroyer", count = 2 },
 ]
-opponent = [{ class = "yard_heavy_cruiser", count = 5 }]
+opponent = [{ class = "basic_heavy_cruiser", count = 5 }]
 
 [[engagements]]
 name = "destroyer_mirror"
-player = [{ class = "yard_destroyer", count = 4 }]
-opponent = [{ class = "yard_destroyer", count = 4 }]
+player = [{ class = "basic_destroyer", count = 4 }]
+opponent = [{ class = "basic_destroyer", count = 4 }]

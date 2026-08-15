@@ -1,4 +1,5 @@
-id = "yard_destroyer"
+id = "basic_destroyer"
+group = "basic"
 name = "Yard Destroyer"
 size = 2
 material = "titanium"

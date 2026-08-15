@@ -21,70 +21,70 @@ opponent = "aggressive"
 
 [[engagements]]
 name = "swarm_mirror"
-player = [{ class = "yard_swarm", count = 1 }]
-opponent = [{ class = "yard_swarm", count = 1 }]
+player = [{ class = "basic_swarm", count = 1 }]
+opponent = [{ class = "basic_swarm", count = 1 }]
 
 [[engagements]]
 name = "destroyer_mirror"
-player = [{ class = "yard_destroyer", count = 1 }]
-opponent = [{ class = "yard_destroyer", count = 1 }]
+player = [{ class = "basic_destroyer", count = 1 }]
+opponent = [{ class = "basic_destroyer", count = 1 }]
 
 [[engagements]]
 name = "light_cruiser_mirror"
-player = [{ class = "yard_light_cruiser", count = 1 }]
-opponent = [{ class = "yard_light_cruiser", count = 1 }]
+player = [{ class = "basic_light_cruiser", count = 1 }]
+opponent = [{ class = "basic_light_cruiser", count = 1 }]
 
 [[engagements]]
 name = "heavy_cruiser_mirror"
-player = [{ class = "yard_heavy_cruiser", count = 1 }]
-opponent = [{ class = "yard_heavy_cruiser", count = 1 }]
+player = [{ class = "basic_heavy_cruiser", count = 1 }]
+opponent = [{ class = "basic_heavy_cruiser", count = 1 }]
 
 [[engagements]]
 name = "battleship_mirror"
-player = [{ class = "yard_battleship", count = 1 }]
-opponent = [{ class = "yard_battleship", count = 1 }]
+player = [{ class = "basic_battleship", count = 1 }]
+opponent = [{ class = "basic_battleship", count = 1 }]
 
 [[engagements]]
 name = "dreadnought_mirror"
-player = [{ class = "yard_dreadnought", count = 1 }]
-opponent = [{ class = "yard_dreadnought", count = 1 }]
+player = [{ class = "basic_dreadnought", count = 1 }]
+opponent = [{ class = "basic_dreadnought", count = 1 }]
 
 [[engagements]]
 name = "capital_mirror"
-player = [{ class = "yard_capital", count = 1 }]
-opponent = [{ class = "yard_capital", count = 1 }]
+player = [{ class = "basic_capital", count = 1 }]
+opponent = [{ class = "basic_capital", count = 1 }]
 
 [[engagements]]
 name = "swarm_vs_destroyer"
-player = [{ class = "yard_swarm", count = 4 }]
-opponent = [{ class = "yard_destroyer", count = 3 }]
+player = [{ class = "basic_swarm", count = 4 }]
+opponent = [{ class = "basic_destroyer", count = 3 }]
 
 [[engagements]]
 name = "destroyer_vs_light_cruiser"
-player = [{ class = "yard_destroyer", count = 11 }]
-opponent = [{ class = "yard_light_cruiser", count = 5 }]
+player = [{ class = "basic_destroyer", count = 11 }]
+opponent = [{ class = "basic_light_cruiser", count = 5 }]
 
 [[engagements]]
 name = "light_vs_heavy_cruiser"
-player = [{ class = "yard_light_cruiser", count = 7 }]
-opponent = [{ class = "yard_heavy_cruiser", count = 5 }]
+player = [{ class = "basic_light_cruiser", count = 7 }]
+opponent = [{ class = "basic_heavy_cruiser", count = 5 }]
 
 [[engagements]]
 name = "heavy_cruiser_vs_battleship"
-player = [{ class = "yard_heavy_cruiser", count = 7 }]
-opponent = [{ class = "yard_battleship", count = 4 }]
+player = [{ class = "basic_heavy_cruiser", count = 7 }]
+opponent = [{ class = "basic_battleship", count = 4 }]
 
 [[engagements]]
 name = "battleship_vs_dreadnought"
-player = [{ class = "yard_battleship", count = 12 }]
-opponent = [{ class = "yard_dreadnought", count = 5 }]
+player = [{ class = "basic_battleship", count = 12 }]
+opponent = [{ class = "basic_dreadnought", count = 5 }]
 
 [[engagements]]
 name = "swarm_vs_capital"
-player = [{ class = "yard_swarm", count = 47 }]
-opponent = [{ class = "yard_capital", count = 1 }]
+player = [{ class = "basic_swarm", count = 47 }]
+opponent = [{ class = "basic_capital", count = 1 }]
 
 [[engagements]]
 name = "capital_vs_swarm"
-player = [{ class = "yard_capital", count = 1 }]
-opponent = [{ class = "yard_swarm", count = 47 }]
+player = [{ class = "basic_capital", count = 1 }]
+opponent = [{ class = "basic_swarm", count = 47 }]

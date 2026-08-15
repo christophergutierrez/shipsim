@@ -15,7 +15,7 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Heavy cruiser (player) vs yard_swarm (ai) at close range (8 hexes, within beam
+/// Heavy cruiser (player) vs basic_swarm (ai) at close range (8 hexes, within beam
 /// max_range 10) — several tests in this file depend on that exact geometry
 /// for legal-shot assertions, so this is built inline rather than loaded from
 /// a scenarios/*.toml file whose positions could change independently.
@@ -32,7 +32,7 @@ target = 2
 
 [[ships]]
 id = 1
-class = "yard_heavy_cruiser"
+class = "basic_heavy_cruiser"
 q = 0
 r = 4
 facing = 0
@@ -40,7 +40,7 @@ controller = "player"
 
 [[ships]]
 id = 2
-class = "yard_swarm"
+class = "basic_swarm"
 q = 8
 r = 4
 facing = 3
@@ -87,7 +87,7 @@ fn allocate_both(game: &mut shipsim_core::game_state::GameState) {
                 squad_leader: None,
             },
         )
-        .expect("yard_swarm allocate");
+        .expect("basic_swarm allocate");
     }
 }
 
@@ -768,7 +768,7 @@ fn floating_map_preserves_unique_world_endpoints_beyond_nominal_bounds() {
 
     let placement = |id, q, facing| ShipPlacementDef {
         id,
-        class: "yard_swarm".into(),
+        class: "basic_swarm".into(),
         q,
         r: 1,
         facing,

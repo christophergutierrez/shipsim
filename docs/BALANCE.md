@@ -22,7 +22,7 @@ Current catalog-specific levers include:
 
 - range-aware target-size accuracy ceiling: floor 15, maximum 19;
 - fire control only against exact size-2 targets;
-- standard classes: `yard_swarm` through `yard_capital`;
+- standard classes: `basic_swarm` through `basic_capital`;
 - quality fixtures: `yard_baseline`, `yard_compact`, `yard_potent`, and
   `yard_precise`.
 
@@ -56,10 +56,10 @@ fair in every scenario.
 
 | Claim | Fleet definition | Intended result |
 |---|---|---|
-| A | 7 `yard_destroyer` vs 1 `yard_capital` | Minimum-fill capital is inefficient; swarm wins 60-80% |
-| B | 10 `yard_destroyer` vs 1 `yard_capital` | Maximum fill matters; either side can win, player 40-60% |
-| C | Fixed 8 `yard_destroyer` vs 1 `yard_capital` | Scenario track; heavy titan wins at least 90% |
-| Control | 4 `yard_destroyer` vs 4 `yard_destroyer` | Detect side/policy drift; player 35-65% |
+| A | 7 `basic_destroyer` vs 1 `basic_capital` | Minimum-fill capital is inefficient; swarm wins 60-80% |
+| B | 10 `basic_destroyer` vs 1 `basic_capital` | Maximum fill matters; either side can win, player 40-60% |
+| C | Fixed 8 `basic_destroyer` vs 1 `basic_capital` | Scenario track; heavy titan wins at least 90% |
+| Control | 4 `basic_destroyer` vs 4 `basic_destroyer` | Detect side/policy drift; player 35-65% |
 
 Claims A and B use deliberately chosen fixed counts and skip cost validation;
 they are diagnostic experiments, not equal-budget evidence. Exact cost-matched

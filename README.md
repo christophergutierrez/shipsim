@@ -39,12 +39,12 @@ Details: [`docs/SHIPYARD.md`](docs/SHIPYARD.md).
 cargo run --manifest-path frontend/tui/Cargo.toml -- --yard
 
 # CLI: validate, print cost, compile a design into data/ships/:
-cargo run --bin shipsim-yard -- validate data/designs/yard_destroyer.toml
-cargo run --bin shipsim-yard -- cost data/designs/yard_destroyer.toml
-cargo run --bin shipsim-yard -- compile data/designs/yard_destroyer.toml
+cargo run --bin shipsim-yard -- validate data/designs/basic_destroyer.toml
+cargo run --bin shipsim-yard -- cost data/designs/basic_destroyer.toml
+cargo run --bin shipsim-yard -- compile data/designs/basic_destroyer.toml
 ```
 
-A scenario such as `scenarios/yard_destroyer.toml` is a **duel** that uses the
+A scenario such as `scenarios/basic_destroyer.toml` is a **duel** that uses the
 compiled class — it is not the shipyard. See [`docs/SHIPYARD.md`](docs/SHIPYARD.md).
 
 ## Play the game

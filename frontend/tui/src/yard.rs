@@ -24,6 +24,52 @@ pub enum SortMode {
     Cost,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupFilter {
+    All,
+    Basic,
+    Range,
+    Brute,
+    User,
+}
+
+impl GroupFilter {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Basic => "basic",
+            Self::Range => "range",
+            Self::Brute => "brute",
+            Self::User => "user",
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::All => Self::Basic,
+            Self::Basic => Self::Range,
+            Self::Range => Self::Brute,
+            Self::Brute => Self::User,
+            Self::User => Self::All,
+        }
+    }
+
+    fn matches(self, group: &str) -> bool {
+        matches!(self, Self::All)
+            || self.label().eq_ignore_ascii_case(group)
+    }
+}
+
+fn group_rank(group: &str) -> u8 {
+    match group {
+        "basic" => 0,
+        "range" => 1,
+        "brute" => 2,
+        "user" => 3,
+        _ => 4,
+    }
+}
+
 impl SortMode {
     pub fn label(self) -> &'static str {
         match self {
@@ -199,6 +245,7 @@ pub struct YardState {
     pub pending: Option<PendingConfirm>,
     pub viewing_readonly: bool,
     pub sort_mode: SortMode,
+    pub group_filter: GroupFilter,
     pub edit_scroll: usize,
     pub catalog: Catalog,
     pub picker: Option<Picker>,
@@ -227,6 +274,7 @@ impl YardState {
             pending: None,
             viewing_readonly: false,
             sort_mode: SortMode::Recency,
+            group_filter: GroupFilter::All,
             edit_scroll: 0,
             catalog,
             picker: None,
@@ -252,6 +300,7 @@ impl YardState {
                     // untouched on disk and still visible to the CLI.
                     .filter(|(_, design)| {
                         !shipyard::QUALITY_FIXTURE_IDS.contains(&design.id.as_str())
+                            && self.group_filter.matches(&design.group)
                     })
                     .map(|(path, design)| {
                         let preview = shipyard::preview_design(&self.root, &design)
@@ -264,13 +313,16 @@ impl YardState {
                     })
                     .collect::<Vec<_>>();
                 designs.sort_by(|a, b| {
-                    let a_standard = shipyard::STANDARD_CLASS_IDS.contains(&a.design.id.as_str());
-                    let b_standard = shipyard::STANDARD_CLASS_IDS.contains(&b.design.id.as_str());
-                    match (a_standard, b_standard) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        (true, true) => a.design.size.cmp(&b.design.size).then(a.design.id.cmp(&b.design.id)),
-                        (false, false) => self.compare_user_designs(a, b),
+                    let group_order = group_rank(&a.design.group).cmp(&group_rank(&b.design.group));
+                    if group_order != std::cmp::Ordering::Equal {
+                        return group_order;
+                    }
+                    let both_standard = shipyard::STANDARD_CLASS_IDS.contains(&a.design.id.as_str())
+                        && shipyard::STANDARD_CLASS_IDS.contains(&b.design.id.as_str());
+                    if both_standard {
+                        a.design.size.cmp(&b.design.size).then(a.design.id.cmp(&b.design.id))
+                    } else {
+                        self.compare_user_designs(a, b)
                     }
                 });
                 self.listings = designs;
@@ -282,7 +334,7 @@ impl YardState {
                 if self.browse_cursor > self.listings.len() {
                     self.browse_cursor = self.listings.len();
                 }
-                self.status = format!("{} saved design(s) · sort: {} — o change · Enter edit · n new", self.listings.len(), self.sort_mode.label());
+                self.status = format!("{} saved design(s) · filter: {} (g) · sort: {} (o) — Enter edit · n new", self.listings.len(), self.group_filter.label(), self.sort_mode.label());
             }
             Err(err) => {
                 self.listings.clear();
@@ -305,6 +357,15 @@ impl YardState {
             return;
         }
         self.sort_mode = self.sort_mode.next();
+        self.refresh_listings();
+    }
+
+    pub fn cycle_group_filter(&mut self) {
+        if self.screen != YardScreen::Browse {
+            return;
+        }
+        self.group_filter = self.group_filter.next();
+        self.browse_cursor = 0;
         self.refresh_listings();
     }
 
@@ -499,19 +560,20 @@ impl YardState {
         let source = self.listings[self.browse_cursor].design.clone();
         let taken_ids: Vec<&str> = self.listings.iter().map(|item| item.design.id.as_str()).collect();
         let taken_names: Vec<&str> = self.listings.iter().map(|item| item.design.name.as_str()).collect();
-        let id = shipyard::allocate_id(taken_ids);
+        let id = format!("user_{}", shipyard::allocate_id(taken_ids));
         let hull = self.sizes.get(source.size).map(|hull| hull.name.as_str()).unwrap_or("Destroyer");
         let mut draft = source.clone();
         draft.id = id.clone();
+        draft.group = "user".into();
         draft.name = shipyard::unique_class_name(hull, taken_names);
         self.draft = draft;
-        self.saved = shipyard::new_design(id);
+        self.saved = self.draft.clone();
         self.viewing_readonly = false;
         self.pending = None;
         self.edit_cursor = EditField::Name;
         self.edit_scroll = 0;
         self.screen = YardScreen::Edit;
-        self.status = format!("cloned {}, type to rename", source.name);
+        self.status = format!("cloned {} into user design, type to rename", source.name);
     }
 
     pub fn start_new(&mut self) {
@@ -521,7 +583,7 @@ impl YardState {
             .iter()
             .map(|item| item.design.name.as_str())
             .collect();
-        let id = shipyard::allocate_id(taken_ids);
+        let id = format!("user_{}", shipyard::allocate_id(taken_ids));
         let hull = self
             .sizes
             .get(2)

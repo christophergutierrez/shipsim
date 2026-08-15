@@ -1,5 +1,5 @@
-# Power sweep: 8× yard_destroyer vs 1× yard_capital, vary titan power.
-# Baseline yard_capital power = 90. Find the band from "not enough" to "too much".
+# Power sweep: 8× basic_destroyer vs 1× basic_capital, vary titan power.
+# Baseline basic_capital power = 90. Find the band from "not enough" to "too much".
 #
 # Diagnostic (titan is opponent; player win = swarm wins):
 #   - Titan loses quickly  → shields/defense not absorbing (power may still help faces)
@@ -28,9 +28,9 @@ opponent = "greedy"
 
 [[power_sweeps]]
 name = "titan_vs_swarm"
-class = "yard_capital"
+class = "basic_capital"
 side = "opponent"
 # Baseline catalog power is 90; sweep well below and well above.
 values = [60, 90, 120, 150, 180, 210, 240, 300]
-player = [{ class = "yard_destroyer", count = 8 }]
-opponent = [{ class = "yard_capital", count = 1 }]
+player = [{ class = "basic_destroyer", count = 8 }]
+opponent = [{ class = "basic_capital", count = 1 }]

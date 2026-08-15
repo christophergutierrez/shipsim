@@ -1,4 +1,5 @@
-id = "yard_swarm"
+id = "basic_swarm"
+group = "basic"
 name = "Yard Swarm Fighter"
 size = 1
 material = "titanium"
