@@ -97,9 +97,9 @@ fn test_class_id_emitted_on_every_ship_snapshot() {
     }
 
     // Catalog keys are the expected canonical identities.
-    assert_eq!(by_class_id["basic_heavy_cruiser"].1, "Yard Heavy Cruiser");
+    assert_eq!(by_class_id["basic_heavy_cruiser"].1, "Basic heavy cruiser");
     assert_eq!(by_class_id["tutorial_heavy_cruiser"].1, "Heavy Cruiser");
-    assert_eq!(by_class_id["basic_swarm"].1, "Yard Swarm Fighter");
+    assert_eq!(by_class_id["basic_swarm"].1, "Basic swarm");
     assert_eq!(by_class_id["tutorial_escort"].1, "Escort");
 
     // Duplicate display names resolve to distinct canonical class_id values.

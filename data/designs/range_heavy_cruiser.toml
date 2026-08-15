@@ -1,48 +1,28 @@
-id = "basic_heavy_cruiser"
-group = "basic"
-name = "Basic heavy cruiser"
+id = "range_heavy_cruiser"
+group = "range"
+name = "Range heavy cruiser"
 size = 4
 material = "titanium"
 engine = "fission"
 engine_size = "h"
 armored = true
-shields = [12, 8, 6, 6, 4, 0]
+shields = [12, 6, 4, 2, 0, 0]
 
 [[weapons]]
-component = "plasma"
+component = "torpedo"
 mount = "forward"
 
 [[weapons]]
-component = "plasma"
+component = "torpedo"
 mount = "forward_starboard"
 
 [[weapons]]
-component = "plasma"
+component = "torpedo"
 mount = "forward_port"
 
 [[weapons]]
-component = "plasma"
+component = "torpedo"
 mount = "aft"
-
-[[weapons]]
-component = "plasma"
-mount = "aft_port"
-
-[[weapons]]
-component = "plasma"
-mount = "aft_starboard"
-
-[[weapons]]
-component = "plasma"
-mount = "forward"
-
-[[weapons]]
-component = "plasma"
-mount = "forward_starboard"
-
-[[weapons]]
-component = "plasma"
-mount = "forward_port"
 
 [[weapons]]
 component = "torpedo"
@@ -53,5 +33,25 @@ component = "torpedo"
 mount = "aft_starboard"
 
 [[weapons]]
-component = "torpedo"
+component = "beam"
+mount = "forward"
+
+[[weapons]]
+component = "beam"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "beam"
+mount = "forward_port"
+
+[[weapons]]
+component = "beam"
 mount = "aft"
+
+[[weapons]]
+component = "beam"
+mount = "aft_port"
+
+[[weapons]]
+component = "beam"
+mount = "aft_starboard"

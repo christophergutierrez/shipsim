@@ -2,7 +2,9 @@ name = "weapon quality controlled comparisons"
 seeds = [1, 2, 3, 4, 5]
 max_turns = 60
 max_orders = 60000
-cost_tolerance = 16
+# Shield-bank repricing raises the controlled SKU spread; retain the same
+# near-equal-count comparisons with the resulting 56-credit maximum delta.
+cost_tolerance = 60
 stalemate_scoring = "damage_diff"
 rubrics = ["simulation/rubrics/fleet-safety.toml"]
 

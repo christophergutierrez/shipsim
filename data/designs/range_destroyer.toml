@@ -1,0 +1,25 @@
+id = "range_destroyer"
+group = "range"
+name = "Range destroyer"
+size = 2
+material = "titanium"
+engine = "fission"
+engine_size = "m"
+armored = true
+shields = [3, 2, 0, 0, 0, 0]
+
+[[weapons]]
+component = "torpedo"
+mount = "forward"
+
+[[weapons]]
+component = "torpedo"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "beam"
+mount = "forward"
+
+[[weapons]]
+component = "beam"
+mount = "forward_starboard"

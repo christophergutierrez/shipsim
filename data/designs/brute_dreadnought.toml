@@ -1,0 +1,37 @@
+id = "brute_dreadnought"
+group = "brute"
+name = "Brute dreadnought"
+size = 6
+material = "titanium"
+engine = "fusion"
+engine_size = "l"
+armored = true
+shields = [24, 16, 12, 12, 12, 16]
+
+[[weapons]]
+component = "beam"
+mount = "forward"
+
+[[weapons]]
+component = "beam"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "beam"
+mount = "forward_port"
+
+[[weapons]]
+component = "beam"
+mount = "aft"
+
+[[weapons]]
+component = "torpedo"
+mount = "aft_port"
+
+[[weapons]]
+component = "torpedo"
+mount = "aft_starboard"
+
+[[weapons]]
+component = "plasma"
+mount = "forward_port"

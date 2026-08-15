@@ -255,7 +255,7 @@ ok("load")
 -- a partial allocation does NOT mutate public ship state — it is staged until
 -- every living ship commits, so shields become visible only after the stage
 -- resolves and the phase advances to movement.
-snap = select(1, harness.submit(session, orders.allocate(1, 4, { beam_1 = 1 }, { 2, 1, 0, 0, 0, 1 })))
+snap = select(1, harness.submit(session, orders.allocate(1, 4, { beam_1 = 1 }, { 2, 1, 0, 0, 0, 0 })))
 assert(snap, "allocate ship 1")
 assert_eq(snap.phase, "allocate", "staged allocation stays in allocate until all commit")
 scripted_pump.run(session, function(err) error(err.message or "scripted pump failed") end)
@@ -571,7 +571,7 @@ if os.getenv("LOVE_LIVE") then
   local lsnap = harness.load_scenario(live, "fixtures/combat.toml")
   assert(lsnap, "live load")
   -- Allocate so reach_preview (v4; movement_preview is retired) is meaningful.
-  harness.submit(live, orders.allocate(1, 4, { beam_1 = 1 }, { 2, 1, 0, 0, 0, 1 }))
+  harness.submit(live, orders.allocate(1, 4, { beam_1 = 1 }, { 2, 1, 0, 0, 0, 0 }))
   local resp, rerr = harness.request(live,
     { protocol_version = 4, request = "reach_preview", ship = 1, budget = 4 })
   assert(resp, "live reach_preview failed: " .. tostring(rerr and rerr.message))

@@ -1,6 +1,6 @@
-id = "basic_light_cruiser"
-group = "basic"
-name = "Basic light cruiser"
+id = "brute_light_cruiser"
+group = "brute"
+name = "Brute light cruiser"
 size = 3
 material = "titanium"
 engine = "fission"
@@ -33,9 +33,9 @@ component = "plasma"
 mount = "aft_starboard"
 
 [[weapons]]
-component = "torpedo"
-mount = "aft_port"
+component = "plasma"
+mount = "forward"
 
 [[weapons]]
-component = "torpedo"
-mount = "aft_starboard"
+component = "plasma"
+mount = "forward_starboard"

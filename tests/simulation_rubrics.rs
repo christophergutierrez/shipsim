@@ -145,7 +145,8 @@ fn cost_matched_suite_engagements_validate_and_load() {
         let costs = engagement_costs(root, engagement).expect(engagement.name.as_str());
         validate_engagement_costs(&costs, &engagement.name, suite.budget, suite.cost_tolerance)
             .expect(engagement.name.as_str());
-        let def = build_engagement_scenario(engagement, &FleetMapSpec::default(), 1)
+        let map = suite.map.clone().unwrap_or_default();
+        let def = build_engagement_scenario(engagement, &map, 1)
             .expect(engagement.name.as_str());
         load_scenario_def(&def, root).expect(engagement.name.as_str());
     }

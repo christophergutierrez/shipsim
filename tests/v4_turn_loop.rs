@@ -15,7 +15,7 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Heavy cruiser (player) vs basic_swarm (ai) at close range (8 hexes, within beam
+/// Baseline beam hull (player) vs baseline beam hull (ai) at close range (8 hexes, within beam
 /// max_range 10) — several tests in this file depend on that exact geometry
 /// for legal-shot assertions, so this is built inline rather than loaded from
 /// a scenarios/*.toml file whose positions could change independently.
@@ -32,7 +32,7 @@ target = 2
 
 [[ships]]
 id = 1
-class = "basic_heavy_cruiser"
+class = "yard_baseline"
 q = 0
 r = 4
 facing = 0
@@ -40,7 +40,7 @@ controller = "player"
 
 [[ships]]
 id = 2
-class = "basic_swarm"
+class = "yard_baseline"
 q = 8
 r = 4
 facing = 3
@@ -60,10 +60,8 @@ fn allocate_both(game: &mut shipsim_core::game_state::GameState) {
             movement: 4,
             weapons: BTreeMap::from([
                 ("beam_1".into(), 4),
-                ("torp_1".into(), 1),
-                ("plasma_1".into(), 1),
             ]),
-            shields: [2, 0, 0, 0, 0, 2],
+            shields: [2, 0, 0, 0, 0, 0],
             cloak: false,
             repair: 0,
             unsquad: false,
@@ -80,14 +78,14 @@ fn allocate_both(game: &mut shipsim_core::game_state::GameState) {
                 ship: 2,
                 movement: 2,
                 weapons: BTreeMap::from([("beam_1".into(), 2)]),
-                shields: [1, 0, 0, 0, 0, 1],
+                shields: [1, 0, 0, 0, 0, 0],
                 cloak: false,
                 repair: 0,
                 unsquad: false,
                 squad_leader: None,
             },
         )
-        .expect("basic_swarm allocate");
+        .expect("baseline allocate");
     }
 }
 
@@ -480,8 +478,6 @@ fn simultaneous_volley_with_legal_shot() {
             movement: 0,
             weapons: BTreeMap::from([
                 ("beam_1".into(), 4),
-                ("torp_1".into(), 1),
-                ("plasma_1".into(), 1),
             ]),
             shields: [0; 6],
             cloak: false,

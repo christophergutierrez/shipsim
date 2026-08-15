@@ -5396,7 +5396,7 @@ fn yard_lists_existing_designs_with_hull_cost() {
         "listing path {:?}",
         destroyer.path
     );
-    assert_eq!(destroyer.design.name, "Yard Destroyer");
+    assert_eq!(destroyer.design.name, "Basic destroyer");
     let preview = destroyer
         .preview
         .as_ref()
@@ -5470,16 +5470,20 @@ fn yard_weapon_picker_cancels_exactly_and_filters() {
 fn yard_standards_are_size_ordered_and_read_only() {
     let mut yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
     let standard_count = shipsim_core::shipyard::STANDARD_CLASS_IDS.len();
-    let standards: Vec<u32> = yard
+    let standards: Vec<_> = yard
         .listings
         .iter()
-        .take(standard_count)
-        .map(|item| item.design.size)
+        .filter(|item| shipsim_core::shipyard::STANDARD_CLASS_IDS.contains(&item.design.id.as_str()))
         .collect();
-    assert!(standards.windows(2).all(|pair| pair[0] <= pair[1]));
-    assert!(yard.listings.iter().take(standard_count).all(|item| {
-        shipsim_core::shipyard::STANDARD_CLASS_IDS.contains(&item.design.id.as_str())
-    }));
+    assert_eq!(standards.len(), standard_count);
+    for group in ["basic", "range", "brute"] {
+        let sizes: Vec<u32> = standards
+            .iter()
+            .filter(|item| item.design.group == group)
+            .map(|item| item.design.size)
+            .collect();
+        assert!(sizes.windows(2).all(|pair| pair[0] <= pair[1]), "{group} sizes");
+    }
     assert_eq!(yard.browse_cursor, 0);
     yard.open_selected();
     assert!(yard.viewing_readonly);
@@ -5539,6 +5543,44 @@ fn yard_sort_cycle_preserves_standard_prefix_and_mode() {
         .map(|item| item.design.id.clone())
         .collect();
     assert_eq!(after, prefix);
+}
+
+#[test]
+fn yard_group_filter_cycles_through_catalog_groups() {
+    let mut yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
+    assert_eq!(yard.group_filter, crate::yard::GroupFilter::All);
+    for (filter, prefix) in [
+        (crate::yard::GroupFilter::Basic, "basic_"),
+        (crate::yard::GroupFilter::Range, "range_"),
+        (crate::yard::GroupFilter::Brute, "brute_"),
+    ] {
+        yard.cycle_group_filter();
+        assert_eq!(yard.group_filter, filter);
+        assert!(!yard.listings.is_empty());
+        assert!(yard.listings.iter().all(|item| item.design.id.starts_with(prefix)));
+    }
+    yard.cycle_group_filter();
+    assert_eq!(yard.group_filter, crate::yard::GroupFilter::User);
+    assert!(yard.listings.iter().all(|item| item.design.group == "user"));
+}
+
+#[test]
+fn yard_clone_converts_reference_class_to_user_design() {
+    let mut yard = crate::yard::YardState::load(crate::yard::find_repo_root()).expect("load");
+    yard.clone_selected();
+    assert_eq!(yard.screen, crate::yard::YardScreen::Edit);
+    assert_eq!(yard.draft.group, "user");
+    assert!(yard.draft.id.starts_with("user_"));
+    assert!(!yard.viewing_readonly);
+}
+
+#[test]
+fn yard_browse_renders_group_sections() {
+    let mut app = yard_app();
+    let buf = render_to_string(&mut app, 100, 30);
+    for label in ["── BASIC ──", "── RANGE ──", "── BRUTE ──"] {
+        assert!(buffer_contains(&buf, label), "missing {label} in:\n{buf}");
+    }
 }
 
 #[test]
@@ -5649,13 +5691,13 @@ fn yard_moving_off_a_weapon_cancels_its_armed_delete() {
 #[test]
 fn yard_browse_renders_ships_and_new_row_not_a_map() {
     let mut app = yard_app();
-    let buf = render_to_string(&mut app, 80, 24);
+    let buf = render_to_string(&mut app, 100, 40);
     assert!(
         buffer_contains(&buf, "Shipyard"),
         "browse title missing; got:\n{buf}"
     );
     assert!(
-        buffer_contains(&buf, "Yard Destroyer"),
+        buffer_contains(&buf, "Basic destroyer"),
         "existing ship name missing; got:\n{buf}"
     );
     assert!(

@@ -1,6 +1,6 @@
-id = "basic_swarm"
-group = "basic"
-name = "Basic swarm"
+id = "range_swarm"
+group = "range"
+name = "Range swarm"
 size = 1
 material = "titanium"
 engine = "fission"
@@ -9,5 +9,5 @@ armored = true
 shields = [4, 0, 0, 0, 0, 0]
 
 [[weapons]]
-component = "plasma"
+component = "torpedo"
 mount = "forward"

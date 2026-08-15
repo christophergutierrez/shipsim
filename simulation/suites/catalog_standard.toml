@@ -7,8 +7,8 @@ stalemate_scoring = "damage_diff"
 rubrics = ["simulation/rubrics/fleet-safety.toml"]
 
 [map]
-width = 40
-height = 52
+width = 100
+height = 100
 map_mode = "hard"
 
 [[matchups]]
@@ -56,35 +56,35 @@ opponent = [{ class = "basic_capital", count = 1 }]
 
 [[engagements]]
 name = "swarm_vs_destroyer"
-player = [{ class = "basic_swarm", count = 4 }]
+player = [{ class = "basic_swarm", count = 8 }]
 opponent = [{ class = "basic_destroyer", count = 3 }]
 
 [[engagements]]
 name = "destroyer_vs_light_cruiser"
-player = [{ class = "basic_destroyer", count = 11 }]
-opponent = [{ class = "basic_light_cruiser", count = 5 }]
+player = [{ class = "basic_destroyer", count = 5 }]
+opponent = [{ class = "basic_light_cruiser", count = 2 }]
 
 [[engagements]]
 name = "light_vs_heavy_cruiser"
-player = [{ class = "basic_light_cruiser", count = 7 }]
-opponent = [{ class = "basic_heavy_cruiser", count = 5 }]
+player = [{ class = "basic_light_cruiser", count = 16 }]
+opponent = [{ class = "basic_heavy_cruiser", count = 7 }]
 
 [[engagements]]
 name = "heavy_cruiser_vs_battleship"
-player = [{ class = "basic_heavy_cruiser", count = 7 }]
-opponent = [{ class = "basic_battleship", count = 4 }]
+player = [{ class = "basic_heavy_cruiser", count = 19 }]
+opponent = [{ class = "basic_battleship", count = 11 }]
 
 [[engagements]]
 name = "battleship_vs_dreadnought"
-player = [{ class = "basic_battleship", count = 12 }]
-opponent = [{ class = "basic_dreadnought", count = 5 }]
+player = [{ class = "basic_battleship", count = 21 }]
+opponent = [{ class = "basic_dreadnought", count = 16 }]
 
 [[engagements]]
 name = "swarm_vs_capital"
-player = [{ class = "basic_swarm", count = 47 }]
+player = [{ class = "basic_swarm", count = 81 }]
 opponent = [{ class = "basic_capital", count = 1 }]
 
 [[engagements]]
 name = "capital_vs_swarm"
 player = [{ class = "basic_capital", count = 1 }]
-opponent = [{ class = "basic_swarm", count = 47 }]
+opponent = [{ class = "basic_swarm", count = 81 }]

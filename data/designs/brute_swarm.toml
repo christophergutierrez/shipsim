@@ -1,6 +1,6 @@
-id = "basic_swarm"
-group = "basic"
-name = "Basic swarm"
+id = "brute_swarm"
+group = "brute"
+name = "Brute swarm"
 size = 1
 material = "titanium"
 engine = "fission"

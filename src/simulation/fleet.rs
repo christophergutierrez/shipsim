@@ -546,10 +546,9 @@ mod tests {
     }
 
     #[test]
-    fn basic_destroyer_cost_near_100() {
+    fn basic_destroyer_cost_matches_rebalanced_catalog() {
         let cost = fleet_cost(&root(), &[FleetLine::new("basic_destroyer", 1)]).expect("cost");
-        // Frame/module model targets ~100 (docs/BALANCE-COST.md).
-        assert!((95..=105).contains(&cost), "got {cost}");
+        assert_eq!(cost, 117);
     }
 
     #[test]

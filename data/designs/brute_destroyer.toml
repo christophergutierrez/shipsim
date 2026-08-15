@@ -1,12 +1,12 @@
-id = "basic_destroyer"
-group = "basic"
-name = "Basic destroyer"
+id = "brute_destroyer"
+group = "brute"
+name = "Brute destroyer"
 size = 2
 material = "titanium"
 engine = "fission"
 engine_size = "m"
-armored = false
-shields = [4, 2, 0, 0, 0, 0]
+armored = true
+shields = [4, 1, 0, 0, 0, 0]
 
 [[weapons]]
 component = "plasma"
@@ -21,5 +21,5 @@ component = "plasma"
 mount = "forward_port"
 
 [[weapons]]
-component = "torpedo"
+component = "plasma"
 mount = "aft"

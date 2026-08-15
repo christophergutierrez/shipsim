@@ -9,7 +9,7 @@ target = 2
 
 [[ships]]
 id = 1
-class = "basic_heavy_cruiser"
+class = "range_heavy_cruiser"
 q = 1
 r = 0
 facing = 3
@@ -17,7 +17,7 @@ controller = "player"
 
 [[ships]]
 id = 2
-class = "basic_swarm"
+class = "range_swarm"
 q = 0
 r = 0
 facing = 0

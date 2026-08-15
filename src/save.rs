@@ -235,7 +235,7 @@ mod tests {
         let player_alloc = Order::Allocate {
             ship: 1,
             movement: 2,
-            weapons: BTreeMap::from([("beam_1".into(), 2)]),
+            weapons: BTreeMap::from([("plasma_1".into(), 1)]),
             shields: [1, 0, 0, 0, 0, 0],
             cloak: false,
             repair: 0,

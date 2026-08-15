@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use shipsim_core::scenario::load_ship_def;
-use shipsim_core::shipyard::STANDARD_CLASS_IDS;
+use shipsim_core::shipyard::{BASIC_CLASS_IDS, BRUTE_CLASS_IDS, RANGE_CLASS_IDS, STANDARD_CLASS_IDS};
 use shipsim_core::simulation::fleet::{
     build_engagement_scenario, engagement_costs, validate_engagement_costs,
 };
@@ -15,12 +15,16 @@ fn root() -> &'static Path {
 #[test]
 fn yard_catalog_roles_and_costs_are_locked() {
     let mut expected = BTreeMap::from([
-        ("yard_baseline", 86),
-        ("yard_compact", 96),
-        ("yard_potent", 96),
-        ("yard_precise", 92),
+        ("yard_baseline", 126),
+        ("yard_compact", 136),
+        ("yard_potent", 136),
+        ("yard_precise", 132),
     ]);
-    let standard_costs = [74, 98, 216, 309, 546, 1322, 3470];
+    let standard_costs = [
+        44, 117, 290, 665, 1146, 1506, 3578,
+        42, 121, 288, 635, 1100, 1506, 3578,
+        44, 121, 294, 671, 1154, 1506, 3578,
+    ];
     expected.extend(STANDARD_CLASS_IDS.iter().copied().zip(standard_costs));
     for (class, cost) in expected {
         let ship = load_ship_def(root(), class).expect(class);
@@ -31,7 +35,7 @@ fn yard_catalog_roles_and_costs_are_locked() {
     let baseline = load_ship_def(root(), "yard_baseline").unwrap();
     let destroyer = load_ship_def(root(), "basic_destroyer").unwrap();
     assert_eq!(baseline.weapons.len(), 1);
-    assert_eq!(destroyer.weapons.len(), 2);
+    assert_eq!(destroyer.weapons.len(), 4);
     assert_eq!(
         destroyer
             .weapons
@@ -39,6 +43,11 @@ fn yard_catalog_roles_and_costs_are_locked() {
             .filter(|weapon| weapon.kind == "torp")
             .count(),
         1
+    );
+
+    assert_eq!(
+        BASIC_CLASS_IDS.len() + RANGE_CLASS_IDS.len() + BRUTE_CLASS_IDS.len(),
+        STANDARD_CLASS_IDS.len()
     );
 
     let capital = load_ship_def(root(), "basic_capital").unwrap();

@@ -1,24 +1,68 @@
 id = "basic_battleship"
 group = "basic"
-name = "Yard Battleship"
+name = "Basic battleship"
 size = 5
 material = "titanium"
-engine = "fission"
-engine_size = "l"
+engine = "fusion"
+engine_size = "h"
 armored = true
-shields = [16, 12, 8, 8, 8, 12]
+shields = [18, 12, 8, 6, 4, 2]
 
 [[weapons]]
-component = "beam"
+component = "plasma"
 mount = "forward"
 
 [[weapons]]
-component = "beam"
+component = "plasma"
 mount = "forward_starboard"
 
 [[weapons]]
-component = "beam"
+component = "plasma"
 mount = "forward_port"
+
+[[weapons]]
+component = "plasma"
+mount = "aft"
+
+[[weapons]]
+component = "plasma"
+mount = "aft_port"
+
+[[weapons]]
+component = "plasma"
+mount = "aft_starboard"
+
+[[weapons]]
+component = "plasma"
+mount = "forward"
+
+[[weapons]]
+component = "plasma"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "plasma"
+mount = "forward_port"
+
+[[weapons]]
+component = "plasma"
+mount = "aft"
+
+[[weapons]]
+component = "plasma"
+mount = "aft_port"
+
+[[weapons]]
+component = "plasma"
+mount = "aft_starboard"
+
+[[weapons]]
+component = "torpedo"
+mount = "aft_port"
+
+[[weapons]]
+component = "torpedo"
+mount = "aft_starboard"
 
 [[weapons]]
 component = "torpedo"
@@ -26,4 +70,4 @@ mount = "aft"
 
 [[weapons]]
 component = "torpedo"
-mount = "aft_port"
+mount = "forward"

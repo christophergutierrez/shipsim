@@ -1,12 +1,12 @@
-id = "basic_heavy_cruiser"
-group = "basic"
-name = "Basic heavy cruiser"
-size = 4
+id = "brute_battleship"
+group = "brute"
+name = "Brute battleship"
+size = 5
 material = "titanium"
-engine = "fission"
+engine = "fusion"
 engine_size = "h"
 armored = true
-shields = [12, 8, 6, 6, 4, 0]
+shields = [18, 12, 8, 6, 4, 2]
 
 [[weapons]]
 component = "plasma"
@@ -45,13 +45,29 @@ component = "plasma"
 mount = "forward_port"
 
 [[weapons]]
-component = "torpedo"
+component = "plasma"
+mount = "aft"
+
+[[weapons]]
+component = "plasma"
 mount = "aft_port"
 
 [[weapons]]
-component = "torpedo"
+component = "plasma"
 mount = "aft_starboard"
 
 [[weapons]]
-component = "torpedo"
+component = "plasma"
+mount = "forward"
+
+[[weapons]]
+component = "plasma"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "plasma"
+mount = "forward_port"
+
+[[weapons]]
+component = "plasma"
 mount = "aft"

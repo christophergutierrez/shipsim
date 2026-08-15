@@ -4,7 +4,7 @@ seed = 42
 
 [[ships]]
 id = 1
-class = "basic_swarm"
+class = "yard_baseline"
 q = 0
 r = 4
 facing = 0
@@ -12,7 +12,7 @@ controller = "player"
 
 [[ships]]
 id = 2
-class = "basic_swarm"
+class = "yard_baseline"
 q = 2
 r = 4
 facing = 3

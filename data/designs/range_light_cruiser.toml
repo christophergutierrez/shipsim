@@ -1,0 +1,41 @@
+id = "range_light_cruiser"
+group = "range"
+name = "Range light cruiser"
+size = 3
+material = "titanium"
+engine = "fission"
+engine_size = "l"
+armored = true
+shields = [6, 4, 2, 0, 0, 0]
+
+[[weapons]]
+component = "torpedo"
+mount = "forward"
+
+[[weapons]]
+component = "torpedo"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "torpedo"
+mount = "forward_port"
+
+[[weapons]]
+component = "torpedo"
+mount = "aft"
+
+[[weapons]]
+component = "beam"
+mount = "forward"
+
+[[weapons]]
+component = "beam"
+mount = "forward_starboard"
+
+[[weapons]]
+component = "beam"
+mount = "forward_port"
+
+[[weapons]]
+component = "beam"
+mount = "aft"
