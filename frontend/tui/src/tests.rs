@@ -3596,6 +3596,57 @@ fn fire_preview_shows_authoritative_odds_damage_and_face_legality() {
     );
 }
 
+#[test]
+fn tui_m10_fire_footer_names_weapon_and_face_controls_at_floor() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "↑/↓ gun"), "missing weapon navigation: {buf}");
+    assert!(buffer_contains(&buf, "face"), "missing face navigation: {buf}");
+}
+
+#[test]
+fn tui_m11_down_changes_selected_weapon() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    let before = app.fire_draft.as_ref().unwrap().weapon_idx;
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Down));
+    assert_ne!(app.fire_draft.as_ref().unwrap().weapon_idx, before);
+}
+
+#[test]
+fn tui_m12_unique_legal_face_is_selected() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![3]));
+    assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 3);
+    assert!(!buffer_contains(&render_to_string(&mut app, 80, 24), "INVALID"));
+}
+
+#[test]
+fn tui_m13_multiple_legal_faces_select_an_approved_face() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![2, 3]));
+    assert!([2, 3].contains(&app.fire_draft.as_ref().unwrap().shield_facing));
+}
+
+#[test]
+fn tui_m14_fire_footer_change_does_not_bypass_legality_gate() {
+    let mut app = App::new();
+    app.update_snapshot(fire_phase_snapshot());
+    app.accept_fire_preview(illegal_fire_preview(
+        1,
+        "beam_1",
+        2,
+        vec![],
+        "cannot bear on target",
+    ));
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(matches!(result, KeyResult::Continue));
+    assert!(app.fire_draft.as_ref().unwrap().shots.is_empty());
+}
+
 #[cfg(any())]
 fn movement_panel_shows_authoritative_turn_affordability() {
     let mut app = App::new();
@@ -4038,17 +4089,17 @@ fn playtest_p06_illegal_preview_enter_never_queues() {
 }
 
 #[test]
-fn playtest_p07_invalid_face_enter_names_valid_faces() {
-    // X2: the client exposes authoritative legal faces instead of guessing.
+fn playtest_p07_preview_snaps_to_valid_face() {
+    // The client uses the authoritative legal-face set before queueing.
     let mut app = App::new();
     app.update_snapshot(fire_phase_snapshot());
     app.mode = Mode::Fire;
     app.fire_draft.as_mut().unwrap().shield_facing = 0;
     app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![2, 3]));
-    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
-    assert!(app.fire_draft.as_ref().is_none_or(|draft| draft.shots.is_empty()));
-    let buf = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&buf, "use RR/R"), "valid faces must be named: {buf}");
+    assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 2);
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    assert!(matches!(result, KeyResult::Continue));
+    assert_eq!(app.fire_draft.as_ref().unwrap().shots.len(), 1);
 }
 
 #[test]
@@ -4193,7 +4244,7 @@ fn fire_preview_unique_face_preserves_already_valid() {
 }
 
 #[test]
-fn fire_preview_multi_face_does_not_auto_select() {
+fn fire_preview_multi_face_selects_an_approved_face() {
     let mut app = App::new();
     app.update_snapshot(three_weapon_fire_snapshot());
     app.mode = Mode::Fire;
@@ -4205,11 +4256,7 @@ fn fire_preview_multi_face_does_not_auto_select() {
         shots: vec![],
     });
     app.accept_fire_preview(fire_preview(1, "beam_1", 2, vec![2, 3]));
-    assert_eq!(
-        app.fire_draft.as_ref().unwrap().shield_facing,
-        0,
-        "multi-face must not override player draft"
-    );
+    assert_eq!(app.fire_draft.as_ref().unwrap().shield_facing, 2);
 }
 
 #[test]

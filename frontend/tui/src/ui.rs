@@ -1417,7 +1417,7 @@ fn fire_queue_line(app: &App) -> Option<Line<'static>> {
 
 fn fire_footer(app: &App) -> String {
     let Some(draft) = app.fire_draft.as_ref() else {
-        return "Esc help · Enter unavailable · Space pass".into();
+        return "Esc help · ↑/↓ gun · ←/→ face · Enter unavailable · Space pass".into();
     };
     let selected = app
         .focused()
@@ -1455,7 +1455,7 @@ fn fire_footer(app: &App) -> String {
     } else {
         "Space fire"
     };
-    format!("Esc help · {action} · {final_action}")
+    format!("Esc help · ↑/↓ gun · ←/→ face · {action} · {final_action}")
 }
 
 fn movement_footer(app: &App) -> String {
