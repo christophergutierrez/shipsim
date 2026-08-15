@@ -46,12 +46,12 @@ active remediation plan is
   [`docs/plans/ui-rubric-tui.md`](plans/ui-rubric-tui.md)). Remaining rubric
   notes are Minor/Polish (`Tab`/`v` header-only; yard-browse Esc unlabeled
   quit).
-- TUI **first-play** remediation is
-  [`docs/plans/tui-first-play.md`](plans/tui-first-play.md) (M0–M8). It
-  merges the Grok, Luna, and Haiku docs-blind playtests. Do not implement
-  the falsified Haiku claims (F-A–F-D). The older
-  [`docs/plans/tui-naive-playtest.md`](plans/tui-naive-playtest.md) is
-  evidence only.
+- TUI **first-play** remediation is closed for the executed Haiku findings in
+  [`docs/plans/tui-haiku-findings.md`](plans/tui-haiku-findings.md) (M0–M5).
+  The older [`docs/plans/tui-first-play.md`](plans/tui-first-play.md) and
+  [`docs/plans/tui-naive-playtest.md`](plans/tui-naive-playtest.md) remain
+  evidence/planning context; do not implement the falsified Haiku claims
+  (F-A–F-D).
 - Follow with separate REPL/Love rubric reviews. REPL repair still uses a
   stale 1/2 size split and must consume snapshot `repair_cap`; neither TUI
   plan claims those clients are fixed.

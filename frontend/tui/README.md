@@ -12,8 +12,9 @@ Turn loop and wire format: `docs/PROTOCOL.md`, ADR-0025. Play types:
 This directory is the **entire** TUI client tree (isolation: `frontend/README.md`).
 Dropping it must not affect the engine, `frontend/repl/`, or `frontend/love/`.
 
-First-play invariants are the `playtest_pNN_` tests in `src/tests.rs`; they are
-distinct from the existing rubric `T#` tests.
+First-play invariants are the `playtest_pNN_` tests in `src/tests.rs`; the Haiku
+remediation invariants are `playtest_hNN_`. Both are distinct from the existing
+rubric `T#` tests.
 
 ```
 frontend/tui/
