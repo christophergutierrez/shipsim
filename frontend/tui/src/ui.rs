@@ -1201,16 +1201,16 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
 
     // Keep a compact, mode-specific exit row fixed at the bottom of every
     // combat form. Detailed controls remain in the scrollable panel body.
-    let combat_footer = match app.mode {
-        Mode::Allocate if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
-        Mode::Movement if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
+    let combat_footer = app.disabled_pass_notice.clone().or_else(|| match app.mode {
+        Mode::Allocate if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
+        Mode::Movement if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
         Mode::Allocate => Some("Esc help · Enter commit power → Movement · ↑/↓ field · PgDn shields".to_string()),
         Mode::Movement => Some(movement_footer(app)),
-        Mode::Fire if is_disabled_ship(app) => Some("Space pass disabled ship".to_string()),
+        Mode::Fire if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled ship".to_string()),
         Mode::Fire => Some(fire_footer(app)),
-        Mode::GameOver => Some("Enter dismiss · q quit".to_string()),
+        Mode::GameOver => Some("Enter quit · q quit".to_string()),
         _ => None,
-    };
+    });
     if let Some(footer) = combat_footer {
         if body_area.height > 1 {
             let footer_y = body_area.y + body_area.height - 1;

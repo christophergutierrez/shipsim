@@ -351,6 +351,10 @@ pub struct App {
     pub engine_dead: bool,
     /// Player requested automatic empty orders for this disabled ship.
     pub disabled_autopass: Option<i64>,
+    /// Turn in which the player requested the disabled-ship pass.
+    pub disabled_autopass_turn: Option<u32>,
+    /// Receipt shown after a bounded disabled-ship pass completes.
+    pub disabled_pass_notice: Option<String>,
     /// Message log lines (for the log panel).
     pub log: Vec<String>,
     /// Active tutorial controller (None in free play).
@@ -397,6 +401,8 @@ impl App {
             fire_previews: std::collections::BTreeMap::new(),
             engine_dead: false,
             disabled_autopass: None,
+            disabled_autopass_turn: None,
+            disabled_pass_notice: None,
             log: Vec::new(),
             tutorial: None,
             tutorial_order_pending: false,
@@ -417,6 +423,18 @@ impl App {
 
     /// Called when a new snapshot arrives from the engine.
     pub fn update_snapshot(&mut self, snap: Snapshot) {
+        if self
+            .disabled_autopass_turn
+            .is_some_and(|start_turn| start_turn != snap.turn)
+        {
+            if let Some(start_turn) = self.disabled_autopass_turn {
+                self.disabled_pass_notice = Some(format!(
+                    "Disabled turn {start_turn} passed. Space passes turn {}.",
+                    snap.turn
+                ));
+            }
+            self.clear_disabled_autopass();
+        }
         self.digit_entry = None;
         self.fire_previews.clear();
         // A fresh accepted snapshot resolves any previous soft rejection.
@@ -453,7 +471,7 @@ impl App {
         // Update mode based on phase.
         if snap.is_over() {
             self.mode = Mode::GameOver;
-            self.disabled_autopass = None;
+            self.clear_disabled_autopass();
             self.path_preview = None;
             self.pending_path_preview = None;
             self.fire_preview = None;
@@ -537,7 +555,7 @@ impl App {
                     .and_then(|current| current.ship(id))
                     .is_some_and(|ship| ship.power_available == 0);
             if !keep {
-                self.disabled_autopass = None;
+                self.clear_disabled_autopass();
             }
         }
 
@@ -966,7 +984,7 @@ impl App {
             return;
         }
 
-        self.disabled_autopass = None;
+        self.clear_disabled_autopass();
 
         if let Some(previous) = self.focused_ship {
             if let Some(draft) = self.alloc_draft.take() {
@@ -994,6 +1012,11 @@ impl App {
             Mode::Normal | Mode::GameOver | Mode::Map => {}
         }
         self.request_active_decision_preview();
+    }
+
+    pub fn clear_disabled_autopass(&mut self) {
+        self.disabled_autopass = None;
+        self.disabled_autopass_turn = None;
     }
 
     /// Open (or resume) the path editor for the focused ship.

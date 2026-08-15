@@ -255,15 +255,27 @@ fn pump_disabled_autopass(app: &mut App, harness: &mut Harness) {
         let Some(ship_id) = app.disabled_autopass else {
             return;
         };
-        let Some(snap) = app.snap.as_ref() else {
-            app.disabled_autopass = None;
+        let Some(start_turn) = app.disabled_autopass_turn else {
+            app.clear_disabled_autopass();
             return;
         };
+        let Some(snap) = app.snap.as_ref() else {
+            app.clear_disabled_autopass();
+            return;
+        };
+        if snap.turn != start_turn {
+            app.disabled_pass_notice = Some(format!(
+                "Disabled turn {start_turn} passed. Space passes turn {}.",
+                snap.turn
+            ));
+            app.clear_disabled_autopass();
+            return;
+        }
         if app.focused_ship != Some(ship_id)
             || !crate::ui::is_disabled_ship(app)
             || snap.is_over()
         {
-            app.disabled_autopass = None;
+            app.clear_disabled_autopass();
             return;
         }
         let already_committed = match snap.phase.as_str() {
@@ -271,7 +283,7 @@ fn pump_disabled_autopass(app: &mut App, harness: &mut Harness) {
             "movement" => snap.ships_committed_path.contains(&ship_id),
             "firing" => snap.ships_committed_volley.contains(&ship_id),
             _ => {
-                app.disabled_autopass = None;
+                app.clear_disabled_autopass();
                 return;
             }
         };
@@ -295,19 +307,19 @@ fn pump_disabled_autopass(app: &mut App, harness: &mut Harness) {
         };
         if harness.send(&order.to_json()).is_err() {
             app.engine_dead = true;
-            app.disabled_autopass = None;
+            app.clear_disabled_autopass();
             return;
         }
         match harness.read_line() {
             Some(line) => apply_engine_line(app, line),
             None => {
                 app.engine_dead = true;
-                app.disabled_autopass = None;
+                app.clear_disabled_autopass();
                 return;
             }
         }
         if app.last_error.is_some() {
-            app.disabled_autopass = None;
+            app.clear_disabled_autopass();
             return;
         }
     }

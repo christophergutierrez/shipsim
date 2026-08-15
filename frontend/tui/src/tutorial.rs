@@ -564,7 +564,7 @@ static REAR_ATTACK_STEPS: &[TutorialStep] = &[
     TutorialStep {
         title: "Victory",
         text: "Turn-one rear-arc volley complete. Yellow bar can rest.",
-        why: "Won — Enter dismisses or q quits",
+        why: "Won — Enter or q quits",
         hint: "Enter or q",
         expected: ExpectedAction::Dismiss,
     },

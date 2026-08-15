@@ -3028,6 +3028,61 @@ fn playtest_p29_disabled_space_emits_empty_allocate() {
     let result = handle_key(&mut app, make_key(' '));
     assert!(matches!(result, KeyResult::SendOrder(_)));
     assert_eq!(app.disabled_autopass, Some(1));
+    assert_eq!(app.disabled_autopass_turn, Some(1));
+}
+
+#[test]
+fn tui_m30_disabled_pass_records_its_start_turn() {
+    let mut app = App::new();
+    app.update_snapshot(disabled_snapshot());
+    let _ = handle_key(&mut app, make_key(' '));
+    assert_eq!(app.disabled_autopass, Some(1));
+    assert_eq!(app.disabled_autopass_turn, Some(1));
+}
+
+#[test]
+fn tui_m31_disabled_pass_clears_when_engine_enters_next_turn() {
+    let mut app = App::new();
+    let snap = disabled_snapshot();
+    app.update_snapshot(snap.clone());
+    let _ = handle_key(&mut app, make_key(' '));
+    let mut next = snap;
+    next.turn += 1;
+    app.update_snapshot(next);
+    assert_eq!(app.disabled_autopass, None);
+    assert_eq!(app.disabled_autopass_turn, None);
+}
+
+#[test]
+fn tui_m32_disabled_pass_receipt_is_visible() {
+    let mut app = App::new();
+    app.update_snapshot(disabled_snapshot());
+    app.disabled_pass_notice = Some("Disabled turn 1 passed. Space passes turn 2.".into());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Disabled turn 1 passed"));
+}
+
+#[test]
+fn tui_m33_disabled_ship_footer_names_unavailable_enter_and_space() {
+    let mut app = App::new();
+    app.update_snapshot(disabled_snapshot());
+    let buf = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&buf, "Enter unavailable"));
+    assert!(buffer_contains(&buf, "Space pass disabled"));
+}
+
+#[test]
+fn tui_m34_repairable_ship_cancels_disabled_pass() {
+    let mut app = App::new();
+    let mut snap = disabled_snapshot();
+    snap.ships[0].systems = vec![crate::protocol::InstalledSystem {
+        kind: "repair".into(),
+        mk: None,
+    }];
+    snap.ships[0].repair_cap = Some(2);
+    app.update_snapshot(snap);
+    let _ = handle_key(&mut app, make_key(' '));
+    assert_eq!(app.disabled_autopass, None);
 }
 
 #[test]
@@ -3071,8 +3126,19 @@ fn playtest_p32_game_over_names_enter_and_q() {
     let mut app = App::new();
     app.update_snapshot(game_over_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&buf, "Enter dismiss"));
+    assert!(buffer_contains(&buf, "Enter quit"));
     assert!(buffer_contains(&buf, "q quit"));
+    assert!(matches!(
+        handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter)),
+        KeyResult::Quit
+    ));
+}
+
+#[test]
+fn tui_m35_game_over_q_is_not_inert() {
+    let mut app = App::new();
+    app.update_snapshot(game_over_snapshot());
+    assert!(matches!(handle_key(&mut app, make_key('q')), KeyResult::Quit));
 }
 
 #[test]
