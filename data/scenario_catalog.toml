@@ -1,0 +1,31 @@
+schema_version = 1
+
+[[scenarios]]
+id = "basic_destroyer"
+display_name = "Basic Destroyer Duel"
+path = "basic_destroyer.toml"
+network_enabled = true
+
+[[scenarios]]
+id = "battle"
+display_name = "Heavy Cruiser Duel"
+path = "battle.toml"
+network_enabled = true
+
+[[scenarios]]
+id = "fleet"
+display_name = "Fleet Battle"
+path = "fleet.toml"
+network_enabled = true
+
+[[scenarios]]
+id = "shipyard_assault"
+display_name = "Shipyard Assault"
+path = "shipyard_assault.toml"
+network_enabled = true
+
+[[scenarios]]
+id = "tutorial_rear_attack"
+display_name = "Tutorial: Rear Attack"
+path = "tutorial_rear_attack.toml"
+network_enabled = false

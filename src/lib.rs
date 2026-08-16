@@ -17,6 +17,7 @@ pub mod rules;
 pub mod save;
 pub mod scenario;
 pub mod schema;
+pub mod session_protocol;
 pub mod ship;
 pub mod shipyard;
 pub mod simulation;

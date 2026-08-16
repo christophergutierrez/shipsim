@@ -1,10 +1,14 @@
-# shipsim external API (NDJSON protocol v4)
+# shipsim external APIs (game protocol v4 and session protocol v1)
 
 This is the **public engine API**. Frontends, scripts, and agent harnesses talk
 to shipsim only through this boundary.
 
 **Protocol version is `4`.** Clients and saves must use `protocol_version: 4`.
 v1–v3 are rejected (breaking; no dual-version engine).
+
+Pre-match network lobby messages use the independent
+`session_protocol_version: 1` contract documented below. Session version 1
+does not change or wrap game protocol v4.
 
 Play types: `docs/AGENT-PLAY.md`. Architecture: `docs/ARCHITECTURE.md`.
 Mechanics ADR: `docs/adr/0025-simplified-simultaneous-turns.md`.
@@ -53,6 +57,175 @@ can therefore pause progress until it submits or disconnects.
 Snapshots use `InProgress`, `Won`, `Lost`, or `Draw` for `status`. `Draw` is a
 terminal neutral result: neither side is the winner, and both session viewers
 receive `Draw`.
+
+The command above describes the currently implemented raw two-socket host.
+Session protocol v1 below is the frozen lobby contract for the next runtime
+milestone; defining it does not yet change this launch behavior.
+
+## Session/lobby protocol v1
+
+Session v1 is NDJSON: one JSON object per line. Every lobby message carries
+`session_protocol_version: 1`. A client starts with `hello`; the server chooses
+the highest mutually supported session and game versions. Once the server has
+sent `seat_assigned` and the lobby reaches `running`, ordinary protocol-v4
+orders, preview requests, responses, and snapshots are sent unwrapped on the
+same connection.
+
+The lifecycle is:
+
+```text
+Disconnected → Connected → HelloNegotiated → LobbyUnconfigured
+  → LobbyConfigured → WaitingForSeats → Running → Finished
+```
+
+Out-of-order lobby messages are rejected without changing lobby state. The
+first successfully negotiated client in an unconfigured lobby receives Match
+host permission (`can_configure: true`). Host permission permits
+`create_match`; authorization during a Match comes only from the Side assigned
+by `seat_assigned`.
+
+### Controller and lobby values
+
+| Type | JSON value | Meaning |
+|---|---|---|
+| Human controller | `{"kind":"human"}` | A person using any compatible client |
+| Bot controller | `{"kind":"bot","policy":"greedy"}` | A server-owned, seeded policy |
+| LLM agent controller | `{"kind":"llm_agent"}` | An external model-backed API client |
+| Lobby phase | `unconfigured`, `configured`, `waiting_for_seats`, `running`, `finished` | Public lobby state |
+| Seat occupancy | `vacant`, `reserved`, `occupied`, `internal` | Whether a network participant or server Bot fills a Seat |
+| Participant status | `ready`, `thinking`, `error` | Advisory agent/client status; never a game order |
+
+`create_match.controllers.a` and `.b` specify both Seats. In session v1 the
+initial host normally configures A as Human and chooses B as Human, Bot, or LLM
+agent. The data shape remains side-symmetric.
+
+### Client messages
+
+| `type` | Required fields | Purpose |
+|---|---|---|
+| `hello` | `client_kind`, `display_name`, `supported_session_versions`, `supported_game_protocol_versions` | Negotiate before any other request |
+| `create_match` | `scenario_id`, `controllers.a`, `controllers.b` | Match-host configuration using a catalog ID |
+| `join_match` | `join_token`, `display_name` | Consume a one-time token for a reserved Seat |
+| `participant_status` | `status` | Advisory readiness/thinking/error state |
+
+`client_kind` is one of `tui`, `repl`, `love2d`, `agent`, or `test`.
+Unknown fields are rejected. In particular, `create_match` has no API-key,
+authorization, provider-URL, model, prompt, or conversation fields.
+
+### Server messages
+
+| `type` | Required fields | Purpose |
+|---|---|---|
+| `welcome` | negotiated game version, connection ID, host permission, capabilities | Completes negotiation |
+| `scenario_catalog` | `scenarios[]` containing only `id` and `display_name` | Projects the server allowlist without paths |
+| `lobby_state` | phase, optional scenario/controllers, Seats, Bot policies, waiting reason | Complete public pre-match status |
+| `seat_assigned` | Side, Match ID, participant ID | Binds the connection to one Seat |
+| `seat_invitation` | Side, display code, one-time join token | Private invitation sent only to the host |
+| `error` | stable code and message | Private session error |
+
+Capabilities are `scenario_catalog`, `preview_requests`, and
+`participant_status`. Bot policy IDs are server-advertised; clients must not
+invent or treat their local labels as authoritative.
+
+### Stable session error codes
+
+Session v1 defines:
+
+```text
+unsupported_session_version  unsupported_game_protocol
+host_required                lobby_already_configured
+unknown_scenario             unknown_controller
+unknown_bot_policy           seat_not_ready
+invalid_join_token           seat_already_occupied
+ownership                    request_rejected
+invalid_state                invalid_message
+participant_disconnected
+```
+
+Version errors occur during negotiation. Catalog, controller, host, token, and
+state errors occur before play. `ownership` and `request_rejected` apply once a
+Seat submits game-v4 traffic. Errors are private to the responsible
+connection.
+
+### Scenario catalog and path safety
+
+`data/scenario_catalog.toml` is the server-owned allowlist. Clients see only
+enabled identifiers and display names and submit the identifier, never a path.
+Identifiers are lowercase ASCII tokens containing digits, `_`, or `-`.
+Resolution rejects empty identifiers, `.`, `..`, absolute paths, `/` or `\`,
+unknown IDs, disabled entries, unsafe configured paths, missing files, and
+symlinks resolving outside the configured `scenarios/` directory.
+
+### Credentials and invitations
+
+Provider credentials, authorization headers, provider URLs, prompts, and model
+conversations belong to the external agent process. They are never valid
+session messages. A Seat join token is session data but is private: the full
+token is sent only in `seat_invitation`, consumed once, masked by clients, and
+excluded from ordinary logs. Display codes are non-authorizing presentation
+helpers.
+
+### Complete Human-vs-Bot trace
+
+The single Human connection negotiates, configures the lobby, receives Side A,
+and reaches `running`; the Bot occupies Side B internally. Prefixes indicate
+direction and are not part of NDJSON.
+
+```text
+C→S {"type":"hello","session_protocol_version":1,"client_kind":"tui","display_name":"Captain A","supported_session_versions":[1],"supported_game_protocol_versions":[4]}
+S→C {"type":"welcome","session_protocol_version":1,"game_protocol_version":4,"connection_id":"connection-a","can_configure":true,"capabilities":["scenario_catalog","preview_requests","participant_status"]}
+S→C {"type":"scenario_catalog","session_protocol_version":1,"scenarios":[{"id":"shipyard_assault","display_name":"Shipyard Assault"}]}
+S→C {"type":"lobby_state","session_protocol_version":1,"state":"unconfigured","scenario":null,"controllers":null,"seats":[],"bot_policies":[{"id":"greedy","display_name":"Greedy"}],"waiting_reason":"host must configure the lobby"}
+C→S {"type":"create_match","session_protocol_version":1,"scenario_id":"shipyard_assault","controllers":{"a":{"kind":"human"},"b":{"kind":"bot","policy":"greedy"}}}
+S→C {"type":"seat_assigned","session_protocol_version":1,"side":"a","match_id":"match-1","participant_id":"participant-a"}
+S→C {"type":"lobby_state","session_protocol_version":1,"state":"running","scenario":{"id":"shipyard_assault","display_name":"Shipyard Assault"},"controllers":{"a":{"kind":"human"},"b":{"kind":"bot","policy":"greedy"}},"seats":[{"side":"a","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain A","ready":true},{"side":"b","controller":{"kind":"bot","policy":"greedy"},"occupancy":"internal","display_name":"Greedy","ready":true}],"bot_policies":[{"id":"greedy","display_name":"Greedy"}],"waiting_reason":null}
+```
+
+### Complete Human-vs-Human trace
+
+The host receives Side A and a private invitation. The second TUI negotiates,
+joins the reserved Seat, and receives Side B.
+
+```text
+A→S {"type":"hello","session_protocol_version":1,"client_kind":"tui","display_name":"Captain A","supported_session_versions":[1],"supported_game_protocol_versions":[4]}
+S→A {"type":"welcome","session_protocol_version":1,"game_protocol_version":4,"connection_id":"connection-a","can_configure":true,"capabilities":["scenario_catalog","preview_requests","participant_status"]}
+S→A {"type":"scenario_catalog","session_protocol_version":1,"scenarios":[{"id":"shipyard_assault","display_name":"Shipyard Assault"}]}
+S→A {"type":"lobby_state","session_protocol_version":1,"state":"unconfigured","scenario":null,"controllers":null,"seats":[],"bot_policies":[{"id":"greedy","display_name":"Greedy"}],"waiting_reason":"host must configure the lobby"}
+A→S {"type":"create_match","session_protocol_version":1,"scenario_id":"shipyard_assault","controllers":{"a":{"kind":"human"},"b":{"kind":"human"}}}
+S→A {"type":"seat_assigned","session_protocol_version":1,"side":"a","match_id":"match-2","participant_id":"participant-a"}
+S→A {"type":"seat_invitation","session_protocol_version":1,"side":"b","display_code":"ABCD-EFGH","join_token":"fixture-token-b"}
+S→A {"type":"lobby_state","session_protocol_version":1,"state":"waiting_for_seats","scenario":{"id":"shipyard_assault","display_name":"Shipyard Assault"},"controllers":{"a":{"kind":"human"},"b":{"kind":"human"}},"seats":[{"side":"a","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain A","ready":true},{"side":"b","controller":{"kind":"human"},"occupancy":"reserved","display_name":null,"ready":false}],"bot_policies":[],"waiting_reason":"waiting for side b"}
+B→S {"type":"hello","session_protocol_version":1,"client_kind":"tui","display_name":"Captain B","supported_session_versions":[1],"supported_game_protocol_versions":[4]}
+S→B {"type":"welcome","session_protocol_version":1,"game_protocol_version":4,"connection_id":"connection-b","can_configure":false,"capabilities":["scenario_catalog","preview_requests","participant_status"]}
+B→S {"type":"join_match","session_protocol_version":1,"join_token":"fixture-token-b","display_name":"Captain B"}
+S→B {"type":"seat_assigned","session_protocol_version":1,"side":"b","match_id":"match-2","participant_id":"participant-b"}
+S→A,B {"type":"lobby_state","session_protocol_version":1,"state":"running","scenario":{"id":"shipyard_assault","display_name":"Shipyard Assault"},"controllers":{"a":{"kind":"human"},"b":{"kind":"human"}},"seats":[{"side":"a","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain A","ready":true},{"side":"b","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain B","ready":true}],"bot_policies":[],"waiting_reason":null}
+```
+
+### Complete Human-vs-LLM-agent trace
+
+The lobby knows only that Side B is an external LLM agent. Provider profile,
+model, URL, credentials, prompts, and conversation remain in that process.
+
+```text
+A→S {"type":"hello","session_protocol_version":1,"client_kind":"tui","display_name":"Captain A","supported_session_versions":[1],"supported_game_protocol_versions":[4]}
+S→A {"type":"welcome","session_protocol_version":1,"game_protocol_version":4,"connection_id":"connection-a","can_configure":true,"capabilities":["scenario_catalog","preview_requests","participant_status"]}
+S→A {"type":"scenario_catalog","session_protocol_version":1,"scenarios":[{"id":"shipyard_assault","display_name":"Shipyard Assault"}]}
+S→A {"type":"lobby_state","session_protocol_version":1,"state":"unconfigured","scenario":null,"controllers":null,"seats":[],"bot_policies":[{"id":"greedy","display_name":"Greedy"}],"waiting_reason":"host must configure the lobby"}
+A→S {"type":"create_match","session_protocol_version":1,"scenario_id":"shipyard_assault","controllers":{"a":{"kind":"human"},"b":{"kind":"llm_agent"}}}
+S→A {"type":"seat_assigned","session_protocol_version":1,"side":"a","match_id":"match-3","participant_id":"participant-a"}
+S→A {"type":"seat_invitation","session_protocol_version":1,"side":"b","display_code":"WXYZ-1234","join_token":"fixture-agent-token"}
+S→A {"type":"lobby_state","session_protocol_version":1,"state":"waiting_for_seats","scenario":{"id":"shipyard_assault","display_name":"Shipyard Assault"},"controllers":{"a":{"kind":"human"},"b":{"kind":"llm_agent"}},"seats":[{"side":"a","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain A","ready":true},{"side":"b","controller":{"kind":"llm_agent"},"occupancy":"reserved","display_name":null,"ready":false}],"bot_policies":[],"waiting_reason":"waiting for side b LLM agent"}
+L→S {"type":"hello","session_protocol_version":1,"client_kind":"agent","display_name":"Fireworks Agent","supported_session_versions":[1],"supported_game_protocol_versions":[4]}
+S→L {"type":"welcome","session_protocol_version":1,"game_protocol_version":4,"connection_id":"connection-agent","can_configure":false,"capabilities":["scenario_catalog","preview_requests","participant_status"]}
+L→S {"type":"join_match","session_protocol_version":1,"join_token":"fixture-agent-token","display_name":"Fireworks Agent"}
+S→L {"type":"seat_assigned","session_protocol_version":1,"side":"b","match_id":"match-3","participant_id":"participant-agent"}
+L→S {"type":"participant_status","session_protocol_version":1,"status":"ready"}
+S→A,L {"type":"lobby_state","session_protocol_version":1,"state":"running","scenario":{"id":"shipyard_assault","display_name":"Shipyard Assault"},"controllers":{"a":{"kind":"human"},"b":{"kind":"llm_agent"}},"seats":[{"side":"a","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain A","ready":true},{"side":"b","controller":{"kind":"llm_agent"},"occupancy":"occupied","display_name":"Fireworks Agent","ready":true}],"bot_policies":[],"waiting_reason":null}
+```
+
+The canonical prefix-free NDJSON forms are checked byte-for-byte in
+[`tests/fixtures/session-v1/`](../tests/fixtures/session-v1/README.md).
 
 ## Orders
 

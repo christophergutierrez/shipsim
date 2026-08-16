@@ -1,0 +1,7 @@
+{"type":"hello","session_protocol_version":1,"client_kind":"tui","display_name":"Captain A","supported_session_versions":[1],"supported_game_protocol_versions":[4]}
+{"type":"welcome","session_protocol_version":1,"game_protocol_version":4,"connection_id":"connection-a","can_configure":true,"capabilities":["scenario_catalog","preview_requests","participant_status"]}
+{"type":"scenario_catalog","session_protocol_version":1,"scenarios":[{"id":"shipyard_assault","display_name":"Shipyard Assault"}]}
+{"type":"lobby_state","session_protocol_version":1,"state":"unconfigured","scenario":null,"controllers":null,"seats":[],"bot_policies":[{"id":"greedy","display_name":"Greedy"}],"waiting_reason":"host must configure the lobby"}
+{"type":"create_match","session_protocol_version":1,"scenario_id":"shipyard_assault","controllers":{"a":{"kind":"human"},"b":{"kind":"bot","policy":"greedy"}}}
+{"type":"seat_assigned","session_protocol_version":1,"side":"a","match_id":"match-1","participant_id":"participant-a"}
+{"type":"lobby_state","session_protocol_version":1,"state":"running","scenario":{"id":"shipyard_assault","display_name":"Shipyard Assault"},"controllers":{"a":{"kind":"human"},"b":{"kind":"bot","policy":"greedy"}},"seats":[{"side":"a","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain A","ready":true},{"side":"b","controller":{"kind":"bot","policy":"greedy"},"occupancy":"internal","display_name":"Greedy","ready":true}],"bot_policies":[{"id":"greedy","display_name":"Greedy"}],"waiting_reason":null}

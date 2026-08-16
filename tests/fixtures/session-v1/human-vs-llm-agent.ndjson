@@ -1,0 +1,14 @@
+{"type":"hello","session_protocol_version":1,"client_kind":"tui","display_name":"Captain A","supported_session_versions":[1],"supported_game_protocol_versions":[4]}
+{"type":"welcome","session_protocol_version":1,"game_protocol_version":4,"connection_id":"connection-a","can_configure":true,"capabilities":["scenario_catalog","preview_requests","participant_status"]}
+{"type":"scenario_catalog","session_protocol_version":1,"scenarios":[{"id":"shipyard_assault","display_name":"Shipyard Assault"}]}
+{"type":"lobby_state","session_protocol_version":1,"state":"unconfigured","scenario":null,"controllers":null,"seats":[],"bot_policies":[{"id":"greedy","display_name":"Greedy"}],"waiting_reason":"host must configure the lobby"}
+{"type":"create_match","session_protocol_version":1,"scenario_id":"shipyard_assault","controllers":{"a":{"kind":"human"},"b":{"kind":"llm_agent"}}}
+{"type":"seat_assigned","session_protocol_version":1,"side":"a","match_id":"match-3","participant_id":"participant-a"}
+{"type":"seat_invitation","session_protocol_version":1,"side":"b","display_code":"WXYZ-1234","join_token":"fixture-agent-token"}
+{"type":"lobby_state","session_protocol_version":1,"state":"waiting_for_seats","scenario":{"id":"shipyard_assault","display_name":"Shipyard Assault"},"controllers":{"a":{"kind":"human"},"b":{"kind":"llm_agent"}},"seats":[{"side":"a","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain A","ready":true},{"side":"b","controller":{"kind":"llm_agent"},"occupancy":"reserved","display_name":null,"ready":false}],"bot_policies":[],"waiting_reason":"waiting for side b LLM agent"}
+{"type":"hello","session_protocol_version":1,"client_kind":"agent","display_name":"Fireworks Agent","supported_session_versions":[1],"supported_game_protocol_versions":[4]}
+{"type":"welcome","session_protocol_version":1,"game_protocol_version":4,"connection_id":"connection-agent","can_configure":false,"capabilities":["scenario_catalog","preview_requests","participant_status"]}
+{"type":"join_match","session_protocol_version":1,"join_token":"fixture-agent-token","display_name":"Fireworks Agent"}
+{"type":"seat_assigned","session_protocol_version":1,"side":"b","match_id":"match-3","participant_id":"participant-agent"}
+{"type":"participant_status","session_protocol_version":1,"status":"ready"}
+{"type":"lobby_state","session_protocol_version":1,"state":"running","scenario":{"id":"shipyard_assault","display_name":"Shipyard Assault"},"controllers":{"a":{"kind":"human"},"b":{"kind":"llm_agent"}},"seats":[{"side":"a","controller":{"kind":"human"},"occupancy":"occupied","display_name":"Captain A","ready":true},{"side":"b","controller":{"kind":"llm_agent"},"occupancy":"occupied","display_name":"Fireworks Agent","ready":true}],"bot_policies":[],"waiting_reason":null}
