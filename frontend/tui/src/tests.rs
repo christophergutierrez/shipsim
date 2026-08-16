@@ -1011,6 +1011,26 @@ fn tab_cycles_only_player_ships_and_keeps_each_allocate_draft_with_its_ship() {
 }
 
 #[test]
+fn tab_reaches_late_purchased_ship_when_earlier_fleetmates_are_done() {
+    let mut app = App::new();
+    let mut snap = fleet_snapshot();
+    let mut purchased = snap.ships[1].clone();
+    purchased.id = 29;
+    purchased.class = "Purchased Escort".into();
+    snap.ships.push(purchased);
+    snap.ships_allocated_this_turn = vec![1, 2];
+    app.update_snapshot(snap);
+
+    // Reproduce the late-fleet stall: the server is waiting for A29, while
+    // the user's focus is on an already committed ship.
+    app.focused_ship = Some(1);
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Tab));
+
+    assert_eq!(app.focused_ship, Some(29));
+    assert!(app.alloc_draft.is_some());
+}
+
+#[test]
 fn accepted_order_focuses_the_next_player_ship_that_is_still_pending() {
     let mut app = App::new();
     app.update_snapshot(fleet_snapshot());

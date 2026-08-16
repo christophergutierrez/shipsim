@@ -642,15 +642,38 @@ fn cycle_ship_focus(app: &mut App) {
         if living.is_empty() {
             return;
         }
+        // During an order phase, Tab is primarily a way to reach the next
+        // ship that still needs an order.  Cycling completed ships made a
+        // late-purchased ship effectively invisible: the server correctly
+        // waited for it while the client kept reopening already committed
+        // forms.  Fall back to all living ships only after the phase is
+        // complete, so Tab remains useful for inspection there.
+        let completed = match snap.phase.as_str() {
+            "allocate" => Some(&snap.ships_allocated_this_turn),
+            "movement" => Some(&snap.ships_committed_path),
+            "firing" => Some(&snap.ships_committed_volley),
+            _ => None,
+        };
+        let pending: Vec<i64> = completed
+            .map(|done| {
+                living
+                    .iter()
+                    .copied()
+                    .filter(|id| !done.contains(id))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let candidates = if pending.is_empty() { &living } else { &pending };
+
         let next = match app.focused_ship {
             Some(id) => {
-                let idx = living.iter().position(|&x| x == id);
+                let idx = candidates.iter().position(|&x| x == id);
                 match idx {
-                    Some(i) => living[(i + 1) % living.len()],
-                    None => living[0],
+                    Some(i) => candidates[(i + 1) % candidates.len()],
+                    None => candidates[0],
                 }
             }
-            None => living[0],
+            None => candidates[0],
         };
         app.switch_focus(next);
     }
