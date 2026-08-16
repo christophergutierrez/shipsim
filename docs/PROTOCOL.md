@@ -41,14 +41,25 @@ Flags: `--scenario` / `--campaign` / `--resume`, `--stdin` / `--orders`, optiona
 The optional session host preserves the same NDJSON messages over TCP:
 
 ```bash
-cargo run --bin shipsim-session -- --scenario scenarios/shipyard_assault.toml --listen 127.0.0.1:4100
+cargo run --bin shipsim-session -- --listen 127.0.0.1:4100
 ```
 
-Connect two ordinary NDJSON clients to the address. The first connection is
-side `a`; the second is side `b`. The host rejects orders naming a ship owned
-by the other connection, broadcasts accepted snapshots to both clients, and
-does not add a turn-taking phase: allocation, movement, and volley barriers
-remain simultaneous. A client disconnect ends the session.
+The host starts with an empty lobby. A client first sends session-v1 `hello`,
+then the first compatible client receives host permission and the catalog. It
+creates exactly one match using a catalog ID; Side A is that client's Human
+seat and Side B may be Human, a server Bot, or an external LLM agent. A
+preselected convenience launch is also available:
+
+```bash
+cargo run --bin shipsim-session -- --scenario shipyard_assault --listen 127.0.0.1:4100
+```
+
+Human and LLM Side-B seats use a one-time private join token. Bot seats are
+internal and become ready immediately. Once assigned, clients exchange the
+ordinary protocol-v4 orders and snapshots on the same connection. Authorization
+is by assigned side, not connection index or the ship's presentation
+`controller` label; accepted snapshots are viewer-relative and errors/previews
+are private.
 
 The session host uses blocking collection: it waits indefinitely for the next
 order from either connected client. There is no per-turn timeout; a slow client
@@ -58,9 +69,10 @@ Snapshots use `InProgress`, `Won`, `Lost`, or `Draw` for `status`. `Draw` is a
 terminal neutral result: neither side is the winner, and both session viewers
 receive `Draw`.
 
-The command above describes the currently implemented raw two-socket host.
-Session protocol v1 below is the frozen lobby contract for the next runtime
-milestone; defining it does not yet change this launch behavior.
+The server uses blocking collection during a running match: a slow participant
+leaves the server alive and progress waits for that participant or a
+disconnect. Pre-hello sockets have a bounded handshake timeout and do not
+claim host permission until negotiation succeeds.
 
 ## Session/lobby protocol v1
 

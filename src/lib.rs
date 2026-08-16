@@ -13,6 +13,7 @@ pub mod path;
 pub mod path_resolve;
 pub mod prng;
 pub mod protocol;
+pub mod request_dispatch;
 pub mod rules;
 pub mod save;
 pub mod scenario;

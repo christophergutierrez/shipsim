@@ -82,7 +82,8 @@ cargo run --manifest-path frontend/tui/Cargo.toml
 | Tutorial | `cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial` |
 | Scenario | `cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/battle.toml` |
 | Shipyard Assault | `cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/shipyard_assault.toml` |
-| Two-player host | `cargo run --bin shipsim-session -- --scenario scenarios/shipyard_assault.toml` |
+| Network lobby host | `cargo run --bin shipsim-session -- --listen 127.0.0.1:4100` |
+| Preselected network lobby | `cargo run --bin shipsim-session -- --scenario shipyard_assault --listen 127.0.0.1:4100` |
 | Shipyard | `cargo run --manifest-path frontend/tui/Cargo.toml -- --yard` |
 | Details | [`frontend/tui/README.md`](frontend/tui/README.md) |
 
