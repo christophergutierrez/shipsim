@@ -227,7 +227,31 @@ class AgentTests(unittest.TestCase):
         Agent(provider, session, Profile("fake")).play(snapshot("movement"))
         self.assertEqual(provider.calls, 1)
         self.assertEqual(session.orders, [{"type": "commit_path", "ship": 2, "actions": []}])
-        self.assertEqual(session.statuses[-1], "error")
+        self.assertEqual(session.statuses[-1], "ready")
+
+    def test_path_preview_error_uses_fallback_without_submitting_bad_path(self):
+        class PreviewSession(DummySession):
+            def __init__(self):
+                super().__init__()
+                self.side = "b"
+                self.orders = []
+
+            def request(self, request):
+                return {"type": "path_preview", "error": "path costs 3, only 1 available"}
+
+            def order(self, order):
+                self.orders.append(order)
+                finished = snapshot("movement")
+                finished["status"] = "Won"
+                return finished
+
+        provider = FakeProvider([{
+            "orders": [{"type": "commit_path", "ship": 2, "actions": ["move_f", "move_f", "move_f"]}]
+        }])
+        session = PreviewSession()
+        Agent(provider, session, Profile("fake")).play(snapshot("movement"))
+        self.assertEqual(session.orders, [{"type": "commit_path", "ship": 2, "actions": []}])
+        self.assertEqual(session.statuses[-1], "ready")
 
     def test_firing_orders_are_preflighted_before_submission(self):
         class FireSession(DummySession):
@@ -310,6 +334,22 @@ class AgentTests(unittest.TestCase):
         advanced = dict(before)
         advanced["phase"] = "firing"
         self.assertTrue(SessionAdapter._order_acknowledged(order, before, advanced))
+
+    def test_purchase_acknowledgement_is_side_and_class_specific(self):
+        before = snapshot("allocate")
+        before["ships"][0]["class_id"] = "basic_destroyer"
+        before["ships"][1]["class_id"] = "basic_destroyer"
+        order = {"type": "purchase", "side": "b", "class": "basic_swarm"}
+
+        opponent_purchase = json.loads(json.dumps(before))
+        opponent_purchase["credits"]["a"] = 47
+        opponent_purchase["ships"].append({"id": 3, "side": "a", "class_id": "basic_swarm"})
+        self.assertFalse(SessionAdapter._order_acknowledged(order, before, opponent_purchase))
+
+        own_purchase = json.loads(json.dumps(opponent_purchase))
+        own_purchase["credits"]["b"] = 47
+        own_purchase["ships"].append({"id": 4, "side": "b", "class_id": "basic_swarm"})
+        self.assertTrue(SessionAdapter._order_acknowledged(order, before, own_purchase))
 
     def test_disconnect_is_protocol_error(self):
         left, right = socket.socketpair()

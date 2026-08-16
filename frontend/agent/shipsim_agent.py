@@ -344,9 +344,18 @@ class SessionAdapter:
         if kind in {"purchase", "purchase_custom"}:
             if before is None:
                 return True
+            requested_side = _side_value(order.get("side"))
+            requested_class = order.get("class")
+            if kind == "purchase_custom":
+                design = order.get("design")
+                requested_class = design.get("id") if isinstance(design, Mapping) else None
             before_ids = {ship.get("id") for ship in before.get("ships", [])}
-            after_ids = {ship.get("id") for ship in after.get("ships", [])}
-            return after_ids != before_ids or after.get("credits") != before.get("credits")
+            return any(
+                ship.get("id") not in before_ids
+                and _side_value(ship.get("side")) == requested_side
+                and (ship.get("class_id") == requested_class or ship.get("class") == requested_class)
+                for ship in after.get("ships", [])
+            )
         fields = {
             "allocate": "ships_allocated_this_turn",
             "commit_path": "ships_committed_path",
@@ -555,7 +564,9 @@ class Agent:
             for order in orders:
                 try:
                     if order.get("type") == "commit_path":
-                        self.session.request({"request": "path_preview", "ship": order["ship"], "actions": order.get("actions", [])})
+                        preview = self.session.request({"request": "path_preview", "ship": order["ship"], "actions": order.get("actions", [])})
+                        if preview.get("error"):
+                            raise ProtocolError(f"path_preview rejected the path: {preview['error']}")
                     elif order.get("type") == "commit_volley":
                         for shot in order.get("shots", []):
                             preview = self.session.request({
@@ -586,6 +597,8 @@ class Agent:
                     except ProtocolError as exc:
                         self.logger.info(json.dumps(redact({"event": "fallback_failed", "error": str(exc)})))
                         return
+            if orders:
+                self.session.send_status("ready")
             if not orders:
                 # Avoid spinning if a server reports no pending work yet.
                 time.sleep(0.01)
