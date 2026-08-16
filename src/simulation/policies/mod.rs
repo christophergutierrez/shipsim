@@ -6,9 +6,10 @@ use crate::hex::Hex;
 use crate::movement::{Order, VolleyShot};
 use crate::path::{self, PathAction, PathState};
 use crate::rules::Ruleset;
+use crate::schema::SideId;
 use crate::snapshot::{ShipSnapshot, StateSnapshot, WeaponSnapshot};
 
-use super::policy::{DecisionContext, Policy};
+use super::policy::{DecisionContext, Policy, PolicyMetadata, PurchaseContext};
 
 #[derive(Debug, Clone, Copy)]
 enum Style {
@@ -25,6 +26,33 @@ pub struct BaselinePolicy {
     random_state: u64,
 }
 
+pub const POLICY_METADATA: [PolicyMetadata; 5] = [
+    PolicyMetadata {
+        id: "random",
+        label: "Random",
+    },
+    PolicyMetadata {
+        id: "greedy",
+        label: "Greedy",
+    },
+    PolicyMetadata {
+        id: "aggressive",
+        label: "Aggressive",
+    },
+    PolicyMetadata {
+        id: "defensive",
+        label: "Defensive",
+    },
+    PolicyMetadata {
+        id: "mobility",
+        label: "Mobility",
+    },
+];
+
+pub fn policy_catalog() -> &'static [PolicyMetadata] {
+    &POLICY_METADATA
+}
+
 pub fn build_policy(name: &str, seed: u64) -> Option<Box<dyn Policy>> {
     let (canonical, style) = match name {
         "random" => ("random", Style::Random),
@@ -39,6 +67,30 @@ pub fn build_policy(name: &str, seed: u64) -> Option<Box<dyn Policy>> {
         style,
         random_state: seed.max(1),
     }))
+}
+
+/// Derive a stable stream seed from the match, side, and canonical policy ID.
+/// This intentionally avoids `DefaultHasher`, whose implementation is not a
+/// replay contract.
+pub fn policy_seed(match_seed: u64, side: SideId, policy_id: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64 ^ match_seed;
+    for byte in policy_id.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash ^= match side {
+        SideId::A => 0xA5A5_A5A5_A5A5_A5A5,
+        SideId::B => 0x5A5A_5A5A_5A5A_5A5A,
+    };
+    hash.max(1)
+}
+
+pub fn build_policy_for_side(name: &str, match_seed: u64, side: SideId) -> Option<Box<dyn Policy>> {
+    let canonical = match name {
+        "mobility_first" => "mobility",
+        other => other,
+    };
+    build_policy(canonical, policy_seed(match_seed, side, canonical))
 }
 
 impl BaselinePolicy {
@@ -64,9 +116,7 @@ impl BaselinePolicy {
             .ships
             .iter()
             .filter(|ship| {
-                !ship.destroyed
-                    && ship.id != context.ship.id
-                    && ship.controller != context.ship.controller
+                !ship.destroyed && ship.id != context.ship.id && ship.side != context.ship.side
             })
             .min_by_key(|ship| (Self::range_to(context.ship, ship), ship.id))
     }
@@ -79,9 +129,7 @@ impl BaselinePolicy {
             .ships
             .iter()
             .filter(|candidate| {
-                !candidate.destroyed
-                    && candidate.id != ship.id
-                    && candidate.controller != ship.controller
+                !candidate.destroyed && candidate.id != ship.id && candidate.side != ship.side
             })
             .min_by_key(|candidate| (Self::range_to(ship, candidate), candidate.id))
     }
@@ -448,9 +496,7 @@ impl BaselinePolicy {
                 .ships
                 .iter()
                 .filter(|ship| {
-                    !ship.destroyed
-                        && ship.id != context.ship.id
-                        && ship.controller != context.ship.controller
+                    !ship.destroyed && ship.id != context.ship.id && ship.side != context.ship.side
                 })
                 .filter(|ship| {
                     context.ship.weapons.iter().any(|weapon| {
@@ -500,6 +546,14 @@ impl Policy for BaselinePolicy {
         self.name
     }
 
+    fn metadata(&self) -> PolicyMetadata {
+        POLICY_METADATA
+            .iter()
+            .copied()
+            .find(|meta| meta.id == self.name)
+            .expect("baseline policy metadata")
+    }
+
     fn allocate(&mut self, ship: &ShipSnapshot) -> Order {
         let (movement, weapons, shields) = self.allocation(ship, None);
         Order::Allocate {
@@ -543,5 +597,42 @@ impl Policy for BaselinePolicy {
                     follow: false,
                 }),
         }
+    }
+
+    fn purchase_orders(&mut self, context: &PurchaseContext<'_>) -> Vec<Order> {
+        // Purchases are deliberately bounded to one per side per allocation
+        // stage. Prefer the cheapest affordable class, with a deterministic
+        // policy-specific tie break, and never attempt the shipyard itself.
+        let mut choices: Vec<_> = context
+            .snapshot
+            .purchasable
+            .iter()
+            .filter(|item| item.class != "shipyard")
+            .filter(|item| {
+                context
+                    .snapshot
+                    .credits
+                    .get(&context.side)
+                    .copied()
+                    .unwrap_or(0)
+                    >= item.cost
+            })
+            .collect();
+        if choices.is_empty() {
+            return Vec::new();
+        }
+        choices.sort_by_key(|item| (item.cost, item.class.clone()));
+        let item = match self.style {
+            Style::Aggressive => choices.last().expect("non-empty choices"),
+            Style::Random => {
+                let index = (self.next_random() as usize) % choices.len();
+                choices[index]
+            }
+            _ => choices[0],
+        };
+        vec![Order::Purchase {
+            side: context.side,
+            class: item.class.clone(),
+        }]
     }
 }

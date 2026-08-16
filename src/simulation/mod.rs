@@ -11,7 +11,9 @@ pub use fleet::{
     PowerSweepSpec,
 };
 pub use metrics::{AggregateMetrics, MatchMetrics};
+pub use policies::{build_policy_for_side, policy_catalog, policy_seed, POLICY_METADATA};
 pub use policy::{DecisionContext, Policy};
+pub use policy::{PolicyMetadata, PurchaseContext};
 pub use rubric::{EngagementBreakdown, RubricResult, RubricSpec};
 pub use runner::{
     run_match, run_suite, FailedMatch, MatchConfig, MatchResult, SimulationError, StalemateScoring,

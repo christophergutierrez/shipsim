@@ -8,6 +8,7 @@ use crate::game_state::{GameState, Phase, ScenarioStatus, Terminal};
 use crate::movement::{apply_order, Order, OrderError};
 use crate::scenario::{load_scenario, load_scenario_def, LoadError};
 use crate::schema::ScenarioDef;
+use crate::schema::SideId;
 use crate::snapshot::StateSnapshot;
 
 use super::fleet::{
@@ -15,7 +16,7 @@ use super::fleet::{
     EngagementSpec, FleetError, FleetMapSpec, PowerSweepSpec,
 };
 use super::metrics::{AggregateMetrics, MatchMetrics};
-use super::policies::build_policy;
+use super::policies::build_policy_for_side;
 use super::policy::{DecisionContext, Policy};
 use super::rubric::{
     evaluate_rubric, EngagementBreakdown, MatchupBreakdown, RubricResult, RubricSpec,
@@ -250,9 +251,9 @@ impl From<FleetError> for SimulationError {
 }
 
 pub fn run_match(config: &MatchConfig) -> Result<MatchResult, SimulationError> {
-    let player = build_policy(&config.player_policy, config.seed ^ 0xA5A5_A5A5)
+    let player = build_policy_for_side(&config.player_policy, config.seed, SideId::A)
         .ok_or_else(|| SimulationError::UnknownPolicy(config.player_policy.clone()))?;
-    let opponent = build_policy(&config.opponent_policy, config.seed ^ 0x5A5A_5A5A)
+    let opponent = build_policy_for_side(&config.opponent_policy, config.seed, SideId::B)
         .ok_or_else(|| SimulationError::UnknownPolicy(config.opponent_policy.clone()))?;
     run_match_with_policies(config, player, opponent)
 }
@@ -291,7 +292,7 @@ fn observe_diagnostics(
     let mut in_weapon_range = false;
     for ship in &living {
         for enemy in &living {
-            if ship.controller == enemy.controller {
+            if ship.side == enemy.side {
                 continue;
             }
             let distance = axial_distance(ship, enemy);
@@ -330,7 +331,7 @@ fn effective_damage_by_side(initial: &StateSnapshot, final_snapshot: &StateSnaps
         } else {
             initial_ship.structure.saturating_sub(final_ship.structure)
         } as i64;
-        if initial_ship.controller == "player" {
+        if initial_ship.side == SideId::A {
             player_damage += damage;
         } else {
             opponent_damage += damage;
@@ -356,8 +357,8 @@ fn mutually_disarmed(snapshot: &StateSnapshot) -> bool {
         .iter()
         .filter(|ship| !ship.destroyed)
         .collect();
-    let player_alive = living.iter().any(|ship| ship.controller == "player");
-    let enemy_alive = living.iter().any(|ship| ship.controller != "player");
+    let player_alive = living.iter().any(|ship| ship.side == SideId::A);
+    let enemy_alive = living.iter().any(|ship| ship.side == SideId::B);
     player_alive
         && enemy_alive
         && living
@@ -396,6 +397,7 @@ fn run_match_with_policies(
     let mut closest_approach = None;
     let mut turns_in_weapon_range = BTreeSet::new();
     let mut mutual_disarm = false;
+    let mut purchases_complete: BTreeSet<(u32, SideId)> = BTreeSet::new();
     observe_diagnostics(
         &initial_snapshot,
         &mut closest_approach,
@@ -406,6 +408,46 @@ fn run_match_with_policies(
         && game.turn_number() <= config.max_turns
         && trace.len() < config.max_orders
     {
+        let snapshot = StateSnapshot::from_game_state(&game);
+        if game.phase() == Phase::Allocate {
+            for side in [SideId::A, SideId::B] {
+                if purchases_complete.contains(&(game.turn_number(), side)) {
+                    continue;
+                }
+                let policy = if side == SideId::A {
+                    player.as_mut()
+                } else {
+                    opponent.as_mut()
+                };
+                let purchase_context = super::policy::PurchaseContext {
+                    snapshot: &snapshot,
+                    side,
+                    turn: game.turn_number(),
+                };
+                let orders = policy.purchase_orders(&purchase_context);
+                // This is a one-shot, bounded decision. A failed purchase is
+                // treated as “no purchase” so it cannot create an allocation
+                // barrier or an infinite retry loop.
+                for order in orders.into_iter().take(1) {
+                    metrics.record_attempted_order();
+                    if apply_order(&mut game, order.clone()).is_ok() {
+                        metrics.record_accepted_order(&order);
+                        trace.push(TraceEvent {
+                            sequence: trace.len(),
+                            turn: game.turn_number(),
+                            phase: "allocate_purchase".into(),
+                            actor: None,
+                            policy: policy.name().into(),
+                            order,
+                            outcome: TraceOutcome::Accepted,
+                            status_after: game.status(),
+                            prng_state_after: game.prng_state(),
+                        });
+                    }
+                }
+                purchases_complete.insert((game.turn_number(), side));
+            }
+        }
         let snapshot = StateSnapshot::from_game_state(&game);
         let (actor, is_player) = actor_for(&snapshot, game.phase())?;
         let policy: &mut dyn Policy = if is_player {
@@ -712,7 +754,7 @@ fn actor_for(
         .ships
         .iter()
         .find(|ship| ship.id == actor)
-        .is_some_and(|ship| ship.controller == "player");
+        .is_some_and(|ship| ship.side == SideId::A);
     Ok((Some(actor), is_player))
 }
 
@@ -733,6 +775,11 @@ mod tests {
             class: "Test".into(),
             class_id: "test".into(),
             controller: controller.into(),
+            side: if controller == "player" {
+                SideId::A
+            } else {
+                SideId::B
+            },
             power: 10,
             power_available: 10,
             structure: if destroyed { 0 } else { 5 },
@@ -830,6 +877,19 @@ mod tests {
     }
 
     #[test]
+    fn actor_assignment_uses_side_not_controller_label() {
+        let mut side_b_labeled_player = test_ship(1, "player", false, true);
+        side_b_labeled_player.side = SideId::B;
+        let mut side_a_labeled_scripted = test_ship(2, "scripted", false, true);
+        side_a_labeled_scripted.side = SideId::A;
+        let snapshot = test_snapshot(vec![side_b_labeled_player, side_a_labeled_scripted]);
+        assert_eq!(
+            actor_for(&snapshot, Phase::Allocate).unwrap(),
+            (Some(1), false)
+        );
+    }
+
+    #[test]
     fn boxed_loading_errors_preserve_their_source_chains() {
         let scenario = SimulationError::from(LoadError::InvalidFacing { facing: 9 });
         assert!(std::error::Error::source(&scenario).is_some());
@@ -846,6 +906,13 @@ mod tests {
     impl Policy for RejectingPolicy {
         fn name(&self) -> &str {
             "test_rejecting_policy"
+        }
+
+        fn metadata(&self) -> super::super::policy::PolicyMetadata {
+            super::super::policy::PolicyMetadata {
+                id: "test_rejecting_policy",
+                label: "Test rejecting policy",
+            }
         }
 
         fn allocate(&mut self, ship: &crate::snapshot::ShipSnapshot) -> Order {

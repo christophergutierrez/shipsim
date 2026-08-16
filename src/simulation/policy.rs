@@ -1,6 +1,8 @@
 use crate::movement::Order;
 use crate::rules::Ruleset;
+use crate::schema::SideId;
 use crate::snapshot::{ShipSnapshot, StateSnapshot};
+use serde::Serialize;
 
 pub struct DecisionContext<'a> {
     pub snapshot: &'a StateSnapshot,
@@ -13,8 +15,23 @@ pub struct DecisionContext<'a> {
     pub legal_orders: &'a [Order],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PolicyMetadata {
+    pub id: &'static str,
+    pub label: &'static str,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PurchaseContext<'a> {
+    pub snapshot: &'a StateSnapshot,
+    pub side: SideId,
+    pub turn: u32,
+}
+
 pub trait Policy {
     fn name(&self) -> &str;
+
+    fn metadata(&self) -> PolicyMetadata;
 
     fn allocate(&mut self, ship: &ShipSnapshot) -> Order;
 
@@ -26,4 +43,11 @@ pub trait Policy {
     }
 
     fn choose_order(&mut self, context: &DecisionContext<'_>) -> Order;
+
+    /// Return a bounded list of ordinary purchase orders for this side and
+    /// allocation stage. The runner invokes this exactly once per side/turn.
+    fn purchase_orders(&mut self, context: &PurchaseContext<'_>) -> Vec<Order> {
+        let _ = context;
+        Vec::new()
+    }
 }
