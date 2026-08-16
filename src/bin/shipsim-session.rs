@@ -784,7 +784,13 @@ impl Server {
                     })
                 };
                 for order in orders.into_iter().take(1) {
-                    self.apply_bot_order(order)?;
+                    // Purchase is a one-shot policy opportunity, not a turn
+                    // requirement. A full spawn ring (or another rejected
+                    // purchase) means the bot buys nothing this turn; it must
+                    // not terminate the session or retry forever.
+                    if let Err(error) = self.apply_bot_order(order) {
+                        eprintln!("bot purchase skipped: {error}");
+                    }
                 }
                 self.bot_purchases_turn = Some(turn);
                 continue;
@@ -1571,6 +1577,64 @@ mod tests {
         );
         let _ = host.stream.shutdown(Shutdown::Both);
         handle.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn blocked_bot_purchase_is_skipped_without_ending_match() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut game = load_scenario(&root.join("scenarios/shipyard_assault.toml")).unwrap();
+        let yard = game.ship(6).unwrap().pos;
+        for (ship, hex) in [2, 3, 4, 5, 7, 8].into_iter().zip(yard.neighbors()) {
+            game.set_ship_pos(ship, hex).unwrap();
+        }
+        assert!(matches!(
+            shipsim_core::apply_order(
+                &mut game,
+                Order::Purchase {
+                    side: SideId::B,
+                    class: "basic_swarm".into(),
+                }
+            ),
+            Err(shipsim_core::movement::OrderError::SpawnBlocked { side: SideId::B })
+        ));
+
+        let catalog = ScenarioCatalog::load(root).unwrap();
+        let (event_tx, events) = mpsc::channel();
+        let mut server = Server {
+            catalog,
+            configured_scenario: None,
+            connections: BTreeMap::new(),
+            readers: Vec::new(),
+            tokens: HashMap::new(),
+            next_connection: 1,
+            host: None,
+            controllers: Some(ControllerAssignments {
+                a: ControllerSpec::Human {},
+                b: ControllerSpec::Bot {
+                    policy: "greedy".into(),
+                },
+            }),
+            scenario: None,
+            game: Some(game),
+            bot_side: true,
+            bot_policy: build_policy_for_side("greedy", 1, SideId::B),
+            bot_purchases_turn: None,
+            phase: LobbyPhase::Running,
+            match_id: "blocked-purchase-test".into(),
+            events,
+            event_tx,
+        };
+
+        server.schedule_bot().unwrap();
+
+        assert_eq!(server.phase, LobbyPhase::Running);
+        assert_eq!(server.bot_purchases_turn, Some(1));
+        let snapshot = StateSnapshot::from_game_state(server.game.as_ref().unwrap());
+        assert!(snapshot
+            .ships
+            .iter()
+            .filter(|ship| ship.side == SideId::B && !ship.destroyed)
+            .all(|ship| snapshot.ships_allocated_this_turn.contains(&ship.id)));
     }
 
     #[test]

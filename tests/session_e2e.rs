@@ -234,6 +234,35 @@ fn two_real_clients_join_and_advance_three_turns_side_b_first() {
 }
 
 #[test]
+fn server_bot_advances_shipyard_assault_past_first_volley() {
+    let (mut process, address) = start_session();
+    let mut host = Client::connect(address);
+    host.hello("captain-a");
+    host.send(json!({
+        "type": "create_match",
+        "session_protocol_version": 1,
+        "scenario_id": "shipyard_assault",
+        "controllers": {"a": {"kind": "human"}, "b": {"kind": "bot", "policy": "greedy"}}
+    }));
+    let _ = host.receive_type("seat_assigned");
+    let _ = host.receive_type("lobby_state");
+    let mut snapshot = host.receive_snapshot();
+
+    while snapshot["turn"].as_u64().unwrap_or(0) <= 3 {
+        let order = next_hold_order(&snapshot, "a")
+            .unwrap_or_else(|| panic!("side A has no order in snapshot: {snapshot}"));
+        host.send(order);
+        snapshot = host.receive_snapshot();
+    }
+
+    assert_eq!(snapshot["turn"], 4);
+    assert!(process.child.try_wait().unwrap().is_none());
+    let _ = host.stream.shutdown(Shutdown::Both);
+    let status = process.child.wait().expect("wait for session server");
+    assert!(status.success());
+}
+
+#[test]
 fn external_fake_agent_plays_five_turns_through_real_tcp() {
     let (mut process, address) = start_session();
     let mut host = Client::connect(address);
