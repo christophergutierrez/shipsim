@@ -22,6 +22,9 @@ argv. Do not put it in shell history or ordinary logs. Provider failures and
 invalid model decisions retry at most three times, then submit legal hold
 orders for the current phase.
 
+The example `fake` profile is deterministic and offline. It is useful for
+testing the complete server/TUI/agent process chain without model credentials.
+
 Tests are offline:
 
 ```bash

@@ -1,3 +1,9 @@
+[profiles.fake]
+kind = "fake"
+model = "deterministic-hold"
+api_key_env = ""
+response_format = "auto"
+
 [profiles.local]
 kind = "openai_compatible"
 base_url = "http://127.0.0.1:11434/v1"

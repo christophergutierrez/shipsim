@@ -50,7 +50,7 @@ impl Client {
     }
 
     fn receive_type(&mut self, wanted: &str) -> Value {
-        for _ in 0..20 {
+        for _ in 0..100 {
             let value = self.receive();
             if value.get("type").and_then(Value::as_str) == Some(wanted) {
                 return value;
@@ -60,7 +60,7 @@ impl Client {
     }
 
     fn receive_snapshot(&mut self) -> Value {
-        for _ in 0..20 {
+        for _ in 0..100 {
             let value = self.receive();
             if value.get("protocol_version") == Some(&json!(4)) && value.get("phase").is_some() {
                 return value;
@@ -133,6 +133,27 @@ fn submit_broadcast(a: &mut Client, b: &mut Client, actor: &str, order: Value) -
     (a.receive_snapshot(), b.receive_snapshot())
 }
 
+fn next_hold_order(snapshot: &Value, side: &str) -> Option<Value> {
+    let phase = snapshot["phase"].as_str()?;
+    let completed = match phase {
+        "allocate" => &snapshot["ships_allocated_this_turn"],
+        "movement" => &snapshot["ships_committed_path"],
+        "firing" => &snapshot["ships_committed_volley"],
+        _ => return None,
+    }
+    .as_array()?;
+    let ship = ship_ids(snapshot, side).into_iter().find(|id| {
+        !completed
+            .iter()
+            .any(|completed_id| completed_id.as_u64() == Some(u64::from(*id)))
+    })?;
+    Some(match phase {
+        "allocate" => json!({"type":"allocate","protocol_version":4,"ship":ship,"movement":0,"weapons":{},"shields":[0,0,0,0,0,0],"cloak":false,"repair":0,"unsquad":false,"squad_leader":null}),
+        "movement" => json!({"type":"commit_path","protocol_version":4,"ship":ship,"actions":[],"evasive":0,"follow":false}),
+        _ => json!({"type":"commit_volley","protocol_version":4,"ship":ship,"shots":[]}),
+    })
+}
+
 #[test]
 fn two_real_clients_join_and_advance_three_turns_side_b_first() {
     let (mut process, address) = start_session();
@@ -196,6 +217,67 @@ fn two_real_clients_join_and_advance_three_turns_side_b_first() {
     let disconnected = a.receive_type("error");
     assert_eq!(disconnected["code"], "participant_disconnected");
     let _ = a.stream.shutdown(Shutdown::Both);
+    let status = process.child.wait().expect("wait for session server");
+    assert!(status.success());
+}
+
+#[test]
+fn external_fake_agent_plays_five_turns_through_real_tcp() {
+    let (mut process, address) = start_session();
+    let mut host = Client::connect(address);
+    host.hello("captain-a");
+    host.send(json!({
+        "type": "create_match",
+        "session_protocol_version": 1,
+        "scenario_id": "shipyard_assault",
+        "controllers": {"a": {"kind": "human"}, "b": {"kind": "llm_agent"}}
+    }));
+    let _ = host.receive_type("seat_assigned");
+    let invitation = host.receive_type("seat_invitation");
+    let token = invitation["join_token"].as_str().unwrap().to_owned();
+    let _ = host.receive_type("lobby_state");
+
+    let config_dir = tempfile::tempdir().unwrap();
+    let config_path = config_dir.path().join("agents.toml");
+    std::fs::write(
+        &config_path,
+        "[profiles.fake]\nkind='fake'\nmodel='deterministic-hold'\nmax_requests=1000\n",
+    )
+    .unwrap();
+    let agent_script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("frontend/agent/shipsim-agent");
+    let mut agent = Command::new("python3")
+        .arg(agent_script)
+        .args([
+            "play",
+            "--connect",
+            &address.to_string(),
+            "--profile",
+            "fake",
+            "--join-token-stdin",
+        ])
+        .env("SHIPSIM_AGENT_CONFIG", &config_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn fake agent");
+    writeln!(agent.stdin.take().unwrap(), "{token}").unwrap();
+
+    let mut snapshot = host.receive_snapshot();
+    while snapshot["turn"].as_u64().unwrap_or(0) <= 5 {
+        if let Some(order) = next_hold_order(&snapshot, "a") {
+            host.send(order);
+        }
+        snapshot = host.receive_snapshot();
+    }
+    assert!(agent.try_wait().unwrap().is_none(), "agent exited before five turns");
+
+    agent.kill().unwrap();
+    let _ = agent.wait();
+    let disconnected = host.receive_type("error");
+    assert_eq!(disconnected["code"], "participant_disconnected");
+    let _ = host.stream.shutdown(Shutdown::Both);
     let status = process.child.wait().expect("wait for session server");
     assert!(status.success());
 }

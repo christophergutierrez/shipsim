@@ -87,6 +87,11 @@ class AgentTests(unittest.TestCase):
             self.assertNotIn("sentinel-secret", repr(profiles))
             self.assertIsNone(profiles["fireworks"].api_key({}))
 
+    def test_fake_profile_needs_no_credentials(self):
+        profile = Profile("fake", kind="fake", api_key_env="")
+        self.assertIsNone(profile.api_key({}))
+        self.assertEqual(FakeProvider().complete([], schema={}), {"orders": []})
+
     def test_config_path_override_and_unknown_field(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.toml"

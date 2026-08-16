@@ -556,7 +556,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         session = SessionAdapter(transport, name=args.name, logger=logger)
         session.join(token)
-        provider = OpenAICompatibleProvider(profile)
+        if profile.kind == "fake":
+            provider: Provider = FakeProvider()
+        elif profile.kind == "openai_compatible":
+            provider = OpenAICompatibleProvider(profile)
+        else:
+            raise AgentError(f"unsupported provider kind {profile.kind!r}")
         Agent(provider, session, profile, logger).play()
     finally:
         transport.close()
