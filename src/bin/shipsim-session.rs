@@ -27,9 +27,10 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct Args {
     scenario: Option<String>,
@@ -38,6 +39,7 @@ struct Args {
 
 struct Connection {
     writer: Arc<Mutex<TcpStream>>,
+    connected_at: Instant,
     participant_id: String,
     host: bool,
     negotiated: bool,
@@ -152,6 +154,8 @@ impl Server {
                 Err(RecvTimeoutError::Disconnected) => return Ok(()),
             }
 
+            self.expire_handshakes();
+
             if self.phase == LobbyPhase::Finished {
                 return Ok(());
             }
@@ -202,9 +206,6 @@ impl Server {
                 return Ok(());
             }
         }
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("set handshake timeout: {e}"))?;
         let id = self.next_connection;
         self.next_connection += 1;
         let writer = Arc::new(Mutex::new(stream.try_clone().map_err(|e| e.to_string())?));
@@ -214,6 +215,7 @@ impl Server {
             id,
             Connection {
                 writer: writer.clone(),
+                connected_at: Instant::now(),
                 participant_id: participant_id.clone(),
                 host,
                 negotiated: false,
@@ -243,6 +245,36 @@ impl Server {
         });
         self.readers.push(reader);
         Ok(())
+    }
+
+    fn expire_handshakes(&mut self) {
+        let now = Instant::now();
+        let expired = self
+            .connections
+            .iter()
+            .filter(|(_, connection)| {
+                !connection.negotiated
+                    && now.saturating_duration_since(connection.connected_at) >= HANDSHAKE_TIMEOUT
+            })
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+
+        for id in expired {
+            let _ = self.send_session_error(
+                id,
+                SessionErrorCode::InvalidState,
+                "hello handshake timed out",
+            );
+            if let Some(connection) = self.connections.remove(&id) {
+                eprintln!(
+                    "connection {} handshake timed out",
+                    connection.participant_id
+                );
+                if let Ok(stream) = connection.writer.lock() {
+                    let _ = stream.shutdown(Shutdown::Both);
+                }
+            }
+        }
     }
 
     fn handle_line(&mut self, id: usize, line: &str) -> Result<(), String> {
@@ -389,12 +421,6 @@ impl Server {
             .is_some_and(|connection| connection.host);
         if let Some(connection) = self.connections.get_mut(&id) {
             connection.negotiated = true;
-            connection
-                .writer
-                .lock()
-                .map_err(|_| "writer lock poisoned".to_string())?
-                .set_read_timeout(None)
-                .map_err(|error| format!("clear handshake timeout: {error}"))?;
         }
         self.send(
             id,
@@ -1543,6 +1569,39 @@ mod tests {
             snapshot["ships_committed_path"].as_array().unwrap().len(),
             0
         );
+        let _ = host.stream.shutdown(Shutdown::Both);
+        handle.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn negotiated_client_survives_past_handshake_deadline() {
+        let (address, handle) = start_test_server();
+        let mut host = test_client(address);
+        send_json(&mut host, hello_value());
+        let _ = read_type(&mut host, "welcome");
+        let _ = read_type(&mut host, "scenario_catalog");
+        let _ = read_type(&mut host, "lobby_state");
+
+        thread::sleep(HANDSHAKE_TIMEOUT + Duration::from_millis(250));
+
+        send_json(
+            &mut host,
+            serde_json::to_value(SessionMessage::CreateMatch {
+                session_protocol_version: 1,
+                scenario_id: "shipyard_assault".into(),
+                controllers: ControllerAssignments {
+                    a: ControllerSpec::Human {},
+                    b: ControllerSpec::Bot {
+                        policy: "greedy".into(),
+                    },
+                },
+            })
+            .unwrap(),
+        );
+        let _ = read_type(&mut host, "seat_assigned");
+        assert_eq!(read_type(&mut host, "lobby_state")["state"], "running");
+        let _ = read_snapshot(&mut host);
+
         let _ = host.stream.shutdown(Shutdown::Both);
         handle.join().unwrap().unwrap();
     }
