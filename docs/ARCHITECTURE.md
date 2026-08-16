@@ -55,6 +55,15 @@ the UI rubric, not here.
 
 The `shipsim` binary loads a scenario, accepts newline-delimited JSON orders, and emits JSON snapshots or soft errors. This is the primary automation and integration boundary. Given the same scenario, order stream, and seed, its output must be deterministic.
 
+### Network session host
+
+`shipsim-session` wraps one authoritative `GameState` with session protocol v1:
+version negotiation, a server-owned scenario catalog, lobby configuration,
+side assignment, and private request routing. After assignment, clients send
+the same protocol-v4 orders and preview requests as the local harness. Built-in
+bots also produce ordinary orders and pass through `apply_order`; the host does
+not grant them a mutation shortcut.
+
 ### Frontends
 
 All clients live under `frontend/`. Policy is in `frontend/README.md`:
@@ -76,6 +85,9 @@ Current clients (all protocol **v4** NDJSON):
 - `frontend/love/` — Love2D graphical thin client (display, input, order
   construction only).
 - `frontend/tui/` — ratatui terminal client (Small tier; standalone crate).
+- `frontend/agent/` — external Python LLM participant. It owns provider
+  profiles, credentials, prompts, bounded conversation history, and retries;
+  it joins an ordinary side-B session seat and has no engine access.
 
 The TUI exception is presentation-only: it may not apply orders, mutate
 `GameState`, or decide combat legality in-process. REPL and Love cannot link
@@ -110,7 +122,7 @@ already-committed simultaneous damage.
 | Content | `schema`, `scenario`, `ship`, `campaign` | TOML schemas, loading, ship instances, campaign setup |
 | Orchestration | `turn`, `ai` | Turn counter and NPC actions |
 | Simulation | `simulation` | Policies, match runner, traces, metrics, and rubric evaluation |
-| Adapters | `src/bin/shipsim.rs`, `frontend/repl/`, `frontend/love/`, `frontend/tui/` | NDJSON harness, REPL, Love, ratatui TUI |
+| Adapters | `src/bin/shipsim.rs`, `src/bin/shipsim-session.rs`, `frontend/repl/`, `frontend/love/`, `frontend/tui/`, `frontend/agent/` | Local harness, network lobby/session, human UIs, and external LLM participant |
 
 ## Data and control flow
 

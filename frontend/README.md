@@ -8,6 +8,7 @@ frontend/
   love/              # Love2D graphical client (protocol v4)
   repl/              # Python interactive dev client — agent reference (protocol v4)
   tui/               # ratatui terminal client — Small tier (protocol v4)
+  agent/             # external Python LLM participant (session v1 + protocol v4)
   <other>/           # future clients go here
 ```
 
@@ -45,6 +46,7 @@ Build the engine first (`cargo build -q`). All clients need
 | **REPL** | `python3 frontend/repl/repl.py scenarios/battle.toml` | Python 3 |
 | **TUI** | `cargo run --manifest-path frontend/tui/Cargo.toml` | Rust |
 | **Love2D** | `./frontend/love/play.sh` | Love2D 11.x + display |
+| **LLM agent profiles** | `frontend/agent/shipsim-agent profiles --json` | Python 3.11+ |
 
 ```bash
 cargo build -q
@@ -54,6 +56,9 @@ python3 frontend/repl/repl.py scenarios/battle.toml
 
 # TUI — ratatui
 cargo run --manifest-path frontend/tui/Cargo.toml
+
+# Network TUI (start shipsim-session in another terminal first)
+cargo run --manifest-path frontend/tui/Cargo.toml -- --connect 127.0.0.1:4100
 
 # Love2D — graphical (prefers play.sh for window sizing)
 ./frontend/love/play.sh

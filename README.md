@@ -84,6 +84,8 @@ cargo run --manifest-path frontend/tui/Cargo.toml
 | Shipyard Assault | `cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/shipyard_assault.toml` |
 | Network lobby host | `cargo run --bin shipsim-session -- --listen 127.0.0.1:4100` |
 | Preselected network lobby | `cargo run --bin shipsim-session -- --scenario shipyard_assault --listen 127.0.0.1:4100` |
+| Connect TUI to lobby | `cargo run --manifest-path frontend/tui/Cargo.toml -- --connect 127.0.0.1:4100` |
+| List LLM profiles | `frontend/agent/shipsim-agent profiles --json` |
 | Shipyard | `cargo run --manifest-path frontend/tui/Cargo.toml -- --yard` |
 | Details | [`frontend/tui/README.md`](frontend/tui/README.md) |
 
