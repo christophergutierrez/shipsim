@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+from shipsim_agent import main
+
+raise SystemExit(main())
