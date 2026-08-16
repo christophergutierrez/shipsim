@@ -16,6 +16,7 @@ pub struct Ship {
     /// Presentation clients use this to resolve data-driven art; the engine
     /// never reads art. See `frontend/love/assets/ship_art/README.md`.
     pub class_id: String,
+    pub cost: u32,
     /// Relative target silhouette used to scale d20 hit thresholds (1..=7 tiers in `data/sizes.toml`).
     pub size: u32,
     pub pos: Hex,

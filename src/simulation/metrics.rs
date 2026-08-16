@@ -124,6 +124,7 @@ impl MatchMetrics {
                 self.volley_shots += u64::from(size);
                 *self.volley_size_distribution.entry(size).or_default() += 1;
             }
+            Order::Purchase { .. } => {}
             Order::RetiredUnknown => {}
         }
     }

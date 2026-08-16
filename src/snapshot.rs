@@ -29,6 +29,7 @@ pub struct ShipSnapshot {
     /// field for presentation clients; distinct from numeric `id` and display
     /// `class`. Protocol remains v4. See `frontend/love/assets/ship_art/README.md`.
     pub class_id: String,
+    pub cost: u32,
     pub size: u32,
     /// `player`, `ai`, or `scripted` (ADR-0018).
     pub controller: String,
@@ -91,6 +92,7 @@ impl ShipSnapshot {
             side: SideId::A,
             class: String::new(),
             class_id: String::new(),
+            cost: 0,
             size: 0,
             controller: "player".into(),
             q: 0,
@@ -175,6 +177,10 @@ pub struct StateSnapshot {
     pub status: ScenarioStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub winner: Option<SideId>,
+    #[serde(default)]
+    pub credits: std::collections::BTreeMap<SideId, u32>,
+    #[serde(default)]
+    pub purchasable: Vec<PurchaseOption>,
     pub phase: String,
     /// Living ships that have completed (or staged) allocation this turn.
     pub ships_allocated_this_turn: Vec<u32>,
@@ -213,6 +219,12 @@ pub struct CombatLogEntry {
     pub vs_weapon: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct PurchaseOption {
+    pub class: String,
+    pub cost: u32,
+}
+
 impl StateSnapshot {
     pub fn from_game_state(game: &GameState) -> Self {
         Self {
@@ -220,6 +232,8 @@ impl StateSnapshot {
             turn: game.turn_number(),
             status: game.status(),
             winner: game.winner(),
+            credits: game.credits(),
+            purchasable: game.purchase_catalog(),
             phase: game.phase_name().to_string(),
             ships_allocated_this_turn: game.allocated_this_turn(),
             ships_committed_path: game.ships_committed_path(),
@@ -247,6 +261,7 @@ impl StateSnapshot {
                     side: ship.side,
                     class: ship.class.clone(),
                     class_id: ship.class_id.clone(),
+                    cost: ship.cost,
                     size: ship.size,
                     controller: game.controller_label(ship.id).to_string(),
                     q: ship.pos.q,

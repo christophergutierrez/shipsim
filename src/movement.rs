@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::game_state::GameState;
+use crate::schema::SideId;
 use crate::path::PathAction;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -45,6 +46,9 @@ pub enum Order {
     /// One complete volley for `ship` during the firing collection stage.
     /// Empty `shots` is an explicit hold-fire.
     CommitVolley { ship: u32, shots: Vec<VolleyShot> },
+    /// Buy a catalog ship for a side. The engine supplies price and validates
+    /// affordability; clients must use the snapshot catalog.
+    Purchase { side: SideId, class: String },
     // --- Retired v3 orders (deserialize for clear rejection only) ---
     #[serde(other)]
     RetiredUnknown,
@@ -113,6 +117,16 @@ pub enum OrderError {
     SquaddedFollowerPath { ship: u32 },
     #[error("ship {0} has already committed a volley this turn")]
     AlreadyCommittedVolley(u32),
+    #[error("unknown purchasable class {0}")]
+    UnknownPurchaseClass(String),
+    #[error("side {side:?} has insufficient credits for {class} (need {need}, have {have})")]
+    InsufficientCredits { side: SideId, class: String, need: u32, have: u32 },
+    #[error("class {0} is not purchasable")]
+    NotPurchasable(String),
+    #[error("no free spawn hex adjacent to side {side:?} shipyard")]
+    SpawnBlocked { side: SideId },
+    #[error("purchases are only allowed during allocate phase")]
+    PurchaseWrongPhase,
     #[error("ship {ship} path is illegal: {reason}")]
     IllegalPath { ship: u32, reason: String },
     #[error("order requires phase {expected}, actual phase is {actual}")]
@@ -187,6 +201,7 @@ pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError>
             follow,
         } => game.commit_path_with_follow(ship, actions, evasive, follow),
         Order::CommitVolley { ship, shots } => game.commit_volley(ship, shots),
+        Order::Purchase { side, class } => game.purchase(side, &class),
         Order::RetiredUnknown => Err(OrderError::RetiredV3Order),
     }
 }

@@ -764,6 +764,8 @@ mod tests {
             turn: 1,
             status: ScenarioStatus::InProgress,
             winner: None,
+            credits: std::collections::BTreeMap::new(),
+            purchasable: Vec::new(),
             phase: "allocate".into(),
             ships_allocated_this_turn: Vec::new(),
             ships_committed_path: Vec::new(),

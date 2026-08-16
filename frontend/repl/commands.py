@@ -66,6 +66,7 @@ COMMAND_REGISTRY = {
         "ready | nofire | r | commit",
         "submit the volley draft (empty = hold fire)",
     ),
+    "buy": ("buy <class>", "purchase a catalog ship using this side's credits"),
     "quit": ("quit | q", "leave the game; confirms during an unfinished game"),
     "log": ("log", "toggle the session history panel"),
     "hint": ("hint", "repeat the next-action hint for the current phase"),
@@ -1832,6 +1833,21 @@ def build_action(line: str, snap: dict[str, Any], ctx: ReplContext) -> Action:
         return Action(side="board")
     if cmd == "ships":
         return Action(side="ships")
+    if cmd in ("buy", "purchase"):
+        if phase != "allocate":
+            print(f"  purchases are available during allocate (now {phase})")
+            return Action(side="empty")
+        if not rest:
+            options = snap.get("purchasable") or []
+            print("  buy <class>; available: " + ", ".join(f"{o.get('class')}={o.get('cost')}" for o in options))
+            return Action(side="empty")
+        wanted = " ".join(rest)
+        options = snap.get("purchasable") or []
+        match = next((o for o in options if str(o.get("class")) == wanted), None)
+        if match is None:
+            print(f"  unknown purchasable class {wanted!r}; use buy to list catalog")
+            return Action(side="empty")
+        return Action(orders=[{"protocol_version": PROTOCOL_VERSION, "type": "purchase", "side": "a", "class": wanted}])
     if cmd == "raw":
         return Action(side="raw")
     if cmd in ("quit", "exit"):

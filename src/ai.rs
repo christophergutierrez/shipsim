@@ -262,6 +262,7 @@ mod tests {
             side: crate::schema::SideId::A,
             class: "t".into(),
             class_id: "t".into(),
+            cost: 0,
             size: crate::rules::Ruleset::builtin()
                 .combat()
                 .accuracy()

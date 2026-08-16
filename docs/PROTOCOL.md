@@ -94,6 +94,18 @@ Facing 0 = +q (East); turning right from East points Southeast (facing 5 `↘`).
 - Each weapon at most once.
 - Resolves when every living ship has committed; then turn advances automatically.
 
+### `purchase`
+
+```json
+{"protocol_version":4,"type":"purchase","side":"a","class":"basic_swarm"}
+```
+
+Purchases are accepted during `allocate`. The engine charges the requesting
+side's credits and spawns the selected class on an adjacent free hex at that
+side's shipyard. Credits start at 100, carry over, and increase by 100 at each
+new turn. Prices and legal classes come from the snapshot; `shipyard` is never
+purchasable. A blocked yard rejects the purchase without charging credits.
+
 Allocate accepts optional `cloak`, `repair`, `unsquad`, and `squad_leader`
 fields. `commit_path` accepts `follow: true` for a squad member; followers
 must submit an empty action list. Ship snapshots expose `squad_id`,
@@ -146,11 +158,15 @@ Every successful order (and the post-load line) emits a state snapshot with
 | Field | Meaning |
 |---|---|
 | `phase` | `allocate` \| `movement` \| `firing` |
+| `winner` | Optional winning side (`a` or `b`) after a side-relative terminal |
+| `credits` | Per-side credit balances, keyed by `a` and `b` |
+| `purchasable` | Engine catalog entries: `{class, cost}`; excludes scenario furniture |
 | `ships_allocated_this_turn` | Commitment progress for allocate |
 | `ships_committed_path` | Path stage commits |
 | `ships_committed_volley` | Volley stage commits |
 | `path_results` | Last movement resolution telemetry (cost, fallback, conflicts, final hex/facing) |
 | ship `class_id` | Canonical catalog key (ship-definition file stem). Presentation clients key art off this; distinct from numeric `id` and display `class`. Art contract: `frontend/love/assets/ship_art/README.md` |
+| ship `side` | `a` or `b`; team membership, independent of `controller` |
 | ship `max_maneuver_actions` | Hull path-action cap |
 | ship `effective_max_maneuver_actions` | Current path-action cap after engine/SSD modifiers. **`0` means engines are gone** (cannot move). Missing field (old snapshot) is the only case that falls back to `max_maneuver_actions`. |
 | ship `max_shield_per_facing` | Scalar face cap (stock catalog; also the max of `max_shields`) |

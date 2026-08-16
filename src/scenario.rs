@@ -327,6 +327,7 @@ pub fn load_scenario_def_with_rules(
             // Canonical identity is the catalog key used to load this
             // definition. `load_ship_def` rejects a conflicting internal id.
             class_id: placement.class.clone(),
+            cost: ship_def.cost,
             size: ship_def.size,
             pos,
             facing: placement.facing,

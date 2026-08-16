@@ -119,9 +119,14 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
             legend = muted("  (* = next pending commit, @ = your focused ship)")
         else:
             legend = muted("  (@ = your focused ship)")
+    credits = (snap.get("credits") or {}).get("a")
+    economy_s = f"  credits={credits}" if credits is not None else ""
+    catalog = snap.get("purchasable") or []
+    if catalog:
+        economy_s += "  buy=" + ",".join(f"{item.get('class')}:{item.get('cost')}" for item in catalog)
     return (
         f"{rule('shipsim')}\n"
-        f"turn {turn}  phase={phase_s}  status={status_s}{active_s}{sel_s}{actions_s}"
+        f"turn {turn}  phase={phase_s}  status={status_s}{economy_s}{active_s}{sel_s}{actions_s}"
         f"{legend}"
     )
 

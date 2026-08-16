@@ -205,6 +205,13 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             Style::default().fg(status_color),
         ),
     ];
+    if let Some(credits) = snap.credits.get("a") {
+        status_spans.push(Span::raw("│"));
+        status_spans.push(Span::styled(
+            format!(" credits={credits} "),
+            Style::default().fg(Color::Green),
+        ));
+    }
     // v4 stage progress: how many living player ships have committed this stage.
     if let Some((label, done, total)) = stage_progress(snap) {
         status_spans.push(Span::raw("│"));

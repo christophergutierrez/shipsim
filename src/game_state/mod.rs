@@ -182,6 +182,8 @@ pub struct GameState {
     turn: Turn,
     status: ScenarioStatus,
     winner: Option<SideId>,
+    credits: BTreeMap<SideId, u32>,
+    catalog: BTreeMap<String, Ship>,
     phase: Phase,
     /// Applied allocation this turn (after barrier) and staged commits.
     allocated_this_turn: HashSet<u32>,
@@ -285,6 +287,11 @@ impl GameState {
         rules: Arc<Ruleset>,
         squad_defs: BTreeMap<u32, (u32, Vec<u32>)>,
     ) -> Self {
+        let catalog = ships
+            .iter()
+            .filter(|ship| ship.class_id != "shipyard")
+            .map(|ship| (ship.class_id.clone(), ship.clone()))
+            .collect();
         let mut state = Self {
             board,
             ships,
@@ -294,6 +301,8 @@ impl GameState {
             turn: Turn::new(),
             status: ScenarioStatus::InProgress,
             winner: None,
+            credits: BTreeMap::from([(SideId::A, 100), (SideId::B, 100)]),
+            catalog,
             phase: Phase::Allocate,
             allocated_this_turn: HashSet::new(),
             staged_allocations: BTreeMap::new(),
@@ -320,6 +329,70 @@ impl GameState {
 
     pub fn winner(&self) -> Option<SideId> {
         self.winner
+    }
+
+    pub fn credits(&self) -> BTreeMap<SideId, u32> {
+        self.credits.clone()
+    }
+
+    pub fn purchase_catalog(&self) -> Vec<crate::snapshot::PurchaseOption> {
+        self.catalog
+            .iter()
+            .map(|(class, ship)| crate::snapshot::PurchaseOption { class: class.clone(), cost: ship.cost })
+            .collect()
+    }
+
+    pub fn purchase(
+        &mut self,
+        side: SideId,
+        class: &str,
+    ) -> Result<(), crate::movement::OrderError> {
+        if self.phase != Phase::Allocate {
+            return Err(crate::movement::OrderError::PurchaseWrongPhase);
+        }
+        if class == "shipyard" {
+            return Err(crate::movement::OrderError::NotPurchasable(class.to_string()));
+        }
+        let template = self
+            .catalog
+            .get(class)
+            .cloned()
+            .ok_or_else(|| crate::movement::OrderError::UnknownPurchaseClass(class.to_string()))?;
+        let have = self.credits.get(&side).copied().unwrap_or(0);
+        let cost = template.cost;
+        if have < cost {
+            return Err(crate::movement::OrderError::InsufficientCredits {
+                side,
+                class: class.to_string(),
+                need: cost,
+                have,
+            });
+        }
+        let yard = self
+            .ships
+            .iter()
+            .find(|ship| ship.side == side && ship.class_id == "shipyard" && !ship.destroyed)
+            .map(|ship| ship.pos)
+            .ok_or(crate::movement::OrderError::SpawnBlocked { side })?;
+        let center = Hex::new(self.board.width as i32 / 2, self.board.height as i32 / 2);
+        let spawn = std::iter::once(yard)
+            .chain(yard.neighbors())
+            .filter(|hex| self.board.mode == crate::board::MapMode::Unbounded || self.board.contains(*hex))
+            .find(|hex| !self.is_occupied_by_other(0, *hex))
+            .filter(|hex| *hex != yard)
+            .ok_or(crate::movement::OrderError::SpawnBlocked { side })?;
+        let mut ship = template;
+        ship.id = self.ships.iter().map(|s| s.id).max().unwrap_or(0).saturating_add(1);
+        ship.side = side;
+        ship.pos = spawn;
+        ship.facing = Hex::facing_between(spawn, center).unwrap_or(0);
+        ship.reset_v2_allocation();
+        self.ships.push(ship);
+        self.credits.insert(side, have - cost);
+        if side == SideId::B {
+            self.npcs.insert(self.ships.last().unwrap().id, NpcController::GreedySeek);
+        }
+        Ok(())
     }
 
     pub fn rules_fingerprint(&self) -> &str {
@@ -370,6 +443,12 @@ impl GameState {
 
 
     pub fn reset_all_power(&mut self) {
+        if self.turn.number() > 1 {
+            for side in [SideId::A, SideId::B] {
+                let current = self.credits.get(&side).copied().unwrap_or(0);
+                self.credits.insert(side, current.saturating_add(100));
+            }
+        }
         for s in &mut self.ships {
             if !s.destroyed {
                 s.reset_v2_allocation();
@@ -852,5 +931,36 @@ controller = "ai"
             game.turn_number() > start_turn,
             "turn must advance with dry magazines"
         );
+    }
+}
+
+#[cfg(test)]
+mod economy_tests {
+    use crate::movement::{apply_order, Order, OrderError};
+    use crate::scenario::load_scenario;
+    use crate::schema::SideId;
+    use crate::snapshot::StateSnapshot;
+    use std::path::Path;
+
+    #[test]
+    fn credits_start_at_one_income_and_accrue_at_turn_start() {
+        let mut game = load_scenario(Path::new("scenarios/shipyard_assault.toml")).unwrap();
+        assert_eq!(game.credits().get(&SideId::A), Some(&100));
+        apply_order(&mut game, Order::Purchase { side: SideId::A, class: "basic_swarm".into() }).unwrap();
+        assert_eq!(game.credits().get(&SideId::A), Some(&56));
+        game.advance_turn_counter();
+        game.reset_all_power();
+        assert_eq!(game.credits().get(&SideId::A), Some(&156));
+    }
+
+    #[test]
+    fn purchase_catalog_is_snapshot_data_and_excludes_shipyard() {
+        let game = load_scenario(Path::new("scenarios/shipyard_assault.toml")).unwrap();
+        let snapshot = StateSnapshot::from_game_state(&game);
+        assert!(snapshot.purchasable.iter().any(|entry| entry.class == "basic_swarm"));
+        assert!(!snapshot.purchasable.iter().any(|entry| entry.class == "shipyard"));
+        let mut game2 = game;
+        let error = apply_order(&mut game2, Order::Purchase { side: SideId::A, class: "not_a_class".into() }).unwrap_err();
+        assert!(matches!(error, OrderError::UnknownPurchaseClass(_)));
     }
 }

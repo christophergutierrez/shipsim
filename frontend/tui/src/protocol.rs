@@ -18,6 +18,10 @@ pub struct Snapshot {
     pub status: String,
     #[serde(default)]
     pub winner: Option<String>,
+    #[serde(default)]
+    pub credits: std::collections::BTreeMap<String, u32>,
+    #[serde(default)]
+    pub purchasable: Vec<PurchaseOption>,
     /// `allocate` | `movement` | `firing`.
     pub phase: String,
     /// Ships that have committed allocate this turn.
@@ -97,6 +101,8 @@ pub struct Ship {
     pub id: i64,
     #[serde(default)]
     pub side: String,
+    #[serde(default)]
+    pub cost: u32,
     pub class: String,
     pub size: u32,
     pub controller: String,
@@ -164,6 +170,12 @@ pub struct Ship {
     pub squad_leader: Option<i64>,
     #[serde(default)]
     pub squad_members: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PurchaseOption {
+    pub class: String,
+    pub cost: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
