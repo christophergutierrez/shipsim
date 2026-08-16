@@ -8,7 +8,9 @@ use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
 
-use crate::app::{AllocDraft, App, Confirmation, Mode};
+use crate::app::{
+    AgentProfile, AllocDraft, App, Confirmation, Mode, PurchasePicker, PurchasePickerKind,
+};
 use crate::input::{handle_key, KeyResult};
 use crate::protocol::{
     callsign, facing_arrow, shield_label, ErrorResponse, Maneuver, Order, Snapshot,
@@ -322,6 +324,197 @@ fn phase3_lobby_renders_at_supported_sizes() {
     let wide = render_to_string(&mut app, 120, 40);
     assert!(small.contains("Create match") && small.contains("Enter create"));
     assert!(wide.contains("Opponent") && wide.contains("Shipyard Assault"));
+}
+
+#[test]
+fn phase6_lobby_renders_llm_agent_thinking_and_preserves_metadata() {
+    use shipsim_core::session_protocol::{
+        ControllerSpec, LobbyPhase, ParticipantStatus, ScenarioSummary, SeatLobbyState,
+        SeatOccupancy, SessionMessage, SESSION_PROTOCOL_VERSION,
+    };
+    let mut app = App::new_network("127.0.0.1:4100");
+    app.apply_session_message(SessionMessage::LobbyState {
+        session_protocol_version: SESSION_PROTOCOL_VERSION,
+        state: LobbyPhase::WaitingForSeats,
+        scenario: Some(ScenarioSummary {
+            id: "shipyard_assault".into(),
+            display_name: "Shipyard Assault".into(),
+        }),
+        controllers: None,
+        seats: vec![SeatLobbyState {
+            side: shipsim_core::schema::SideId::B,
+            controller: ControllerSpec::LlmAgent {},
+            occupancy: SeatOccupancy::Occupied,
+            display_name: Some("agent".into()),
+            ready: false,
+            participant_status: Some(ParticipantStatus::Thinking),
+        }],
+        bot_policies: Vec::new(),
+        waiting_reason: Some("Waiting for side B".into()),
+    });
+    app.lobby.as_mut().unwrap().screen = crate::app::LobbyScreen::Waiting;
+    let lobby = app.lobby.as_ref().unwrap();
+    assert_eq!(lobby.opponent_status, Some(ParticipantStatus::Thinking));
+    let rendered = render_to_string(&mut app, 120, 40);
+    assert!(rendered.contains("LLM agent: thinking"), "{rendered}");
+
+    app.update_snapshot(test_snapshot());
+    assert_eq!(
+        app.lobby_history.as_ref().and_then(|l| l.opponent_status),
+        Some(ParticipantStatus::Thinking)
+    );
+    let rendered = render_to_string(&mut app, 120, 40);
+    assert!(rendered.contains("Opponent LLM agent: thinking"), "{rendered}");
+}
+
+#[test]
+fn phase6_running_agent_status_never_recreates_lobby_over_battle() {
+    use shipsim_core::session_protocol::{
+        ControllerSpec, LobbyPhase, ParticipantStatus, SeatLobbyState, SeatOccupancy,
+        SessionMessage, SESSION_PROTOCOL_VERSION,
+    };
+    let mut app = App::new_network("127.0.0.1:4100");
+    let seats = |status| {
+        vec![SeatLobbyState {
+            side: shipsim_core::schema::SideId::B,
+            controller: ControllerSpec::LlmAgent {},
+            occupancy: SeatOccupancy::Occupied,
+            display_name: Some("agent".into()),
+            ready: true,
+            participant_status: Some(status),
+        }]
+    };
+    app.apply_session_message(SessionMessage::LobbyState {
+        session_protocol_version: SESSION_PROTOCOL_VERSION,
+        state: LobbyPhase::WaitingForSeats,
+        scenario: None,
+        controllers: None,
+        seats: seats(ParticipantStatus::Ready),
+        bot_policies: Vec::new(),
+        waiting_reason: None,
+    });
+    app.update_snapshot(test_snapshot());
+    assert!(app.lobby.is_none());
+    app.apply_session_message(SessionMessage::LobbyState {
+        session_protocol_version: SESSION_PROTOCOL_VERSION,
+        state: LobbyPhase::Running,
+        scenario: None,
+        controllers: None,
+        seats: seats(ParticipantStatus::Thinking),
+        bot_policies: Vec::new(),
+        waiting_reason: Some("LLM agent thinking".into()),
+    });
+    assert!(app.lobby.is_none());
+    let rendered = render_to_string(&mut app, 120, 40);
+    assert!(rendered.contains("Opponent LLM agent: thinking"), "{rendered}");
+    assert!(!rendered.contains("shipsim TUI · lobby"), "{rendered}");
+}
+
+#[test]
+fn running_disconnect_error_is_visible_without_claiming_victory() {
+    use shipsim_core::session_protocol::{
+        SessionErrorCode, SessionMessage, SESSION_PROTOCOL_VERSION,
+    };
+    let mut app = App::new_network("127.0.0.1:4100");
+    app.update_snapshot(test_snapshot());
+    app.apply_session_message(SessionMessage::Error {
+        session_protocol_version: SESSION_PROTOCOL_VERSION,
+        code: SessionErrorCode::ParticipantDisconnected,
+        message: "side B disconnected".into(),
+    });
+    assert!(app.lobby.is_none());
+    assert!(app.engine_dead);
+    assert_eq!(app.snap.as_ref().unwrap().status, "InProgress");
+    assert_eq!(
+        app.last_error.as_deref(),
+        Some("Opponent disconnected; match ended. Press q to quit.")
+    );
+    let rendered = render_to_string(&mut app, 120, 40);
+    assert!(rendered.contains("Opponent disconnected; match ended"), "{rendered}");
+    assert!(!rendered.contains("Victory"), "{rendered}");
+}
+
+#[test]
+fn phase6_llm_profile_cycle_is_visible_and_uses_selected_argv() {
+    let mut app = App::new_network("127.0.0.1:4100");
+    let lobby = app.lobby.as_mut().unwrap();
+    lobby.screen = crate::app::LobbyScreen::Host;
+    lobby.agent_profiles = vec![
+        AgentProfile { name: "local".into(), kind: "openai_compatible".into(), model: "one".into() },
+        AgentProfile { name: "fireworks".into(), kind: "openai_compatible".into(), model: "two".into() },
+    ];
+    handle_key(&mut app, make_key('3'));
+    handle_key(&mut app, make_key('l'));
+    assert_eq!(app.lobby.as_ref().unwrap().selected_agent_profile().unwrap().name, "fireworks");
+    let rendered = render_to_string(&mut app, 120, 40);
+    assert!(rendered.contains("LLM profile: fireworks") && rendered.contains("model=two"));
+    assert_eq!(crate::agent_argv("127.0.0.1:4100", "fireworks"), vec![
+        "play", "--connect", "127.0.0.1:4100", "--profile", "fireworks", "--join-token-stdin"
+    ]);
+}
+
+#[test]
+fn phase4_catalog_purchase_uses_viewer_side_and_survives_remote_snapshot() {
+    let mut snap = test_snapshot();
+    snap.credits.insert("a".into(), 100);
+    snap.credits.insert("b".into(), 100);
+    snap.purchasable = vec![crate::protocol::PurchaseOption {
+        class: "basic_swarm".into(),
+        cost: 50,
+    }];
+    let mut app = App::new();
+    app.viewer_side = Some(shipsim_core::schema::SideId::B);
+    app.update_snapshot(snap.clone());
+    app.open_catalog_purchase();
+    let _ = handle_key(&mut app, make_key('j'));
+    assert!(app.purchase_picker.is_some());
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let KeyResult::SendOrder(order) = result else { panic!("purchase should emit order") };
+    assert!(order.to_json().contains(r#""side":"b""#));
+    assert!(app.purchase_picker.is_none());
+    assert!(app.purchase_pending);
+
+    // A snapshot caused by the other seat must not close an unsubmitted picker.
+    app.update_snapshot(snap);
+    app.open_catalog_purchase();
+    app.update_snapshot(app.snap.clone().unwrap());
+    assert!(app.purchase_picker.is_some());
+}
+
+#[test]
+fn phase5_custom_purchase_picker_is_side_symmetric_and_excludes_stock() {
+    let mut snap = test_snapshot();
+    snap.credits.insert("b".into(), 1000);
+    snap.purchasable = vec![];
+    let mut app = App::new();
+    app.viewer_side = Some(shipsim_core::schema::SideId::B);
+    app.update_snapshot(snap);
+    app.purchase_picker = Some(PurchasePicker {
+        kind: PurchasePickerKind::Custom,
+        index: 0,
+        custom_designs: vec![shipsim_core::shipyard::Design {
+            id: "player_scout".into(),
+            name: "Player Scout".into(),
+            group: "user".into(),
+            size: 1,
+            material: "titanium".into(),
+            engine: "fission".into(),
+            engine_size: "s".into(),
+            armored: false,
+            shields: [0; 6],
+            weapons: vec![],
+            systems: vec![],
+        }],
+        notice: None,
+    });
+    let rendered = render_to_string(&mut app, 120, 40);
+    assert!(rendered.contains("player_scout") && rendered.contains("Saved designs"));
+    let result = handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter));
+    let KeyResult::SendOrder(order) = result else { panic!("custom purchase should emit order") };
+    let json = order.to_json();
+    assert!(json.contains(r#""type":"purchase_custom""#));
+    assert!(json.contains(r#""side":"b""#));
+    assert!(app.purchase_pending);
 }
 
 #[test]
@@ -696,6 +889,25 @@ fn app_record_error_stores_message() {
     app.record_error(&err);
     assert_eq!(app.last_error.as_deref(), Some("BAD_ORDER: no power"));
     assert!(app.log.last().unwrap().contains("ERROR: no power"));
+}
+
+#[test]
+fn app_record_error_marks_generic_pending_purchase_as_rejected() {
+    let mut app = App::new();
+    app.purchase_pending = true;
+    let err = ErrorResponse {
+        kind: "error".into(),
+        ok: false,
+        code: "order_rejected".into(),
+        message: "credits changed while waiting".into(),
+        order: None,
+    };
+    app.record_error(&err);
+    assert!(!app.purchase_pending);
+    assert_eq!(
+        app.purchase_notice.as_deref(),
+        Some("Purchase rejected: credits changed while waiting")
+    );
 }
 
 #[test]

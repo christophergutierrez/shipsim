@@ -65,6 +65,9 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
     if app.snap.is_none() && app.lobby.is_some() {
         return handle_lobby(app, key);
     }
+    if app.purchase_picker.is_some() {
+        return handle_purchase_picker(app, key);
+    }
 
     // Global keys
     match key.code {
@@ -210,6 +213,11 @@ fn handle_lobby(app: &mut App, key: KeyEvent) -> KeyResult {
                 }
             }
             KeyCode::Char('3') => lobby.opponent = ControllerSpec::LlmAgent {},
+            KeyCode::Char('l') if !lobby.agent_profiles.is_empty() => {
+                lobby.agent_profile_index =
+                    (lobby.agent_profile_index + 1) % lobby.agent_profiles.len();
+                lobby.opponent = ControllerSpec::LlmAgent {};
+            }
             KeyCode::Char('b') => {
                 if !lobby.bot_policies.is_empty() {
                     lobby.bot_index = (lobby.bot_index + 1) % lobby.bot_policies.len();
@@ -219,6 +227,16 @@ fn handle_lobby(app: &mut App, key: KeyEvent) -> KeyResult {
                 }
             }
             KeyCode::Enter => {
+                if matches!(lobby.opponent, ControllerSpec::LlmAgent {})
+                    && lobby.agent_profiles.is_empty()
+                {
+                    lobby.error = Some(
+                        "No LLM profiles. Copy frontend/agent/agents.example.toml or set SHIPSIM_AGENT_CONFIG."
+                            .into(),
+                    );
+                    lobby.screen = crate::app::LobbyScreen::Error;
+                    return KeyResult::Continue;
+                }
                 return KeyResult::SendSession(SessionMessage::CreateMatch {
                     session_protocol_version: SESSION_PROTOCOL_VERSION,
                     scenario_id: lobby.scenario_id(),
@@ -244,6 +262,80 @@ fn handle_lobby(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyCode::Char(ch) if !ch.is_control() => lobby.join_token.push(ch),
             _ => {}
         },
+        _ => {}
+    }
+    KeyResult::Continue
+}
+
+fn handle_purchase_picker(app: &mut App, key: KeyEvent) -> KeyResult {
+    use crate::app::PurchasePickerKind;
+    let side = app.viewer_side_or_a();
+    if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
+        app.purchase_picker = None;
+        return KeyResult::Continue;
+    }
+    let Some(picker) = app.purchase_picker.as_mut() else {
+        return KeyResult::Continue;
+    };
+    let kind = picker.kind;
+    let count = match kind {
+        PurchasePickerKind::Catalog => app
+            .snap
+            .as_ref()
+            .map(|snap| snap.purchasable.len())
+            .unwrap_or(0),
+        PurchasePickerKind::Custom => picker.custom_designs.len(),
+    };
+    if count == 0 {
+        picker.notice = Some(match kind {
+            PurchasePickerKind::Catalog => "Server supplied no purchasable classes".into(),
+            PurchasePickerKind::Custom => "No saved designs found; save one in --yard first".into(),
+        });
+        return KeyResult::Continue;
+    }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => picker.index = picker.index.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') => picker.index = (picker.index + 1).min(count - 1),
+        KeyCode::Enter => {
+            let index = picker.index;
+            let (cost, order) = match kind {
+                PurchasePickerKind::Catalog => {
+                    let option = app.snap.as_ref().and_then(|s| s.purchasable.get(index));
+                    let Some(option) = option else { return KeyResult::Continue };
+                    (option.cost, Order::purchase(side, option.class.clone()))
+                }
+                PurchasePickerKind::Custom => {
+                    let Some(design) = picker.custom_designs.get(index).cloned() else {
+                        return KeyResult::Continue;
+                    };
+                    let cost = crate::yard::preview_design_cost(&design);
+                    (cost, Order::purchase_custom(side, design))
+                }
+            };
+            let credits_key = match side {
+                shipsim_core::schema::SideId::A => "a",
+                shipsim_core::schema::SideId::B => "b",
+            };
+            let credits = app
+                .snap
+                .as_ref()
+                .and_then(|s| s.credits.get(credits_key).copied())
+                .unwrap_or(0);
+            let is_invalid_custom_hint = matches!(kind, PurchasePickerKind::Custom) && cost == u32::MAX;
+            if cost > credits && !is_invalid_custom_hint {
+                picker.notice = Some(format!("Unaffordable: cost {cost}, credits {credits}"));
+                app.purchase_notice = picker.notice.clone();
+                return KeyResult::Continue;
+            }
+            app.purchase_picker = None;
+            app.purchase_pending = true;
+            app.purchase_notice = Some(if is_invalid_custom_hint {
+                "Purchase requested; local preview invalid, server will validate".into()
+            } else {
+                format!("Purchase requested (cost {cost})")
+            });
+            return emit_order(app, order);
+        }
         _ => {}
     }
     KeyResult::Continue
@@ -932,6 +1024,14 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
     };
 
     match key.code {
+        KeyCode::Char('p') => {
+            app.open_catalog_purchase();
+            KeyResult::Continue
+        }
+        KeyCode::Char('c') => {
+            app.open_custom_purchase();
+            KeyResult::Continue
+        }
         KeyCode::Char(' ') if app.focused().is_some_and(|ship| ship.power_available == 0) => {
             app.log("allocate: disabled ship passes with zero power");
             app.digit_entry = None;

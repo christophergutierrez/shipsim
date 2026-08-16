@@ -152,7 +152,7 @@ fn render_lobby(f: &mut Frame, app: &App, area: Rect) {
         LobbyScreen::Connecting => lines.push(Line::from("Negotiating session protocol…")),
         LobbyScreen::Host => {
             lines.push(Line::from(
-                "↑/↓ scenario · 1 Human · 2 Bot · 3 LLM · b policy · Enter create",
+                "↑/↓ scenario · 1 Human · 2 Bot · 3 LLM · l profile · b policy · Enter create",
             ));
             let scenario = lobby
                 .scenarios
@@ -166,6 +166,17 @@ fn render_lobby(f: &mut Frame, app: &App, area: Rect) {
                 shipsim_core::session_protocol::ControllerSpec::LlmAgent {} => "LLM agent",
             };
             lines.push(Line::from(format!("Opponent: {opponent}")));
+            if matches!(lobby.opponent, shipsim_core::session_protocol::ControllerSpec::LlmAgent {}) {
+                if let Some(profile) = lobby.selected_agent_profile() {
+                    lines.push(Line::from(format!(
+                        "LLM profile: {} · model={} (l cycles)", profile.name, profile.model
+                    )));
+                } else {
+                    lines.push(Line::from(
+                        "No LLM profiles; copy agents.example.toml or set SHIPSIM_AGENT_CONFIG",
+                    ));
+                }
+            }
         }
         LobbyScreen::Join => {
             lines.push(Line::from("Join token supplied with --join-token-stdin."));
@@ -191,6 +202,9 @@ fn render_lobby(f: &mut Frame, app: &App, area: Rect) {
             }
             if let Some(side) = app.viewer_side {
                 lines.push(Line::from(format!("Assigned side: {:?}", side)));
+            }
+            if let Some(status) = lobby.opponent_status {
+                lines.push(Line::from(format!("LLM agent: {}", participant_status_label(status))));
             }
         }
         LobbyScreen::Error => {
@@ -218,6 +232,14 @@ fn render_lobby(f: &mut Frame, app: &App, area: Rect) {
 fn header_line_count(app: &App) -> u16 {
     let mut n = 1u16; // status
     if app.last_error.is_some() {
+        n += 1;
+    }
+    if app
+        .lobby_history
+        .as_ref()
+        .and_then(|lobby| lobby.opponent_status)
+        .is_some()
+    {
         n += 1;
     }
     n
@@ -375,6 +397,16 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )));
     }
+    if let Some(status) = app
+        .lobby_history
+        .as_ref()
+        .and_then(|lobby| lobby.opponent_status)
+    {
+        lines.push(Line::from(Span::styled(
+            format!(" Opponent LLM agent: {}", participant_status_label(status)),
+            Style::default().fg(Color::Yellow),
+        )));
+    }
 
     // Tutorial prompts live in the coach panel (bottom-right), not here —
     // a second yellow strip in the header duplicated the coach.
@@ -382,6 +414,14 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     let block = Block::default().borders(Borders::ALL).title("shipsim TUI");
     let p = Paragraph::new(lines).block(block);
     f.render_widget(p, area);
+}
+
+fn participant_status_label(status: shipsim_core::session_protocol::ParticipantStatus) -> &'static str {
+    match status {
+        shipsim_core::session_protocol::ParticipantStatus::Ready => "ready",
+        shipsim_core::session_protocol::ParticipantStatus::Thinking => "thinking",
+        shipsim_core::session_protocol::ParticipantStatus::Error => "error",
+    }
 }
 
 fn render_confirm_modal(f: &mut Frame, app: &App, area: Rect) {
@@ -1087,6 +1127,10 @@ fn damage_card(label: &str, ship: &Ship, draft: Option<&crate::app::AllocDraft>)
 }
 
 fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool, area: Rect) {
+    if app.purchase_picker.is_some() {
+        render_purchase_panel(f, app, area);
+        return;
+    }
     let (title, lines) = match &app.mode {
         Mode::Normal => (
             "Overview & Help",
@@ -1317,7 +1361,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
             Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string())
         }
         Mode::Allocate => Some(
-            "Esc help · ↑↓ select · ←→ spend · ↓ weapons · PgDn shields · Enter commit".to_string(),
+            "Esc help · ↑↓ select · ←→ spend · ↓ weapons · p buy · c custom · Enter commit".to_string(),
         ),
         Mode::Movement => Some(movement_footer(app)),
         Mode::Fire if is_disabled_ship(app) => {
@@ -1360,6 +1404,55 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     };
     let p = Paragraph::new(lines).wrap(wrap).scroll((scroll, 0));
     f.render_widget(p, body_area);
+}
+
+fn render_purchase_panel(f: &mut Frame, app: &App, area: Rect) {
+    use crate::app::PurchasePickerKind;
+    let Some(picker) = app.purchase_picker.as_ref() else { return };
+    let Some(snap) = app.snap.as_ref() else { return };
+    let side = app.viewer_side_or_a();
+    let credits = match side {
+        shipsim_core::schema::SideId::A => snap.credits.get("a").copied().unwrap_or(0),
+        shipsim_core::schema::SideId::B => snap.credits.get("b").copied().unwrap_or(0),
+    };
+    let mut lines = vec![Line::from(format!(
+        " ↑/↓ select · Enter purchase · Esc cancel · side {:?} credits={credits}", side
+    ))];
+    match picker.kind {
+        PurchasePickerKind::Catalog => {
+            lines.push(Line::from(" Catalog ships (server-authoritative):"));
+            for (i, option) in snap.purchasable.iter().enumerate() {
+                let selected = if i == picker.index { "▶" } else { " " };
+                let afford = if option.cost <= credits { "buy" } else { "too expensive" };
+                lines.push(Line::from(format!(
+                    " {selected} {:<24} {:>4} credits  {afford}", option.class, option.cost
+                )));
+            }
+        }
+        PurchasePickerKind::Custom => {
+            lines.push(Line::from(" Saved designs (cost is a local hint; server validates):"));
+            for (i, design) in picker.custom_designs.iter().enumerate() {
+                let selected = if i == picker.index { "▶" } else { " " };
+                let cost = crate::yard::preview_design_cost(design);
+                let afford = if cost <= credits { "buy" } else { "too expensive" };
+                lines.push(Line::from(format!(
+                    " {selected} {:<24} {:>4} credits  {afford}", design.id, cost
+                )));
+            }
+        }
+    }
+    if let Some(notice) = picker.notice.as_deref().or(app.purchase_notice.as_deref()) {
+        lines.push(Line::from(Span::styled(
+            format!(" {notice}"),
+            Style::default().fg(Color::Yellow),
+        )));
+    }
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(Block::default().borders(Borders::ALL).title("Purchase"))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }
 
 fn allocate_scroll(app: &App, area: Rect) -> u16 {

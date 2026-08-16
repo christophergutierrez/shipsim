@@ -445,6 +445,14 @@ pub struct Order {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OrderBody {
+    Purchase {
+        side: shipsim_core::schema::SideId,
+        class: String,
+    },
+    PurchaseCustom {
+        side: shipsim_core::schema::SideId,
+        design: shipsim_core::shipyard::Design,
+    },
     Allocate {
         ship: i64,
         movement: u32,
@@ -496,6 +504,26 @@ pub enum Maneuver {
 }
 
 impl Order {
+    pub fn purchase(side: shipsim_core::schema::SideId, class: impl Into<String>) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            body: OrderBody::Purchase {
+                side,
+                class: class.into(),
+            },
+        }
+    }
+
+    pub fn purchase_custom(
+        side: shipsim_core::schema::SideId,
+        design: shipsim_core::shipyard::Design,
+    ) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            body: OrderBody::PurchaseCustom { side, design },
+        }
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_else(|_| "{}".into())
     }

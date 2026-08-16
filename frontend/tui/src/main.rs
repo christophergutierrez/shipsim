@@ -14,8 +14,9 @@ mod tutorial;
 mod ui;
 mod yard;
 
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{self, Event};
@@ -110,6 +111,12 @@ fn main() -> std::io::Result<()> {
     } else {
         App::new()
     };
+    if network {
+        let profiles = discover_agent_profiles();
+        if let Some(lobby) = app.lobby.as_mut() {
+            lobby.agent_profiles = profiles;
+        }
+    }
     if network {
         let hello = SessionMessage::Hello {
             session_protocol_version: SESSION_PROTOCOL_VERSION,
@@ -280,8 +287,11 @@ fn run(
     app: &mut App,
     harness: &mut Harness,
 ) -> std::io::Result<()> {
+    let mut agent = AgentProcess::default();
     loop {
         drain_transport(app, harness);
+        agent.maybe_spawn(app);
+        agent.refresh_status(app);
         drain_pending_previews(app, harness);
         if !harness.is_network() {
             pump_scripted(app, harness);
@@ -337,6 +347,142 @@ fn run(
     }
 }
 
+#[derive(Default)]
+struct AgentProcess {
+    child: Option<Child>,
+}
+
+impl AgentProcess {
+    fn maybe_spawn(&mut self, app: &mut App) {
+        let Some(lobby) = app.lobby.as_mut() else { return };
+        if !matches!(
+            lobby.opponent,
+            shipsim_core::session_protocol::ControllerSpec::LlmAgent {}
+        ) || self.child.is_some()
+        {
+            return;
+        }
+        let Some(token) = lobby.invitation_token.clone() else { return };
+        let Some(profile) = lobby.selected_agent_profile().cloned() else {
+            lobby.agent_status = Some("error: no agent profile available".into());
+            return;
+        };
+        let Some(address) = (!lobby.address.is_empty()).then(|| lobby.address.clone()) else {
+            return;
+        };
+        let executable = resolve_agent_binary();
+        let mut command = Command::new(&executable);
+        command.args(agent_argv(&address, &profile.name))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        match command.spawn() {
+            Ok(mut child) => {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = writeln!(stdin, "{token}");
+                }
+                lobby.agent_status = Some(format!("starting {}", profile.name));
+                self.child = Some(child);
+                // Do not retain the token after handing it to the child.
+                lobby.invitation_token = None;
+                lobby.invitation = None;
+            }
+            Err(error) => {
+                lobby.agent_status = Some(format!("error: unable to start agent ({error})"));
+            }
+        }
+    }
+
+    fn refresh_status(&mut self, app: &mut App) {
+        let Some(child) = self.child.as_mut() else { return };
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let lobby = if let Some(lobby) = app.lobby.as_mut() {
+                    Some(lobby)
+                } else {
+                    app.lobby_history.as_mut()
+                };
+                if let Some(lobby) = lobby {
+                    lobby.agent_status = Some(if status.success() {
+                        "agent exited".into()
+                    } else {
+                        format!("agent exited ({status})")
+                    });
+                }
+                self.child = None;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let lobby = if let Some(lobby) = app.lobby.as_mut() {
+                    Some(lobby)
+                } else {
+                    app.lobby_history.as_mut()
+                };
+                if let Some(lobby) = lobby {
+                    lobby.agent_status = Some(format!("agent status error: {error}"));
+                }
+            }
+        }
+    }
+}
+
+impl Drop for AgentProcess {
+    fn drop(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn resolve_agent_binary() -> PathBuf {
+    if let Ok(path) = std::env::var("SHIPSIM_AGENT_BIN") {
+        return PathBuf::from(path);
+    }
+    let repo_default = crate::yard::find_repo_root().join("frontend/agent/shipsim-agent");
+    if repo_default.is_file() {
+        return repo_default;
+    }
+    PathBuf::from("shipsim-agent")
+}
+
+pub(crate) fn agent_argv(address: &str, profile: &str) -> Vec<String> {
+    vec![
+        "play".into(),
+        "--connect".into(),
+        address.into(),
+        "--profile".into(),
+        profile.into(),
+        "--join-token-stdin".into(),
+    ]
+}
+
+fn discover_agent_profiles() -> Vec<app::AgentProfile> {
+    let executable = resolve_agent_binary();
+    let output = Command::new(executable)
+        .arg("profiles")
+        .arg("--json")
+        .stderr(Stdio::null())
+        .output();
+    let Ok(output) = output else { return Vec::new() };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let Ok(values) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) else {
+        return Vec::new();
+    };
+    values
+        .into_iter()
+        .filter_map(|value| {
+            Some(app::AgentProfile {
+                name: value.get("name")?.as_str()?.to_owned(),
+                kind: value.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown").into(),
+                model: value.get("model").and_then(|v| v.as_str()).unwrap_or("").into(),
+            })
+        })
+        .collect()
+}
+
 fn drain_transport(app: &mut App, harness: &mut Harness) {
     for line in harness.try_read_lines() {
         match line {
@@ -346,6 +492,10 @@ fn drain_transport(app: &mut App, harness: &mut Harness) {
                 if let Some(lobby) = app.lobby.as_mut() {
                     lobby.error = Some("Server disconnected; press q to quit".into());
                     lobby.screen = app::LobbyScreen::Error;
+                } else {
+                    app.last_error = Some(
+                        "Opponent disconnected; match ended. Press q to quit.".into(),
+                    );
                 }
             }
             other => apply_engine_line(app, other),

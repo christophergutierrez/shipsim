@@ -1257,3 +1257,11 @@ pub fn find_repo_root() -> PathBuf {
 pub fn repo_has_yard(root: &Path) -> bool {
     root.join("data/designs").is_dir() && root.join("data/components.toml").is_file()
 }
+
+/// Cost projection used by the in-match picker. The server remains
+/// authoritative; this is only an affordability hint for the local UI.
+pub fn preview_design_cost(design: &shipyard::Design) -> u32 {
+    shipyard::preview_design(&find_repo_root(), design)
+        .map(|preview| preview.cost)
+        .unwrap_or(u32::MAX)
+}

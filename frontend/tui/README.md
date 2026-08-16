@@ -103,6 +103,15 @@ Network mode keeps the TUI responsive while the lobby or the other seat is
 quiet. The server remains authoritative; the TUI only renders snapshots and
 sends ordinary protocol-v4 orders.
 
+During allocation, press `p` to open the server-projected catalog purchase
+panel or `c` to choose a saved user design from the component yard. The panel
+shows viewer-side credits and affordability; the server confirms the purchase
+and the resulting ship becomes focused. Host an LLM match by selecting `3`,
+then cycle discovered profiles with `l`. Profiles come from
+`shipsim-agent profiles --json`; configure them with
+`SHIPSIM_AGENT_CONFIG` (copy `frontend/agent/agents.example.toml`). The TUI
+passes the one-time seat token to the agent over stdin, never as an argument.
+
 If the engine binary is not at `target/debug/shipsim` relative to the repo root,
 point at it explicitly:
 

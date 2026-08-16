@@ -10,8 +10,9 @@ use crate::protocol::{self, Order, Snapshot, VolleyShot};
 use crate::yard::YardState;
 use shipsim_core::schema::SideId;
 use shipsim_core::session_protocol::{
-    BotPolicySummary, ControllerSpec, LobbyPhase, ScenarioSummary,
+    BotPolicySummary, ControllerSpec, LobbyPhase, ParticipantStatus, ScenarioSummary,
 };
+use shipsim_core::shipyard::Design;
 
 /// Which input panel is active.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,12 @@ pub struct LobbyState {
     pub bot_index: usize,
     pub join_token: String,
     pub invitation: Option<String>,
+    pub invitation_code: Option<String>,
+    pub invitation_token: Option<String>,
+    pub agent_profiles: Vec<AgentProfile>,
+    pub agent_profile_index: usize,
+    pub agent_status: Option<String>,
+    pub opponent_status: Option<ParticipantStatus>,
     pub waiting_reason: Option<String>,
     pub error: Option<String>,
     pub phase: LobbyPhase,
@@ -76,6 +83,12 @@ impl LobbyState {
             bot_index: 0,
             join_token: String::new(),
             invitation: None,
+            invitation_code: None,
+            invitation_token: None,
+            agent_profiles: Vec::new(),
+            agent_profile_index: 0,
+            agent_status: None,
+            opponent_status: None,
             waiting_reason: None,
             error: None,
             phase: LobbyPhase::Unconfigured,
@@ -87,6 +100,31 @@ impl LobbyState {
             .map(|s| s.id.clone())
             .unwrap_or_else(|| "shipyard_assault".into())
     }
+
+    pub fn selected_agent_profile(&self) -> Option<&AgentProfile> {
+        self.agent_profiles.get(self.agent_profile_index)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProfile {
+    pub name: String,
+    pub kind: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PurchasePickerKind {
+    Catalog,
+    Custom,
+}
+
+#[derive(Debug, Clone)]
+pub struct PurchasePicker {
+    pub kind: PurchasePickerKind,
+    pub index: usize,
+    pub custom_designs: Vec<Design>,
+    pub notice: Option<String>,
 }
 
 /// A local allocate draft (not yet sent to the engine).
@@ -435,6 +473,11 @@ pub struct App {
     pub terminal_too_small: bool,
     /// Present when the TUI is a shipyard, not a fight.
     pub yard: Option<YardState>,
+    pub purchase_picker: Option<PurchasePicker>,
+    /// The last purchase result is intentionally short-lived UI state; the
+    /// authoritative ship/credits remain in the next snapshot.
+    pub purchase_notice: Option<String>,
+    pub purchase_pending: bool,
 }
 
 impl App {
@@ -481,6 +524,9 @@ impl App {
             digit_entry: None,
             terminal_too_small: false,
             yard: None,
+            purchase_picker: None,
+            purchase_notice: None,
+            purchase_pending: false,
         }
     }
 
@@ -516,7 +562,15 @@ impl App {
         message: shipsim_core::session_protocol::SessionMessage,
     ) {
         use shipsim_core::session_protocol::SessionMessage;
-        let lobby = self.lobby.get_or_insert_with(|| LobbyState::new(""));
+        // After the first snapshot combat owns the active view. Later session
+        // metadata (especially agent status) belongs in history and must not
+        // recreate the lobby screen.
+        let lobby = if self.snap.is_some() {
+            self.lobby_history
+                .get_or_insert_with(|| LobbyState::new(""))
+        } else {
+            self.lobby.get_or_insert_with(|| LobbyState::new(""))
+        };
         match message {
             SessionMessage::Welcome { can_configure, .. } => {
                 lobby.screen = if can_configure {
@@ -530,6 +584,7 @@ impl App {
                 state,
                 waiting_reason,
                 bot_policies,
+                seats,
                 ..
             } => {
                 lobby.phase = state;
@@ -537,6 +592,14 @@ impl App {
                 if !bot_policies.is_empty() {
                     lobby.bot_policies = bot_policies;
                 }
+                lobby.opponent_status = seats
+                    .iter()
+                    .find(|seat| {
+                        seat.side == shipsim_core::schema::SideId::B
+                            && matches!(seat.controller, ControllerSpec::LlmAgent {})
+                    })
+                    .and_then(|seat| seat.participant_status);
+                lobby.agent_status = lobby.opponent_status.map(|status| format!("{status:?}"));
                 if matches!(state, LobbyPhase::Configured | LobbyPhase::WaitingForSeats) {
                     lobby.screen = LobbyScreen::Waiting;
                 }
@@ -549,10 +612,37 @@ impl App {
                 display_code,
                 join_token,
                 ..
-            } => lobby.invitation = Some(format!("{display_code}  token: {join_token}")),
+            } => {
+                lobby.invitation_code = Some(display_code.clone());
+                lobby.invitation_token = Some(join_token.clone());
+                lobby.invitation = Some(format!("{display_code}  token: {join_token}"));
+                lobby.waiting_reason = Some("Invitation ready; waiting for the opponent…".into());
+            }
+            SessionMessage::ParticipantStatus { status, .. } => {
+                lobby.agent_status = Some(format!("participant {status:?}"));
+            }
             SessionMessage::Error { code, message, .. } => {
-                lobby.error = Some(format!("{code:?}: {message}"));
-                lobby.screen = LobbyScreen::Error;
+                let detail = format!("{code:?}: {message}");
+                lobby.error = Some(detail.clone());
+                if self.snap.is_some() {
+                    // Running-session errors belong on the battle view. In
+                    // particular, a disconnect must never be represented as
+                    // a fabricated Victory/Loss snapshot.
+                    if matches!(
+                        code,
+                        shipsim_core::session_protocol::SessionErrorCode::ParticipantDisconnected
+                    ) {
+                        self.engine_dead = true;
+                        self.last_error = Some(
+                            "Opponent disconnected; match ended. Press q to quit.".into(),
+                        );
+                    } else {
+                        self.last_error = Some(format!("Session error: {detail}"));
+                    }
+                    self.input_notice = Some("Session error — see the header".into());
+                } else {
+                    lobby.screen = LobbyScreen::Error;
+                }
             }
             _ => {}
         }
@@ -560,6 +650,17 @@ impl App {
 
     /// Called when a new snapshot arrives from the engine.
     pub fn update_snapshot(&mut self, snap: Snapshot) {
+        let prior_owned_ids: std::collections::BTreeSet<i64> = self
+            .snap
+            .as_ref()
+            .map(|old| {
+                old.ships
+                    .iter()
+                    .filter(|ship| self.owns_ship(ship))
+                    .map(|ship| ship.id)
+                    .collect()
+            })
+            .unwrap_or_default();
         if self.lobby.is_some() {
             self.lobby_history = self.lobby.take();
         }
@@ -594,6 +695,20 @@ impl App {
         // Auto-focus the player ship on the first snapshot.
         if self.focused_ship.is_none() {
             self.focused_ship = self.own_ship(&snap).map(|s| s.id);
+        }
+        if self.snap.is_some() {
+            if let Some(new_ship) = snap
+                .ships
+                .iter()
+                .find(|ship| self.owns_ship(ship) && !prior_owned_ids.contains(&ship.id))
+            {
+                self.focused_ship = Some(new_ship.id);
+                self.purchase_notice = Some(format!(
+                    "Purchase accepted: {} (ship #{})",
+                    new_ship.class, new_ship.id
+                ));
+                self.purchase_pending = false;
+            }
         }
         // A destroyed (or vanished) focus is unrecoverable by normal flow:
         // pending-ship advancement waits for the focused ship to act, and a
@@ -819,6 +934,15 @@ impl App {
     /// Record a soft error from the engine.
     pub fn record_error(&mut self, err: &crate::protocol::ErrorResponse) {
         self.last_error = Some(format!("{}: {}", err.code, err.message));
+        if self.purchase_pending
+            || err.code.contains("purchase")
+            || err.code.contains("credits")
+            || err.code == "yard"
+            || err.message.to_ascii_lowercase().contains("purchase")
+        {
+            self.purchase_notice = Some(format!("Purchase rejected: {}", err.message));
+            self.purchase_pending = false;
+        }
         self.log.push(format!("ERROR: {}", err.message));
         self.tutorial_order_pending = false;
         self.tutorial_order_candidate = None;
@@ -1288,6 +1412,49 @@ impl App {
             });
         self.alloc_draft = draft;
         self.mode = Mode::Allocate;
+    }
+
+    pub fn viewer_side_or_a(&self) -> SideId {
+        self.viewer_side.unwrap_or(SideId::A)
+    }
+
+    pub fn open_catalog_purchase(&mut self) {
+        if self.snap.as_ref().is_none_or(|snap| snap.phase != "allocate") {
+            self.purchase_notice = Some("Purchases are available during allocation only".into());
+            return;
+        }
+        self.purchase_picker = Some(PurchasePicker {
+            kind: PurchasePickerKind::Catalog,
+            index: 0,
+            custom_designs: Vec::new(),
+            notice: None,
+        });
+    }
+
+    pub fn open_custom_purchase(&mut self) {
+        if self.snap.as_ref().is_none_or(|snap| snap.phase != "allocate") {
+            self.purchase_notice = Some("Purchases are available during allocation only".into());
+            return;
+        }
+        let designs = crate::yard::YardState::load(crate::yard::find_repo_root())
+            .map(|yard| {
+                yard.listings
+                    .into_iter()
+                    .map(|item| item.design)
+                    .filter(|design| {
+                        design.group == "user"
+                            && !shipsim_core::shipyard::STANDARD_CLASS_IDS
+                                .contains(&design.id.as_str())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.purchase_picker = Some(PurchasePicker {
+            kind: PurchasePickerKind::Custom,
+            index: 0,
+            custom_designs: designs,
+            notice: None,
+        });
     }
 
     pub fn open_fire_for_focus(&mut self) {

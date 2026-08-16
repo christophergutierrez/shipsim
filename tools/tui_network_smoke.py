@@ -94,8 +94,13 @@ def main() -> int:
         visible = wait_text(master, transcript, "turn 1")
         if "Greedy" not in visible and "greedy" not in visible:
             raise RuntimeError("selected Greedy policy was never visible")
+        os.write(master, b"p")
+        wait_text(master, transcript, "Catalog ships")
+        os.write(master, b"\x1b")
+        time.sleep(0.2)  # keep Esc from being decoded as an Alt-key prefix
+        transcript.clear()
         os.write(master, b"q")
-        time.sleep(0.1)
+        wait_text(master, transcript, "Confirm quit")
         os.write(master, b"y")
         tui.wait(timeout=5)
         if tui.returncode != 0:
@@ -103,7 +108,7 @@ def main() -> int:
         server.wait(timeout=5)
         if server.returncode != 0:
             raise RuntimeError(f"session server exited with {server.returncode}")
-        print("PASS: visible lobby -> Human vs Greedy -> first battle screen -> clean quit")
+        print("PASS: lobby -> Human vs Greedy -> battle -> purchase panel -> clean quit")
         return 0
     finally:
         if master >= 0:
