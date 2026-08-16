@@ -315,6 +315,84 @@ fn tui_m01_all_fixture_states_render_at_floor() {
 }
 
 #[test]
+fn phase3_lobby_renders_at_supported_sizes() {
+    let mut app = App::new_network("127.0.0.1:4100");
+    app.lobby.as_mut().unwrap().screen = crate::app::LobbyScreen::Host;
+    let small = render_to_string(&mut app, 80, 24);
+    let wide = render_to_string(&mut app, 120, 40);
+    assert!(small.contains("Create match") && small.contains("Enter create"));
+    assert!(wide.contains("Opponent") && wide.contains("Shipyard Assault"));
+}
+
+#[test]
+fn phase3_side_b_uses_side_not_controller_for_focus_and_targets() {
+    let mut snap = test_snapshot();
+    snap.ships[0].side = "b".into();
+    snap.ships[0].controller = "human".into();
+    snap.ships[1].side = "a".into();
+    snap.ships[1].controller = "human".into();
+    let mut app = App::new();
+    app.viewer_side = Some(shipsim_core::schema::SideId::B);
+    app.update_snapshot(snap);
+    assert_eq!(app.focused_ship, Some(1));
+    assert_eq!(app.scan_contacts(), vec![2]);
+}
+
+#[test]
+fn phase3_fake_transport_drains_without_blocking() {
+    use crate::transport::{FakeTransport, Transport};
+    let mut transport = FakeTransport::with_incoming(["hello".to_string(), "world".to_string()]);
+    transport.send_line("order").unwrap();
+    assert_eq!(transport.drain_lines(), vec!["hello", "world"]);
+    assert_eq!(transport.sent, vec!["order"]);
+}
+
+#[test]
+fn phase3_first_snapshot_transitions_out_of_lobby() {
+    let mut app = App::new_network("127.0.0.1:4100");
+    app.lobby.as_mut().unwrap().screen = crate::app::LobbyScreen::Waiting;
+    app.update_snapshot(test_snapshot());
+    assert!(app.lobby.is_none(), "battle rendering must not remain on lobby screen");
+    assert!(app.lobby_history.is_some());
+}
+
+#[test]
+fn phase3_join_token_is_typed_and_masked() {
+    let mut app = App::new_network("127.0.0.1:4100");
+    app.lobby.as_mut().unwrap().screen = crate::app::LobbyScreen::Join;
+    for ch in ['s', 'e', 'c', 'r', 'e', 't'] { handle_key(&mut app, make_key(ch)); }
+    let rendered = render_to_string(&mut app, 80, 24);
+    assert!(rendered.contains("Token: ••••••"));
+    assert!(!rendered.contains("secret"));
+    handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Backspace));
+    assert_eq!(app.lobby.as_ref().unwrap().join_token, "secre");
+}
+
+#[test]
+fn phase3_join_token_stdin_option_is_present_and_secret_is_not_an_argument() {
+    let source = include_str!("main.rs");
+    assert!(source.contains("--join-token-stdin"));
+    assert!(source.contains("read_to_string(&mut join_token)"));
+    assert!(!source.contains("arg(\"--join-token\")"));
+}
+
+#[test]
+fn phase3_side_b_progress_counts_only_side_b_commits() {
+    let mut snap = test_snapshot();
+    snap.ships[0].side = "b".into();
+    snap.ships[0].controller = "human".into();
+    snap.ships[1].side = "a".into();
+    snap.ships[1].controller = "human".into();
+    snap.ships_allocated_this_turn = vec![1, 2];
+    let mut app = App::new();
+    app.viewer_side = Some(shipsim_core::schema::SideId::B);
+    app.update_snapshot(snap);
+    let rendered = render_to_string(&mut app, 120, 40);
+    assert!(rendered.contains("alloc 1/1"));
+    assert!(!rendered.contains("alloc 2/1"));
+}
+
+#[test]
 fn tui_m02_allocate_enter_emits_at_most_one_order() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
@@ -1799,6 +1877,7 @@ fn apply_line(app: &mut App, line: crate::harness::EngineLine) {
         crate::harness::EngineLine::FirePreview(p) => app.accept_fire_preview(p),
         crate::harness::EngineLine::Error(e) => app.record_error(&e),
         crate::harness::EngineLine::Raw(r) => app.log(format!("raw: {r}")),
+        crate::harness::EngineLine::Session(_) | crate::harness::EngineLine::Eof => {}
     }
 }
 
@@ -1810,6 +1889,7 @@ fn send_key(app: &mut App, harness: &mut crate::harness::Harness, key: crossterm
                 apply_line(app, line);
             }
         }
+        KeyResult::SendSession(_) => {}
         KeyResult::Quit | KeyResult::Continue => {}
     }
     // Drain pending read-only preview requests (mirrors the main loop).

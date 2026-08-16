@@ -17,6 +17,7 @@ pub enum KeyResult {
     Quit,
     /// An order was produced — send it to the engine.
     SendOrder(Order),
+    SendSession(shipsim_core::session_protocol::SessionMessage),
 }
 
 /// Handle a key event.
@@ -61,6 +62,9 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
     if app.yard.is_some() {
         return handle_yard(app, key);
     }
+    if app.snap.is_none() && app.lobby.is_some() {
+        return handle_lobby(app, key);
+    }
 
     // Global keys
     match key.code {
@@ -94,9 +98,7 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
         }
         // `?` is help. Do not steal `h` here: Movement (and Map) treat `h` as
         // left. Esc already opens help from every combat form.
-        KeyCode::Char('?')
-            if matches!(app.mode, Mode::Allocate | Mode::Movement | Mode::Fire) =>
-        {
+        KeyCode::Char('?') if matches!(app.mode, Mode::Allocate | Mode::Movement | Mode::Fire) => {
             app.mode = Mode::Normal;
             app.last_error = None;
             return KeyResult::Continue;
@@ -119,7 +121,11 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
         KeyCode::Char('[') | KeyCode::Char(']')
             if app.yard.is_none() && app.mode != Mode::GameOver && app.confirmation.is_none() =>
         {
-            let direction = if key.code == KeyCode::Char(']') { 1 } else { -1 };
+            let direction = if key.code == KeyCode::Char(']') {
+                1
+            } else {
+                -1
+            };
             app.cycle_scan(direction);
             return KeyResult::Continue;
         }
@@ -172,6 +178,77 @@ pub fn handle_key(app: &mut App, mut key: KeyEvent) -> KeyResult {
     }
 }
 
+fn handle_lobby(app: &mut App, key: KeyEvent) -> KeyResult {
+    use crate::app::LobbyScreen;
+    use shipsim_core::session_protocol::{
+        ControllerAssignments, ControllerSpec, SessionMessage, SESSION_PROTOCOL_VERSION,
+    };
+    if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+        return KeyResult::Quit;
+    }
+    let Some(lobby) = app.lobby.as_mut() else {
+        return KeyResult::Continue;
+    };
+    match lobby.screen {
+        LobbyScreen::Host => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                lobby.scenario_index = lobby.scenario_index.saturating_sub(1)
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if lobby.scenario_index + 1 < lobby.scenarios.len() {
+                    lobby.scenario_index += 1
+                }
+            }
+            KeyCode::Char('1') => lobby.opponent = ControllerSpec::Human {},
+            KeyCode::Char('2') => {
+                lobby.opponent = ControllerSpec::Bot {
+                    policy: lobby
+                        .bot_policies
+                        .get(lobby.bot_index)
+                        .map(|p| p.id.clone())
+                        .unwrap_or_else(|| "greedy".into()),
+                }
+            }
+            KeyCode::Char('3') => lobby.opponent = ControllerSpec::LlmAgent {},
+            KeyCode::Char('b') => {
+                if !lobby.bot_policies.is_empty() {
+                    lobby.bot_index = (lobby.bot_index + 1) % lobby.bot_policies.len();
+                    lobby.opponent = ControllerSpec::Bot {
+                        policy: lobby.bot_policies[lobby.bot_index].id.clone(),
+                    };
+                }
+            }
+            KeyCode::Enter => {
+                return KeyResult::SendSession(SessionMessage::CreateMatch {
+                    session_protocol_version: SESSION_PROTOCOL_VERSION,
+                    scenario_id: lobby.scenario_id(),
+                    controllers: ControllerAssignments {
+                        a: ControllerSpec::Human {},
+                        b: lobby.opponent.clone(),
+                    },
+                })
+            }
+            _ => {}
+        },
+        LobbyScreen::Join => match key.code {
+            KeyCode::Enter if !lobby.join_token.is_empty() => {
+                return KeyResult::SendSession(SessionMessage::JoinMatch {
+                    session_protocol_version: SESSION_PROTOCOL_VERSION,
+                    join_token: lobby.join_token.clone(),
+                    display_name: "TUI player".into(),
+                });
+            }
+            KeyCode::Backspace => {
+                lobby.join_token.pop();
+            }
+            KeyCode::Char(ch) if !ch.is_control() => lobby.join_token.push(ch),
+            _ => {}
+        },
+        _ => {}
+    }
+    KeyResult::Continue
+}
+
 fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
     let Some(yard) = app.yard.as_mut() else {
         return KeyResult::Continue;
@@ -185,10 +262,22 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
     }
     match yard.screen {
         YardScreen::Browse => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => { yard.cancel_pending(); yard.move_browse(-1); },
-            KeyCode::Down | KeyCode::Char('j') => { yard.cancel_pending(); yard.move_browse(1); },
-            KeyCode::Char('o') => { yard.cancel_pending(); yard.cycle_sort(); },
-            KeyCode::Char('g') => { yard.cancel_pending(); yard.cycle_group_filter(); },
+            KeyCode::Up | KeyCode::Char('k') => {
+                yard.cancel_pending();
+                yard.move_browse(-1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                yard.cancel_pending();
+                yard.move_browse(1);
+            }
+            KeyCode::Char('o') => {
+                yard.cancel_pending();
+                yard.cycle_sort();
+            }
+            KeyCode::Char('g') => {
+                yard.cancel_pending();
+                yard.cycle_group_filter();
+            }
             KeyCode::Enter | KeyCode::Char(' ') => yard.open_selected(),
             KeyCode::Char('n') => yard.start_new(),
             KeyCode::Char('y') => yard.clone_selected(),
@@ -231,7 +320,11 @@ fn handle_yard(app: &mut App, key: KeyEvent) -> KeyResult {
                 match key.code {
                     KeyCode::Enter => {}
                     KeyCode::Char('q') => {
-                        return if yard.request_quit() { KeyResult::Quit } else { KeyResult::Continue };
+                        return if yard.request_quit() {
+                            KeyResult::Quit
+                        } else {
+                            KeyResult::Continue
+                        };
                     }
                     KeyCode::Esc => yard.request_exit(),
                     KeyCode::Up => {
@@ -329,7 +422,9 @@ fn handle_yard_picker(yard: &mut crate::yard::YardState, key: KeyEvent) -> KeyRe
         KeyCode::Enter => yard.picker_commit(),
         KeyCode::Esc => yard.picker_cancel(),
         KeyCode::Char('/') => {
-            if let Some(picker) = yard.picker.as_mut() { picker.filtering = true; }
+            if let Some(picker) = yard.picker.as_mut() {
+                picker.filtering = true;
+            }
         }
         KeyCode::Char('m') => yard.cycle_weapon_mount(),
         _ => {}
@@ -346,7 +441,9 @@ fn handle_yard_shields(yard: &mut crate::yard::YardState, key: KeyEvent) -> KeyR
         KeyCode::PageUp => yard.shield_face_adjust(5),
         KeyCode::PageDown => yard.shield_face_adjust(-5),
         KeyCode::Char('=') => {
-            if let Some(face) = yard.shield_editor { yard.shield_set_all(yard.draft.shields[face]); }
+            if let Some(face) = yard.shield_editor {
+                yard.shield_set_all(yard.draft.shields[face]);
+            }
         }
         KeyCode::Esc => yard.close_shield_editor(),
         _ => {}
@@ -372,7 +469,7 @@ fn handle_confirmation(app: &mut App, confirmation: Confirmation, key: KeyEvent)
         _ => {
             notice_unknown_key(app);
             KeyResult::Continue
-        },
+        }
     }
 }
 
@@ -447,7 +544,7 @@ fn cycle_ship_focus(app: &mut App) {
         let living: Vec<i64> = snap
             .ships
             .iter()
-            .filter(|s| s.controller == "player" && !s.destroyed)
+            .filter(|s| app.owns_ship(s) && !s.destroyed)
             .map(|s| s.id)
             .collect();
         if living.is_empty() {
@@ -701,7 +798,7 @@ fn handle_normal(app: &mut App, key: KeyEvent) -> KeyResult {
                     KeyResult::Continue
                 }
             }
-        },
+        }
     }
 }
 
@@ -775,7 +872,7 @@ fn handle_map(app: &mut App, key: KeyEvent) -> KeyResult {
         _ => {
             notice_unknown_key(app);
             KeyResult::Continue
-        },
+        }
     }
 }
 
@@ -1052,7 +1149,7 @@ fn handle_allocate(app: &mut App, key: KeyEvent) -> KeyResult {
         _ => {
             notice_unknown_key(app);
             KeyResult::Continue
-        },
+        }
     }
 }
 
@@ -1125,7 +1222,10 @@ fn set_allocate_field(app: &mut App, value: u32) {
         } else if requested > value {
             log_once(app, format!("{field_name} capped at {value}"));
         } else if cursor <= draft.weapons.len() && requested < value {
-            log_once(app, format!("{field_name} carries {value}; carried charge cannot be removed"));
+            log_once(
+                app,
+                format!("{field_name} carries {value}; carried charge cannot be removed"),
+            );
         }
     }
 }
@@ -1308,10 +1408,7 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyResult::Continue
         }
         KeyCode::Enter => {
-            let empty = app
-                .path_draft
-                .as_ref()
-                .is_none_or(|draft| draft.is_empty());
+            let empty = app.path_draft.as_ref().is_none_or(|draft| draft.is_empty());
             if empty {
                 app.log("Path empty — Space holds");
                 KeyResult::Continue
@@ -1328,7 +1425,7 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
         _ => {
             notice_unknown_key(app);
             KeyResult::Continue
-        },
+        }
     }
 }
 
@@ -1393,11 +1490,7 @@ fn path_follow(app: &mut App) -> KeyResult {
         app.log("follow: you are the leader — plot the path");
         return KeyResult::Continue;
     }
-    let next = app
-        .path_draft
-        .as_ref()
-        .map(|d| !d.follow)
-        .unwrap_or(true);
+    let next = app.path_draft.as_ref().map(|d| !d.follow).unwrap_or(true);
     if let Some(d) = app.path_draft.as_mut() {
         d.follow = next;
         if d.follow {
@@ -1406,7 +1499,11 @@ fn path_follow(app: &mut App) -> KeyResult {
     }
     app.log(format!(
         "follow {}",
-        if next { "on — Enter to commit" } else { "off" }
+        if next {
+            "on — Enter to commit"
+        } else {
+            "off"
+        }
     ));
     KeyResult::Continue
 }
@@ -1457,10 +1554,7 @@ fn commit_path(app: &mut App) -> KeyResult {
         "commit_path: {} step(s), evasive {evasive} follow={follow}",
         actions.len()
     ));
-    emit_order(
-        app,
-        Order::commit_path_full(sid, actions, evasive, follow),
-    )
+    emit_order(app, Order::commit_path_full(sid, actions, evasive, follow))
 }
 
 /// Submit the assembled volley (empty `shots` = hold fire).
@@ -1488,14 +1582,20 @@ fn commit_volley(app: &mut App) -> KeyResult {
         let reason = if !weapon.operational {
             Some(format!("{} DESTROYED — cannot fire", weapon.id))
         } else if weapon.is_pd() {
-            Some(format!("{} is point defense — it fires automatically", weapon.id))
+            Some(format!(
+                "{} is point defense — it fires automatically",
+                weapon.id
+            ))
         } else if weapon.charge == 0 {
             Some(format!("{} UNCHARGED — charge in Allocate", weapon.id))
         } else if weapon.ammo_remaining == Some(0) {
             Some(format!("{} out of ammo", weapon.id))
         } else {
             match app.matching_fire_preview(sid, &shot.weapon, shot.target) {
-                None => Some(format!("{} checking shot — select it for a fresh preview", weapon.id)),
+                None => Some(format!(
+                    "{} checking shot — select it for a fresh preview",
+                    weapon.id
+                )),
                 Some(preview) if !preview.legal => Some(
                     preview
                         .reason
@@ -1656,7 +1756,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
                 let target = draft.target.or_else(|| {
                     snap.ships
                         .iter()
-                        .find(|s| s.controller != "player" && !s.destroyed)
+                        .find(|s| app.is_enemy(s) && !s.destroyed)
                         .map(|s| s.id)
                 });
                 let target = match target {
@@ -1739,7 +1839,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
             let enemies: Vec<i64> = snap
                 .ships
                 .iter()
-                .filter(|s| s.controller != "player" && !s.destroyed)
+                .filter(|s| app.is_enemy(s) && !s.destroyed)
                 .map(|s| s.id)
                 .collect();
             if let Some(&tid) = enemies.get(idx) {
@@ -1754,7 +1854,7 @@ fn handle_fire(app: &mut App, key: KeyEvent) -> KeyResult {
         _ => {
             notice_unknown_key(app);
             KeyResult::Continue
-        },
+        }
     }
 }
 

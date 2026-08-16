@@ -9,12 +9,13 @@ mod harness;
 mod input;
 mod protocol;
 mod scripted_pump;
+mod transport;
 mod tutorial;
 mod ui;
 mod yard;
 
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
-use std::io::IsTerminal;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{self, Event};
@@ -28,18 +29,38 @@ use ratatui::Terminal;
 use app::App;
 use harness::{EngineLine, Harness};
 use input::{handle_key, KeyResult};
+use shipsim_core::session_protocol::{
+    ClientKind, SessionMessage, SESSION_PROTOCOL_VERSION, SUPPORTED_GAME_PROTOCOL_VERSIONS,
+    SUPPORTED_SESSION_PROTOCOL_VERSIONS,
+};
 
 fn main() -> std::io::Result<()> {
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        eprintln!("{}", no_tty_message());
-        std::process::exit(1);
-    }
     // Parse args: --tutorial / --yard, then optional scenario path.
     let args: Vec<String> = std::env::args().skip(1).collect();
     let tutorial_mode = args.iter().any(|a| a == "--tutorial");
     let yard_mode = args.iter().any(|a| a == "--yard" || a == "yard");
     if yard_mode {
         return run_yard();
+    }
+    let connect = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--connect=").map(str::to_owned))
+        .or_else(|| {
+            args.iter()
+                .position(|a| a == "--connect")
+                .and_then(|i| args.get(i + 1).cloned())
+        });
+    let network = connect.is_some();
+    let join_token_stdin = args.iter().any(|a| a == "--join-token-stdin");
+    let mut join_token = String::new();
+    if join_token_stdin {
+        std::io::stdin().read_to_string(&mut join_token)?;
+        join_token = join_token.trim().into();
+        reopen_controlling_tty()?;
+    }
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        eprintln!("{}", no_tty_message());
+        std::process::exit(1);
     }
     let scenario = args
         .iter()
@@ -56,15 +77,19 @@ fn main() -> std::io::Result<()> {
     let engine_path =
         std::env::var("SHIPSIM_BIN").unwrap_or_else(|_| "target/debug/shipsim".to_string());
 
-    if !std::path::Path::new(&scenario).is_file() {
+    if !network && !std::path::Path::new(&scenario).is_file() {
         eprintln!("error: scenario not found: {scenario}");
         eprintln!("       run from the repo root; ship *classes* live in data/ships/,");
         eprintln!("       playable fights live in scenarios/ (e.g. scenarios/battle.toml).");
         std::process::exit(1);
     }
 
-    // Spawn the engine and read the initial snapshot.
-    let mut harness = match Harness::spawn(&engine_path, &scenario) {
+    // Spawn the local engine or connect to a session server.
+    let harness_result = match connect.as_deref() {
+        Some(address) => Harness::connect(address),
+        None => Harness::spawn(&engine_path, &scenario),
+    };
+    let mut harness = match harness_result {
         Ok(h) => h,
         Err(e) => {
             eprintln!("error: cannot spawn engine '{engine_path}': {e}");
@@ -74,27 +99,48 @@ fn main() -> std::io::Result<()> {
         }
     };
 
-    let mut app = if tutorial_mode {
+    let mut app = if network {
+        let mut app = App::new_network(connect.clone().unwrap_or_default());
+        if let Some(lobby) = app.lobby.as_mut() {
+            lobby.join_token = join_token;
+        }
+        app
+    } else if tutorial_mode {
         App::new_with_tutorial()
     } else {
         App::new()
     };
-    match harness.read_line() {
-        Some(line) => apply_engine_line(&mut app, line),
-        None => {
-            eprintln!("error: engine produced no snapshot for '{scenario}'.");
-            eprintln!("       it exited before the first line — see any message above.");
-            std::process::exit(1);
+    if network {
+        let hello = SessionMessage::Hello {
+            session_protocol_version: SESSION_PROTOCOL_VERSION,
+            client_kind: ClientKind::Tui,
+            display_name: "TUI player".into(),
+            supported_session_versions: SUPPORTED_SESSION_PROTOCOL_VERSIONS.to_vec(),
+            supported_game_protocol_versions: SUPPORTED_GAME_PROTOCOL_VERSIONS.to_vec(),
+        };
+        harness.send_session(&hello)?;
+    } else {
+        match harness.read_line() {
+            Some(line) => apply_engine_line(&mut app, line),
+            None => {
+                eprintln!("error: engine produced no snapshot for '{scenario}'.");
+                eprintln!("       it exited before the first line — see any message above.");
+                std::process::exit(1);
+            }
         }
     }
-    if app.snap.is_none() {
-        eprintln!("error: first engine line was not a snapshot (scenario may have failed to load).");
+    if !network && app.snap.is_none() {
+        eprintln!(
+            "error: first engine line was not a snapshot (scenario may have failed to load)."
+        );
         if let Some(err) = &app.last_error {
             eprintln!("       {err}");
         }
         std::process::exit(1);
     }
-    pump_scripted(&mut app, &mut harness);
+    if !network {
+        pump_scripted(&mut app, &mut harness);
+    }
 
     // Set up the terminal.
     enable_raw_mode()?;
@@ -119,6 +165,30 @@ fn main() -> std::io::Result<()> {
     }
 
     result
+}
+
+/// `--join-token-stdin` consumes a pipe for the secret, then restores the
+/// controlling terminal as stdin so crossterm can continue receiving keys.
+#[cfg(unix)]
+fn reopen_controlling_tty() -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let tty = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")?;
+    let result = unsafe { libc::dup2(tty.as_raw_fd(), libc::STDIN_FILENO) };
+    if result < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn reopen_controlling_tty() -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "--join-token-stdin requires a controlling terminal on this platform",
+    ))
 }
 
 pub(crate) fn no_tty_message() -> &'static str {
@@ -158,7 +228,7 @@ fn run_yard() -> std::io::Result<()> {
             };
             match handle_key(&mut app, key) {
                 KeyResult::Quit => return Ok(()),
-                KeyResult::Continue | KeyResult::SendOrder(_) => {}
+                KeyResult::Continue | KeyResult::SendOrder(_) | KeyResult::SendSession(_) => {}
             }
         }
     })();
@@ -190,7 +260,7 @@ fn session_log_contents(app: &App) -> String {
         ));
     }
     if let Some(error) = &app.last_error {
-        out.push_str(&format!("last_error={error}\n"));
+        out.push_str(&format!("last_error={}\n", harness::redact_for_log(error)));
     }
     out.push_str("\nCombat history:\n");
     for event in &app.combat_history {
@@ -199,7 +269,7 @@ fn session_log_contents(app: &App) -> String {
     }
     out.push_str("\nCommand log:\n");
     for line in &app.log {
-        out.push_str(line);
+        out.push_str(&harness::redact_for_log(line));
         out.push('\n');
     }
     out
@@ -211,8 +281,11 @@ fn run(
     harness: &mut Harness,
 ) -> std::io::Result<()> {
     loop {
+        drain_transport(app, harness);
         drain_pending_previews(app, harness);
-        pump_scripted(app, harness);
+        if !harness.is_network() {
+            pump_scripted(app, harness);
+        }
         terminal.draw(|f| ui::render(f, app))?;
 
         // Poll for input with a short timeout so we can also drain engine
@@ -233,17 +306,49 @@ fn run(
                     app.log(format!("send error: {e}"));
                 }
                 // Read the engine's response (may be a snapshot or a soft error).
-                match harness.read_line() {
-                    Some(line) => apply_engine_line(app, line),
-                    None => {
-                        app.engine_dead = true;
-                        app.log("engine exited");
+                if harness.is_network() {
+                    drain_transport(app, harness);
+                } else {
+                    match harness.read_line() {
+                        Some(line) => apply_engine_line(app, line),
+                        None => {
+                            app.engine_dead = true;
+                            app.log("engine exited");
+                        }
                     }
                 }
-                pump_disabled_autopass(app, harness);
-                pump_scripted(app, harness);
+                if !harness.is_network() {
+                    pump_disabled_autopass(app, harness);
+                    pump_scripted(app, harness);
+                }
+            }
+            KeyResult::SendSession(message) => {
+                if let Err(error) = harness.send_session(&message) {
+                    if let Some(lobby) = app.lobby.as_mut() {
+                        lobby.error = Some(format!("send failed: {error}"));
+                        lobby.screen = app::LobbyScreen::Error;
+                    }
+                } else if let Some(lobby) = app.lobby.as_mut() {
+                    lobby.screen = app::LobbyScreen::Waiting;
+                }
             }
             KeyResult::Continue => {}
+        }
+    }
+}
+
+fn drain_transport(app: &mut App, harness: &mut Harness) {
+    for line in harness.try_read_lines() {
+        match line {
+            EngineLine::Session(message) => app.apply_session_message(message),
+            EngineLine::Eof => {
+                app.engine_dead = true;
+                if let Some(lobby) = app.lobby.as_mut() {
+                    lobby.error = Some("Server disconnected; press q to quit".into());
+                    lobby.screen = app::LobbyScreen::Error;
+                }
+            }
+            other => apply_engine_line(app, other),
         }
     }
 }
@@ -272,9 +377,7 @@ fn pump_disabled_autopass(app: &mut App, harness: &mut Harness) {
             app.clear_disabled_autopass();
             return;
         }
-        if app.focused_ship != Some(ship_id)
-            || !crate::ui::is_disabled_ship(app)
-            || snap.is_over()
+        if app.focused_ship != Some(ship_id) || !crate::ui::is_disabled_ship(app) || snap.is_over()
         {
             app.clear_disabled_autopass();
             return;
@@ -388,7 +491,9 @@ fn drain_pending_previews(app: &mut App, harness: &mut Harness) {
     ];
     for request in requests.into_iter().flatten() {
         if harness.send(&request).is_ok() {
-            if let Some(line) = harness.read_line() {
+            if harness.is_network() {
+                drain_transport(app, harness);
+            } else if let Some(line) = harness.read_line() {
                 apply_engine_line(app, line);
             }
         }
@@ -402,6 +507,8 @@ fn apply_engine_line(app: &mut App, line: EngineLine) {
         EngineLine::PathPreview(p) => app.accept_path_preview(p),
         EngineLine::FirePreview(p) => app.accept_fire_preview(p),
         EngineLine::Error(e) => app.record_error(&e),
+        EngineLine::Session(message) => app.apply_session_message(message),
+        EngineLine::Eof => app.engine_dead = true,
         EngineLine::Raw(r) => app.log(format!("engine: {r}")),
     }
 }

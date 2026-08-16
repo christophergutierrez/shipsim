@@ -88,6 +88,21 @@ cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/fleet.toml
 cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/battle.toml
 ```
 
+Network lobby play connects to a running `shipsim-session` server. The first
+TUI is the host; choose the scenario and opponent in the lobby. A second TUI
+can join with a token typed into the lobby or supplied through a private stdin
+pipe (the token is masked and never placed in argv):
+
+```bash
+cargo run --bin shipsim-session -- --listen 127.0.0.1:4100
+cargo run --manifest-path frontend/tui/Cargo.toml -- --connect 127.0.0.1:4100
+printf '%s\n' "$JOIN_TOKEN" | cargo run --manifest-path frontend/tui/Cargo.toml -- --connect 127.0.0.1:4100 --join-token-stdin
+```
+
+Network mode keeps the TUI responsive while the lobby or the other seat is
+quiet. The server remains authoritative; the TUI only renders snapshots and
+sends ordinary protocol-v4 orders.
+
 If the engine binary is not at `target/debug/shipsim` relative to the repo root,
 point at it explicitly:
 

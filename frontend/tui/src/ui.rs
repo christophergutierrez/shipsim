@@ -20,7 +20,11 @@ use crate::yard::YardScreen;
 pub fn render(f: &mut Frame, app: &mut App) {
     let size = f.area();
 
-    let (min_width, min_height) = if app.yard.is_some() { (60, 16) } else { (80, 24) };
+    let (min_width, min_height) = if app.yard.is_some() {
+        (60, 16)
+    } else {
+        (80, 24)
+    };
     if size.width < min_width || size.height < min_height {
         app.terminal_too_small = true;
         let message = if app.yard.is_some() {
@@ -42,13 +46,16 @@ pub fn render(f: &mut Frame, app: &mut App) {
     }
 
     if app.snap.is_none() {
-        let msg = if app.engine_dead {
-            "Engine exited. Press q to quit."
+        if app.lobby.is_some() {
+            render_lobby(f, app, size);
         } else {
-            "Loading…"
-        };
-        let p = Paragraph::new(msg).alignment(Alignment::Center);
-        f.render_widget(p, size);
+            let msg = if app.engine_dead {
+                "Engine exited. Press q to quit."
+            } else {
+                "Loading…"
+            };
+            f.render_widget(Paragraph::new(msg).alignment(Alignment::Center), size);
+        }
         return;
     }
 
@@ -121,6 +128,93 @@ pub fn render(f: &mut Frame, app: &mut App) {
     }
 }
 
+fn render_lobby(f: &mut Frame, app: &App, area: Rect) {
+    use crate::app::LobbyScreen;
+    let lobby = app.lobby.as_ref().expect("lobby");
+    let title = match lobby.screen {
+        LobbyScreen::Connecting => "Connecting",
+        LobbyScreen::Host => "Create match",
+        LobbyScreen::Join => "Join match",
+        LobbyScreen::Waiting => "Waiting for players",
+        LobbyScreen::Error => "Session error",
+    };
+    let mut lines = vec![
+        Line::from(Span::styled(
+            title,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!("Address: {}", lobby.address)),
+        Line::from(""),
+    ];
+    match lobby.screen {
+        LobbyScreen::Connecting => lines.push(Line::from("Negotiating session protocol…")),
+        LobbyScreen::Host => {
+            lines.push(Line::from(
+                "↑/↓ scenario · 1 Human · 2 Bot · 3 LLM · b policy · Enter create",
+            ));
+            let scenario = lobby
+                .scenarios
+                .get(lobby.scenario_index)
+                .map(|s| s.display_name.as_str())
+                .unwrap_or("Shipyard Assault");
+            lines.push(Line::from(format!("Scenario: ▶ {scenario}")));
+            let opponent = match &lobby.opponent {
+                shipsim_core::session_protocol::ControllerSpec::Human {} => "Human player 2",
+                shipsim_core::session_protocol::ControllerSpec::Bot { policy } => policy.as_str(),
+                shipsim_core::session_protocol::ControllerSpec::LlmAgent {} => "LLM agent",
+            };
+            lines.push(Line::from(format!("Opponent: {opponent}")));
+        }
+        LobbyScreen::Join => {
+            lines.push(Line::from("Join token supplied with --join-token-stdin."));
+            lines.push(Line::from(format!(
+                "Token: {}",
+                "•".repeat(lobby.join_token.chars().count())
+            )));
+            lines.push(Line::from(
+                "Type token, Backspace edits, Enter joins; q quits.",
+            ));
+        }
+        LobbyScreen::Waiting => {
+            lines.push(Line::from(
+                lobby
+                    .waiting_reason
+                    .as_deref()
+                    .unwrap_or("Waiting for the server…"),
+            ));
+            if let Some(invitation) = &lobby.invitation {
+                lines.push(Line::from(format!(
+                    "Invitation (keep private): {invitation}"
+                )));
+            }
+            if let Some(side) = app.viewer_side {
+                lines.push(Line::from(format!("Assigned side: {:?}", side)));
+            }
+        }
+        LobbyScreen::Error => {
+            lines.push(Line::from(
+                lobby
+                    .error
+                    .as_deref()
+                    .unwrap_or("The session ended unexpectedly."),
+            ));
+            lines.push(Line::from("Press q or Esc to quit."));
+        }
+    }
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("shipsim TUI · lobby"),
+            )
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
 fn header_line_count(app: &App) -> u16 {
     let mut n = 1u16; // status
     if app.last_error.is_some() {
@@ -154,21 +248,26 @@ fn phase_label(phase: &str) -> String {
 
 /// Living player-ship count and how many have completed the current stage,
 /// used for the header "path N/M" style progress readout.
-fn stage_progress(snap: &Snapshot) -> Option<(&'static str, usize, usize)> {
+fn stage_progress(app: &App, snap: &Snapshot) -> Option<(&'static str, usize, usize)> {
     let living = snap
         .ships
         .iter()
-        .filter(|s| s.controller == "player" && !s.destroyed)
+        .filter(|s| app.owns_ship(s) && !s.destroyed)
         .count();
     if living == 0 {
         return None;
     }
-    let (label, done) = match snap.phase.as_str() {
-        "allocate" => ("alloc", snap.ships_allocated_this_turn.len()),
-        "movement" => ("path", snap.ships_committed_path.len()),
-        "firing" => ("volley", snap.ships_committed_volley.len()),
+    let (label, committed) = match snap.phase.as_str() {
+        "allocate" => ("alloc", &snap.ships_allocated_this_turn),
+        "movement" => ("path", &snap.ships_committed_path),
+        "firing" => ("volley", &snap.ships_committed_volley),
         _ => return None,
     };
+    let done = snap
+        .ships
+        .iter()
+        .filter(|ship| app.owns_ship(ship) && committed.contains(&ship.id))
+        .count();
     Some((label, done, living))
 }
 
@@ -206,7 +305,11 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             Style::default().fg(status_color),
         ),
     ];
-    if let Some(credits) = snap.credits.get("a") {
+    let credits_key = match app.viewer_side {
+        Some(shipsim_core::schema::SideId::B) => "b",
+        _ => "a",
+    };
+    if let Some(credits) = snap.credits.get(credits_key) {
         status_spans.push(Span::raw("│"));
         status_spans.push(Span::styled(
             format!(" credits={credits} "),
@@ -214,12 +317,16 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
         ));
     }
     // v4 stage progress: how many living player ships have committed this stage.
-    if let Some((label, done, total)) = stage_progress(snap) {
+    if let Some((label, done, total)) = stage_progress(app, snap) {
         status_spans.push(Span::raw("│"));
         status_spans.push(Span::styled(
             format!(
                 " {label} {done}/{total}{} ",
-                if snap.phase == "allocate" { " ships" } else { "" }
+                if snap.phase == "allocate" {
+                    " ships"
+                } else {
+                    ""
+                }
             ),
             Style::default().fg(Color::DarkGray),
         ));
@@ -476,7 +583,7 @@ fn selected_weapon_shade(app: &App) -> Option<WeaponShade> {
     // the moment you buy charge, so keep the arc as visible as a ready gun.
     let bg = if app.mode == Mode::Fire && (w.charge == 0 || w.fired) {
         Color::Rgb(40, 40, 40)
-    } else if ship.controller == "player" {
+    } else if app.owns_ship(ship) {
         Color::Rgb(0, 60, 0)
     } else {
         Color::Rgb(60, 0, 0)
@@ -657,16 +764,13 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                 })
                 .collect();
             // Prefer focused living ship as the primary glyph when several share a cell.
-            let ship = ships_here
-                .iter()
-                .copied()
-                .max_by_key(|s| {
-                    (
-                        app.focused_ship == Some(s.id),
-                        app.inspected_ship == Some(s.id),
-                        !s.destroyed,
-                    )
-                });
+            let ship = ships_here.iter().copied().max_by_key(|s| {
+                (
+                    app.focused_ship == Some(s.id),
+                    app.inspected_ship == Some(s.id),
+                    !s.destroyed,
+                )
+            });
             let multipin = ships_here.len() > 1;
 
             let is_preview_endpoint = preview_endpoints.iter().any(|(q0, r0)| {
@@ -775,7 +879,9 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
 pub(crate) fn render_ship_status(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     let you = app.focused();
-    let them = app.scan_target().filter(|enemy| Some(enemy.id) != app.focused_ship);
+    let them = app
+        .scan_target()
+        .filter(|enemy| Some(enemy.id) != app.focused_ship);
     let contacts = app.scan_contacts();
     let them_index = them.and_then(|enemy| {
         contacts
@@ -969,7 +1075,10 @@ fn damage_card(label: &str, ship: &Ship, draft: Option<&crate::app::AllocDraft>)
     }
     if !dead.is_empty() {
         for id in dead {
-            if !lines.iter().any(|line| line.contains(id) && line.contains("DESTROYED")) {
+            if !lines
+                .iter()
+                .any(|line| line.contains(id) && line.contains("DESTROYED"))
+            {
                 lines.push(format!("{id} DESTROYED"));
             }
         }
@@ -1028,7 +1137,9 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                         .map(|notice| format!(" · {notice}"))
                         .unwrap_or_default()
                 ),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ))],
         ),
         Mode::Movement if is_disabled_ship(app) => (
@@ -1041,7 +1152,9 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                         .map(|notice| format!(" · {notice}"))
                         .unwrap_or_default()
                 ),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ))],
         ),
         Mode::Fire if is_disabled_ship(app) => (
@@ -1054,7 +1167,9 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
                         .map(|notice| format!(" · {notice}"))
                         .unwrap_or_default()
                 ),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ))],
         ),
         Mode::Allocate => render_allocate_panel(app),
@@ -1195,11 +1310,19 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     // Keep a compact, mode-specific exit row fixed at the bottom of every
     // combat form. Detailed controls remain in the scrollable panel body.
     let combat_footer = app.disabled_pass_notice.clone().or_else(|| match app.mode {
-        Mode::Allocate if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
-        Mode::Movement if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
-        Mode::Allocate => Some("Esc help · ↑↓ select · ←→ spend · ↓ weapons · PgDn shields · Enter commit".to_string()),
+        Mode::Allocate if is_disabled_ship(app) => {
+            Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string())
+        }
+        Mode::Movement if is_disabled_ship(app) => {
+            Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string())
+        }
+        Mode::Allocate => Some(
+            "Esc help · ↑↓ select · ←→ spend · ↓ weapons · PgDn shields · Enter commit".to_string(),
+        ),
         Mode::Movement => Some(movement_footer(app)),
-        Mode::Fire if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
+        Mode::Fire if is_disabled_ship(app) => {
+            Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string())
+        }
         Mode::Fire => Some(fire_footer(app)),
         Mode::GameOver => Some("Enter/q quit".to_string()),
         _ => None,
@@ -1280,7 +1403,7 @@ fn fire_scroll(app: &App, area: Rect) -> u16 {
     let enemy_count = snap
         .ships
         .iter()
-        .filter(|ship| ship.controller != "player" && !ship.destroyed)
+        .filter(|ship| app.is_enemy(ship) && !ship.destroyed)
         .count();
     let ship = match app.focused() {
         Some(s) => s,
@@ -1373,7 +1496,8 @@ fn allocate_budget_line(app: &App) -> Option<Line<'static>> {
     } else {
         Style::default().fg(Color::Green)
     };
-    let mut spans = vec![Span::raw(format!(" Budget {cost}/{pool} (")),
+    let mut spans = vec![
+        Span::raw(format!(" Budget {cost}/{pool} (")),
         Span::styled(
             if balance < 0 {
                 format!("{} over", -balance)
@@ -1382,7 +1506,8 @@ fn allocate_budget_line(app: &App) -> Option<Line<'static>> {
             },
             budget_style,
         ),
-        Span::raw(") · pwr allocation")];
+        Span::raw(") · pwr allocation"),
+    ];
     if let Some(field) = field {
         spans.push(Span::raw(" · "));
         spans.push(Span::styled(field, Style::default().fg(Color::Cyan)));
@@ -1435,9 +1560,12 @@ fn fire_footer(app: &App) -> String {
         .focused()
         .and_then(|ship| ship.weapons.get(draft.weapon_idx));
     let target = draft.target.or_else(|| {
-        app.snap.as_ref()?.ships.iter().find(|ship| {
-            ship.controller != "player" && !ship.destroyed
-        }).map(|ship| ship.id)
+        app.snap
+            .as_ref()?
+            .ships
+            .iter()
+            .find(|ship| app.is_enemy(ship) && !ship.destroyed)
+            .map(|ship| ship.id)
     });
     let preview = selected.and_then(|weapon| {
         target.and_then(|target| {
@@ -1483,7 +1611,10 @@ fn fire_footer(app: &App) -> String {
 }
 
 fn movement_footer(app: &App) -> String {
-    let has_path = app.path_draft.as_ref().is_some_and(|draft| !draft.is_empty());
+    let has_path = app
+        .path_draft
+        .as_ref()
+        .is_some_and(|draft| !draft.is_empty());
     if has_path {
         "Esc help · Enter commit path → Fire · Space hold → Fire · ] enemy".into()
     } else {
@@ -1598,7 +1729,8 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             system_bits.push(format!(
                 "z repair={}/{}",
                 draft.repair,
-                ship.repair_cap.map_or_else(|| "?".into(), |cap| cap.to_string())
+                ship.repair_cap
+                    .map_or_else(|| "?".into(), |cap| cap.to_string())
             ));
         }
         if ship.squad_id.is_some() {
@@ -1647,18 +1779,21 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     )));
 
     let first_weapon = draft.weapons.first().and_then(|(id, charge)| {
-        ship.weapons.iter().find(|weapon| &weapon.id == id).map(|weapon| {
-            if weapon.operational {
-                format!(
-                    "{} {} charge {charge}/{}",
-                    weapon.id,
-                    weapon_arc_token(weapon),
-                    weapon.max_charge
-                )
-            } else {
-                format!("{} DESTROYED", weapon.id)
-            }
-        })
+        ship.weapons
+            .iter()
+            .find(|weapon| &weapon.id == id)
+            .map(|weapon| {
+                if weapon.operational {
+                    format!(
+                        "{} {} charge {charge}/{}",
+                        weapon.id,
+                        weapon_arc_token(weapon),
+                        weapon.max_charge
+                    )
+                } else {
+                    format!("{} DESTROYED", weapon.id)
+                }
+            })
     });
     lines.push(Line::from(Span::styled(
         format!(
@@ -1666,11 +1801,16 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             first_weapon.unwrap_or_else(|| "no weapon".to_string()),
             draft.shields[0],
             ship.shield_cap(0),
-            draft.shields[1], ship.shield_cap(1),
-            draft.shields[2], ship.shield_cap(2),
-            draft.shields[3], ship.shield_cap(3),
-            draft.shields[4], ship.shield_cap(4),
-            draft.shields[5], ship.shield_cap(5)
+            draft.shields[1],
+            ship.shield_cap(1),
+            draft.shields[2],
+            ship.shield_cap(2),
+            draft.shields[3],
+            ship.shield_cap(3),
+            draft.shields[4],
+            ship.shield_cap(4),
+            draft.shields[5],
+            ship.shield_cap(5)
         ),
         Style::default().fg(Color::DarkGray),
     )));
@@ -1696,7 +1836,12 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         let selected = draft.cursor == i + 1;
         let mark = if selected { "▶ " } else { "  " };
         let carried = if cur > 0 && *chg >= cur {
-            format!(" · carried {cur}; add {} for ready {}/{}", chg.saturating_sub(cur), chg, max)
+            format!(
+                " · carried {cur}; add {} for ready {}/{}",
+                chg.saturating_sub(cur),
+                chg,
+                max
+            )
         } else {
             String::new()
         };
@@ -1820,7 +1965,11 @@ fn render_allocate_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
             .map(|weapon| weapon.kind.as_str())
             .unwrap_or("?");
         lines.push(Line::from(Span::styled(
-            format!(" Selected weapon {}/{}: {id} ({kind})", index + 1, draft.weapons.len()),
+            format!(
+                " Selected weapon {}/{}: {id} ({kind})",
+                index + 1,
+                draft.weapons.len()
+            ),
             Style::default().fg(Color::Cyan),
         )));
     }
@@ -1881,8 +2030,8 @@ fn facing_name(facing: u32) -> &'static str {
 fn action_token(action: &str) -> &'static str {
     match action {
         "move_f" => "F",
-        "move_fl" => "FL", // veers to the on-screen left (port)
-        "move_fr" => "FR", // veers to the on-screen right (starboard)
+        "move_fl" => "FL",   // veers to the on-screen left (port)
+        "move_fr" => "FR",   // veers to the on-screen right (starboard)
         "turn_left" => "◄",  // rotates nose left on screen
         "turn_right" => "►", // rotates nose right on screen
         _ => "?",
@@ -1936,7 +2085,9 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     if ship.motion_available == 0 {
         lines.push(Line::from(Span::styled(
             " No motion this turn — put power on Movement in allocate, then Enter.",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )));
     }
     lines.push(Line::from(Span::styled(
@@ -1957,7 +2108,9 @@ fn render_movement_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
                 ship.motion_cap(),
                 ship.max_maneuver_actions
             ),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )));
     }
 
@@ -2012,9 +2165,10 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 
     // v4 volley builder: the whole volley is assembled client-side in
     // `app.fire_draft.shots` and submitted as one `commit_volley` on Space.
-    let has_usable_weapon = ship.weapons.iter().any(|w| {
-        w.operational && !w.is_pd() && w.charge > 0 && w.ammo_remaining != Some(0)
-    });
+    let has_usable_weapon = ship
+        .weapons
+        .iter()
+        .any(|w| w.operational && !w.is_pd() && w.charge > 0 && w.ammo_remaining != Some(0));
     let mut lines = vec![
         Line::from(Span::styled(
             " ↑↓ weapon · 1–9 target · ←→ shield face",
@@ -2076,7 +2230,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
     for (i, s) in snap
         .ships
         .iter()
-        .filter(|s| s.controller != "player" && !s.destroyed)
+        .filter(|s| app.is_enemy(s) && !s.destroyed)
         .enumerate()
     {
         let selected = draft.target == Some(s.id);
@@ -2156,7 +2310,7 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
         let target = draft.target.or_else(|| {
             snap.ships
                 .iter()
-                .find(|s| s.controller != "player" && !s.destroyed)
+                .find(|s| app.is_enemy(s) && !s.destroyed)
                 .map(|s| s.id)
         });
         let preview_status = target
@@ -2209,7 +2363,10 @@ fn render_fire_panel(app: &App) -> (&'static str, Vec<Line<'static>>) {
 fn render_events_log(f: &mut Frame, app: &App, area: Rect) {
     let live_volley = !app.recent_events.is_empty();
     let title = if live_volley {
-        format!("Combat Log · volley {} · sh=shields", app.recent_events.len())
+        format!(
+            "Combat Log · volley {} · sh=shields",
+            app.recent_events.len()
+        )
     } else {
         "Combat Log · sh=shields · int=hull".to_string()
     };
@@ -2347,7 +2504,7 @@ fn focused_range_to_nearest_enemy(app: &App, snap: &Snapshot) -> String {
     let Some(enemy) = app.scan_target().or_else(|| {
         snap.ships
             .iter()
-            .filter(|s| s.id != me.id && !s.destroyed && s.controller != me.controller)
+            .filter(|s| s.id != me.id && !s.destroyed && app.is_enemy(s))
             .min_by_key(|s| hex_dist(me.q, me.r, s.q, s.r))
     }) else {
         return String::new();
@@ -2586,7 +2743,7 @@ pub(crate) fn is_disabled_ship(app: &App) -> bool {
             && weapon.charge > 0
             && weapon.ammo_remaining != Some(0)
     });
-    ship.controller == "player"
+    app.owns_ship(ship)
         && !ship.destroyed
         && ship.power_available == 0
         && ship.motion_cap() == 0
@@ -2609,14 +2766,14 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
     let pending_cta = |completed: &[i64], verb: &str| -> String {
         let focused_pending = app
             .focused()
-            .filter(|s| s.controller == "player" && !s.destroyed && !completed.contains(&s.id));
+            .filter(|s| app.owns_ship(s) && !s.destroyed && !completed.contains(&s.id));
         if let Some(ship) = focused_pending {
             return format!("{} {verb}", callsign(ship));
         }
         let other_pending = snap
             .ships
             .iter()
-            .find(|s| s.controller == "player" && !s.destroyed && !completed.contains(&s.id));
+            .find(|s| app.owns_ship(s) && !s.destroyed && !completed.contains(&s.id));
         match other_pending {
             Some(ship) => format!("{} {verb} — Tab to switch", callsign(ship)),
             None => String::new(),
@@ -2626,7 +2783,7 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
     match snap.phase.as_str() {
         "allocate" => {
             if app.focused().is_some_and(|ship| {
-                ship.controller == "player"
+                app.owns_ship(ship)
                     && !ship.destroyed
                     && ship.power_available == 0
                     && !snap.ships_allocated_this_turn.contains(&ship.id)
@@ -2639,7 +2796,7 @@ fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
         }
         "movement" => {
             if app.focused().is_some_and(|ship| {
-                ship.controller == "player"
+                app.owns_ship(ship)
                     && !ship.destroyed
                     && ship.motion_available == 0
                     && !snap.ships_committed_path.contains(&ship.id)
@@ -2729,12 +2886,8 @@ fn render_game_over_summary(app: &App, status: &str) -> Vec<Line<'static>> {
     let mut int_taken = 0u32;
     if let Some(snap) = app.snap.as_ref() {
         for e in &app.combat_events {
-            let atk_player = snap
-                .ship(e.attacker)
-                .is_some_and(|s| s.controller == "player");
-            let tgt_player = snap
-                .ship(e.target)
-                .is_some_and(|s| s.controller == "player");
+            let atk_player = snap.ship(e.attacker).is_some_and(|s| app.owns_ship(s));
+            let tgt_player = snap.ship(e.target).is_some_and(|s| app.owns_ship(s));
             if atk_player {
                 shots += 1;
                 if e.kind == "hit" {
@@ -2802,9 +2955,12 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 fn render_yard_picker(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
-    let Some(picker) = yard.picker.as_ref() else { return };
+    let Some(picker) = yard.picker.as_ref() else {
+        return;
+    };
     let visible = usize::from(area.height.saturating_sub(8)).max(1);
-    let offset = crate::yard::clamp_scroll(picker.scroll, picker.cursor, picker.rows.len(), visible);
+    let offset =
+        crate::yard::clamp_scroll(picker.scroll, picker.cursor, picker.rows.len(), visible);
     let height = (visible as u16 + 8).min(area.height.saturating_sub(2));
     let rect = centered_rect(area, area.width.saturating_sub(4).min(78), height);
     // Size the table to the actual modal, not the normal 80-column layout.
@@ -2817,30 +2973,54 @@ fn render_yard_picker(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
     );
     f.render_widget(Clear, rect);
     let mut lines = Vec::new();
-    let header = picker.headers.iter().enumerate().map(|(i, header)| format!("{:<width$}", header, width = widths.get(i).copied().unwrap_or(header.len()))).collect::<Vec<_>>().join("  ");
+    let header = picker
+        .headers
+        .iter()
+        .enumerate()
+        .map(|(i, header)| {
+            format!(
+                "{:<width$}",
+                header,
+                width = widths.get(i).copied().unwrap_or(header.len())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("  ");
     lines.push(Line::from(header));
     for (row_index, row) in picker.rows.iter().enumerate().skip(offset).take(visible) {
-        let cells = row.cells.iter().enumerate().map(|(i, cell)| {
-            let width = widths.get(i).copied().unwrap_or(8);
-            let clipped: String = cell.chars().take(width).collect();
-            format!("{:<width$}", clipped, width = width)
-        }).collect::<Vec<_>>().join("  ");
-        let marker = if row_index == picker.cursor { "▶ " } else { "  " };
+        let cells = row
+            .cells
+            .iter()
+            .enumerate()
+            .map(|(i, cell)| {
+                let width = widths.get(i).copied().unwrap_or(8);
+                let clipped: String = cell.chars().take(width).collect();
+                format!("{:<width$}", clipped, width = width)
+            })
+            .collect::<Vec<_>>()
+            .join("  ");
+        let marker = if row_index == picker.cursor {
+            "▶ "
+        } else {
+            "  "
+        };
         let suffix = if row.fits { "" } else { " (no space)" };
         let mut line = Line::from(format!("{marker}{cells}{suffix}"));
-        if !row.fits { line = line.style(Style::default().fg(Color::DarkGray)); }
+        if !row.fits {
+            line = line.style(Style::default().fg(Color::DarkGray));
+        }
         lines.push(line);
     }
     lines.push(Line::from(""));
     let delta_width = usize::from(rect.width.saturating_sub(4));
-    let delta: String = yard
-        .picker_delta_line()
-        .chars()
-        .take(delta_width)
-        .collect();
+    let delta: String = yard.picker_delta_line().chars().take(delta_width).collect();
     lines.push(Line::from(delta));
-    lines.push(Line::from("↑↓ browse  Enter take  Esc cancel  / filter  m mount"));
-    let block = Block::default().borders(Borders::ALL).title(format!(" {} ", picker.title));
+    lines.push(Line::from(
+        "↑↓ browse  Enter take  Esc cancel  / filter  m mount",
+    ));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" {} ", picker.title));
     // Table rows are already width-clipped cell by cell. Wrapping them would
     // consume the modal's scarce 60x16 height and push `/ filter` off-screen.
     f.render_widget(Paragraph::new(lines).block(block), rect);
@@ -2850,14 +3030,56 @@ fn render_yard_shields(f: &mut Frame, yard: &crate::yard::YardState, area: Rect)
     let selected = yard.shield_editor.unwrap_or(0);
     let total: u64 = yard.draft.shields.iter().sum();
     let labels = crate::protocol::SHIELD_LABELS;
-    let lines = vec![Line::from(""), Line::from(format!("                 {}  {}", labels[0], shield_value(yard, 0, selected))), Line::from(format!("          {}  {}       {}  {}", labels[5], shield_value(yard, 5, selected), labels[1], shield_value(yard, 1, selected))), Line::from("                ┌────┐"), Line::from(format!("          {}  {} │hull│ {}  {}", labels[4], shield_value(yard, 4, selected), labels[2], shield_value(yard, 2, selected))), Line::from("                └────┘"), Line::from(format!("                 {}  {}", labels[3], shield_value(yard, 3, selected))), Line::from(""), Line::from("←→ face   ↑↓ ±1   PgUp/PgDn ±5   = set all"), Line::from(format!("Esc done                           {total} banks"))];
+    let lines = vec![
+        Line::from(""),
+        Line::from(format!(
+            "                 {}  {}",
+            labels[0],
+            shield_value(yard, 0, selected)
+        )),
+        Line::from(format!(
+            "          {}  {}       {}  {}",
+            labels[5],
+            shield_value(yard, 5, selected),
+            labels[1],
+            shield_value(yard, 1, selected)
+        )),
+        Line::from("                ┌────┐"),
+        Line::from(format!(
+            "          {}  {} │hull│ {}  {}",
+            labels[4],
+            shield_value(yard, 4, selected),
+            labels[2],
+            shield_value(yard, 2, selected)
+        )),
+        Line::from("                └────┘"),
+        Line::from(format!(
+            "                 {}  {}",
+            labels[3],
+            shield_value(yard, 3, selected)
+        )),
+        Line::from(""),
+        Line::from("←→ face   ↑↓ ±1   PgUp/PgDn ±5   = set all"),
+        Line::from(format!("Esc done                           {total} banks")),
+    ];
     let rect = centered_rect(area, 54, 14);
     f.render_widget(Clear, rect);
-    f.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(format!(" shields · {total} banks · {total}sp {total}c "))), rect);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" shields · {total} banks · {total}sp {total}c ")),
+        ),
+        rect,
+    );
 }
 
 fn shield_value(yard: &crate::yard::YardState, index: usize, selected: usize) -> String {
-    if index == selected { format!("▶{}◀", yard.draft.shields[index]) } else { yard.draft.shields[index].to_string() }
+    if index == selected {
+        format!("▶{}◀", yard.draft.shields[index])
+    } else {
+        yard.draft.shields[index].to_string()
+    }
 }
 
 fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) {
@@ -2880,8 +3102,18 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
                     .as_ref()
                     .map(|p| format!("{:>5}", p.cost))
                     .unwrap_or_else(|_| "  err".into());
-                let marker = if *index == yard.browse_cursor { "▶" } else { " " };
-                let standard = if shipsim_core::shipyard::STANDARD_CLASS_IDS.contains(&item.design.id.as_str()) { "[std]" } else { "     " };
+                let marker = if *index == yard.browse_cursor {
+                    "▶"
+                } else {
+                    " "
+                };
+                let standard = if shipsim_core::shipyard::STANDARD_CLASS_IDS
+                    .contains(&item.design.id.as_str())
+                {
+                    "[std]"
+                } else {
+                    "     "
+                };
                 let hull = yard
                     .sizes
                     .get(item.design.size)
@@ -2889,8 +3121,11 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
                     .unwrap_or("?");
                 ListItem::new(format!(
                     "{marker} {standard} {:<20} {:<10} w{:>2} sp{:>3}/{:<3} cost {cost}",
-                    item.design.name, hull,
-                    item.design.weapons.len(), item.preview.as_ref().map(|p| p.space_used).unwrap_or(0), item.preview.as_ref().map(|p| p.space_cap).unwrap_or(0)
+                    item.design.name,
+                    hull,
+                    item.design.weapons.len(),
+                    item.preview.as_ref().map(|p| p.space_used).unwrap_or(0),
+                    item.preview.as_ref().map(|p| p.space_cap).unwrap_or(0)
                 ))
             }
             crate::yard::BrowseRow::New => {
@@ -2901,14 +3136,11 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
             }
         });
     }
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!(
-                " Shipyard — filter: {} (g) · sort: {} (o) ",
-                yard.group_filter.label(), yard.sort_mode.label()
-            )),
-    );
+    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
+        " Shipyard — filter: {} (g) · sort: {} (o) ",
+        yard.group_filter.label(),
+        yard.sort_mode.label()
+    )));
     f.render_widget(list, chunks[0]);
     let help = Paragraph::new(format!(
         "↑↓ select  Enter edit  n new  y clone  d delete  g filter  o sort  q quit\n{}",
@@ -2939,16 +3171,20 @@ fn render_yard_edit(f: &mut Frame, yard: &mut crate::yard::YardState, area: Rect
     };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(8), Constraint::Length(4)])
+        .constraints([
+            Constraint::Length(4),
+            Constraint::Min(8),
+            Constraint::Length(4),
+        ])
         .split(area);
-    let mode = if yard.viewing_readonly { "  (read-only — standard class)" } else { "" };
+    let mode = if yard.viewing_readonly {
+        "  (read-only — standard class)"
+    } else {
+        ""
+    };
     let header = Paragraph::new(format!("{}{}\n{cost_line}", yard.draft.name, mode))
         .wrap(Wrap { trim: true })
-        .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" class "),
-        );
+        .block(Block::default().borders(Borders::ALL).title(" class "));
     f.render_widget(header, chunks[0]);
 
     let rows = yard.edit_rows();
@@ -2957,11 +3193,17 @@ fn render_yard_edit(f: &mut Frame, yard: &mut crate::yard::YardState, area: Rect
         .iter()
         .position(|row| matches!(&row.kind, crate::yard::YardRowKind::Field(field) if *field == yard.edit_cursor))
         .unwrap_or(0);
-    yard.edit_scroll = crate::yard::clamp_scroll(yard.edit_scroll, cursor_row, rows.len(), inner_height);
-    let lines: Vec<Line> = rows.iter().map(|row| match &row.kind {
-        crate::yard::YardRowKind::Field(field) => yard_field(*field == yard.edit_cursor, row.text.clone()),
-        _ => Line::from(row.text.clone()),
-    }).collect();
+    yard.edit_scroll =
+        crate::yard::clamp_scroll(yard.edit_scroll, cursor_row, rows.len(), inner_height);
+    let lines: Vec<Line> = rows
+        .iter()
+        .map(|row| match &row.kind {
+            crate::yard::YardRowKind::Field(field) => {
+                yard_field(*field == yard.edit_cursor, row.text.clone())
+            }
+            _ => Line::from(row.text.clone()),
+        })
+        .collect();
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(52), Constraint::Length(28)])

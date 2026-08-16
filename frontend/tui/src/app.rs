@@ -8,6 +8,10 @@
 
 use crate::protocol::{self, Order, Snapshot, VolleyShot};
 use crate::yard::YardState;
+use shipsim_core::schema::SideId;
+use shipsim_core::session_protocol::{
+    BotPolicySummary, ControllerSpec, LobbyPhase, ScenarioSummary,
+};
 
 /// Which input panel is active.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +35,58 @@ pub enum Mode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confirmation {
     Quit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LobbyScreen {
+    Connecting,
+    Host,
+    Join,
+    Waiting,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct LobbyState {
+    pub screen: LobbyScreen,
+    pub address: String,
+    pub scenario_index: usize,
+    pub scenarios: Vec<ScenarioSummary>,
+    pub opponent: ControllerSpec,
+    pub bot_policies: Vec<BotPolicySummary>,
+    pub bot_index: usize,
+    pub join_token: String,
+    pub invitation: Option<String>,
+    pub waiting_reason: Option<String>,
+    pub error: Option<String>,
+    pub phase: LobbyPhase,
+}
+
+impl LobbyState {
+    pub fn new(address: impl Into<String>) -> Self {
+        Self {
+            screen: LobbyScreen::Connecting,
+            address: address.into(),
+            scenario_index: 0,
+            scenarios: Vec::new(),
+            opponent: ControllerSpec::Bot {
+                policy: "greedy".into(),
+            },
+            bot_policies: Vec::new(),
+            bot_index: 0,
+            join_token: String::new(),
+            invitation: None,
+            waiting_reason: None,
+            error: None,
+            phase: LobbyPhase::Unconfigured,
+        }
+    }
+    pub fn scenario_id(&self) -> String {
+        self.scenarios
+            .get(self.scenario_index)
+            .map(|s| s.id.clone())
+            .unwrap_or_else(|| "shipyard_assault".into())
+    }
 }
 
 /// A local allocate draft (not yet sent to the engine).
@@ -141,11 +197,7 @@ impl AllocDraft {
     }
 
     pub fn system_power(&self, ship: &protocol::Ship) -> u32 {
-        let cloak = if self.cloak {
-            4 + ship.size
-        } else {
-            0
-        };
+        let cloak = if self.cloak { 4 + ship.size } else { 0 };
         cloak + self.repair.saturating_mul(2)
     }
 
@@ -305,6 +357,11 @@ impl FirePreviewKey {
 
 /// The full application state.
 pub struct App {
+    pub viewer_side: Option<SideId>,
+    pub lobby: Option<LobbyState>,
+    /// Last lobby metadata, retained for the post-connect session log and
+    /// diagnostics after the first authoritative game snapshot arrives.
+    pub lobby_history: Option<LobbyState>,
     pub snap: Option<Snapshot>,
     pub mode: Mode,
     pub focused_ship: Option<i64>,
@@ -383,6 +440,9 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         App {
+            viewer_side: None,
+            lobby: None,
+            lobby_history: None,
             snap: None,
             mode: Mode::Normal,
             focused_ship: None,
@@ -431,8 +491,78 @@ impl App {
         app
     }
 
+    pub fn new_network(address: impl Into<String>) -> Self {
+        let mut app = Self::new();
+        app.lobby = Some(LobbyState::new(address));
+        app
+    }
+    pub fn owns_ship(&self, ship: &protocol::Ship) -> bool {
+        match self.viewer_side {
+            Some(SideId::A) => ship.side.eq_ignore_ascii_case("a"),
+            Some(SideId::B) => ship.side.eq_ignore_ascii_case("b"),
+            None => ship.controller == "player",
+        }
+    }
+    pub fn is_enemy(&self, ship: &protocol::Ship) -> bool {
+        !self.owns_ship(ship)
+    }
+    pub fn own_ship<'a>(&self, snap: &'a Snapshot) -> Option<&'a protocol::Ship> {
+        snap.ships
+            .iter()
+            .find(|ship| self.owns_ship(ship) && !ship.destroyed)
+    }
+    pub fn apply_session_message(
+        &mut self,
+        message: shipsim_core::session_protocol::SessionMessage,
+    ) {
+        use shipsim_core::session_protocol::SessionMessage;
+        let lobby = self.lobby.get_or_insert_with(|| LobbyState::new(""));
+        match message {
+            SessionMessage::Welcome { can_configure, .. } => {
+                lobby.screen = if can_configure {
+                    LobbyScreen::Host
+                } else {
+                    LobbyScreen::Join
+                }
+            }
+            SessionMessage::ScenarioCatalog { scenarios, .. } => lobby.scenarios = scenarios,
+            SessionMessage::LobbyState {
+                state,
+                waiting_reason,
+                bot_policies,
+                ..
+            } => {
+                lobby.phase = state;
+                lobby.waiting_reason = waiting_reason;
+                if !bot_policies.is_empty() {
+                    lobby.bot_policies = bot_policies;
+                }
+                if matches!(state, LobbyPhase::Configured | LobbyPhase::WaitingForSeats) {
+                    lobby.screen = LobbyScreen::Waiting;
+                }
+            }
+            SessionMessage::SeatAssigned { side, .. } => {
+                self.viewer_side = Some(side);
+                lobby.screen = LobbyScreen::Waiting;
+            }
+            SessionMessage::SeatInvitation {
+                display_code,
+                join_token,
+                ..
+            } => lobby.invitation = Some(format!("{display_code}  token: {join_token}")),
+            SessionMessage::Error { code, message, .. } => {
+                lobby.error = Some(format!("{code:?}: {message}"));
+                lobby.screen = LobbyScreen::Error;
+            }
+            _ => {}
+        }
+    }
+
     /// Called when a new snapshot arrives from the engine.
     pub fn update_snapshot(&mut self, snap: Snapshot) {
+        if self.lobby.is_some() {
+            self.lobby_history = self.lobby.take();
+        }
         if let Some(previous) = self.snap.as_ref() {
             if previous.turn != snap.turn
                 || (previous.phase == "firing" && snap.phase == "allocate")
@@ -440,7 +570,8 @@ impl App {
                 self.resolution_summary = resolution_summary(
                     previous,
                     &snap,
-                    self.focused_ship.or_else(|| previous.player_ship().map(|s| s.id)),
+                    self.focused_ship
+                        .or_else(|| self.own_ship(previous).map(|s| s.id)),
                 );
             }
         }
@@ -462,7 +593,7 @@ impl App {
         self.last_error = None;
         // Auto-focus the player ship on the first snapshot.
         if self.focused_ship.is_none() {
-            self.focused_ship = snap.player_ship().map(|s| s.id);
+            self.focused_ship = self.own_ship(&snap).map(|s| s.id);
         }
         // A destroyed (or vanished) focus is unrecoverable by normal flow:
         // pending-ship advancement waits for the focused ship to act, and a
@@ -477,7 +608,7 @@ impl App {
         if let Some(id) = self.focused_ship {
             let focus_gone = snap.ship(id).is_none_or(|ship| ship.destroyed);
             if focus_gone {
-                self.focused_ship = snap.player_ship().map(|s| s.id);
+                self.focused_ship = self.own_ship(&snap).map(|s| s.id);
                 self.alloc_draft = self
                     .focused_ship
                     .filter(|_| snap.phase == "allocate")
@@ -533,8 +664,8 @@ impl App {
                             self.mode = Mode::Allocate;
                         }
                     } else if snap.phase == "firing" {
-                        self.fire_draft = snap
-                            .player_ship()
+                        self.fire_draft = self
+                            .own_ship(&snap)
                             .or_else(|| self.focused_ship.and_then(|id| snap.ship(id)))
                             .map(FireDraft::for_ship)
                             .or_else(|| Some(FireDraft::default()));
@@ -561,8 +692,8 @@ impl App {
                         self.mode = Mode::Allocate;
                     }
                 } else if snap.phase == "firing" {
-                    self.fire_draft = snap
-                        .player_ship()
+                    self.fire_draft = self
+                        .own_ship(&snap)
                         .or_else(|| self.focused_ship.and_then(|id| snap.ship(id)))
                         .map(FireDraft::for_ship)
                         .or_else(|| Some(FireDraft::default()));
@@ -762,7 +893,7 @@ impl App {
             let target = draft.target.or_else(|| {
                 snap.ships
                     .iter()
-                    .find(|ship| ship.controller != "player" && !ship.destroyed)
+                    .find(|ship| self.is_enemy(ship) && !ship.destroyed)
                     .map(|ship| ship.id)
             });
             weapon == Some(preview.weapon.as_str()) && target == Some(preview.target)
@@ -803,9 +934,7 @@ impl App {
             .get(&FirePreviewKey::new(ship, weapon, target))
             .or_else(|| {
                 self.fire_preview.as_ref().filter(|preview| {
-                    preview.ship == ship
-                        && preview.weapon == weapon
-                        && preview.target == target
+                    preview.ship == ship && preview.weapon == weapon && preview.target == target
                 })
             })
     }
@@ -835,7 +964,7 @@ impl App {
         let target = draft.target.or_else(|| {
             snap.ships
                 .iter()
-                .find(|candidate| candidate.controller != "player" && !candidate.destroyed)
+                .find(|candidate| self.is_enemy(candidate) && !candidate.destroyed)
                 .map(|candidate| candidate.id)
         });
         let Some(target) = target else {
@@ -914,7 +1043,7 @@ impl App {
         if let Some(id) = self.inspected_ship {
             if let Some(ship) = snap
                 .ship(id)
-                .filter(|ship| !ship.destroyed && ship.controller != "player")
+                .filter(|ship| self.is_enemy(ship) && !ship.destroyed)
             {
                 return Some(ship);
             }
@@ -932,7 +1061,7 @@ impl App {
         let mut enemies: Vec<&protocol::Ship> = snap
             .ships
             .iter()
-            .filter(|ship| ship.controller != "player" && !ship.destroyed)
+            .filter(|ship| self.is_enemy(ship) && !ship.destroyed)
             .collect();
         enemies.sort_by_key(|ship| {
             let range = origin
@@ -1144,7 +1273,7 @@ impl App {
             .snap
             .as_ref()
             .and_then(|snap| snap.ship(ship_id))
-            .is_none_or(|ship| ship.controller != "player")
+            .is_none_or(|ship| !self.owns_ship(ship))
         {
             return;
         }
@@ -1199,7 +1328,7 @@ impl App {
             snap.ships
                 .iter()
                 .find(|ship| {
-                    ship.controller == "player" && !ship.destroyed && !completed.contains(&ship.id)
+                    self.owns_ship(ship) && !ship.destroyed && !completed.contains(&ship.id)
                 })
                 .map(|ship| ship.id)
         };
@@ -1269,7 +1398,10 @@ fn resolution_summary(
         ("bridge", before.bridge, after.bridge),
     ] {
         if new < old {
-            parts.push(format!("{label} {old}→{new}{}", cause.as_deref().unwrap_or("")));
+            parts.push(format!(
+                "{label} {old}→{new}{}",
+                cause.as_deref().unwrap_or("")
+            ));
         }
     }
     for weapon in &before.weapons {
@@ -1290,7 +1422,11 @@ fn resolution_summary(
     if parts.is_empty() {
         parts.push("no hull or system losses".to_string());
     }
-    Some(format!("Turn {} resolved: {}", current.turn, parts.join(" · ")))
+    Some(format!(
+        "Turn {} resolved: {}",
+        current.turn,
+        parts.join(" · ")
+    ))
 }
 
 /// Human-readable short-fall path line for the session log / ship panel.
