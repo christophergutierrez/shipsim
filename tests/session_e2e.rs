@@ -59,6 +59,18 @@ impl Client {
         panic!("did not receive message type {wanted}");
     }
 
+    fn receive_error_code(&mut self, wanted: &str) -> Value {
+        for _ in 0..100 {
+            let value = self.receive();
+            if value.get("type").and_then(Value::as_str) == Some("error")
+                && value.get("code").and_then(Value::as_str) == Some(wanted)
+            {
+                return value;
+            }
+        }
+        panic!("did not receive error code {wanted}");
+    }
+
     fn receive_snapshot(&mut self) -> Value {
         for _ in 0..100 {
             let value = self.receive();
@@ -275,7 +287,7 @@ fn external_fake_agent_plays_five_turns_through_real_tcp() {
 
     agent.kill().unwrap();
     let _ = agent.wait();
-    let disconnected = host.receive_type("error");
+    let disconnected = host.receive_error_code("participant_disconnected");
     assert_eq!(disconnected["code"], "participant_disconnected");
     let _ = host.stream.shutdown(Shutdown::Both);
     let status = process.child.wait().expect("wait for session server");
