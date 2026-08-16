@@ -26,6 +26,11 @@ name = "shipsim-budget"
 path = "src/bin/shipsim-budget.rs"
 test = false
 
+[[bin]]
+name = "shipsim-session"
+path = "src/bin/shipsim-session.rs"
+test = true
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

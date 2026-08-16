@@ -212,6 +212,7 @@ pub struct AggregateMetrics {
     pub matches: u64,
     pub wins: u64,
     pub losses: u64,
+    pub draws: u64,
     pub stalemates: u64,
     pub capped_matches: u64,
     pub decided_equivalent_matches: u64,
@@ -293,6 +294,7 @@ impl AggregateMetrics {
             match status {
                 ScenarioStatus::Won => aggregate.wins += 1,
                 ScenarioStatus::Lost => aggregate.losses += 1,
+                ScenarioStatus::Draw => aggregate.draws += 1,
                 ScenarioStatus::InProgress => {
                     aggregate.stalemates += 1;
                     aggregate.capped_matches += 1;
@@ -306,7 +308,8 @@ impl AggregateMetrics {
         }
         if aggregate.matches > 0 {
             let count = aggregate.matches as f64;
-            aggregate.termination_rate = (aggregate.wins + aggregate.losses) as f64 / count;
+            aggregate.termination_rate =
+                (aggregate.wins + aggregate.losses + aggregate.draws) as f64 / count;
             aggregate.decided_equivalent_rate = aggregate.decided_equivalent_matches as f64 / count;
             aggregate.win_rate = aggregate.wins as f64 / count;
             aggregate.average_turns = turns as f64 / count;

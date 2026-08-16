@@ -290,7 +290,7 @@ def send_orders(
     log_len = prev_log_len
     for i, order in enumerate(orders):
         status = (session.snapshot or {}).get("status")
-        if status in ("Won", "Lost"):
+        if status in ("Won", "Lost", "Draw"):
             ui.log(f"*** scenario {status} — orders are disabled; use quit or log ***")
             break
         before = session.snapshot
@@ -473,7 +473,7 @@ def run_repl(
                 return 1
             ctx.note_hull(snap)
             status = snap.get("status")
-            if status in ("Won", "Lost"):
+            if status in ("Won", "Lost", "Draw"):
                 if not terminal_announced:
                     ui.log(format_terminal_banner(str(status), snap))
                     terminal_announced = True
@@ -585,7 +585,7 @@ def run_repl(
                 act: Action = build_action(line, snap, ctx)
 
             if act.side == "quit":
-                if snap.get("status") not in ("Won", "Lost"):
+                if snap.get("status") not in ("Won", "Lost", "Draw"):
                     with ui.dialog():
                         try:
                             confirm = input("  unfinished game — type yes to quit: ").strip().lower()
@@ -743,7 +743,7 @@ def plan_scripted_orders(snap: dict | None) -> list[dict]:
     """
     if snap is None:
         return []
-    if snap.get("status") in ("Won", "Lost"):
+    if snap.get("status") in ("Won", "Lost", "Draw"):
         return []
 
     phase = str(snap.get("phase") or "")
@@ -872,7 +872,7 @@ def pump_scripted(
         if session.snapshot == before:
             break
         status = (session.snapshot or {}).get("status")
-        if status in ("Won", "Lost"):
+        if status in ("Won", "Lost", "Draw"):
             break
     return log_len
 

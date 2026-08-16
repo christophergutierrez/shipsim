@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::game_state::GameState;
-use crate::schema::SideId;
 use crate::path::PathAction;
+use crate::schema::SideId;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -49,7 +49,10 @@ pub enum Order {
     /// Buy a catalog ship for a side. The engine supplies price and validates
     /// affordability; clients must use the snapshot catalog.
     Purchase { side: SideId, class: String },
-    PurchaseCustom { side: SideId, design: crate::shipyard::Design },
+    PurchaseCustom {
+        side: SideId,
+        design: crate::shipyard::Design,
+    },
     // --- Retired v3 orders (deserialize for clear rejection only) ---
     #[serde(other)]
     RetiredUnknown,
@@ -121,7 +124,12 @@ pub enum OrderError {
     #[error("unknown purchasable class {0}")]
     UnknownPurchaseClass(String),
     #[error("side {side:?} has insufficient credits for {class} (need {need}, have {have})")]
-    InsufficientCredits { side: SideId, class: String, need: u32, have: u32 },
+    InsufficientCredits {
+        side: SideId,
+        class: String,
+        need: u32,
+        have: u32,
+    },
     #[error("class {0} is not purchasable")]
     NotPurchasable(String),
     #[error("no free spawn hex adjacent to side {side:?} shipyard")]
@@ -130,6 +138,8 @@ pub enum OrderError {
     PurchaseWrongPhase,
     #[error("custom design is invalid: {0}")]
     CustomDesignInvalid(String),
+    #[error("catalog class {0} already exists")]
+    CatalogClassAlreadyExists(String),
     #[error("ship {ship} path is illegal: {reason}")]
     IllegalPath { ship: u32, reason: String },
     #[error("order requires phase {expected}, actual phase is {actual}")]

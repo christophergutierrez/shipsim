@@ -534,6 +534,7 @@ fn run_match_with_policies(
         (ScenarioStatus::Won, Some(Terminal::ReachHex(_))) => Some("objective_reached".into()),
         (ScenarioStatus::Won, None) => Some("objective_reached".into()),
         (ScenarioStatus::Lost, _) => Some("player_fleet_destroyed".into()),
+        (ScenarioStatus::Draw, _) => Some("mutual_destruction_draw".into()),
         (ScenarioStatus::InProgress, _) if mutual_disarm => Some("mutual_disarm".into()),
         (ScenarioStatus::InProgress, _) if trace.len() >= config.max_orders => {
             Some("max_orders_reached".into())

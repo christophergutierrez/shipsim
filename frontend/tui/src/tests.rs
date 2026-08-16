@@ -409,6 +409,9 @@ fn snapshot_is_over_detects_terminal_states() {
     over.status = "Lost".into();
     assert!(over.is_over());
 
+    over.status = "Draw".into();
+    assert!(over.is_over());
+
     over.status = "InProgress".into();
     assert!(!over.is_over());
 }

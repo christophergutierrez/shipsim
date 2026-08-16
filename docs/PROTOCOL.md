@@ -46,6 +46,14 @@ by the other connection, broadcasts accepted snapshots to both clients, and
 does not add a turn-taking phase: allocation, movement, and volley barriers
 remain simultaneous. A client disconnect ends the session.
 
+The session host uses blocking collection: it waits indefinitely for the next
+order from either connected client. There is no per-turn timeout; a slow client
+can therefore pause progress until it submits or disconnects.
+
+Snapshots use `InProgress`, `Won`, `Lost`, or `Draw` for `status`. `Draw` is a
+terminal neutral result: neither side is the winner, and both session viewers
+receive `Draw`.
+
 ## Orders
 
 Every order is one JSON object per line with `protocol_version: 4`.

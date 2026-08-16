@@ -537,12 +537,12 @@ function tutorial.state_error(t, snap)
   if not snap then
     return nil
   end
-  -- snap.is_over() equivalent: status is Won/Lost. A nil status means the
+  -- snap.is_over() equivalent: status is Won/Lost/Draw. A nil status means the
   -- game is still in progress (mirrors the TUI's is_over() == false).
   local status = snap.status
-  local over = (status == "Won" or status == "Lost")
+  local over = (status == "Won" or status == "Lost" or status == "Draw")
   if over and step.expected.kind ~= "Dismiss" then
-    if status == "Won" then
+    if status == "Won" or status == "Draw" then
       return nil
     end
     return ("Game ended unexpectedly: %s"):format(tostring(status))

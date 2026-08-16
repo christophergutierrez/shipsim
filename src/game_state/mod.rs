@@ -1,11 +1,11 @@
 //! Game aggregate for protocol v4 simplified simultaneous turns (ADR-0025).
 
+mod ai;
 mod allocation;
-mod movement;
 #[path = "combat.rs"]
 mod combat_ops;
+mod movement;
 mod preview;
-mod ai;
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
@@ -21,14 +21,15 @@ use crate::path::{self, MapBounds, PathAction, PathState};
 use crate::path_resolve::{self, PathClaim, PathResult};
 use crate::prng::Prng;
 use crate::rules::Ruleset;
-use crate::ship::Ship;
 use crate::schema::SideId;
+use crate::ship::Ship;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ScenarioStatus {
     InProgress,
     Won,
     Lost,
+    Draw,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -45,7 +46,10 @@ pub enum Phase {
 pub enum Terminal {
     ReachHex(Hex),
     DestroyShip(u32),
-    DestroyShips { side_a_target: u32, side_b_target: u32 },
+    DestroyShips {
+        side_a_target: u32,
+        side_b_target: u32,
+    },
     /// Player wins when every non-player (NPC/scripted) ship is destroyed.
     AnnihilateEnemies,
 }
@@ -341,7 +345,10 @@ impl GameState {
     pub fn purchase_catalog(&self) -> Vec<crate::snapshot::PurchaseOption> {
         self.catalog
             .iter()
-            .map(|(class, ship)| crate::snapshot::PurchaseOption { class: class.clone(), cost: ship.cost })
+            .map(|(class, ship)| crate::snapshot::PurchaseOption {
+                class: class.clone(),
+                cost: ship.cost,
+            })
             .collect()
     }
 
@@ -354,13 +361,14 @@ impl GameState {
             return Err(crate::movement::OrderError::PurchaseWrongPhase);
         }
         if class == "shipyard" {
-            return Err(crate::movement::OrderError::NotPurchasable(class.to_string()));
+            return Err(crate::movement::OrderError::NotPurchasable(
+                class.to_string(),
+            ));
         }
-        let template = self
-            .catalog
-            .get(class)
-            .cloned()
-            .ok_or_else(|| crate::movement::OrderError::UnknownPurchaseClass(class.to_string()))?;
+        let template =
+            self.catalog.get(class).cloned().ok_or_else(|| {
+                crate::movement::OrderError::UnknownPurchaseClass(class.to_string())
+            })?;
         let have = self.credits.get(&side).copied().unwrap_or(0);
         let cost = template.cost;
         if have < cost {
@@ -380,21 +388,26 @@ impl GameState {
         let center = Hex::new(self.board.width as i32 / 2, self.board.height as i32 / 2);
         let spawn = std::iter::once(yard)
             .chain(yard.neighbors())
-            .filter(|hex| self.board.mode == crate::board::MapMode::Unbounded || self.board.contains(*hex))
+            .filter(|hex| {
+                self.board.mode == crate::board::MapMode::Unbounded || self.board.contains(*hex)
+            })
             .find(|hex| !self.is_occupied_by_other(0, *hex))
             .filter(|hex| *hex != yard)
             .ok_or(crate::movement::OrderError::SpawnBlocked { side })?;
         let mut ship = template;
-        ship.id = self.ships.iter().map(|s| s.id).max().unwrap_or(0).saturating_add(1);
+        ship.id = self
+            .ships
+            .iter()
+            .map(|s| s.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
         ship.side = side;
         ship.pos = spawn;
         ship.facing = Hex::facing_between(spawn, center).unwrap_or(0);
         ship.reset_v2_allocation();
         self.ships.push(ship);
         self.credits.insert(side, have - cost);
-        if side == SideId::B {
-            self.npcs.insert(self.ships.last().unwrap().id, NpcController::GreedySeek);
-        }
         Ok(())
     }
 
@@ -403,38 +416,74 @@ impl GameState {
         side: SideId,
         design: crate::shipyard::Design,
     ) -> Result<(), crate::movement::OrderError> {
-        if self.phase != Phase::Allocate { return Err(crate::movement::OrderError::PurchaseWrongPhase); }
+        if self.phase != Phase::Allocate {
+            return Err(crate::movement::OrderError::PurchaseWrongPhase);
+        }
+        if self.catalog.contains_key(&design.id) {
+            return Err(crate::movement::OrderError::CatalogClassAlreadyExists(
+                design.id,
+            ));
+        }
         let def = crate::shipyard::project_design(&self.data_root, &design)
             .map_err(|error| crate::movement::OrderError::CustomDesignInvalid(error.to_string()))?;
         let cost = def.cost;
         let have = self.credits.get(&side).copied().unwrap_or(0);
         if have < cost {
-            return Err(crate::movement::OrderError::InsufficientCredits { side, class: design.id, need: cost, have });
+            return Err(crate::movement::OrderError::InsufficientCredits {
+                side,
+                class: design.id,
+                need: cost,
+                have,
+            });
         }
-        let yard = self.ships.iter().find(|ship| ship.side == side && ship.class_id == "shipyard" && !ship.destroyed).map(|ship| ship.pos)
+        let yard = self
+            .ships
+            .iter()
+            .find(|ship| ship.side == side && ship.class_id == "shipyard" && !ship.destroyed)
+            .map(|ship| ship.pos)
             .ok_or(crate::movement::OrderError::SpawnBlocked { side })?;
         let center = Hex::new(self.board.width as i32 / 2, self.board.height as i32 / 2);
-        let spawn = yard.neighbors().into_iter()
-            .filter(|hex| self.board.mode == crate::board::MapMode::Unbounded || self.board.contains(*hex))
+        let spawn = yard
+            .neighbors()
+            .into_iter()
+            .filter(|hex| {
+                self.board.mode == crate::board::MapMode::Unbounded || self.board.contains(*hex)
+            })
             .find(|hex| !self.is_occupied_by_other(0, *hex))
             .ok_or(crate::movement::OrderError::SpawnBlocked { side })?;
-        let id = self.ships.iter().map(|ship| ship.id).max().unwrap_or(0).saturating_add(1);
+        let id = self
+            .ships
+            .iter()
+            .map(|ship| ship.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
         let facing = Hex::facing_between(spawn, center).unwrap_or(0);
         let placement = crate::schema::ShipPlacementDef {
-            id, class: design.id.clone(), q: spawn.q, r: spawn.r, facing,
-            controller: String::new(), side: Some(side), power: None, structure: None,
-            max_shield_per_facing: None, squad: None, leader: None,
+            id,
+            class: design.id.clone(),
+            q: spawn.q,
+            r: spawn.r,
+            facing,
+            controller: String::new(),
+            side: Some(side),
+            power: None,
+            structure: None,
+            max_shield_per_facing: None,
+            squad: None,
+            leader: None,
         };
         let ship = crate::scenario::ship_from_def(def, &placement, side, &self.rules)
             .map_err(|error| crate::movement::OrderError::CustomDesignInvalid(error.to_string()))?;
         self.catalog.insert(design.id, ship.clone());
         self.ships.push(ship);
         self.credits.insert(side, have - cost);
-        if side == SideId::B { self.npcs.insert(id, NpcController::GreedySeek); }
         Ok(())
     }
 
-    pub(crate) fn set_data_root(&mut self, root: &std::path::Path) { self.data_root = root.to_path_buf(); }
+    pub(crate) fn set_data_root(&mut self, root: &std::path::Path) {
+        self.data_root = root.to_path_buf();
+    }
 
     pub fn rules_fingerprint(&self) -> &str {
         self.rules.fingerprint()
@@ -481,7 +530,6 @@ impl GameState {
     pub fn path_results(&self) -> &[PathResult] {
         &self.path_results
     }
-
 
     pub fn reset_all_power(&mut self) {
         if self.turn.number() > 1 {
@@ -822,11 +870,28 @@ impl GameState {
                     ScenarioStatus::InProgress
                 }
             }
-            Some(Terminal::DestroyShips { side_a_target, side_b_target }) => {
-                let a_dead = self.ships.iter().any(|s| s.id == side_a_target && s.destroyed);
-                let b_dead = self.ships.iter().any(|s| s.id == side_b_target && s.destroyed);
-                self.winner = if b_dead { Some(SideId::A) } else if a_dead { Some(SideId::B) } else { None };
-                if self.winner.is_some() { ScenarioStatus::Won } else { ScenarioStatus::InProgress }
+            Some(Terminal::DestroyShips {
+                side_a_target,
+                side_b_target,
+            }) => {
+                let a_dead = self
+                    .ships
+                    .iter()
+                    .any(|s| s.id == side_a_target && s.destroyed);
+                let b_dead = self
+                    .ships
+                    .iter()
+                    .any(|s| s.id == side_b_target && s.destroyed);
+                self.winner = match (a_dead, b_dead) {
+                    (false, true) => Some(SideId::A),
+                    (true, false) => Some(SideId::B),
+                    _ => None,
+                };
+                match (a_dead, b_dead) {
+                    (true, true) => ScenarioStatus::Draw,
+                    (true, false) | (false, true) => ScenarioStatus::Won,
+                    (false, false) => ScenarioStatus::InProgress,
+                }
             }
             Some(Terminal::AnnihilateEnemies) => {
                 let enemies: Vec<_> = self
@@ -977,6 +1042,7 @@ controller = "ai"
 
 #[cfg(test)]
 mod economy_tests {
+    use crate::game_state::ScenarioStatus;
     use crate::movement::{apply_order, Order, OrderError};
     use crate::scenario::load_scenario;
     use crate::schema::SideId;
@@ -987,7 +1053,14 @@ mod economy_tests {
     fn credits_start_at_one_income_and_accrue_at_turn_start() {
         let mut game = load_scenario(Path::new("scenarios/shipyard_assault.toml")).unwrap();
         assert_eq!(game.credits().get(&SideId::A), Some(&100));
-        apply_order(&mut game, Order::Purchase { side: SideId::A, class: "basic_swarm".into() }).unwrap();
+        apply_order(
+            &mut game,
+            Order::Purchase {
+                side: SideId::A,
+                class: "basic_swarm".into(),
+            },
+        )
+        .unwrap();
         assert_eq!(game.credits().get(&SideId::A), Some(&56));
         game.advance_turn_counter();
         game.reset_all_power();
@@ -998,10 +1071,106 @@ mod economy_tests {
     fn purchase_catalog_is_snapshot_data_and_excludes_shipyard() {
         let game = load_scenario(Path::new("scenarios/shipyard_assault.toml")).unwrap();
         let snapshot = StateSnapshot::from_game_state(&game);
-        assert!(snapshot.purchasable.iter().any(|entry| entry.class == "basic_swarm"));
-        assert!(!snapshot.purchasable.iter().any(|entry| entry.class == "shipyard"));
+        assert!(snapshot
+            .purchasable
+            .iter()
+            .any(|entry| entry.class == "basic_swarm"));
+        assert!(!snapshot
+            .purchasable
+            .iter()
+            .any(|entry| entry.class == "shipyard"));
         let mut game2 = game;
-        let error = apply_order(&mut game2, Order::Purchase { side: SideId::A, class: "not_a_class".into() }).unwrap_err();
+        let error = apply_order(
+            &mut game2,
+            Order::Purchase {
+                side: SideId::A,
+                class: "not_a_class".into(),
+            },
+        )
+        .unwrap_err();
         assert!(matches!(error, OrderError::UnknownPurchaseClass(_)));
+    }
+
+    #[test]
+    fn side_b_purchase_remains_player_controlled() {
+        let mut game = load_scenario(Path::new("scenarios/shipyard_assault.toml")).unwrap();
+        apply_order(
+            &mut game,
+            Order::Purchase {
+                side: SideId::B,
+                class: "basic_swarm".into(),
+            },
+        )
+        .unwrap();
+        let purchased = game.ships().iter().max_by_key(|ship| ship.id).unwrap();
+        assert_eq!(purchased.side, SideId::B);
+        assert!(!game.npcs.contains_key(&purchased.id));
+        assert_eq!(game.controller_label(purchased.id), "player");
+    }
+
+    #[test]
+    fn custom_purchase_rejects_existing_catalog_without_mutation() {
+        let mut game = load_scenario(Path::new("scenarios/shipyard_assault.toml")).unwrap();
+        let before_credits = game.credits();
+        let before_ships = game.ships().len();
+        let design: crate::shipyard::Design = toml::from_str(
+            r#"id = "basic_swarm"
+name = "collision"
+size = 1
+material = "steel"
+engine = "fission"
+engine_size = "s"
+weapons = [{ component = "beam", mount = "forward" }]
+"#,
+        )
+        .unwrap();
+        let error = game.purchase_custom(SideId::A, design).unwrap_err();
+        assert!(matches!(error, OrderError::CatalogClassAlreadyExists(id) if id == "basic_swarm"));
+        assert_eq!(game.credits(), before_credits);
+        assert_eq!(game.ships().len(), before_ships);
+        assert_eq!(
+            game.purchase_catalog()
+                .iter()
+                .filter(|entry| entry.class == "basic_swarm")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn destroying_both_side_targets_is_a_draw() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let def: crate::schema::ScenarioDef = toml::from_str(
+            r#"width = 12
+height = 12
+[terminal]
+type = "side_destruction"
+side_a_target = 1
+side_b_target = 2
+[[ships]]
+id = 1
+class = "basic_swarm"
+q = 2
+r = 2
+facing = 0
+controller = "player"
+side = "a"
+[[ships]]
+id = 2
+class = "basic_swarm"
+q = 8
+r = 8
+facing = 3
+controller = "scripted"
+side = "b"
+"#,
+        )
+        .unwrap();
+        let mut game = crate::scenario::load_scenario_def(&def, root).unwrap();
+        game.set_ship_structure(1, 0).unwrap();
+        game.set_ship_structure(2, 0).unwrap();
+        game.refresh_status();
+        assert_eq!(game.status(), ScenarioStatus::Draw);
+        assert_eq!(game.winner(), None);
     }
 }

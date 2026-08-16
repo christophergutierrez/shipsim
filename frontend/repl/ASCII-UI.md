@@ -119,7 +119,7 @@ new color for decoration; a new entry here needs a new *meaning*.
 | `←` on a shield row | That face is relevant to the observer (e.g. facing you) |
 | `arc=… rng≤…` on a weapon line | Mount arc + max range (engine data, frozen tables) |
 | `rel bearing: N` | Direction to focus target relative to your nose (0 = F) |
-| `status=Won` / `status=Lost` | Endgame; painted ok / err in the header |
+| `status=Won` / `status=Lost` / `status=Draw` | Endgame; painted ok / err / warn in the header |
 | `committed=[…] pending=[…]` | Path or volley commitments for the current phase (muted) |
 
 Prompt fragments (`*1`, `draft11/22`, `/ready`, …) have their canonical table
@@ -282,10 +282,10 @@ then one full volley. The display shows short callsigns in muted
 
 ### Endgame
 
-Snapshot `status` is `InProgress` / `Won` / `Lost`; the three interactive
+Snapshot `status` is `InProgress` / `Won` / `Lost` / `Draw`; the three interactive
 phases are `allocate`, `movement`, and `firing`.
 
-- `Won` paints ok-green, `Lost` paints err-red in the header
+- `Won` paints ok-green, `Lost` paints err-red, and `Draw` paints warn-yellow in the header
   (`view.format_header`). On the transition, be at least as loud as FIRE
   RESOLUTION — the game is over; don't let the player keep typing orders into
   soft errors without noticing.

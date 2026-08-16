@@ -113,6 +113,8 @@ def format_header(snap: dict[str, Any], *, selected: Optional[int] = None) -> st
         status_s = sty_ok(status_s)
     elif status == "Lost":
         status_s = sty_err(status_s)
+    elif status == "Draw":
+        status_s = sty_warn(status_s)
     legend = ""
     if selected is not None:
         if active is not None and active != selected:
@@ -695,9 +697,9 @@ def format_terminal_banner(
     generic hull-loss line, so the player sees the actual kill condition.
     """
     label = f"SCENARIO {status.upper()}"
-    styled = sty_ok(label) if status == "Won" else sty_err(label)
+    styled = sty_ok(label) if status == "Won" else sty_warn(label) if status == "Draw" else sty_err(label)
     cause = ""
-    if snap is not None and status != "Won":
+    if snap is not None and status not in ("Won", "Draw"):
         cause = _loss_cause(snap)
     lines = ["*** GAME OVER ***", styled]
     if cause:

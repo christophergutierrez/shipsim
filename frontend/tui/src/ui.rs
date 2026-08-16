@@ -173,10 +173,11 @@ fn stage_progress(snap: &Snapshot) -> Option<(&'static str, usize, usize)> {
 }
 
 fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
-    let status_color = if snap.is_over() {
-        Color::Yellow
-    } else {
-        Color::Green
+    let status_color = match snap.status.as_str() {
+        "Won" => Color::Green,
+        "Lost" => Color::Red,
+        "Draw" => Color::Yellow,
+        _ => Color::Green,
     };
     // v4: header `queued=N` counts the *focused* ship's drafted volley shots
     // (not yet committed) so the player always knows what their ship will fire
@@ -2597,7 +2598,7 @@ pub(crate) fn is_disabled_ship(app: &App) -> bool {
 fn phase_call_to_action(app: &App, snap: &Snapshot) -> String {
     // A finished game has no next action; pointing at allocation/maneuvers
     // would be stale advice. The Game Over panel carries the summary.
-    if matches!(snap.status.as_str(), "Won" | "Lost") {
+    if matches!(snap.status.as_str(), "Won" | "Lost" | "Draw") {
         return "Game over — q quits".into();
     }
     let focused_id = app.focused().map(|s| s.id);
@@ -2716,6 +2717,7 @@ fn render_game_over_summary(app: &App, status: &str) -> Vec<Line<'static>> {
     let banner = match status {
         "Won" => " VICTORY",
         "Lost" => " DEFEAT",
+        "Draw" => " DRAW",
         other => other,
     };
     let turn = app.snap.as_ref().map(|s| s.turn).unwrap_or(0);

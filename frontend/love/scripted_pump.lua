@@ -31,7 +31,7 @@ end
 function pump.run(session, on_error)
   for _ = 1, 256 do
     local snap = session and session.snapshot
-    if not snap or snap.status == "Won" or snap.status == "Lost" then
+    if not snap or snap.status == "Won" or snap.status == "Lost" or snap.status == "Draw" then
       return
     end
     local order

@@ -120,7 +120,7 @@ function draw_hud.phase_call_to_action(snap, selected_id, path_drafts)
     return ""
   end
   -- A finished game has no next action.
-  if snap.status == "Won" or snap.status == "Lost" then
+  if snap.status == "Won" or snap.status == "Lost" or snap.status == "Draw" then
     return "Game over"
   end
 
@@ -1213,6 +1213,9 @@ function draw_hud.draw_game_over(app)
   elseif status == "defeat" or status == "Lost" then
     banner = " DEFEAT"
     bcolor = { 0.95, 0.35, 0.35 }
+  elseif status == "draw" or status == "Draw" then
+    banner = " DRAW"
+    bcolor = { 0.95, 0.8, 0.25 }
   end
 
   local pad = math.floor(20 * ui.scale)

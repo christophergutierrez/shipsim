@@ -111,10 +111,27 @@ impl Campaign {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scenario::load_scenario;
 
     #[test]
     fn scenario_error_preserves_its_source_chain() {
         let error = CampaignError::from(LoadError::InvalidFacing { facing: 9 });
         assert!(std::error::Error::source(&error).is_some());
+    }
+
+    #[test]
+    fn draw_does_not_advance_campaign() {
+        let mut game = load_scenario(Path::new("scenarios/shipyard_assault.toml")).unwrap();
+        game.set_ship_structure(1, 0).unwrap();
+        game.set_ship_structure(6, 0).unwrap();
+        game.refresh_status();
+        assert_eq!(game.status(), ScenarioStatus::Draw);
+        let mut campaign = Campaign {
+            name: "draw".into(),
+            scenario_paths: vec![PathBuf::from("a.toml"), PathBuf::from("b.toml")],
+            index: 0,
+        };
+        assert!(!campaign.advance_on_win(&game).unwrap());
+        assert_eq!(campaign.index, 0);
     }
 }

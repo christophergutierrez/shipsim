@@ -131,7 +131,11 @@ impl ShipSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::ShipSnapshot;
+    use super::{ShipSnapshot, StateSnapshot};
+    use crate::game_state::ScenarioStatus;
+    use crate::scenario::load_scenario;
+    use crate::schema::SideId;
+    use std::path::Path;
 
     #[test]
     fn test_fixture_has_safe_defaults() {
@@ -140,6 +144,40 @@ mod tests {
         assert!(!ship.destroyed);
         assert!(ship.repair_cap.is_none());
         assert!(ship.weapons.is_empty());
+    }
+
+    #[test]
+    fn side_projection_reports_winner_loser_and_draw() {
+        let mut game = load_scenario(Path::new("scenarios/shipyard_assault.toml")).unwrap();
+        game.set_ship_structure(6, 0).unwrap();
+        game.refresh_status();
+        assert_eq!(
+            StateSnapshot::from_game_state_for_side(&game, SideId::A).status,
+            ScenarioStatus::Won
+        );
+        assert_eq!(
+            StateSnapshot::from_game_state_for_side(&game, SideId::B).status,
+            ScenarioStatus::Lost
+        );
+        game.set_ship_structure(1, 0).unwrap();
+        game.refresh_status();
+        assert_eq!(
+            StateSnapshot::from_game_state_for_side(&game, SideId::A).status,
+            ScenarioStatus::Draw
+        );
+        assert_eq!(
+            StateSnapshot::from_game_state_for_side(&game, SideId::B).status,
+            ScenarioStatus::Draw
+        );
+
+        let mut legacy = load_scenario(Path::new("scenarios/battle.toml")).unwrap();
+        legacy.set_ship_structure(2, 0).unwrap();
+        legacy.refresh_status();
+        assert_eq!(legacy.winner(), None);
+        assert_eq!(
+            StateSnapshot::from_game_state_for_side(&legacy, SideId::A).status,
+            ScenarioStatus::Won
+        );
     }
 }
 
@@ -227,10 +265,28 @@ pub struct PurchaseOption {
 
 impl StateSnapshot {
     pub fn from_game_state(game: &GameState) -> Self {
+        // The single-process harness is the historical side-A viewer. Legacy
+        // one-way terminals carry no winner and retain their original status.
+        Self::from_game_state_for_side(game, SideId::A)
+    }
+
+    /// Build a snapshot for a particular session viewer. Single-process
+    /// clients retain the historical global status through `from_game_state`;
+    /// network sessions use this projection so each side sees its own result.
+    pub fn from_game_state_for_side(game: &GameState, side: SideId) -> Self {
+        let status = match game.status() {
+            ScenarioStatus::Won if game.winner() == Some(side) => ScenarioStatus::Won,
+            ScenarioStatus::Won if game.winner().is_some() => ScenarioStatus::Lost,
+            other => other,
+        };
+        Self::from_game_state_with_status(game, status)
+    }
+
+    fn from_game_state_with_status(game: &GameState, status: ScenarioStatus) -> Self {
         Self {
             protocol_version: crate::protocol::PROTOCOL_VERSION,
             turn: game.turn_number(),
-            status: game.status(),
+            status,
             winner: game.winner(),
             credits: game.credits(),
             purchasable: game.purchase_catalog(),

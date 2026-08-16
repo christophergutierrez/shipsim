@@ -332,8 +332,11 @@ snap = select(1, harness.submit(session, orders.commit_volley(1, {})))
 assert(snap, "commit_volley ship 1")
 scripted_pump.run(session, function(err) error(err.message or "scripted pump failed") end)
 snap = session.snapshot
-assert(snap.phase == "allocate" or snap.status == "Won" or snap.status == "Lost",
+assert(snap.phase == "allocate" or snap.status == "Won" or snap.status == "Lost" or snap.status == "Draw",
   "turn advances automatically after volleys resolve")
+
+assert_eq(end_condition.evaluate({ status = "Draw" }), "draw", "draw is terminal")
+ok("draw end condition")
 if snap.phase == "allocate" then
   assert(snap.turn >= 2, "auto-advance reaches the next turn")
 end

@@ -15,7 +15,7 @@ function end_condition.player_ships(snapshot)
   return out
 end
 
---- Returns "won", "defeat", or nil if still playing.
+--- Returns "won", "defeat", "draw", or nil if still playing.
 function end_condition.evaluate(snapshot)
   if not snapshot then
     return nil
@@ -25,6 +25,9 @@ function end_condition.evaluate(snapshot)
   end
   if snapshot.status == "Lost" then
     return "defeat"
+  end
+  if snapshot.status == "Draw" then
+    return "draw"
   end
   return nil
 end

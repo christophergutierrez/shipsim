@@ -409,7 +409,7 @@ class ReplContext:
 
 
 def phase_hint(snap: dict[str, Any], ctx: ReplContext) -> str:
-    if snap.get("status") in ("Won", "Lost"):
+    if snap.get("status") in ("Won", "Lost", "Draw"):
         return f"scenario {snap.get('status')}: quit exits; log shows session history"
     phase = str(snap.get("phase") or "")
     focus = ctx.selected

@@ -309,4 +309,3 @@ impl GameState {
             .next()
     }
 }
-

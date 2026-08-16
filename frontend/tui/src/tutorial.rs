@@ -284,7 +284,7 @@ impl Tutorial {
         }
         let step = self.current_step()?;
         if snap.is_over() && !matches!(step.expected, ExpectedAction::Dismiss) {
-            if snap.status == "Won" {
+            if matches!(snap.status.as_str(), "Won" | "Draw") {
                 return None;
             }
             return Some(format!("Game ended unexpectedly: {}", snap.status));

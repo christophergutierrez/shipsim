@@ -534,7 +534,9 @@ impl Order {
         repair: u32,
         unsquad: bool,
     ) -> Self {
-        Self::allocate_full(ship, movement, weapons, shields, cloak, repair, unsquad, None)
+        Self::allocate_full(
+            ship, movement, weapons, shields, cloak, repair, unsquad, None,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -720,6 +722,6 @@ impl Snapshot {
 
     /// True if the game is over.
     pub fn is_over(&self) -> bool {
-        matches!(self.status.as_str(), "Won" | "Lost")
+        matches!(self.status.as_str(), "Won" | "Lost" | "Draw")
     }
 }
