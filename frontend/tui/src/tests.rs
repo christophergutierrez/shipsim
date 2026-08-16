@@ -436,6 +436,20 @@ fn running_disconnect_error_is_visible_without_claiming_victory() {
 }
 
 #[test]
+fn terminal_snapshot_eof_does_not_claim_opponent_disconnected() {
+    let mut app = App::new_network("127.0.0.1:4100");
+    let mut snapshot = test_snapshot();
+    snapshot.status = "Lost".into();
+    app.update_snapshot(snapshot);
+
+    app.handle_transport_eof();
+
+    assert!(app.engine_dead);
+    assert_eq!(app.last_error, None);
+    assert_eq!(app.snap.as_ref().unwrap().status, "Lost");
+}
+
+#[test]
 fn phase6_llm_profile_cycle_is_visible_and_uses_selected_argv() {
     let mut app = App::new_network("127.0.0.1:4100");
     let lobby = app.lobby.as_mut().unwrap();

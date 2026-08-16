@@ -648,6 +648,17 @@ impl App {
         }
     }
 
+    /// Mark the transport closed without turning a completed match into a
+    /// disconnect error. The session host closes its one-match socket after
+    /// sending the terminal snapshot.
+    pub fn handle_transport_eof(&mut self) {
+        self.engine_dead = true;
+        if self.snap.as_ref().is_some_and(|snapshot| snapshot.is_over()) {
+            return;
+        }
+        self.last_error = Some("Opponent disconnected; match ended. Press q to quit.".into());
+    }
+
     /// Called when a new snapshot arrives from the engine.
     pub fn update_snapshot(&mut self, snap: Snapshot) {
         let prior_owned_ids: std::collections::BTreeSet<i64> = self

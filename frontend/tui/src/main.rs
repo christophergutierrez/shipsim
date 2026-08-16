@@ -488,14 +488,12 @@ fn drain_transport(app: &mut App, harness: &mut Harness) {
         match line {
             EngineLine::Session(message) => app.apply_session_message(message),
             EngineLine::Eof => {
-                app.engine_dead = true;
                 if let Some(lobby) = app.lobby.as_mut() {
+                    app.engine_dead = true;
                     lobby.error = Some("Server disconnected; press q to quit".into());
                     lobby.screen = app::LobbyScreen::Error;
                 } else {
-                    app.last_error = Some(
-                        "Opponent disconnected; match ended. Press q to quit.".into(),
-                    );
+                    app.handle_transport_eof();
                 }
             }
             other => apply_engine_line(app, other),
