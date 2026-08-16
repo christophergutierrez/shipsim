@@ -16,6 +16,8 @@ pub struct Snapshot {
     pub protocol_version: u32,
     pub turn: u32,
     pub status: String,
+    #[serde(default)]
+    pub winner: Option<String>,
     /// `allocate` | `movement` | `firing`.
     pub phase: String,
     /// Ships that have committed allocate this turn.
@@ -93,6 +95,8 @@ pub struct GameMap {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Ship {
     pub id: i64,
+    #[serde(default)]
+    pub side: String,
     pub class: String,
     pub size: u32,
     pub controller: String,

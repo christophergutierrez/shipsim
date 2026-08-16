@@ -21,6 +21,7 @@ use crate::path_resolve::{self, PathClaim, PathResult};
 use crate::prng::Prng;
 use crate::rules::Ruleset;
 use crate::ship::Ship;
+use crate::schema::SideId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ScenarioStatus {
@@ -43,6 +44,7 @@ pub enum Phase {
 pub enum Terminal {
     ReachHex(Hex),
     DestroyShip(u32),
+    DestroyShips { side_a_target: u32, side_b_target: u32 },
     /// Player wins when every non-player (NPC/scripted) ship is destroyed.
     AnnihilateEnemies,
 }
@@ -179,6 +181,7 @@ pub struct GameState {
     prng: Prng,
     turn: Turn,
     status: ScenarioStatus,
+    winner: Option<SideId>,
     phase: Phase,
     /// Applied allocation this turn (after barrier) and staged commits.
     allocated_this_turn: HashSet<u32>,
@@ -290,6 +293,7 @@ impl GameState {
             prng: Prng::new(seed),
             turn: Turn::new(),
             status: ScenarioStatus::InProgress,
+            winner: None,
             phase: Phase::Allocate,
             allocated_this_turn: HashSet::new(),
             staged_allocations: BTreeMap::new(),
@@ -312,6 +316,10 @@ impl GameState {
 
     pub fn status(&self) -> ScenarioStatus {
         self.status
+    }
+
+    pub fn winner(&self) -> Option<SideId> {
+        self.winner
     }
 
     pub fn rules_fingerprint(&self) -> &str {
@@ -564,6 +572,7 @@ impl GameState {
     pub fn destruction_target(&self) -> Option<u32> {
         match self.terminal {
             Some(Terminal::DestroyShip(id)) => Some(id),
+            Some(Terminal::DestroyShips { side_a_target, .. }) => Some(side_a_target),
             _ => None,
         }
     }
@@ -667,7 +676,10 @@ impl GameState {
             .iter()
             .filter(|ship| !self.npcs.contains_key(&ship.id))
             .collect();
-        if !player_ships.is_empty() && !player_ships.iter().any(|ship| !ship.destroyed) {
+        if !player_ships.is_empty()
+            && !player_ships.iter().any(|ship| !ship.destroyed)
+            && !matches!(self.terminal, Some(Terminal::DestroyShips { .. }))
+        {
             self.status = ScenarioStatus::Lost;
             return;
         }
@@ -689,6 +701,12 @@ impl GameState {
                 } else {
                     ScenarioStatus::InProgress
                 }
+            }
+            Some(Terminal::DestroyShips { side_a_target, side_b_target }) => {
+                let a_dead = self.ships.iter().any(|s| s.id == side_a_target && s.destroyed);
+                let b_dead = self.ships.iter().any(|s| s.id == side_b_target && s.destroyed);
+                self.winner = if b_dead { Some(SideId::A) } else if a_dead { Some(SideId::B) } else { None };
+                if self.winner.is_some() { ScenarioStatus::Won } else { ScenarioStatus::InProgress }
             }
             Some(Terminal::AnnihilateEnemies) => {
                 let enemies: Vec<_> = self

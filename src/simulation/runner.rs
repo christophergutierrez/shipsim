@@ -525,6 +525,9 @@ fn run_match_with_policies(
         (ScenarioStatus::Won, Some(Terminal::DestroyShip(_))) => {
             Some("destruction_target_reached".into())
         }
+        (ScenarioStatus::Won, Some(Terminal::DestroyShips { .. })) => {
+            Some("shipyard_destroyed".into())
+        }
         (ScenarioStatus::Won, Some(Terminal::AnnihilateEnemies)) => {
             Some("enemy_fleet_annihilated".into())
         }
@@ -760,6 +763,7 @@ mod tests {
             protocol_version: 4,
             turn: 1,
             status: ScenarioStatus::InProgress,
+            winner: None,
             phase: "allocate".into(),
             ships_allocated_this_turn: Vec::new(),
             ships_committed_path: Vec::new(),

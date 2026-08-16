@@ -259,6 +259,7 @@ mod tests {
     fn ship(id: u32, q: i32, r: i32) -> Ship {
         Ship {
             id,
+            side: crate::schema::SideId::A,
             class: "t".into(),
             class_id: "t".into(),
             size: crate::rules::Ruleset::builtin()

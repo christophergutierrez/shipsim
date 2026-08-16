@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SideId { #[default] A, B }
+
 fn default_seed() -> u64 {
     1
 }
@@ -94,6 +98,8 @@ pub struct ShipPlacementDef {
     pub facing: u8,
     #[serde(default)]
     pub controller: String,
+    #[serde(default)]
+    pub side: Option<SideId>,
     /// Override design power for this placement (balance sweeps / scenarios).
     #[serde(default)]
     pub power: Option<u32>,
@@ -115,6 +121,10 @@ pub struct TerminalDef {
     pub terminal_type: String,
     #[serde(default)]
     pub target: Option<u32>,
+    #[serde(default)]
+    pub side_a_target: Option<u32>,
+    #[serde(default)]
+    pub side_b_target: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

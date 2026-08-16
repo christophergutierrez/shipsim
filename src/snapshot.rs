@@ -5,7 +5,7 @@ use crate::combat::{Arc, Weapon};
 use crate::combat_tables;
 use crate::game_state::{FireOpportunity, GameState, ScenarioStatus};
 use crate::path_resolve::PathResult;
-use crate::schema::SystemKind;
+use crate::schema::{SideId, SystemKind};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MapSnapshot {
@@ -23,6 +23,7 @@ pub struct HexSnapshot {
 #[derive(Debug, Clone, Serialize)]
 pub struct ShipSnapshot {
     pub id: u32,
+    pub side: SideId,
     pub class: String,
     /// Canonical catalog key (ship-definition file stem). Additive identity
     /// field for presentation clients; distinct from numeric `id` and display
@@ -87,6 +88,7 @@ impl ShipSnapshot {
     pub fn test_fixture(id: u32) -> Self {
         Self {
             id,
+            side: SideId::A,
             class: String::new(),
             class_id: String::new(),
             size: 0,
@@ -171,6 +173,8 @@ pub struct StateSnapshot {
     pub protocol_version: u32,
     pub turn: u32,
     pub status: ScenarioStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub winner: Option<SideId>,
     pub phase: String,
     /// Living ships that have completed (or staged) allocation this turn.
     pub ships_allocated_this_turn: Vec<u32>,
@@ -215,6 +219,7 @@ impl StateSnapshot {
             protocol_version: crate::protocol::PROTOCOL_VERSION,
             turn: game.turn_number(),
             status: game.status(),
+            winner: game.winner(),
             phase: game.phase_name().to_string(),
             ships_allocated_this_turn: game.allocated_this_turn(),
             ships_committed_path: game.ships_committed_path(),
@@ -239,6 +244,7 @@ impl StateSnapshot {
                 .iter()
                 .map(|ship| ShipSnapshot {
                     id: ship.id,
+                    side: ship.side,
                     class: ship.class.clone(),
                     class_id: ship.class_id.clone(),
                     size: ship.size,

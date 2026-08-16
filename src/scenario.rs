@@ -11,7 +11,7 @@ use crate::combat_tables::WeaponKind;
 use crate::game_state::{GameState, NpcController, Terminal};
 use crate::hex::Hex;
 use crate::rules::{RulesError, Ruleset};
-use crate::schema::{ScenarioDef, ShipDef, SystemKind, WeaponDef};
+use crate::schema::{ScenarioDef, ShipDef, SideId, SystemKind, WeaponDef};
 use crate::ship::Ship;
 
 #[derive(Debug, Error)]
@@ -134,8 +134,11 @@ pub fn load_scenario_def_with_rules(
     let terminal_kind = def.terminal.as_ref().map(|t| t.terminal_type.as_str());
     let has_destruction = terminal_kind == Some("destruction");
     let has_annihilation = terminal_kind == Some("annihilation");
-    let terminal_count =
-        usize::from(has_objective) + usize::from(has_destruction) + usize::from(has_annihilation);
+    let has_side_destruction = terminal_kind == Some("side_destruction");
+    let terminal_count = usize::from(has_objective)
+        + usize::from(has_destruction)
+        + usize::from(has_annihilation)
+        + usize::from(has_side_destruction);
     if terminal_count > 1 {
         return Err(LoadError::ConflictingTerminals);
     }
@@ -150,6 +153,10 @@ pub fn load_scenario_def_with_rules(
                 let target = term.target.ok_or(LoadError::DestructionTargetMissing)?;
                 Some(Terminal::DestroyShip(target))
             }
+            "side_destruction" => Some(Terminal::DestroyShips {
+                side_a_target: term.side_a_target.ok_or(LoadError::DestructionTargetMissing)?,
+                side_b_target: term.side_b_target.ok_or(LoadError::DestructionTargetMissing)?,
+            }),
             "annihilation" => Some(Terminal::AnnihilateEnemies),
             other => return Err(LoadError::UnknownTerminal(other.to_string())),
         }
@@ -194,6 +201,9 @@ pub fn load_scenario_def_with_rules(
         let ctrl = placement.controller.to_ascii_lowercase();
         let is_ai = matches!(ctrl.as_str(), "ai" | "greedy");
         let is_scripted = !is_ai && ctrl == "scripted";
+        let side = placement
+            .side
+            .unwrap_or(if is_ai || is_scripted { SideId::B } else { SideId::A });
 
         let power = placement.power.unwrap_or(ship_def.power);
         let structure = placement.structure.unwrap_or(ship_def.structure);
@@ -312,6 +322,7 @@ pub fn load_scenario_def_with_rules(
         }
         ships.push(Ship {
             id: placement.id,
+            side,
             class: ship_def.name.clone(),
             // Canonical identity is the catalog key used to load this
             // definition. `load_ship_def` rejects a conflicting internal id.
@@ -518,6 +529,53 @@ mod tests {
             count += 1;
         }
         assert!(count > 0);
+    }
+
+    #[test]
+    fn side_destruction_sets_the_winner_for_either_target() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let def: ScenarioDef = toml::from_str(
+            r#"
+width = 12
+height = 12
+
+[terminal]
+type = "side_destruction"
+side_a_target = 1
+side_b_target = 2
+
+[[ships]]
+id = 1
+class = "basic_swarm"
+q = 2
+r = 2
+facing = 0
+controller = "player"
+side = "a"
+
+[[ships]]
+id = 2
+class = "basic_swarm"
+q = 8
+r = 8
+facing = 3
+controller = "scripted"
+side = "b"
+"#,
+        )
+        .unwrap();
+        let mut game = load_scenario_def(&def, root).unwrap();
+        assert_eq!(game.ship(1).unwrap().side, SideId::A);
+        assert_eq!(game.ship(2).unwrap().side, SideId::B);
+        game.set_ship_structure(2, 0).unwrap();
+        game.refresh_status();
+        assert_eq!(game.winner(), Some(SideId::A));
+        assert_eq!(game.status(), crate::game_state::ScenarioStatus::Won);
+
+        let mut mirror = load_scenario_def(&def, root).unwrap();
+        mirror.set_ship_structure(1, 0).unwrap();
+        mirror.refresh_status();
+        assert_eq!(mirror.winner(), Some(SideId::B));
     }
 
     fn write_ship(dir: &std::path::Path, class: &str, body: &str) {

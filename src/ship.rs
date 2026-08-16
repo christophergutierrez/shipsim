@@ -2,13 +2,14 @@ use std::collections::BTreeMap;
 
 use crate::combat::Weapon;
 use crate::hex::Hex;
-use crate::schema::SystemKind;
+use crate::schema::{SideId, SystemKind};
 use crate::ssd::Ssd;
 use crate::thrust::ThrustConversion;
 
 #[derive(Debug, Clone)]
 pub struct Ship {
     pub id: u32,
+    pub side: SideId,
     pub class: String,
     /// Canonical catalog key (ship-definition file stem). Distinct from the
     /// numeric scenario-instance `id` and the human-readable display `class`.

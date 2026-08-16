@@ -482,6 +482,8 @@ pub fn build_engagement_scenario(
         terminal: Some(TerminalDef {
             terminal_type: "annihilation".into(),
             target: None,
+            side_a_target: None,
+            side_b_target: None,
         }),
         ships,
     })
@@ -518,6 +520,7 @@ fn place_side(
                 r: start_r + index as i32,
                 facing,
                 controller: controller.into(),
+                side: Some(if controller == "player" { crate::schema::SideId::A } else { crate::schema::SideId::B }),
                 power: line.power,
                 structure: line.structure,
                 max_shield_per_facing: line.max_shield_per_facing,

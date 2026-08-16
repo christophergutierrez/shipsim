@@ -769,6 +769,7 @@ fn floating_map_preserves_unique_world_endpoints_beyond_nominal_bounds() {
         r: 1,
         facing,
         controller: "player".into(),
+        side: None,
         power: None,
         structure: None,
         max_shield_per_facing: None,
