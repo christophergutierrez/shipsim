@@ -307,20 +307,57 @@ class SessionAdapter:
 
     def request(self, request: Mapping[str, Any]) -> dict[str, Any]:
         self.transport.send({"protocol_version": GAME_VERSION, **request})
-        return self._next_game_message()
+        expected = request.get("request")
+        while True:
+            message = self._next_protocol_message()
+            if message.get("type") == expected:
+                return message
 
     def order(self, order: Mapping[str, Any]) -> dict[str, Any]:
+        before = self.snapshot
         self.transport.send({"protocol_version": GAME_VERSION, **order})
-        return self._next_game_message()
+        while True:
+            message = self._next_protocol_message()
+            if message.get("protocol_version") != GAME_VERSION or "phase" not in message:
+                continue
+            self.snapshot = message
+            if self._order_acknowledged(order, before, message):
+                return message
 
-    def _next_game_message(self) -> dict[str, Any]:
+    def _next_protocol_message(self) -> dict[str, Any]:
         while True:
             message = self.transport.receive()
             if message.get("type") == "error":
                 raise ProtocolError(str(message.get("code", "request_rejected")))
-            if message.get("protocol_version") == GAME_VERSION:
+            if message.get("protocol_version") == GAME_VERSION and "phase" in message:
                 self.snapshot = message
+            if message.get("protocol_version") == GAME_VERSION:
                 return message
+
+    @staticmethod
+    def _order_acknowledged(
+        order: Mapping[str, Any],
+        before: Mapping[str, Any] | None,
+        after: Mapping[str, Any],
+    ) -> bool:
+        kind = order.get("type")
+        if kind in {"purchase", "purchase_custom"}:
+            if before is None:
+                return True
+            before_ids = {ship.get("id") for ship in before.get("ships", [])}
+            after_ids = {ship.get("id") for ship in after.get("ships", [])}
+            return after_ids != before_ids or after.get("credits") != before.get("credits")
+        fields = {
+            "allocate": "ships_allocated_this_turn",
+            "commit_path": "ships_committed_path",
+            "commit_volley": "ships_committed_volley",
+        }
+        field = fields.get(str(kind))
+        if field is None or before is None:
+            return True
+        if after.get("turn") != before.get("turn") or after.get("phase") != before.get("phase"):
+            return True
+        return order.get("ship") in after.get(field, [])
 
 
 def _side_value(side: Any) -> str:
@@ -514,15 +551,41 @@ class Agent:
         turns = 0
         while snapshot and snapshot.get("status", "InProgress").lower() in {"inprogress", "in_progress"}:
             orders = self.decide(snapshot)
+            rejected = False
             for order in orders:
                 try:
                     if order.get("type") == "commit_path":
                         self.session.request({"request": "path_preview", "ship": order["ship"], "actions": order.get("actions", [])})
+                    elif order.get("type") == "commit_volley":
+                        for shot in order.get("shots", []):
+                            preview = self.session.request({
+                                "request": "fire_preview",
+                                "ship": order["ship"],
+                                "weapon": shot["weapon"],
+                                "target": shot["target"],
+                            })
+                            if not preview.get("legal", False):
+                                raise ProtocolError("fire_preview rejected the shot")
                     snapshot = self.session.order(order)
                     self.logger.info(json.dumps(redact({"event": "order_submitted", "type": order.get("type"), "ship": order.get("ship"), "class": order.get("class")})))
                 except ProtocolError as exc:
                     self.logger.info(json.dumps(redact({"event": "order_rejected", "error": str(exc)})))
+                    rejected = True
                     break
+            if rejected:
+                fallbacks = fallback_orders(snapshot, _side_value(self.session.side))
+                if not fallbacks:
+                    self.session.send_status("error")
+                    self.logger.info(json.dumps({"event": "fallback_failed", "reason": "no pending fallback orders"}))
+                    return
+                self.session.send_status("error")
+                for fallback in fallbacks:
+                    try:
+                        snapshot = self.session.order(fallback)
+                        self.logger.info(json.dumps({"event": "fallback_submitted", "type": fallback["type"], "ship": fallback["ship"]}))
+                    except ProtocolError as exc:
+                        self.logger.info(json.dumps(redact({"event": "fallback_failed", "error": str(exc)})))
+                        return
             if not orders:
                 # Avoid spinning if a server reports no pending work yet.
                 time.sleep(0.01)

@@ -201,6 +201,66 @@ class AgentTests(unittest.TestCase):
             agent.decide(snapshot())
         self.assertEqual(agent.decisions, 5)
 
+    def test_rejected_model_order_submits_legal_fallback_once(self):
+        class RejectingSession(DummySession):
+            def __init__(self):
+                super().__init__()
+                self.side = "b"
+                self.orders = []
+
+            def request(self, request):
+                if request["request"] == "path_preview" and request.get("actions"):
+                    raise ProtocolError("illegal path")
+                return {"legal": True}
+
+            def order(self, order):
+                self.orders.append(order)
+                finished = snapshot("movement")
+                finished["status"] = "Won"
+                self.snapshot = finished
+                return finished
+
+        provider = FakeProvider([{
+            "orders": [{"type": "commit_path", "ship": 2, "actions": ["move_f"]}]
+        }])
+        session = RejectingSession()
+        Agent(provider, session, Profile("fake")).play(snapshot("movement"))
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(session.orders, [{"type": "commit_path", "ship": 2, "actions": []}])
+        self.assertEqual(session.statuses[-1], "error")
+
+    def test_firing_orders_are_preflighted_before_submission(self):
+        class FireSession(DummySession):
+            def __init__(self):
+                super().__init__()
+                self.side = "b"
+                self.requests = []
+                self.orders = []
+
+            def request(self, request):
+                self.requests.append(request)
+                return {"legal": True}
+
+            def order(self, order):
+                self.orders.append(order)
+                finished = snapshot("firing")
+                finished["status"] = "Won"
+                return finished
+
+        firing = snapshot("firing")
+        provider = FakeProvider([{
+            "orders": [{
+                "type": "commit_volley",
+                "ship": 2,
+                "shots": [{"weapon": "beam_1", "target": 1, "shield_facing": 0}],
+            }]
+        }])
+        session = FireSession()
+        Agent(provider, session, Profile("fake")).play(firing)
+        self.assertEqual(session.requests[0]["request"], "fire_preview")
+        self.assertEqual(session.requests[0]["target"], 1)
+        self.assertEqual(len(session.orders), 1)
+
     def test_conversation_is_bounded_over_fifty_decisions(self):
         provider = FakeProvider([{"orders": []}] * 50)
         agent = Agent(provider, DummySession(), Profile("fake", max_history_messages=6, max_history_bytes=300))
@@ -239,6 +299,17 @@ class AgentTests(unittest.TestCase):
         thread.join(timeout=1)
         server.close()
         peer.close()
+
+    def test_order_acknowledgement_rejects_stale_async_snapshots(self):
+        before = snapshot("movement")
+        order = {"type": "commit_path", "ship": 2, "actions": []}
+        self.assertFalse(SessionAdapter._order_acknowledged(order, before, dict(before)))
+        acknowledged = dict(before)
+        acknowledged["ships_committed_path"] = [2]
+        self.assertTrue(SessionAdapter._order_acknowledged(order, before, acknowledged))
+        advanced = dict(before)
+        advanced["phase"] = "firing"
+        self.assertTrue(SessionAdapter._order_acknowledged(order, before, advanced))
 
     def test_disconnect_is_protocol_error(self):
         left, right = socket.socketpair()
