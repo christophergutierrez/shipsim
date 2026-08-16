@@ -70,6 +70,34 @@ fn group_rank(group: &str) -> u8 {
     }
 }
 
+/// One painted row in the yard browse list, including section headers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrowseRow {
+    Header(String),
+    Design(usize),
+    New,
+}
+
+/// `user_<stem>` that does not collide with an existing id or `user_` stem.
+pub fn next_user_design_id<'a>(taken: impl IntoIterator<Item = &'a str>) -> String {
+    let ids: Vec<String> = taken.into_iter().map(str::to_string).collect();
+    let stems: Vec<String> = ids
+        .iter()
+        .map(|id| id.strip_prefix("user_").unwrap_or(id).to_string())
+        .collect();
+    let mut reserved: Vec<&str> = Vec::with_capacity(ids.len() + stems.len());
+    reserved.extend(ids.iter().map(String::as_str));
+    reserved.extend(stems.iter().map(String::as_str));
+    for _ in 0..8 {
+        let stem = shipyard::allocate_id(reserved.iter().copied());
+        let id = format!("user_{stem}");
+        if !ids.iter().any(|existing| existing == &id) {
+            return id;
+        }
+    }
+    format!("user_{}", shipyard::allocate_id(reserved.iter().copied()))
+}
+
 impl SortMode {
     pub fn label(self) -> &'static str {
         match self {
@@ -504,6 +532,36 @@ impl YardState {
         self.browse_cursor >= self.listings.len()
     }
 
+    /// Browse rows in paint order: grouped section headers, then `+ new ship`.
+    /// `USER` is always labelled when the filter can show it, even if empty.
+    pub fn browse_rows(&self) -> Vec<BrowseRow> {
+        let mut rows = Vec::new();
+        let mut last = None;
+        for (index, item) in self.listings.iter().enumerate() {
+            if last != Some(item.design.group.as_str()) {
+                rows.push(BrowseRow::Header(item.design.group.to_ascii_uppercase()));
+                last = Some(item.design.group.as_str());
+            }
+            rows.push(BrowseRow::Design(index));
+        }
+        let user_visible = matches!(self.group_filter, GroupFilter::All | GroupFilter::User);
+        if user_visible && last != Some("user") {
+            rows.push(BrowseRow::Header("USER".into()));
+        }
+        rows.push(BrowseRow::New);
+        rows
+    }
+
+    pub fn browse_selected_row(&self) -> usize {
+        let rows = self.browse_rows();
+        if self.is_new_row() {
+            return rows.len().saturating_sub(1);
+        }
+        rows.iter()
+            .position(|row| matches!(row, BrowseRow::Design(index) if *index == self.browse_cursor))
+            .unwrap_or(0)
+    }
+
     pub fn move_browse(&mut self, delta: i32) {
         let len = self.browse_len() as i32;
         let next = (self.browse_cursor as i32 + delta).clamp(0, len - 1);
@@ -560,7 +618,7 @@ impl YardState {
         let source = self.listings[self.browse_cursor].design.clone();
         let taken_ids: Vec<&str> = self.listings.iter().map(|item| item.design.id.as_str()).collect();
         let taken_names: Vec<&str> = self.listings.iter().map(|item| item.design.name.as_str()).collect();
-        let id = format!("user_{}", shipyard::allocate_id(taken_ids));
+        let id = next_user_design_id(taken_ids);
         let hull = self.sizes.get(source.size).map(|hull| hull.name.as_str()).unwrap_or("Destroyer");
         let mut draft = source.clone();
         draft.id = id.clone();
@@ -583,7 +641,7 @@ impl YardState {
             .iter()
             .map(|item| item.design.name.as_str())
             .collect();
-        let id = format!("user_{}", shipyard::allocate_id(taken_ids));
+        let id = next_user_design_id(taken_ids);
         let hull = self
             .sizes
             .get(2)

@@ -186,7 +186,11 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
     } else {
         0
     };
-    let phase = phase_label(&snap.phase);
+    let phase = if snap.is_over() {
+        "Game Over".into()
+    } else {
+        phase_label(&snap.phase)
+    };
 
     let mut status_spans = vec![
         Span::styled(
@@ -1185,11 +1189,11 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     let combat_footer = app.disabled_pass_notice.clone().or_else(|| match app.mode {
         Mode::Allocate if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
         Mode::Movement if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
-        Mode::Allocate => Some("Esc help · Enter commit power · ↑/↓ select · ←/→ spend selected · PgDn shields".to_string()),
+        Mode::Allocate => Some("Esc help · ↑↓ select · ←→ spend · weapons↓ · PgDn shields · Enter commit".to_string()),
         Mode::Movement => Some(movement_footer(app)),
         Mode::Fire if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
         Mode::Fire => Some(fire_footer(app)),
-        Mode::GameOver => Some("Enter quit · q quit".to_string()),
+        Mode::GameOver => Some("Enter/q quit".to_string()),
         _ => None,
     });
     if let Some(footer) = combat_footer {
@@ -2852,40 +2856,42 @@ fn render_yard_browse(f: &mut Frame, yard: &crate::yard::YardState, area: Rect) 
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(8), Constraint::Length(4)])
         .split(area);
+    let rows = yard.browse_rows();
+    let selected = yard.browse_selected_row();
+    let visible = usize::from(chunks[0].height.saturating_sub(2)).max(1);
+    let offset = crate::yard::clamp_scroll(0, selected, rows.len(), visible);
     let mut items: Vec<ListItem> = Vec::new();
-    let mut last_group = None;
-    for (i, item) in yard.listings.iter().enumerate() {
-        if last_group != Some(item.design.group.as_str()) {
-            items.push(ListItem::new(format!(
-                "── {} ──",
-                item.design.group.to_ascii_uppercase()
-            )));
-            last_group = Some(item.design.group.as_str());
-        }
-        items.push({
-            let cost = item
-                .preview
-                .as_ref()
-                .map(|p| format!("{:>5}", p.cost))
-                .unwrap_or_else(|_| "  err".into());
-            let marker = if i == yard.browse_cursor { "▶" } else { " " };
-            let standard = if shipsim_core::shipyard::STANDARD_CLASS_IDS.contains(&item.design.id.as_str()) { "[std]" } else { "     " };
-            let hull = yard
-                .sizes
-                .get(item.design.size)
-                .map(|h| h.name.as_str())
-                .unwrap_or("?");
-            ListItem::new(format!(
-                "{marker} {standard} {:<20} {:<10} w{:>2} sp{:>3}/{:<3} cost {cost}",
-                item.design.name, hull
-                , item.design.weapons.len(), item.preview.as_ref().map(|p| p.space_used).unwrap_or(0), item.preview.as_ref().map(|p| p.space_cap).unwrap_or(0)
-            ))
+    for row in rows.iter().skip(offset).take(visible) {
+        items.push(match row {
+            crate::yard::BrowseRow::Header(label) => ListItem::new(format!("── {label} ──")),
+            crate::yard::BrowseRow::Design(index) => {
+                let item = &yard.listings[*index];
+                let cost = item
+                    .preview
+                    .as_ref()
+                    .map(|p| format!("{:>5}", p.cost))
+                    .unwrap_or_else(|_| "  err".into());
+                let marker = if *index == yard.browse_cursor { "▶" } else { " " };
+                let standard = if shipsim_core::shipyard::STANDARD_CLASS_IDS.contains(&item.design.id.as_str()) { "[std]" } else { "     " };
+                let hull = yard
+                    .sizes
+                    .get(item.design.size)
+                    .map(|h| h.name.as_str())
+                    .unwrap_or("?");
+                ListItem::new(format!(
+                    "{marker} {standard} {:<20} {:<10} w{:>2} sp{:>3}/{:<3} cost {cost}",
+                    item.design.name, hull,
+                    item.design.weapons.len(), item.preview.as_ref().map(|p| p.space_used).unwrap_or(0), item.preview.as_ref().map(|p| p.space_cap).unwrap_or(0)
+                ))
+            }
+            crate::yard::BrowseRow::New => {
+                let new_mark = if yard.is_new_row() { "▶" } else { " " };
+                ListItem::new(format!(
+                    "{new_mark} + new ship                                  create a hull"
+                ))
+            }
         });
     }
-    let new_mark = if yard.is_new_row() { "▶" } else { " " };
-    items.push(ListItem::new(format!(
-        "{new_mark} + new ship                                  create a hull"
-    )));
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)

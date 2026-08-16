@@ -981,6 +981,7 @@ fn game_over_header_drops_the_stale_next_turn_cta() {
         buffer_contains(&buf, "Game over"),
         "finished game header should say the game is over"
     );
+    assert!(!buffer_contains(&buf, "│ Firing │"), "finished game must not retain stale phase");
 }
 
 #[test]
@@ -3156,8 +3157,7 @@ fn playtest_p32_game_over_names_enter_and_q() {
     let mut app = App::new();
     app.update_snapshot(game_over_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&buf, "Enter quit"));
-    assert!(buffer_contains(&buf, "q quit"));
+    assert!(buffer_contains(&buf, "Enter/q quit"));
     assert!(matches!(
         handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter)),
         KeyResult::Quit
@@ -3277,8 +3277,8 @@ fn tui_m53_phase_footers_name_enter_and_space() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     let allocate = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&allocate, "Enter commit power"));
-    assert!(buffer_contains(&allocate, "spend selected"));
+    assert!(buffer_contains(&allocate, "weapons↓"));
+    assert!(buffer_contains(&allocate, "spend"));
 
     let mut movement = test_snapshot();
     movement.phase = "movement".into();
@@ -3294,7 +3294,7 @@ fn tui_m56_allocate_footer_explains_row_spending() {
     app.update_snapshot(test_snapshot());
     let buf = render_to_string(&mut app, 80, 24);
     assert!(buffer_contains(&buf, "select"), "allocation footer must explain focus navigation:\n{buf}");
-    assert!(buffer_contains(&buf, "spend selected"), "allocation footer must explain arrow-key spending:\n{buf}");
+    assert!(buffer_contains(&buf, "←→ spend"), "allocation footer must explain arrow-key spending:\n{buf}");
 }
 
 #[test]
@@ -3303,7 +3303,7 @@ fn tui_m59_unknown_key_notice_names_phase_controls() {
     app.update_snapshot(test_snapshot());
     let _ = handle_key(&mut app, make_key('r'));
     let allocate = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&allocate, "spend selected"), "allocate error must name its correction:\n{allocate}");
+    assert!(buffer_contains(&allocate, "spend"), "allocate error must name its correction:\n{allocate}");
 
     let mut snap = test_snapshot();
     snap.phase = "movement".into();
@@ -5581,6 +5581,45 @@ fn yard_browse_renders_group_sections() {
     for label in ["── BASIC ──", "── RANGE ──", "── BRUTE ──"] {
         assert!(buffer_contains(&buf, label), "missing {label} in:\n{buf}");
     }
+}
+
+#[test]
+fn yard_browse_scrolls_sections_into_view_at_floor() {
+    let mut app = yard_app();
+    let first = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&first, "── BASIC ──"), "BASIC missing:\n{first}");
+    assert!(buffer_contains(&first, "g filter"), "filter key missing:\n{first}");
+    assert!(buffer_contains(&first, "y clone"), "clone key missing:\n{first}");
+
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard
+            .listings
+            .iter()
+            .rposition(|item| item.design.group == "brute")
+            .expect("brute listing");
+    }
+    let brute = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&brute, "── BRUTE ──"), "BRUTE not scrolled into view:\n{brute}");
+    assert!(
+        buffer_contains(&brute, "Brute capital") || buffer_contains(&brute, "▶"),
+        "selected brute row missing:\n{brute}"
+    );
+
+    {
+        let yard = app.yard.as_mut().unwrap();
+        yard.browse_cursor = yard.listings.len();
+    }
+    let user = render_to_string(&mut app, 80, 24);
+    assert!(buffer_contains(&user, "── USER ──"), "USER not scrolled into view:\n{user}");
+    assert!(buffer_contains(&user, "+ new ship"), "new-ship row missing:\n{user}");
+}
+
+#[test]
+fn yard_user_ids_reserve_existing_user_stems() {
+    let id = crate::yard::next_user_design_id(["user_deadbeef", "basic_swarm"]);
+    assert!(id.starts_with("user_"));
+    assert_ne!(id, "user_deadbeef");
 }
 
 #[test]
