@@ -407,6 +407,7 @@ fn phase6_running_agent_status_never_recreates_lobby_over_battle() {
     assert!(app.lobby.is_none());
     let rendered = render_to_string(&mut app, 120, 40);
     assert!(rendered.contains("Opponent LLM agent: thinking"), "{rendered}");
+    assert!(rendered.contains("Network: LLM agent thinking"), "{rendered}");
     assert!(!rendered.contains("shipsim TUI · lobby"), "{rendered}");
 }
 
@@ -763,6 +764,17 @@ fn callsign_formats_ship_by_controller() {
     // Player ships get "A" prefix, ai ships get "B".
     assert_eq!(callsign(s1), "A1");
     assert_eq!(callsign(s2), "B2");
+}
+
+#[test]
+fn callsign_uses_side_when_both_controllers_are_human() {
+    let mut snap = test_snapshot();
+    snap.ships[0].side = "a".into();
+    snap.ships[0].controller = "human".into();
+    snap.ships[1].side = "b".into();
+    snap.ships[1].controller = "human".into();
+    assert_eq!(callsign(&snap.ships[0]), "A1");
+    assert_eq!(callsign(&snap.ships[1]), "B2");
 }
 
 #[test]

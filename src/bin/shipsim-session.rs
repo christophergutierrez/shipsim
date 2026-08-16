@@ -330,6 +330,13 @@ impl Server {
     }
 
     fn handle_hello(&mut self, id: usize, value: Value) -> Result<(), String> {
+        if self.is_negotiated(id) {
+            return self.send_session_error(
+                id,
+                SessionErrorCode::InvalidState,
+                "hello was already negotiated for this connection",
+            );
+        }
         let message: SessionMessage = match serde_json::from_value(value) {
             Ok(message @ SessionMessage::Hello { .. }) => message,
             Ok(_) => {
@@ -542,6 +549,17 @@ impl Server {
                 "no match is configured",
             );
         }
+        if self
+            .connections
+            .get(&id)
+            .is_some_and(|connection| connection.side.is_some())
+        {
+            return self.send_session_error(
+                id,
+                SessionErrorCode::SeatAlreadyOccupied,
+                "connection already has an assigned seat",
+            );
+        }
         let digest = digest_token(&token);
         let Some(seat) = self.tokens.get_mut(&digest) else {
             return self.send_session_error(
@@ -600,7 +618,11 @@ impl Server {
         }
         connection.ready = matches!(status, ParticipantStatus::Ready);
         connection.status = status;
-        self.broadcast_lobby()
+        if connection.ready && self.phase == LobbyPhase::WaitingForSeats {
+            self.maybe_start()
+        } else {
+            self.broadcast_lobby()
+        }
     }
 
     fn maybe_start(&mut self) -> Result<(), String> {
@@ -702,6 +724,7 @@ impl Server {
                 return Ok(());
             }
         }
+        self.broadcast_lobby()?;
         self.broadcast_snapshots()?;
         if self
             .game
@@ -823,6 +846,27 @@ impl Server {
         if connection.host {
             return Ok(true);
         }
+        if connection.side == Some(SideId::B)
+            && self.controllers.as_ref().is_some_and(|controllers| {
+                matches!(
+                    controllers.b,
+                    ControllerSpec::Human {} | ControllerSpec::LlmAgent {}
+                )
+            })
+        {
+            let token = self.make_token(SideId::B)?;
+            if let Some(host) = self.host {
+                self.send(
+                    host,
+                    SessionMessage::SeatInvitation {
+                        session_protocol_version: SESSION_PROTOCOL_VERSION,
+                        side: SideId::B,
+                        display_code: "B".into(),
+                        join_token: token,
+                    },
+                )?;
+            }
+        }
         self.broadcast_lobby()?;
         Ok(false)
     }
@@ -878,14 +922,47 @@ impl Server {
             controllers: self.controllers.clone(),
             seats,
             bot_policies: bot_policies(),
-            waiting_reason: (self.phase == LobbyPhase::WaitingForSeats).then(|| {
-                if self.bot_side {
-                    "waiting for side A".into()
-                } else {
-                    "waiting for side B".into()
-                }
-            }),
+            waiting_reason: self.waiting_reason(),
         }
+    }
+
+    fn waiting_reason(&self) -> Option<String> {
+        if self.phase == LobbyPhase::WaitingForSeats {
+            return Some(if self.bot_side {
+                "waiting for side A".into()
+            } else {
+                "waiting for side B".into()
+            });
+        }
+        if self.phase != LobbyPhase::Running {
+            return None;
+        }
+        let game = self.game.as_ref()?;
+        let committed = match game.phase() {
+            Phase::Allocate => game.allocated_this_turn(),
+            Phase::Movement => game.ships_committed_path(),
+            Phase::Firing => game.ships_committed_volley(),
+        };
+        let mut pending = [SideId::A, SideId::B]
+            .into_iter()
+            .filter(|side| {
+                game.ships().iter().any(|ship| {
+                    ship.side == *side && !ship.destroyed && !committed.contains(&ship.id)
+                })
+            })
+            .map(|side| match side {
+                SideId::A => "side A",
+                SideId::B => "side B",
+            });
+        let first = pending.next()?;
+        let sides = pending.next().map_or_else(
+            || first.to_string(),
+            |second| format!("{first} and {second}"),
+        );
+        Some(format!(
+            "waiting for {sides} to finish {}",
+            game.phase_name()
+        ))
     }
 
     fn broadcast_snapshots(&self) -> Result<(), String> {
@@ -1235,6 +1312,8 @@ mod tests {
         assert_eq!(read_type(&mut host, "welcome")["can_configure"], true);
         let _ = read_type(&mut host, "scenario_catalog");
         let _ = read_type(&mut host, "lobby_state");
+        send_json(&mut host, hello_value());
+        assert_eq!(read_type(&mut host, "error")["code"], "invalid_state");
         let _ = host.stream.shutdown(Shutdown::Both);
         let _ = incompatible.stream.shutdown(Shutdown::Both);
         handle.join().unwrap().unwrap();
@@ -1271,6 +1350,20 @@ mod tests {
         let invitation = read_type(&mut host, "seat_invitation");
         let token = invitation["join_token"].as_str().unwrap().to_string();
         let _ = read_type(&mut host, "lobby_state");
+
+        send_json(
+            &mut host,
+            serde_json::to_value(SessionMessage::JoinMatch {
+                session_protocol_version: 1,
+                join_token: token.clone(),
+                display_name: "host-cannot-steal-b".into(),
+            })
+            .unwrap(),
+        );
+        assert_eq!(
+            read_type(&mut host, "error")["code"],
+            "seat_already_occupied"
+        );
 
         send_json(
             &mut guest,
@@ -1315,6 +1408,108 @@ mod tests {
         let _ = host.stream.shutdown(Shutdown::Both);
         handle.join().unwrap().unwrap();
         let _ = guest.stream.shutdown(Shutdown::Both);
+    }
+
+    #[test]
+    fn prestart_guest_disconnect_gets_a_fresh_one_time_invitation() {
+        let (address, handle) = start_test_server();
+        let mut host = test_client(address);
+        send_json(&mut host, hello_value());
+        let _ = read_type(&mut host, "welcome");
+        let _ = read_type(&mut host, "scenario_catalog");
+        let _ = read_type(&mut host, "lobby_state");
+
+        let mut guest = test_client(address);
+        send_json(&mut guest, hello_value());
+        let _ = read_type(&mut guest, "welcome");
+        let _ = read_type(&mut guest, "scenario_catalog");
+        let _ = read_type(&mut guest, "lobby_state");
+
+        send_json(
+            &mut host,
+            serde_json::to_value(SessionMessage::CreateMatch {
+                session_protocol_version: 1,
+                scenario_id: "shipyard_assault".into(),
+                controllers: ControllerAssignments {
+                    a: ControllerSpec::Human {},
+                    b: ControllerSpec::Human {},
+                },
+            })
+            .unwrap(),
+        );
+        let _ = read_type(&mut host, "seat_assigned");
+        let first = read_type(&mut host, "seat_invitation")["join_token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let _ = read_type(&mut host, "lobby_state");
+        let _ = read_type(&mut guest, "lobby_state");
+
+        send_json(
+            &mut host,
+            serde_json::to_value(SessionMessage::ParticipantStatus {
+                session_protocol_version: 1,
+                status: ParticipantStatus::Thinking,
+            })
+            .unwrap(),
+        );
+        let _ = read_type(&mut host, "lobby_state");
+        let _ = read_type(&mut guest, "lobby_state");
+        send_json(
+            &mut guest,
+            serde_json::to_value(SessionMessage::JoinMatch {
+                session_protocol_version: 1,
+                join_token: first.clone(),
+                display_name: "guest".into(),
+            })
+            .unwrap(),
+        );
+        let _ = read_type(&mut guest, "seat_assigned");
+        let _ = read_type(&mut guest, "lobby_state");
+        let _ = read_type(&mut host, "lobby_state");
+        guest.stream.shutdown(Shutdown::Both).unwrap();
+
+        let second = read_type(&mut host, "seat_invitation")["join_token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ne!(first, second, "a disconnected seat must get a new secret");
+        let _ = read_type(&mut host, "lobby_state");
+
+        let mut replacement = test_client(address);
+        send_json(&mut replacement, hello_value());
+        let _ = read_type(&mut replacement, "welcome");
+        let _ = read_type(&mut replacement, "scenario_catalog");
+        let _ = read_type(&mut replacement, "lobby_state");
+        send_json(
+            &mut replacement,
+            serde_json::to_value(SessionMessage::JoinMatch {
+                session_protocol_version: 1,
+                join_token: second,
+                display_name: "replacement".into(),
+            })
+            .unwrap(),
+        );
+        let _ = read_type(&mut replacement, "seat_assigned");
+        let _ = read_type(&mut replacement, "lobby_state");
+        let _ = read_type(&mut host, "lobby_state");
+
+        send_json(
+            &mut host,
+            serde_json::to_value(SessionMessage::ParticipantStatus {
+                session_protocol_version: 1,
+                status: ParticipantStatus::Ready,
+            })
+            .unwrap(),
+        );
+        let _ = read_type(&mut host, "lobby_state");
+        let _ = read_snapshot(&mut host);
+        let _ = read_type(&mut replacement, "lobby_state");
+        let _ = read_snapshot(&mut replacement);
+
+        host.stream.shutdown(Shutdown::Both).unwrap();
+        handle.join().unwrap().unwrap();
+        let _ = replacement.stream.shutdown(Shutdown::Both);
     }
 
     #[test]

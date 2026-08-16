@@ -133,6 +133,7 @@ impl ShipSnapshot {
 mod tests {
     use super::{ShipSnapshot, StateSnapshot};
     use crate::game_state::ScenarioStatus;
+    use crate::hex::Hex;
     use crate::scenario::load_scenario;
     use crate::schema::SideId;
     use std::path::Path;
@@ -178,6 +179,28 @@ mod tests {
             StateSnapshot::from_game_state_for_side(&legacy, SideId::A).status,
             ScenarioStatus::Won
         );
+    }
+
+    #[test]
+    fn fire_opportunity_is_projected_for_the_viewers_side() {
+        let mut game = load_scenario(Path::new("scenarios/battle.toml")).unwrap();
+        for (id, position, facing) in [(1, Hex::new(10, 10), 0), (2, Hex::new(11, 10), 3)] {
+            let ship = game.ship_mut(id).unwrap();
+            ship.pos = position;
+            ship.facing = facing;
+            let weapon = ship.weapons.first().unwrap().clone();
+            ship.weapon_charges
+                .insert(weapon.id, weapon.max_charge.max(1));
+        }
+
+        let a = StateSnapshot::from_game_state_for_side(&game, SideId::A)
+            .fire_opportunity
+            .unwrap();
+        let b = StateSnapshot::from_game_state_for_side(&game, SideId::B)
+            .fire_opportunity
+            .unwrap();
+        assert_eq!((a.ship, a.target), (1, 2));
+        assert_eq!((b.ship, b.target), (2, 1));
     }
 }
 
@@ -279,10 +302,14 @@ impl StateSnapshot {
             ScenarioStatus::Won if game.winner().is_some() => ScenarioStatus::Lost,
             other => other,
         };
-        Self::from_game_state_with_status(game, status)
+        Self::from_game_state_with_status(game, status, side)
     }
 
-    fn from_game_state_with_status(game: &GameState, status: ScenarioStatus) -> Self {
+    fn from_game_state_with_status(
+        game: &GameState,
+        status: ScenarioStatus,
+        viewer_side: SideId,
+    ) -> Self {
         Self {
             protocol_version: crate::protocol::PROTOCOL_VERSION,
             turn: game.turn_number(),
@@ -408,7 +435,7 @@ impl StateSnapshot {
                     vs_weapon: e.vs_weapon.clone(),
                 })
                 .collect(),
-            fire_opportunity: game.fire_opportunity(),
+            fire_opportunity: game.fire_opportunity_for_side(viewer_side),
             path_results: game.path_results().to_vec(),
             rules_id: game.rules_id().to_string(),
             rules_fingerprint: game.rules_fingerprint().to_string(),

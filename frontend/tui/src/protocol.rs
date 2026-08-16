@@ -673,12 +673,18 @@ impl Order {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/// Callsign for a ship: A# for player, B# for ai, C# for scripted.
+/// Stable side callsign. Controller labels are not identity: both sides may be
+/// human in a network match. Old snapshots without `side` retain the legacy
+/// controller-derived prefix.
 pub fn callsign(ship: &Ship) -> String {
-    let prefix = match ship.controller.as_str() {
-        "player" => "A",
-        "ai" => "B",
-        _ => "C",
+    let prefix = match ship.side.to_ascii_lowercase().as_str() {
+        "a" => "A",
+        "b" => "B",
+        _ => match ship.controller.as_str() {
+            "player" => "A",
+            "ai" => "B",
+            _ => "C",
+        },
     };
     format!("{prefix}{}", ship.id)
 }

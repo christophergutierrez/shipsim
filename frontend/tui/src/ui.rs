@@ -242,6 +242,14 @@ fn header_line_count(app: &App) -> u16 {
     {
         n += 1;
     }
+    if app
+        .lobby_history
+        .as_ref()
+        .and_then(|lobby| lobby.waiting_reason.as_ref())
+        .is_some()
+    {
+        n += 1;
+    }
     n
 }
 
@@ -407,6 +415,16 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             Style::default().fg(Color::Yellow),
         )));
     }
+    if let Some(reason) = app
+        .lobby_history
+        .as_ref()
+        .and_then(|lobby| lobby.waiting_reason.as_deref())
+    {
+        lines.push(Line::from(Span::styled(
+            format!(" Network: {reason}"),
+            Style::default().fg(Color::Yellow),
+        )));
+    }
 
     // Tutorial prompts live in the coach panel (bottom-right), not here —
     // a second yellow strip in the header duplicated the coach.
@@ -476,17 +494,25 @@ fn render_middle(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
 
 const HEX_DIRS: [(i32, i32); 6] = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)];
 
-fn ship_fg(ship: &Ship, focused: bool) -> Color {
+fn ship_fg(app: &App, ship: &Ship, focused: bool) -> Color {
     if ship.destroyed {
         return Color::DarkGray;
     }
     if focused {
         return Color::Yellow;
     }
-    match ship.controller.as_str() {
-        "player" => Color::Green,
-        "ai" => Color::Red,
-        _ => Color::Cyan,
+    if app.viewer_side.is_some() {
+        if app.owns_ship(ship) {
+            Color::Green
+        } else {
+            Color::Red
+        }
+    } else {
+        match ship.controller.as_str() {
+            "player" => Color::Green,
+            "ai" => Color::Red,
+            _ => Color::Cyan,
+        }
     }
 }
 
@@ -841,7 +867,7 @@ fn render_map(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
                     let arrow = facing_arrow(s.facing);
                     pad_cell(format!("{short_cs}{arrow}"), metrics.cell_width)
                 };
-                (cell, ship_fg(s, focused || scanned))
+                (cell, ship_fg(app, s, focused || scanned))
             } else if is_coast {
                 // Dim shadow of the ship at its planned end hex. The diamond
                 // prefix keeps the destination visually tied to route cells,

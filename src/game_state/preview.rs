@@ -208,10 +208,20 @@ impl GameState {
     }
 
     pub fn fire_opportunity(&self) -> Option<FireOpportunity> {
+        self.fire_opportunity_for_side(crate::schema::SideId::A)
+    }
+
+    /// Return the first legal firing decision for one side. Network clients
+    /// must use this side-relative projection; controller labels are
+    /// presentation metadata and may be identical in human-vs-human games.
+    pub fn fire_opportunity_for_side(
+        &self,
+        side: crate::schema::SideId,
+    ) -> Option<FireOpportunity> {
         let mut attackers: Vec<&Ship> = self
             .ships
             .iter()
-            .filter(|s| !s.destroyed && self.controller_label(s.id) == "player")
+            .filter(|ship| !ship.destroyed && ship.side == side)
             .filter(|s| !self.volley_commits.contains_key(&s.id))
             .collect();
         attackers.sort_by_key(|s| s.id);
@@ -223,7 +233,7 @@ impl GameState {
                 let mut targets: Vec<&Ship> = self
                     .ships
                     .iter()
-                    .filter(|t| !t.destroyed && self.controller_label(t.id) != "player")
+                    .filter(|target| !target.destroyed && target.side != side)
                     .collect();
                 targets.sort_by_key(|t| t.id);
                 for target in targets {
@@ -246,7 +256,7 @@ impl GameState {
     fn weapon_has_legal_shot(&self, attacker: &Ship, weapon: &combat::Weapon) -> bool {
         self.ships
             .iter()
-            .filter(|target| !target.destroyed && self.controller_label(target.id) != "player")
+            .filter(|target| !target.destroyed && target.side != attacker.side)
             .any(|target| {
                 self.v2_shot_shield_facing(attacker, weapon, target)
                     .is_some()
