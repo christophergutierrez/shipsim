@@ -43,6 +43,7 @@ struct Connection {
     negotiated: bool,
     side: Option<SideId>,
     ready: bool,
+    status: ParticipantStatus,
 }
 
 struct TokenSeat {
@@ -218,6 +219,7 @@ impl Server {
                 negotiated: false,
                 side: None,
                 ready: false,
+                status: ParticipantStatus::Ready,
             },
         );
         eprintln!(
@@ -597,6 +599,7 @@ impl Server {
             );
         }
         connection.ready = matches!(status, ParticipantStatus::Ready);
+        connection.status = status;
         self.broadcast_lobby()
     }
 
@@ -864,6 +867,7 @@ impl Server {
                     display_name: connection.map(|c| c.participant_id.clone()),
                     ready: self.bot_side && side == SideId::B
                         || connection.is_some_and(|c| c.ready),
+                    participant_status: connection.map(|c| c.status),
                 }
             })
             .collect();

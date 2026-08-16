@@ -66,6 +66,7 @@ fn all_message_shapes() -> Vec<SessionMessage> {
                 occupancy: SeatOccupancy::Occupied,
                 display_name: Some("Captain A".into()),
                 ready: true,
+                participant_status: Some(ParticipantStatus::Ready),
             }],
             bot_policies: vec![BotPolicySummary {
                 id: "greedy".into(),

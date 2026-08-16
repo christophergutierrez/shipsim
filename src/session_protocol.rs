@@ -148,6 +148,8 @@ pub struct SeatLobbyState {
     pub occupancy: SeatOccupancy,
     pub display_name: Option<String>,
     pub ready: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub participant_status: Option<ParticipantStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
