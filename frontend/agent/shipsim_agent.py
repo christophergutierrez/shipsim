@@ -163,7 +163,25 @@ class FakeProvider:
         self.calls += 1
         if self.responses:
             return json.loads(json.dumps(self.responses.pop(0)))
-        return {"orders": []}
+        try:
+            prompt = json.loads(messages[-1]["content"])
+            phase = prompt["phase"]
+            pending = [int(ship) for ship in prompt.get("pending_ship_ids", [])]
+        except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return {"orders": []}
+        builders = {
+            "allocate": lambda ship: {
+                "type": "allocate",
+                "ship": ship,
+                "movement": 0,
+                "weapons": {},
+                "shields": [0, 0, 0, 0, 0, 0],
+            },
+            "movement": lambda ship: {"type": "commit_path", "ship": ship, "actions": []},
+            "firing": lambda ship: {"type": "commit_volley", "ship": ship, "shots": []},
+        }
+        builder = builders.get(phase)
+        return {"orders": [builder(ship) for ship in pending]} if builder else {"orders": []}
 
 
 class OpenAICompatibleProvider:
@@ -358,6 +376,18 @@ def build_prompt(snapshot: Mapping[str, Any], side: str, *, max_bytes: int = DEF
         "owned_ships": own,
         "enemy_contacts": contacts,
     }
+    progress_field = {
+        "allocate": "ships_allocated_this_turn",
+        "movement": "ships_committed_path",
+        "firing": "ships_committed_volley",
+    }.get(str(snapshot.get("phase")))
+    completed = {
+        int(value)
+        for value in snapshot.get(progress_field, []) if progress_field and str(value).isdigit()
+    }
+    payload["pending_ship_ids"] = [
+        ship["id"] for ship in own if isinstance(ship.get("id"), int) and ship["id"] not in completed
+    ]
 
     def encode() -> str:
         return json.dumps(payload, separators=(",", ":"), ensure_ascii=True)

@@ -90,7 +90,12 @@ class AgentTests(unittest.TestCase):
     def test_fake_profile_needs_no_credentials(self):
         profile = Profile("fake", kind="fake", api_key_env="")
         self.assertIsNone(profile.api_key({}))
-        self.assertEqual(FakeProvider().complete([], schema={}), {"orders": []})
+        provider = FakeProvider()
+        result = provider.complete(
+            [{"role": "user", "content": json.dumps({"phase": "movement", "pending_ship_ids": [2]})}],
+            schema={},
+        )
+        self.assertEqual(result, {"orders": [{"type": "commit_path", "ship": 2, "actions": []}]})
 
     def test_config_path_override_and_unknown_field(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -162,6 +167,7 @@ class AgentTests(unittest.TestCase):
         prompt = json.loads(build_prompt(snapshot(), "b"))
         self.assertEqual(prompt["owned_ships"][0]["id"], 2)
         self.assertEqual(prompt["enemy_contacts"][0]["id"], 1)
+        self.assertEqual(prompt["pending_ship_ids"], [2])
 
     def test_validation_rejects_schema_illegal_phase_and_opponent(self):
         with self.assertRaisesRegex(RuntimeError, "schema"):
