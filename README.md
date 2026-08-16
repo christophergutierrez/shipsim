@@ -89,6 +89,28 @@ cargo run --manifest-path frontend/tui/Cargo.toml
 | Shipyard | `cargo run --manifest-path frontend/tui/Cargo.toml -- --yard` |
 | Details | [`frontend/tui/README.md`](frontend/tui/README.md) |
 
+#### Network TUI quick start
+
+Run the server and TUI from the repository root in separate terminals:
+
+```bash
+# Terminal 1: authoritative session server
+cargo run --bin shipsim-session -- --listen 127.0.0.1:4100
+
+# Terminal 2: first player (host)
+cargo run --manifest-path frontend/tui/Cargo.toml -- --connect 127.0.0.1:4100
+```
+
+At **Create match**, use `↑`/`↓` to select a scenario. Press `2` for a server
+bot (`b` cycles its policy), then `Enter` to start. To test the connection
+timeout regression, leave this screen idle for at least six seconds before
+starting; it must remain connected and enter turn 1 normally.
+
+For two humans, press `1` instead. The host TUI displays a one-time join token.
+Start a third terminal, run the same TUI `--connect` command, type the token at
+the **Join match** screen, and press `Enter`. Full network and token instructions:
+[`frontend/tui/README.md`](frontend/tui/README.md#network-play).
+
 Engine binary path override: `SHIPSIM_BIN=/path/to/shipsim`.
 
 ### Love2D (graphical UI)

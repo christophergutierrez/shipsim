@@ -88,16 +88,52 @@ cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/fleet.toml
 cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/battle.toml
 ```
 
+## Network play
+
 Network lobby play connects to a running `shipsim-session` server. The first
 TUI is the host; choose the scenario and opponent in the lobby. A second TUI
 can join with a token typed into the lobby or supplied through a private stdin
-pipe (the token is masked and never placed in argv):
+pipe (the token is masked and never placed in argv).
+
+Start the server and first player from the repository root in separate
+terminals:
 
 ```bash
+# Terminal 1
 cargo run --bin shipsim-session -- --listen 127.0.0.1:4100
+
+# Terminal 2
 cargo run --manifest-path frontend/tui/Cargo.toml -- --connect 127.0.0.1:4100
+```
+
+The TUI should show **Create match**. Use `↑`/`↓` to choose a scenario, then
+choose an opponent:
+
+| Key | Side B controller |
+|---|---|
+| `1` | Human player 2 |
+| `2` | Server bot; `b` cycles the available policy |
+| `3` | External LLM agent; `l` cycles configured profiles |
+
+Press `Enter` to create the match. A bot match starts immediately. For a human
+match, leave the host running and copy the one-time token it displays. In a
+third terminal, connect another TUI, type the token at **Join match**, and press
+`Enter`:
+
+```bash
+cargo run --manifest-path frontend/tui/Cargo.toml -- --connect 127.0.0.1:4100
+```
+
+For scripts or careful shell history handling, pass the token over stdin:
+
+```bash
 printf '%s\n' "$JOIN_TOKEN" | cargo run --manifest-path frontend/tui/Cargo.toml -- --connect 127.0.0.1:4100 --join-token-stdin
 ```
+
+To manually verify that an established TUI is not mistaken for a failed
+handshake, leave **Create match** idle for at least six seconds. It must remain
+connected; selecting `2` and pressing `Enter` must then reach turn 1. Quit with
+`q`, then confirm with `y`. The one-match server exits when its host leaves.
 
 Network mode keeps the TUI responsive while the lobby or the other seat is
 quiet. The server remains authoritative; the TUI only renders snapshots and
@@ -193,6 +229,11 @@ engine and protocol tests and do not claim Love2D or REPL rubric compliance.
 ```bash
 cargo test   --manifest-path frontend/tui/Cargo.toml   # TUI + live tutorial tests
 cargo clippy --manifest-path frontend/tui/Cargo.toml
+
+# Network-session regressions and a real server/TUI smoke test
+cargo test --bin shipsim-session
+cargo test --test session_e2e
+python3 tools/tui_network_smoke.py
 ```
 
 Confirmed quits write a transcript under `frontend/tui/local/` and print its
