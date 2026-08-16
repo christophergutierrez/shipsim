@@ -32,6 +32,20 @@ target/debug/shipsim --scenario scenarios/battle.toml --stdin
 
 Flags: `--scenario` / `--campaign` / `--resume`, `--stdin` / `--orders`, optional `--save`.
 
+## Two-player sessions
+
+The optional session host preserves the same NDJSON messages over TCP:
+
+```bash
+cargo run --bin shipsim-session -- --scenario scenarios/shipyard_assault.toml --listen 127.0.0.1:4100
+```
+
+Connect two ordinary NDJSON clients to the address. The first connection is
+side `a`; the second is side `b`. The host rejects orders naming a ship owned
+by the other connection, broadcasts accepted snapshots to both clients, and
+does not add a turn-taking phase: allocation, movement, and volley barriers
+remain simultaneous. A client disconnect ends the session.
+
 ## Orders
 
 Every order is one JSON object per line with `protocol_version: 4`.
