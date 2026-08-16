@@ -81,6 +81,7 @@ cargo run --manifest-path frontend/tui/Cargo.toml
 |---|---|
 | Tutorial | `cargo run --manifest-path frontend/tui/Cargo.toml -- --tutorial` |
 | Scenario | `cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/battle.toml` |
+| Shipyard Assault | `cargo run --manifest-path frontend/tui/Cargo.toml -- scenarios/shipyard_assault.toml` |
 | Shipyard | `cargo run --manifest-path frontend/tui/Cargo.toml -- --yard` |
 | Details | [`frontend/tui/README.md`](frontend/tui/README.md) |
 

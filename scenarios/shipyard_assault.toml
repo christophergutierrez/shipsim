@@ -1,0 +1,102 @@
+# Fixed Shipyard Assault map, before the economy layer.
+# The yards are 21 hexes apart; each fleet begins adjacent to its own yard.
+# That leaves roughly two turns of travel for size-3 hulls after breaking out.
+width = 28
+height = 20
+seed = 1
+map_mode = "hard"
+
+[terminal]
+type = "side_destruction"
+side_a_target = 1
+side_b_target = 6
+
+[[ships]]
+id = 1
+class = "shipyard"
+q = 3
+r = 10
+facing = 0
+controller = "player"
+side = "a"
+
+[[ships]]
+id = 2
+class = "basic_light_cruiser"
+q = 2
+r = 9
+facing = 0
+controller = "player"
+side = "a"
+
+[[ships]]
+id = 3
+class = "basic_destroyer"
+q = 2
+r = 11
+facing = 0
+controller = "player"
+side = "a"
+
+[[ships]]
+id = 4
+class = "basic_swarm"
+q = 1
+r = 8
+facing = 0
+controller = "player"
+side = "a"
+
+[[ships]]
+id = 5
+class = "basic_swarm"
+q = 1
+r = 12
+facing = 0
+controller = "player"
+side = "a"
+
+[[ships]]
+id = 6
+class = "shipyard"
+q = 24
+r = 10
+facing = 3
+controller = "scripted"
+side = "b"
+
+[[ships]]
+id = 7
+class = "basic_light_cruiser"
+q = 25
+r = 9
+facing = 3
+controller = "scripted"
+side = "b"
+
+[[ships]]
+id = 8
+class = "basic_destroyer"
+q = 25
+r = 11
+facing = 3
+controller = "scripted"
+side = "b"
+
+[[ships]]
+id = 9
+class = "basic_swarm"
+q = 26
+r = 8
+facing = 3
+controller = "scripted"
+side = "b"
+
+[[ships]]
+id = 10
+class = "basic_swarm"
+q = 26
+r = 12
+facing = 3
+controller = "scripted"
+side = "b"

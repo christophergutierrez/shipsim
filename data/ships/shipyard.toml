@@ -1,0 +1,32 @@
+id = "shipyard"
+name = "Shipyard"
+size = 4
+max_maneuver_actions = 0
+power = 4
+max_shield_per_facing = 0
+max_shields = [0, 0, 0, 0, 0, 0]
+structure = 100
+power_sys = 1
+engine_boxes = 1
+weapon_boxes = 1
+thrust_per_power = 0
+power_per_thrust = 1
+
+# Scenario furniture, not a purchasable catalog class. Two all-arc beams are
+# deliberately short-ranged and low-charge: a lone attacker pays to plink,
+# while a fleet can finish the objective.
+[[weapons]]
+id = "beam_1"
+kind = "beam"
+arc = "all"
+mount = "forward"
+max_range = 6
+max_charge = 2
+
+[[weapons]]
+id = "beam_2"
+kind = "beam"
+arc = "all"
+mount = "aft"
+max_range = 6
+max_charge = 2

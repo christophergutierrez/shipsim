@@ -521,7 +521,7 @@ mod tests {
             let ship = load_ship_def(root, class).expect("strict ship definition");
             assert!(ship.power_sys > 0, "{class} power_sys");
             assert!(ship.engine_boxes > 0, "{class} engine_boxes");
-            assert!(ship.max_shield_per_facing > 0, "{class} shield cap");
+            assert!(ship.max_shield_per_facing > 0 || class == "shipyard", "{class} shield cap");
             for weapon in &ship.weapons {
                 assert!(weapon.max_range > 0, "{class}/{} max_range", weapon.id);
                 assert!(weapon.max_charge > 0, "{class}/{} max_charge", weapon.id);
@@ -529,6 +529,17 @@ mod tests {
             count += 1;
         }
         assert!(count > 0);
+    }
+
+    #[test]
+    fn shipyard_assault_static_scenario_has_two_immobile_unshielded_yards() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let game = load_scenario(&root.join("scenarios/shipyard_assault.toml")).unwrap();
+        let yards: Vec<_> = game.ships().iter().filter(|ship| ship.class_id == "shipyard").collect();
+        assert_eq!(yards.len(), 2);
+        assert!(yards.iter().all(|ship| ship.side != SideId::A || ship.max_shields == [0; 6]));
+        assert!(yards.iter().all(|ship| ship.max_maneuver_actions == 0 && ship.structure() == 100));
+        assert_eq!(game.terminal(), Some(Terminal::DestroyShips { side_a_target: 1, side_b_target: 6 }));
     }
 
     #[test]

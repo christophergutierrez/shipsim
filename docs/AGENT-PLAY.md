@@ -62,6 +62,7 @@ python3 frontend/repl/repl.py scenarios/battle.toml
 |---|---|
 | `scenarios/tutorial_rear_attack.toml` | Step-gated lesson (`--tutorial` in TUI, auto-detected by Love2D) |
 | `scenarios/battle.toml` | Default duel vs AI — best first play |
+| `scenarios/shipyard_assault.toml` | Fixed two-yard assault; destroy the enemy yard |
 | `scenarios/fleet.toml` | Heavy cruiser + two destroyers vs the same, 3v3 |
 
 `fixtures/*.toml` holds scenarios used only by automated tests (e.g.
