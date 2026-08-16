@@ -3,6 +3,7 @@ use shipsim_core::movement::{apply_order, Order, OrderError};
 use shipsim_core::scenario::load_scenario;
 use shipsim_core::schema::SideId;
 use shipsim_core::snapshot::StateSnapshot;
+use shipsim_core::shipyard::{Design, DesignSystem, DesignWeapon};
 use std::path::Path;
 
 fn assault() -> GameState {
@@ -32,4 +33,26 @@ fn purchase_rejects_over_budget_and_shipyard() {
     let error = apply_order(&mut game, Order::Purchase { side: SideId::A, class: "shipyard".into() }).unwrap_err();
     assert!(matches!(error, OrderError::NotPurchasable(_)));
     assert_eq!(game.status(), ScenarioStatus::InProgress);
+}
+
+#[test]
+fn custom_purchase_reuses_yard_projection_without_writing_a_design_file() {
+    let mut game = assault();
+    let design = Design {
+        id: "in_match_scout".into(),
+        name: "In-match scout".into(),
+        group: "user".into(),
+        size: 1,
+        material: "titanium".into(),
+        engine: "fission".into(),
+        engine_size: "s".into(),
+        armored: false,
+        shields: [0; 6],
+        weapons: vec![DesignWeapon { component: "plasma".into(), mount: "forward".into() }],
+        systems: Vec::<DesignSystem>::new(),
+    };
+    apply_order(&mut game, Order::PurchaseCustom { side: SideId::A, design: design.clone() }).unwrap();
+    let ship = game.ships().iter().find(|ship| ship.class_id == design.id).unwrap();
+    assert_eq!(ship.side, SideId::A);
+    assert!(!Path::new("data/designs/in_match_scout.toml").exists());
 }

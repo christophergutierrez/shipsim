@@ -11,7 +11,7 @@ use crate::combat_tables::WeaponKind;
 use crate::game_state::{GameState, NpcController, Terminal};
 use crate::hex::Hex;
 use crate::rules::{RulesError, Ruleset};
-use crate::schema::{ScenarioDef, ShipDef, SideId, SystemKind, WeaponDef};
+use crate::schema::{ScenarioDef, ShipDef, ShipPlacementDef, SideId, SystemKind, WeaponDef};
 use crate::ship::Ship;
 
 #[derive(Debug, Error)]
@@ -394,9 +394,101 @@ pub fn load_scenario_def_with_rules(
         squads.insert(squad, (leader, ids));
     }
 
-    Ok(GameState::new_with_squads(
+    let mut game = GameState::new_with_squads(
         board, ships, terminal, npcs, seed, rules, squads,
-    ))
+    );
+    game.set_data_root(data_root);
+    Ok(game)
+}
+
+/// Instantiate a runtime ship from an already projected yard definition.
+/// This is shared by in-match custom purchases so they use the same parser,
+/// combat limits, and SSD construction as scenario-loaded ships.
+pub(crate) fn ship_from_def(
+    def: ShipDef,
+    placement: &ShipPlacementDef,
+    side: SideId,
+    rules: &Ruleset,
+) -> Result<Ship, LoadError> {
+    let class = placement.class.clone();
+    let power = placement.power.unwrap_or(def.power);
+    let structure = placement.structure.unwrap_or(def.structure);
+    let max_shield_per_facing = placement.max_shield_per_facing.unwrap_or(def.max_shield_per_facing);
+    let max_shields = match (placement.max_shield_per_facing, def.max_shields) {
+        (Some(cap), _) => [cap; 6],
+        (None, Some(faces)) => faces,
+        (None, None) => [max_shield_per_facing; 6],
+    };
+    let weapons = def.weapons.into_iter().map(|weapon_def| {
+        let weapon_id = weapon_def.id.clone();
+        let mut weapon = parse_weapon(weapon_def)?;
+        if weapon.max_range == 0 {
+            return Err(LoadError::InvalidWeaponRange { class: class.clone(), weapon: weapon_id });
+        }
+        let supported = rules.max_range(weapon.kind);
+        if weapon.max_range > supported {
+            return Err(LoadError::WeaponRangeExceedsRules { class: class.clone(), weapon: weapon_id, configured: weapon.max_range, supported });
+        }
+        if weapon.kind == WeaponKind::Torp && weapon.max_ammo.is_none() {
+            weapon.max_ammo = Some(rules.combat().ammo().torpedo_ammo_for_size(def.size));
+        }
+        Ok(weapon)
+    }).collect::<Result<Vec<_>, LoadError>>()?;
+    let mut systems = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for system in &def.systems {
+        let key = match &system.kind {
+            SystemKind::Computer { mk } => {
+                if !(1..=3).contains(mk) { return Err(LoadError::InvalidComputerMark { class: class.clone(), mk: *mk }); }
+                "computer"
+            }
+            SystemKind::Cloak => "cloak",
+            SystemKind::Repair => "repair",
+            SystemKind::Ecm => "ecm",
+        };
+        if !seen.insert(key) { return Err(LoadError::DuplicateSystem { class: class.clone(), kind: key.into() }); }
+        systems.push(system.kind.clone());
+    }
+    if def.engine_boxes == 0 { return Err(LoadError::InvalidEngineBoxes { class }); }
+    if def.power_sys == 0 { return Err(LoadError::InvalidPowerSys { class: placement.class.clone() }); }
+    if def.weapon_boxes == 0 { return Err(LoadError::InvalidWeaponBoxes { class: placement.class.clone() }); }
+    let ssd = crate::ssd::Ssd::with_weapon_boxes(structure, def.engine_boxes, def.power_sys, weapons.len(), def.weapon_boxes);
+    let thrust_conversion = crate::thrust::ThrustConversion::new(def.thrust_per_power, def.power_per_thrust, def.max_maneuver_actions)
+        .map_err(|source| LoadError::InvalidThrustConversion { class: placement.class.clone(), source })?;
+    if def.max_maneuver_actions > 0 {
+        let (motion, _) = thrust_conversion.convert(power);
+        if motion < 1 { return Err(LoadError::MobileHullCannotBuyThrust { class: placement.class.clone(), power, thrust_per_power: def.thrust_per_power, power_per_thrust: def.power_per_thrust }); }
+    }
+    let mut weapon_ammo = BTreeMap::new();
+    for weapon in &weapons { if let Some(max) = weapon.max_ammo { weapon_ammo.insert(weapon.id.clone(), max); } }
+    Ok(Ship {
+        id: placement.id,
+        side,
+        class: def.name,
+        class_id: placement.class.clone(),
+        cost: def.cost,
+        size: def.size,
+        pos: Hex::new(placement.q, placement.r),
+        facing: placement.facing,
+        power,
+        attack_accuracy_bonus: def.attack_accuracy_bonus,
+        weapons,
+        systems,
+        cloaked: false,
+        shields_powered: [0; 6],
+        shields_remaining: [0; 6],
+        max_shield_per_facing,
+        max_shields,
+        movement_allocated: 0,
+        weapon_charges: BTreeMap::new(),
+        weapon_ammo,
+        ssd,
+        destroyed: false,
+        max_maneuver_actions: def.max_maneuver_actions,
+        thrust_conversion,
+        motion_available: 0,
+        evasion_committed: 0,
+    })
 }
 
 /// Load a ship class TOML from `{data_root}/data/ships/{class}.toml`.

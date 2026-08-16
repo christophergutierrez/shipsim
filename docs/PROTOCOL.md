@@ -120,6 +120,16 @@ side's shipyard. Credits start at 100, carry over, and increase by 100 at each
 new turn. Prices and legal classes come from the snapshot; `shipyard` is never
 purchasable. A blocked yard rejects the purchase without charging credits.
 
+### `purchase_custom`
+
+```json
+{"protocol_version":4,"type":"purchase_custom","side":"a","design":{"id":"in_match_scout","name":"In-match scout","size":1,"material":"titanium","engine":"fission","engine_size":"s","shields":[0,0,0,0,0,0],"weapons":[{"component":"plasma","mount":"forward"}],"systems":[]}}
+```
+
+The engine validates the design through the same yard projection and charges
+that projection's `design_cost`. Custom designs are reusable for the rest of
+the match, but are held in memory and never written into `data/designs/`.
+
 Allocate accepts optional `cloak`, `repair`, `unsquad`, and `squad_leader`
 fields. `commit_path` accepts `follow: true` for a squad member; followers
 must submit an empty action list. Ship snapshots expose `squad_id`,

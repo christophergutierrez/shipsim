@@ -49,6 +49,7 @@ pub enum Order {
     /// Buy a catalog ship for a side. The engine supplies price and validates
     /// affordability; clients must use the snapshot catalog.
     Purchase { side: SideId, class: String },
+    PurchaseCustom { side: SideId, design: crate::shipyard::Design },
     // --- Retired v3 orders (deserialize for clear rejection only) ---
     #[serde(other)]
     RetiredUnknown,
@@ -127,6 +128,8 @@ pub enum OrderError {
     SpawnBlocked { side: SideId },
     #[error("purchases are only allowed during allocate phase")]
     PurchaseWrongPhase,
+    #[error("custom design is invalid: {0}")]
+    CustomDesignInvalid(String),
     #[error("ship {ship} path is illegal: {reason}")]
     IllegalPath { ship: u32, reason: String },
     #[error("order requires phase {expected}, actual phase is {actual}")]
@@ -202,6 +205,7 @@ pub fn apply_order(game: &mut GameState, order: Order) -> Result<(), OrderError>
         } => game.commit_path_with_follow(ship, actions, evasive, follow),
         Order::CommitVolley { ship, shots } => game.commit_volley(ship, shots),
         Order::Purchase { side, class } => game.purchase(side, &class),
+        Order::PurchaseCustom { side, design } => game.purchase_custom(side, design),
         Order::RetiredUnknown => Err(OrderError::RetiredV3Order),
     }
 }

@@ -86,7 +86,7 @@ fn apply_or_error(game: &mut GameState, order: Order, writers: &[Arc<Mutex<TcpSt
 fn order_ship(order: &Order) -> Option<u32> {
     match order {
         Order::Allocate { ship, .. } | Order::CommitPath { ship, .. } | Order::CommitVolley { ship, .. } => Some(*ship),
-        Order::Purchase { .. } | Order::RetiredUnknown => None,
+        Order::Purchase { .. } | Order::PurchaseCustom { .. } | Order::RetiredUnknown => None,
     }
 }
 

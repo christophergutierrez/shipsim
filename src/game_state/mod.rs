@@ -8,6 +8,7 @@ mod preview;
 mod ai;
 
 use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -184,6 +185,7 @@ pub struct GameState {
     winner: Option<SideId>,
     credits: BTreeMap<SideId, u32>,
     catalog: BTreeMap<String, Ship>,
+    data_root: PathBuf,
     phase: Phase,
     /// Applied allocation this turn (after barrier) and staged commits.
     allocated_this_turn: HashSet<u32>,
@@ -303,6 +305,7 @@ impl GameState {
             winner: None,
             credits: BTreeMap::from([(SideId::A, 100), (SideId::B, 100)]),
             catalog,
+            data_root: PathBuf::from("."),
             phase: Phase::Allocate,
             allocated_this_turn: HashSet::new(),
             staged_allocations: BTreeMap::new(),
@@ -394,6 +397,44 @@ impl GameState {
         }
         Ok(())
     }
+
+    pub fn purchase_custom(
+        &mut self,
+        side: SideId,
+        design: crate::shipyard::Design,
+    ) -> Result<(), crate::movement::OrderError> {
+        if self.phase != Phase::Allocate { return Err(crate::movement::OrderError::PurchaseWrongPhase); }
+        let def = crate::shipyard::project_design(&self.data_root, &design)
+            .map_err(|error| crate::movement::OrderError::CustomDesignInvalid(error.to_string()))?;
+        let cost = def.cost;
+        let have = self.credits.get(&side).copied().unwrap_or(0);
+        if have < cost {
+            return Err(crate::movement::OrderError::InsufficientCredits { side, class: design.id, need: cost, have });
+        }
+        let yard = self.ships.iter().find(|ship| ship.side == side && ship.class_id == "shipyard" && !ship.destroyed).map(|ship| ship.pos)
+            .ok_or(crate::movement::OrderError::SpawnBlocked { side })?;
+        let center = Hex::new(self.board.width as i32 / 2, self.board.height as i32 / 2);
+        let spawn = yard.neighbors().into_iter()
+            .filter(|hex| self.board.mode == crate::board::MapMode::Unbounded || self.board.contains(*hex))
+            .find(|hex| !self.is_occupied_by_other(0, *hex))
+            .ok_or(crate::movement::OrderError::SpawnBlocked { side })?;
+        let id = self.ships.iter().map(|ship| ship.id).max().unwrap_or(0).saturating_add(1);
+        let facing = Hex::facing_between(spawn, center).unwrap_or(0);
+        let placement = crate::schema::ShipPlacementDef {
+            id, class: design.id.clone(), q: spawn.q, r: spawn.r, facing,
+            controller: String::new(), side: Some(side), power: None, structure: None,
+            max_shield_per_facing: None, squad: None, leader: None,
+        };
+        let ship = crate::scenario::ship_from_def(def, &placement, side, &self.rules)
+            .map_err(|error| crate::movement::OrderError::CustomDesignInvalid(error.to_string()))?;
+        self.catalog.insert(design.id, ship.clone());
+        self.ships.push(ship);
+        self.credits.insert(side, have - cost);
+        if side == SideId::B { self.npcs.insert(id, NpcController::GreedySeek); }
+        Ok(())
+    }
+
+    pub(crate) fn set_data_root(&mut self, root: &std::path::Path) { self.data_root = root.to_path_buf(); }
 
     pub fn rules_fingerprint(&self) -> &str {
         self.rules.fingerprint()

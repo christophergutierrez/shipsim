@@ -19,9 +19,9 @@ pub use naming::{allocate_id, is_generated_class_name, names_collide, unique_cla
 pub use catalog::{design_cost, list_designs, new_design, preview_design, save_design, system_skus, weapon_skus};
 pub use parse::{load_design, validate, validate_design};
 pub use spec::{engine_key, engine_spec, material, system_spec, weapon_headline, weapon_headline_from_spec, weapon_spec, SystemSpec};
-pub use compile::{check, check_all, compile, generated_path, render};
+pub use compile::{check, check_all, compile, generated_path, project_design, render};
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Design {
     pub id: String,
@@ -50,14 +50,14 @@ fn default_design_group() -> String {
     "user".into()
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesignWeapon {
     pub component: String,
     pub mount: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesignSystem {
     pub component: String,

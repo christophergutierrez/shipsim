@@ -1,7 +1,13 @@
 use super::*;
 
 fn project_ship(root: &Path, path: &Path) -> Result<ShipDef, Error> {
-    let (design, hull) = validate(root, path)?;
+    let design = load_design(path)?;
+    project_design(root, &design)
+}
+
+/// Compile a validated in-memory design without creating a design or ship file.
+pub fn project_design(root: &Path, design: &Design) -> Result<ShipDef, Error> {
+    let (_, hull) = validate_design(root, &root.join(format!("{}.toml", design.id)), design.clone())?;
     let components = load_components(root)?;
     let material = material(&design.material)?;
     let engine = plant(&components, &design.engine, &design.engine_size)?;
@@ -46,10 +52,10 @@ fn project_ship(root: &Path, path: &Path) -> Result<ShipDef, Error> {
             pierce: c.pierce,
         });
     }
-    let cost = design_cost(root, path)?;
+    let cost = preview_design(root, design)?.cost;
     Ok(ShipDef {
         id: design.id.clone(),
-        name: design.name,
+        name: design.name.clone(),
         size: design.size,
         max_maneuver_actions: hull.max_maneuver_actions,
         power: u32_field("power", power)?,
