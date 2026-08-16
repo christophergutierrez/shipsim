@@ -982,6 +982,7 @@ fn game_over_header_drops_the_stale_next_turn_cta() {
         "finished game header should say the game is over"
     );
     assert!(!buffer_contains(&buf, "│ Firing │"), "finished game must not retain stale phase");
+    assert!(!buffer_contains(&buf, "queued="), "finished game must not show a stale queue");
 }
 
 #[test]
@@ -3277,7 +3278,7 @@ fn tui_m53_phase_footers_name_enter_and_space() {
     let mut app = App::new();
     app.update_snapshot(test_snapshot());
     let allocate = render_to_string(&mut app, 80, 24);
-    assert!(buffer_contains(&allocate, "weapons↓"));
+    assert!(buffer_contains(&allocate, "↓ weapons"));
     assert!(buffer_contains(&allocate, "spend"));
 
     let mut movement = test_snapshot();

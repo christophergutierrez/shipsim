@@ -216,7 +216,7 @@ fn render_header(f: &mut Frame, app: &App, snap: &Snapshot, area: Rect) {
             Style::default().fg(Color::DarkGray),
         ));
     }
-    if snap.phase == "firing" {
+    if snap.phase == "firing" && !snap.is_over() {
         status_spans.push(Span::raw("│"));
         status_spans.push(Span::styled(
             format!(" queued={queued} "),
@@ -1189,7 +1189,7 @@ fn render_input_panel(f: &mut Frame, app: &mut App, status: &str, _is_over: bool
     let combat_footer = app.disabled_pass_notice.clone().or_else(|| match app.mode {
         Mode::Allocate if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
         Mode::Movement if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
-        Mode::Allocate => Some("Esc help · ↑↓ select · ←→ spend · weapons↓ · PgDn shields · Enter commit".to_string()),
+        Mode::Allocate => Some("Esc help · ↑↓ select · ←→ spend · ↓ weapons · PgDn shields · Enter commit".to_string()),
         Mode::Movement => Some(movement_footer(app)),
         Mode::Fire if is_disabled_ship(app) => Some("Enter unavailable · Space pass disabled; no recovery · q quit".to_string()),
         Mode::Fire => Some(fire_footer(app)),
