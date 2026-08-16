@@ -1702,8 +1702,8 @@ fn playtest_p21_commit_footer_names_next_phase() {
 }
 
 #[test]
-fn playtest_p22_enter_does_not_commit_empty_path() {
-    // X5/X7: Enter is not an accidental empty movement commit; Space is.
+fn playtest_p22_enter_commits_an_empty_path_as_a_hold() {
+    // X5/X7: the visible Enter commit control must acknowledge a hold too.
     let mut app = App::new();
     let mut snap = test_snapshot();
     snap.phase = "movement".into();
@@ -1711,9 +1711,9 @@ fn playtest_p22_enter_does_not_commit_empty_path() {
     app.mode = Mode::Movement;
     assert!(matches!(
         handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Enter)),
-        KeyResult::Continue
+        KeyResult::SendOrder(_)
     ));
-    assert!(app.log.iter().any(|line| line.contains("Path empty")));
+    assert!(app.log.iter().any(|line| line.contains("committing hold")));
     assert!(matches!(
         handle_key(&mut app, make_key_code(crossterm::event::KeyCode::Char(' '))),
         KeyResult::SendOrder(_)

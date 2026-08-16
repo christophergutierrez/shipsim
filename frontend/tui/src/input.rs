@@ -1533,8 +1533,13 @@ fn handle_movement(app: &mut App, key: KeyEvent) -> KeyResult {
         KeyCode::Enter => {
             let empty = app.path_draft.as_ref().is_none_or(|draft| draft.is_empty());
             if empty {
-                app.log("Path empty — Space holds");
-                KeyResult::Continue
+                // An empty path is a legal hold.  The old Enter no-op left
+                // the server waiting for this ship when the player followed
+                // the visible “Enter commit” instruction after choosing no
+                // movement.  Submit the same explicit hold as Space so every
+                // focused ship can acknowledge the movement phase.
+                app.log("Path empty — committing hold");
+                commit_path(app)
             } else {
                 commit_path(app)
             }
